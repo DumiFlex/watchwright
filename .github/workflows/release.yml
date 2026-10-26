@@ -38,8 +38,16 @@ jobs:
         if: steps.release.outputs.prs_created == 'true'
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-          PR_NUMBER: ${{ fromJSON(steps.release.outputs.pr).number }}
-        run: gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --auto --merge
+          # Parsed in the shell, not with fromJSON(): `pr` can be empty even
+          # when prs_created is true, and fromJSON('') fails the whole job.
+          PR_JSON: ${{ steps.release.outputs.pr }}
+        run: |
+          number=$(printf '%s' "$PR_JSON" | jq -r '.number // empty' 2>/dev/null || true)
+          if [ -z "$number" ]; then
+            echo "No release PR to auto-merge."
+            exit 0
+          fi
+          gh pr merge "$number" --repo "$GITHUB_REPOSITORY" --auto --merge
 
       - name: Sync main back into dev
         if: steps.release.outputs.release_created == 'true'
