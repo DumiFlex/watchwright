@@ -4,7 +4,8 @@ name: Release
 # release-please opens or updates a release PR (version bump + CHANGELOG.md).
 # This workflow turns on auto-merge for that PR, so it merges itself once CI
 # passes. When it merges, release-please tags vX.Y.Z, publishes the GitHub
-# release, and this workflow opens a PR that syncs main back into dev.
+# release, and this workflow opens a PR that syncs main back into dev and
+# publishes the docs site for the new tag (site.yml; off until PAGES_ENABLED).
 #
 # RELEASE_TOKEN is a fine-grained personal access token (contents, pull
 # requests and workflows: read and write on this repository). The built-in
@@ -26,6 +27,9 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
       - id: release
         uses: googleapis/release-please-action@v5
@@ -55,3 +59,14 @@ jobs:
               | sed 's#.*/##')
           fi
           gh pr merge "$existing" --repo "$GITHUB_REPOSITORY" --auto --merge
+
+  site:
+    needs: release
+    if: needs.release.outputs.release_created == 'true'
+    uses: ./.github/workflows/site.yml
+    with:
+      ref: ${{ needs.release.outputs.tag_name }}
+    permissions:
+      contents: read
+      pages: write
+      id-token: write

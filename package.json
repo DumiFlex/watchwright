@@ -11,6 +11,8 @@
     "build": "pnpm --filter watchwright build && pnpm --filter @watchwright/web build",
     "dev": "pnpm --parallel --filter watchwright --filter @watchwright/web dev",
     "serve": "pnpm build && node packages/watchwright/dist/cli/main.js serve",
+    "site:dev": "pnpm --filter @watchwright/site dev",
+    "site:build": "pnpm --filter @watchwright/site build",
     "test": "vitest run",
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint ."
