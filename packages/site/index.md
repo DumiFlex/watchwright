@@ -6,7 +6,8 @@ hero:
   text: Browser tests you can watch
   tagline: A test harness on Playwright that streams every run live to its own web page, lets you pause and retry from there, and gives your AI agents the same controls.
   image:
-    src: /logo.svg
+    light: /logo-light.svg
+    dark: /logo-dark.svg
     alt: ""
   actions:
     - theme: brand

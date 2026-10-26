@@ -19,7 +19,7 @@ defineProps<{ state: "ok" | "wait" | "bad"; label: string }>();
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: var(--muted);
+  background: var(--line-strong);
 }
 .dot.ok {
   background: var(--ok);

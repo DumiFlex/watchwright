@@ -1,17 +1,45 @@
-/* Brand colors follow the web app (packages/web/src/style.css, --accent) so the site and the app read as one product. */
+/*
+ * The site wears the web app's Movement look (packages/web/src/style.css, docs/design.md):
+ * the same blued-steel accent, porcelain and blue-black grounds, and Geist fonts.
+ */
+@import "@fontsource-variable/geist/wght.css";
+@import "@fontsource-variable/geist-mono/wght.css";
+
 :root {
-  --vp-c-brand-1: #1f6feb;
-  --vp-c-brand-2: #1a5fd0;
-  --vp-c-brand-3: #1f6feb;
-  --vp-c-brand-soft: rgba(31, 111, 235, 0.14);
+  --vp-font-family-base: "Geist Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --vp-font-family-mono: "Geist Mono Variable", ui-monospace, "Cascadia Code", Consolas, monospace;
+
+  --vp-c-bg: #ffffff;
+  --vp-c-bg-alt: #f5f6f8;
+  --vp-c-bg-soft: #eef0f4;
+  --vp-c-divider: #dce0e7;
+  --vp-c-text-1: #12161c;
+  --vp-c-text-2: #5a6371;
+
+  --vp-c-brand-1: #2e46d1;
+  --vp-c-brand-2: #2539b0;
+  --vp-c-brand-3: #2e46d1;
+  --vp-c-brand-soft: rgba(46, 70, 209, 0.1);
   --vp-home-hero-name-color: var(--vp-c-brand-1);
 }
 
 .dark {
-  --vp-c-brand-1: #4493f8;
-  --vp-c-brand-2: #6aa8fa;
-  --vp-c-brand-3: #1f6feb;
-  --vp-c-brand-soft: rgba(68, 147, 248, 0.16);
+  --vp-c-bg: #0d1016;
+  --vp-c-bg-alt: #141922;
+  --vp-c-bg-soft: #1c2230;
+  --vp-c-divider: #283042;
+  --vp-c-text-1: #e8ecf2;
+  --vp-c-text-2: #98a2b3;
+
+  --vp-c-brand-1: #8296ff;
+  --vp-c-brand-2: #9aabff;
+  --vp-c-brand-3: #2e46d1;
+  --vp-c-brand-soft: rgba(130, 150, 255, 0.14);
+}
+
+.VPNavBarTitle .title {
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 
 .ww-status {
@@ -25,5 +53,5 @@
 .ww-status img {
   margin-top: 16px;
   border: 1px solid var(--vp-c-divider);
-  border-radius: 10px;
+  border-radius: 6px;
 }
