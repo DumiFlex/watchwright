@@ -16,9 +16,10 @@ const tone = computed(() => {
       return "bad";
     case "broken":
     case "interrupted":
+      return "warn";
     case "paused":
     case "pausing":
-      return "warn";
+      return "paused";
     case "running":
     case "queued":
       return "accent";
@@ -36,12 +37,12 @@ const tone = computed(() => {
 .chip-s {
   display: inline-block;
   padding: 0 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-chip);
   font-size: 12px;
   font-weight: 600;
   line-height: 20px;
   white-space: nowrap;
-  border: 1px solid currentColor;
+  border: var(--border-width) solid currentColor;
 }
 .ok {
   color: var(--ok);
@@ -54,6 +55,9 @@ const tone = computed(() => {
 }
 .accent {
   color: var(--accent);
+}
+.paused {
+  color: var(--paused);
 }
 .muted {
   color: var(--muted);

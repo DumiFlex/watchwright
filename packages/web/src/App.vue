@@ -1,8 +1,21 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, parseRoute, type HealthData, type Route } from "./api";
+import BrandMark from "./components/BrandMark.vue";
+import ThemePicker from "./components/ThemePicker.vue";
+import { applyTheme, browserStore, loadTheme, saveTheme, type Theme } from "./theme";
 import HomeView from "./views/HomeView.vue";
 import RunView from "./views/RunView.vue";
+
+const theme = ref<Theme>(loadTheme(browserStore()));
+watch(
+  theme,
+  (t) => {
+    applyTheme(document.documentElement, t);
+    saveTheme(browserStore(), t);
+  },
+  { deep: true },
+);
 
 const route = ref<Route>(parseRoute(window.location.hash));
 const health = ref<HealthData | null>(null);
@@ -25,11 +38,12 @@ onBeforeUnmount(() => window.removeEventListener("hashchange", onHash));
 <template>
   <header class="top">
     <a class="brand" href="#/">
-      <img src="/favicon.svg" alt="" width="26" height="26" />
-      <span>Watchwright</span>
+      <BrandMark :size="28" />
+      <span class="wordmark">Watchwright</span>
+      <span v-if="health" class="version num" :title="`Data folder: ${health.dataDir}`">v{{ health.version }}</span>
+      <span v-else-if="down" class="down">Server unreachable</span>
     </a>
-    <span v-if="health" class="version" :title="`Data folder: ${health.dataDir}`">v{{ health.version }}</span>
-    <span v-else-if="down" class="down">Server unreachable</span>
+    <ThemePicker v-model="theme" />
   </header>
   <RunView v-if="route.name === 'run'" :id="route.id" />
   <HomeView v-else />
@@ -38,24 +52,32 @@ onBeforeUnmount(() => window.removeEventListener("hashchange", onHash));
 <style scoped>
 .top {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 24px;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-6);
   background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  border-bottom: var(--border-width) solid var(--line);
 }
 .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-weight: 600;
-  font-size: 17px;
+  gap: var(--space-3);
   color: var(--text);
   text-decoration: none;
 }
+.wordmark {
+  font-family: var(--font-display);
+  font-weight: var(--display-weight);
+  font-size: 18px;
+  font-stretch: var(--display-stretch);
+  letter-spacing: var(--wordmark-tracking);
+  text-transform: var(--wordmark-case);
+}
 .version {
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
 }
 .down {
   color: var(--bad);
@@ -63,7 +85,7 @@ onBeforeUnmount(() => window.removeEventListener("hashchange", onHash));
 }
 @media (max-width: 520px) {
   .top {
-    padding: 10px 16px;
+    padding: var(--space-3) var(--space-4);
   }
 }
 </style>

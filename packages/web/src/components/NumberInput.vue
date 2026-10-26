@@ -49,8 +49,8 @@ function onInput(e: Event) {
   justify-self: start;
   width: fit-content;
   align-items: stretch;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius);
   background: var(--surface);
   overflow: hidden;
 }
@@ -69,7 +69,7 @@ input {
 .arrows {
   display: flex;
   flex-direction: column;
-  border-left: 1px solid var(--border);
+  border-left: var(--border-width) solid var(--line);
 }
 .arrows button {
   flex: 1;
@@ -83,7 +83,7 @@ input {
   cursor: pointer;
 }
 .arrows button + button {
-  border-top: 1px solid var(--border);
+  border-top: var(--border-width) solid var(--line);
 }
 .arrows button:hover:not(:disabled) {
   background: var(--hover);

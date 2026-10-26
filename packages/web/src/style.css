@@ -1,32 +1,216 @@
-:root {
-  --bg: #f6f7f9;
-  --surface: #ffffff;
-  --border: #dfe3e8;
-  --text: #1c2128;
-  --muted: #5b6573;
-  --accent: #1f6feb;
-  --ok: #1a7f37;
-  --warn: #9a6700;
-  --bad: #cf222e;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  font-size: 15px;
-  line-height: 1.5;
-  color: var(--text);
-  background: var(--bg);
+/*
+ * Watchwright design tokens. Components use these variables and never literal colors.
+ *
+ * A theme is a look (data-look on <html>) in a mode (data-mode, or the system's choice).
+ * Every color is written once as light-dark(light, dark); color-scheme picks the side.
+ * A look also applies to any element with its data-look, which the theme picker uses
+ * to show each look's colors.
+ * Movement is the default look; the others override only what differs. To add a look,
+ * add a block below and an entry in src/theme.ts. docs/design.md explains each token.
+ */
+
+@import "@fontsource-variable/geist/wght.css";
+@import "@fontsource-variable/geist-mono/wght.css";
+@import "@fontsource-variable/archivo/wdth.css";
+@import "@fontsource-variable/ibm-plex-sans/wght.css";
+@import "@fontsource/ibm-plex-mono/latin-400.css";
+@import "@fontsource/ibm-plex-mono/latin-500.css";
+@import "@fontsource/barlow/latin-400.css";
+@import "@fontsource/barlow/latin-500.css";
+@import "@fontsource/barlow/latin-600.css";
+@import "@fontsource/barlow-condensed/latin-500.css";
+@import "@fontsource/barlow-condensed/latin-600.css";
+@import "@fontsource/dm-mono/latin-400.css";
+@import "@fontsource/dm-mono/latin-500.css";
+
+/* Movement: a watchmaker's precision. Porcelain or blue-black, blued-steel blue. */
+:root,
+[data-look="movement"] {
+  --ground: light-dark(#f5f6f8, #0d1016);
+  --ground-image: none;
+  --surface: light-dark(#ffffff, #141922);
+  --raised: light-dark(#eef0f4, #1c2230);
+  --line: light-dark(#dce0e7, #283042);
+  --line-strong: light-dark(#8a93a1, #5c6680);
+  --text: light-dark(#12161c, #e8ecf2);
+  --muted: light-dark(#5a6371, #98a2b3);
+  --accent: light-dark(#2e46d1, #8296ff);
+  --accent-text: light-dark(#2e46d1, #9aabff);
+  --on-accent: light-dark(#ffffff, #0d1016);
+  --accent-soft: light-dark(rgb(46 70 209 / 10%), rgb(130 150 255 / 14%));
+  --live: var(--accent);
+  --ok: light-dark(#1f7a3f, #4cc77a);
+  --bad: light-dark(#c22b2b, #ff7070);
+  --warn: light-dark(#9a5a00, #f0ad3c);
+  --paused: light-dark(#6d4bc4, #b79cff);
+  --jewel: light-dark(#c8174a, #ff4d7a);
+  --grid: transparent;
+
+  --font-ui: "Geist Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: var(--font-ui);
+  --font-mono: "Geist Mono Variable", ui-monospace, "Cascadia Code", Consolas, monospace;
+  --display-weight: 600;
+  --display-tracking: -0.015em;
+  --display-case: none;
+  --display-stretch: 100%;
+  --wordmark-tracking: -0.02em;
+  --wordmark-case: none;
+
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-chip: 999px;
+  --border-width: 1px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0d1117;
-    --surface: #161b22;
-    --border: #30363d;
-    --text: #e6edf3;
-    --muted: #8d96a0;
-    --accent: #4493f8;
-    --ok: #3fb950;
-    --warn: #d29922;
-    --bad: #f85149;
-  }
+/* Drafting table: the wright's workshop drawing. Drafting paper or blueprint, safety orange. */
+[data-look="drafting"] {
+  --ground: light-dark(#eef1f4, #0e1b2c);
+  --ground-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  --surface: light-dark(#fbfcfd, #13243a);
+  --raised: light-dark(#e2e7ed, #1a3049);
+  --line: light-dark(#c5ced8, #2a4566);
+  --line-strong: light-dark(#7d8a9b, #4f6d92);
+  --text: light-dark(#14243a, #e4edf7);
+  --muted: light-dark(#53647a, #93a9c2);
+  --accent: light-dark(#c2470a, #ff7a30);
+  --accent-text: light-dark(#b8430a, #ff9a5c);
+  --on-accent: light-dark(#ffffff, #1a0c03);
+  --accent-soft: light-dark(rgb(232 89 12 / 12%), rgb(255 122 48 / 14%));
+  --ok: light-dark(#2b7a3b, #5bd27a);
+  --bad: light-dark(#c42b2b, #ff7272);
+  --warn: light-dark(#8a5c00, #f5c542);
+  --paused: light-dark(#1f6fb8, #7cc4ff);
+  --grid: light-dark(rgb(20 36 58 / 7%), rgb(124 180 240 / 10%));
+
+  --font-ui: "IBM Plex Sans Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Archivo Variable", var(--font-ui);
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+  --display-weight: 700;
+  --display-tracking: 0.02em;
+  --display-case: uppercase;
+  --display-stretch: 125%;
+  --wordmark-tracking: 0.06em;
+  --wordmark-case: uppercase;
+
+  --radius-sm: 3px;
+  --radius: 4px;
+  --radius-chip: 4px;
+}
+
+/* On air: the broadcast control room. Graphite, and a red tally light for what is live. */
+[data-look="onair"] {
+  --ground: light-dark(#f1f1ef, #0b0b0c);
+  --surface: light-dark(#ffffff, #151517);
+  --raised: light-dark(#e6e6e3, #1f1f22);
+  --line: light-dark(#d2d2ce, #2c2c30);
+  --line-strong: light-dark(#8a8a86, #5a5a60);
+  --text: light-dark(#161618, #f2f2ef);
+  --muted: light-dark(#5e5e64, #9a9aa0);
+  --accent: light-dark(#161618, #f2f2ef);
+  --accent-text: light-dark(#161618, #f2f2ef);
+  --on-accent: light-dark(#ffffff, #0b0b0c);
+  --accent-soft: light-dark(rgb(22 22 24 / 7%), rgb(242 242 239 / 8%));
+  --live: light-dark(#e0291f, #ff3b30);
+  --ok: light-dark(#1d7f3a, #3dd068);
+  --bad: light-dark(#b3261e, #ff7a6e);
+  --warn: light-dark(#a35c00, #ff9f2e);
+  --paused: light-dark(#8f6200, #ffc23d);
+
+  --font-ui: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Barlow Condensed", "Arial Narrow", var(--font-ui);
+  --font-mono: "DM Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+  --display-weight: 600;
+  --display-tracking: 0.02em;
+  --display-case: uppercase;
+  --display-stretch: 100%;
+  --wordmark-tracking: 0.08em;
+  --wordmark-case: uppercase;
+
+  --radius-sm: 2px;
+  --radius: 2px;
+  --radius-chip: 2px;
+}
+
+/* Night watch: a dim indigo room for watching an overnight run. Always dark, low blue light. */
+[data-look="nightwatch"] {
+  --ground: #0a0c1a;
+  --surface: #10132a;
+  --raised: #171b38;
+  --line: #232850;
+  --line-strong: #4a5186;
+  --text: #d9dcef;
+  --muted: #8c91b5;
+  --accent: #e2b865;
+  --accent-text: #e9c67f;
+  --on-accent: #14110a;
+  --accent-soft: rgb(226 184 101 / 12%);
+  --live: var(--accent);
+  --ok: #6fbf8e;
+  --bad: #e07a86;
+  --warn: #d9a15a;
+  --paused: #9c8cf0;
+
+  --radius-sm: 6px;
+  --radius: 8px;
+}
+
+/* High contrast: black and white, heavier lines, for people who need the strongest contrast. */
+[data-look="contrast"] {
+  --ground: light-dark(#ffffff, #000000);
+  --surface: light-dark(#ffffff, #000000);
+  --raised: light-dark(#ebebeb, #1f1f1f);
+  --line: light-dark(#000000, #ffffff);
+  --line-strong: light-dark(#000000, #ffffff);
+  --text: light-dark(#000000, #ffffff);
+  --muted: light-dark(#2e2e2e, #e0e0e0);
+  --accent: light-dark(#0000d6, #ffe500);
+  --accent-text: light-dark(#0000d6, #ffe500);
+  --on-accent: light-dark(#ffffff, #000000);
+  --accent-soft: light-dark(rgb(0 0 214 / 12%), rgb(255 229 0 / 18%));
+  --live: var(--accent);
+  --ok: light-dark(#006400, #5cff8a);
+  --bad: light-dark(#b00000, #ff7a7a);
+  --warn: light-dark(#7a4a00, #ffb347);
+  --paused: light-dark(#5a00b0, #d6a8ff);
+
+  --radius-sm: 3px;
+  --radius: 4px;
+  --radius-chip: 4px;
+  --border-width: 2px;
+}
+
+:root {
+  color-scheme: light dark;
+}
+:root[data-mode="light"] {
+  color-scheme: light;
+}
+:root[data-mode="dark"] {
+  color-scheme: dark;
+}
+/* Night watch has no light side. */
+:root[data-look="nightwatch"],
+:root[data-look="nightwatch"][data-mode] {
+  color-scheme: dark;
+}
+
+:root {
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--ground);
+  font-synthesis-weight: none;
+  -webkit-font-smoothing: antialiased;
 }
 
 * {
@@ -36,17 +220,63 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background: var(--bg);
+  background-color: var(--ground);
+  background-image: var(--ground-image);
+  background-size: 24px 24px;
 }
 
-code {
-  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
-  font-size: 0.9em;
+::selection {
+  background: var(--accent-soft);
+}
+
+:focus-visible {
+  outline: calc(var(--border-width) + 1px) solid var(--accent);
+  outline-offset: 2px;
+}
+
+code,
+.mono {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Small uppercase label above a group: "Server", "Steps". */
+.label {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* The look's display face: test names, page titles, the wordmark. */
+.display {
+  font-family: var(--font-display);
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-tracking);
+  text-transform: var(--display-case);
+  font-stretch: var(--display-stretch);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
 }
 
 :root {
-  --hover: rgba(127, 127, 127, 0.12);
-  --canvas: #0b0e13;
+  /* Hover fill for plain buttons, and the backdrop behind the live picture. */
+  --hover: var(--raised);
+  --canvas: light-dark(#0b0e13, #05070a);
 }
 
 button,
@@ -61,8 +291,8 @@ textarea {
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius);
   background: var(--surface);
   color: var(--text);
   cursor: pointer;
@@ -78,7 +308,7 @@ textarea {
 .btn.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 .btn.primary:hover:not(:disabled) {
   filter: brightness(1.08);
@@ -86,14 +316,14 @@ textarea {
 }
 .btn.danger {
   color: var(--bad);
-  border-color: color-mix(in srgb, var(--bad) 45%, var(--border));
+  border-color: color-mix(in srgb, var(--bad) 45%, var(--line));
 }
 
 .field {
   width: 100%;
   padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius);
   background: var(--surface);
   color: var(--text);
 }

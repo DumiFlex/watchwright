@@ -147,8 +147,8 @@ defineExpose({ push });
   gap: 6px;
   max-width: 260px;
   padding: 4px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius);
   background: var(--surface);
   color: var(--muted);
   cursor: pointer;
@@ -165,7 +165,7 @@ defineExpose({ push });
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--border);
+  background: var(--line);
   flex: none;
 }
 .dot.act {
@@ -174,7 +174,7 @@ defineExpose({ push });
 .screen {
   position: relative;
   background: var(--canvas);
-  border-radius: 8px;
+  border-radius: var(--radius);
   overflow: hidden;
   aspect-ratio: 16 / 10;
   display: grid;

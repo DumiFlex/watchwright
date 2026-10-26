@@ -171,7 +171,7 @@ function time(iso: string) {
     <template v-if="run">
       <header class="head">
         <div class="title">
-          <h1>{{ run.packName }} <span class="muted rid">{{ run.id }}</span></h1>
+          <h1 class="display">{{ run.packName }} <span class="muted rid">{{ run.id }}</span></h1>
           <p class="muted">
             <StatusChip :status="run.status" />
             <span v-if="run.mode !== 'normal'">&nbsp;{{ run.mode === "redo" ? "redoing broken tests" : "resumed" }}</span>
@@ -216,7 +216,7 @@ function time(iso: string) {
         </section>
 
         <section class="card" aria-labelledby="queue-title">
-          <h2 id="queue-title">Tests <span class="muted small">{{ run.counts.passed }} passed · {{ run.counts.failed }} failed · {{ run.counts.broken }} broken · {{ run.counts.planned }} planned</span></h2>
+          <h2 id="queue-title" class="display">Tests <span class="muted small">{{ run.counts.passed }} passed · {{ run.counts.failed }} failed · {{ run.counts.broken }} broken · {{ run.counts.planned }} planned</span></h2>
           <ol class="queue">
             <li v-for="p in run.plan" :key="`${p.testId}#${p.number}`" :class="{ cur: live?.testId === p.testId && p.status === 'running', sel: selected === p.attemptId && !!p.attemptId }">
               <button class="qrow" :disabled="!p.attemptId" @click="openAttempt(p.attemptId)">
@@ -235,7 +235,7 @@ function time(iso: string) {
       </div>
 
       <section v-if="selected" class="card" aria-labelledby="result-title">
-        <h2 id="result-title">
+        <h2 id="result-title" class="display">
           Result <template v-if="result">· {{ result.test.id }} {{ result.test.title }}</template>
           <button class="btn close" @click="openAttempt(null)">Close</button>
         </h2>
@@ -266,7 +266,7 @@ function time(iso: string) {
       </section>
 
       <section class="card" aria-labelledby="log-title">
-        <h2 id="log-title">Log</h2>
+        <h2 id="log-title" class="display">Log</h2>
         <ol v-if="log.length" class="log">
           <li v-for="l in log.slice().reverse()" :key="l.seq" :class="l.level"><time>{{ time(l.time) }}</time> {{ l.message }}</li>
         </ol>
@@ -317,8 +317,8 @@ function time(iso: string) {
 }
 .banner {
   padding: 10px 14px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  border: var(--border-width) solid var(--line);
   background: var(--surface);
 }
 .banner.warn {
@@ -336,8 +336,8 @@ function time(iso: string) {
 }
 .card {
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius);
   padding: 14px 16px;
   min-width: 0;
 }
@@ -387,7 +387,7 @@ function time(iso: string) {
   gap: 8px;
   padding: 5px 6px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: none;
   color: inherit;
   text-align: left;
@@ -449,8 +449,8 @@ function time(iso: string) {
 }
 .shots img {
   width: 100%;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius);
 }
 .log {
   list-style: none;

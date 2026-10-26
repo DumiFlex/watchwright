@@ -126,7 +126,7 @@ onBeforeUnmount(() => {
     <p v-if="loadError" class="error" role="alert">{{ loadError }}</p>
 
     <section class="card" aria-labelledby="packs-title">
-      <h2 id="packs-title">Packs</h2>
+      <h2 id="packs-title" class="display">Packs</h2>
       <ul v-if="packs.length" class="packs">
         <li v-for="p in packs" :key="p.id" :class="{ sel: p.id === packId }">
           <button class="pick" :aria-pressed="p.id === packId" @click="packId = p.id">
@@ -153,7 +153,7 @@ onBeforeUnmount(() => {
     </section>
 
     <section v-if="pack && pack.status === 'ok'" class="card" aria-labelledby="start-title">
-      <h2 id="start-title">Start a run of {{ pack.name }}</h2>
+      <h2 id="start-title" class="display">Start a run of {{ pack.name }}</h2>
       <div class="cols">
         <fieldset>
           <legend>Tests <span class="muted">({{ chosen.size ? `${chosen.size} chosen` : "all" }})</span></legend>
@@ -188,7 +188,7 @@ onBeforeUnmount(() => {
     </section>
 
     <section class="card" aria-labelledby="runs-title">
-      <h2 id="runs-title">Runs</h2>
+      <h2 id="runs-title" class="display">Runs</h2>
       <table v-if="runs.length" class="runs">
         <thead>
           <tr><th>Run</th><th>Status</th><th>Results</th><th>Started</th></tr>
@@ -217,8 +217,8 @@ onBeforeUnmount(() => {
 }
 .card {
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius);
   padding: 18px 20px;
   min-width: 0;
 }
@@ -249,8 +249,8 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius);
   padding: 8px 10px;
 }
 .packs > li.sel {
@@ -302,8 +302,8 @@ onBeforeUnmount(() => {
   gap: 16px;
 }
 fieldset {
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius);
   margin: 0;
   padding: 10px 12px;
   min-width: 0;
@@ -354,7 +354,7 @@ legend {
 }
 .runs td {
   padding: 6px 8px 6px 0;
-  border-top: 1px solid var(--border);
+  border-top: var(--border-width) solid var(--line);
 }
 @media (max-width: 720px) {
   .page {
@@ -373,7 +373,7 @@ legend {
     display: grid;
     grid-template-columns: 1fr auto;
     gap: 2px 8px;
-    border-top: 1px solid var(--border);
+    border-top: var(--border-width) solid var(--line);
     padding: 6px 0;
   }
   .runs td {
