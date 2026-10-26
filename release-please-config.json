@@ -20,6 +20,7 @@
   "packages": {
     ".": {
       "package-name": "watchwright",
+      "initial-version": "0.1.0",
       "extra-files": [
         { "type": "json", "path": "packages/watchwright/package.json", "jsonpath": "$.version" },
         { "type": "json", "path": "packages/web/package.json", "jsonpath": "$.version" }
