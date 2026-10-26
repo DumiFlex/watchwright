@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["vitepress/client"],
+    "noEmit": true
+  },
+  "include": [".vitepress/*.ts", ".vitepress/theme/**/*.ts", "test/**/*.ts", "vitest.config.ts"]
+}
