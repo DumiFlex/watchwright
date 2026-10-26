@@ -86,7 +86,8 @@ export async function buildServer({ store, port, webRoot, plugins = BUILTIN_PLUG
   }
 
   const hasWeb = webRoot !== undefined && existsSync(path.join(webRoot, "index.html"));
-  if (hasWeb) await app.register(fastifyStatic, { root: webRoot, wildcard: false });
+  // wildcard: files are looked up per request, so a rebuilt web app is served without a restart.
+  if (hasWeb) await app.register(fastifyStatic, { root: webRoot, wildcard: true });
 
   // Registered after every API route: unknown API paths get a JSON error, anything else is the web app.
   app.setNotFoundHandler((req, reply) => {

@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
 
 permissions:
@@ -25,7 +25,15 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Install Playwright browsers (Linux)
+        if: runner.os == 'Linux'
+        run: pnpm --filter watchwright exec playwright install --with-deps chromium firefox
+      - name: Install Playwright browsers (Windows)
+        if: runner.os == 'Windows'
+        run: pnpm --filter watchwright exec playwright install chromium firefox
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+        env:
+          WATCHWRIGHT_REQUIRE_BROWSERS: "1"
       - run: pnpm build

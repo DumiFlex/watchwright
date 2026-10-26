@@ -21,22 +21,28 @@ Run `pnpm lint && pnpm typecheck && pnpm test` before every commit.
 
 ## Layout
 
-- `packages/watchwright/src/core/` — the plugin contract (`definePlugin`) and the `core` plugin (`/health`, the live WebSocket).
+- `packages/watchwright/src/core/` — the plugin contract (`definePlugin`, typed services through `serviceKey`), the built-in plugin list and the `core` plugin (`/health`, `GET /actions`, `GET /events`).
+- `packages/watchwright/src/actions/` — the action registry: an action declares name, method, path and JSON Schema input; HTTP routes are generated from it (CLI and MCP later).
+- `packages/watchwright/src/events/` — the event log (cursor, bounded wait, subscribe).
+- `packages/watchwright/src/session/` — browser sessions (launch, contexts, screencast).
+- `packages/watchwright/src/jobs/` — job kinds, run control (pause, stop, broken waits) and the recorder for artifacts.
+- `packages/watchwright/src/plugins/` — `live` (frame hub, WebSocket), `packs` (esbuild loader, test ordering), `runs` (engine, results, files), `testing` (the `test` job kind, `h` helpers, outcomes).
 - `packages/watchwright/src/server/` — Fastify app: mounts plugins under `/api/v1`, the request guard, the web app with SPA fallback.
 - `packages/watchwright/src/store/` — SQLite through better-sqlite3, migrations per plugin.
 - `packages/watchwright/src/cli/` — the `watchwright` command.
 - `packages/web/` — Vue 3 + Vite web app; `vite build` writes into `packages/watchwright/dist/web`.
+- `docs/packs.md` (writing packs) and `docs/api.md` (HTTP, events, WebSocket) are user docs; keep them in step with the code.
 
 ## Conventions
 
-- **Capabilities are plugins.** A new capability (runs, packs, later scraping) is a plugin with its own migrations, routes and, later, events and actions. Don't add feature code to `core/` or `server/`; extend the plugin contract instead when a plugin needs something new. See docs/plan.md, section 3.
-- **Migrations are append-only and per plugin.** Ids count from 1 within a plugin. Never edit a migration that has been merged; add a new one. Tables a non-core plugin owns are named `<plugin>_…`.
+- **Capabilities are plugins.** A new capability (runs, packs, later scraping) is a plugin with its own migrations, actions, routes and events. Plugins share code through services (`ctx.services`), not imports of each other's internals. Don't add feature code to `core/` or `server/`; extend the plugin contract instead when a plugin needs something new. See docs/plan.md, section 3.
+- **Migrations are append-only and per plugin.** Ids count from 1 within a plugin. Never edit a migration that has been merged; add a new one. A non-core plugin's main table may carry the plugin's name (`runs`); its other tables are named `<plugin>_…` (`runs_attempts`).
 - **API shape.** Routes live under `/api/v1`. Success is `{ "data": … }`, failure is `{ "error": { "code", "message", "detail"? } }` with a snake_case `code`.
 - **Request guard.** Every request must carry a loopback `Host` with the server's port; state changes and WebSocket upgrades must come from the server's own origin (or carry no `Origin`). Don't weaken this to make a client work; make the client send the right headers (the Vite dev proxy does).
 - **TypeScript strict, ESM, Node 22+.** No `any`, no `@ts-ignore`. Imports inside `packages/watchwright` use `.js` extensions (NodeNext).
 - **Web app.** Vue 3 `<script setup>` with TypeScript. Colors come from the CSS variables in `src/style.css` (light and dark). Number inputs use custom up/down buttons, never the browser's native spinners. Pages must work at phone width.
 - **Screenshots.** Any visible change to the web app ships with screenshots in the PR (light, dark and phone width).
-- **Tests.** New code comes with Vitest tests in `packages/*/test/`. Server tests use `app.inject` or a real listener on a free port; never a fixed port that could clash.
+- **Tests.** New code comes with Vitest tests in `packages/*/test/`. Server tests use `app.inject` or a real listener on a free port; never a fixed port that could clash. Engine tests need Playwright browsers (`pnpm --filter watchwright exec playwright install chromium firefox`); the Firefox test skips when Firefox is missing unless `WATCHWRIGHT_REQUIRE_BROWSERS=1`.
 - **Commits.** Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`, …).
 - **No secrets or personal paths** in the repo, tests or screenshots. The repo will be published under Apache-2.0; write docs for strangers.
 - **Run the harness gently on real machines.** A bench run can take hours. Never stop or restart a server that has a run in progress unless the person asks.

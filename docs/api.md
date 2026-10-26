@@ -1,0 +1,53 @@
+# HTTP and WebSocket API
+
+Everything the web page does goes through this API, so scripts and AI agents can do the same. All routes are under `http://127.0.0.1:7420/api/v1`.
+
+- JSON in and out. Success is `{ "data": … }`. Failure is `{ "error": { "code", "message", "detail"? } }` with a snake_case `code` and a matching HTTP status.
+- Requests must use a loopback `Host` with the server's port. Requests that change something must come from the server's own page or carry no `Origin` header (scripts and agents send none).
+- Send `x-watchwright-client: <name>` to be named as who started a run (default `api`).
+- `GET /actions` lists every action with its JSON Schema input. The CLI and MCP server in a later step are built from the same list.
+
+## Packs
+
+| Method and path | Does |
+|---|---|
+| `GET /packs` | Every pack with its tests, params, flag kinds and load errors. |
+| `POST /packs` `{ path }` | Adds a pack by its absolute folder (or pack file) path and loads it. A pack that doesn't load is still added, with its error. |
+| `GET /packs/:id` | One pack. |
+| `POST /packs/:id/reload` | Builds it again now. |
+| `DELETE /packs/:id` | Forgets the pack (its files and past runs stay). |
+
+## Runs
+
+| Method and path | Does |
+|---|---|
+| `GET /runs?limit=` | Runs, newest first, with counts. |
+| `POST /runs` `{ packId, tests?, params?, pauseOnBroken?, pauseLimitMinutes? }` | Queues a run. `tests` defaults to all; tests they need, and parents and children, join by themselves. |
+| `GET /runs/:id?history=` | The run, its plan (every planned attempt with its status), current attempts, and `live` (state, current test and step, pages) while it runs. `history=true` adds earlier tries of retried attempts. |
+| `GET /runs/:id/attempts/:attemptId` | One attempt's result document (`schemaVersion: 1`): status, error, flags, metrics, notes, kept texts, log, artifacts with URLs. |
+| `POST /runs/:id/pause` | Pauses at the next step. |
+| `POST /runs/:id/resume` | Resumes a manual pause. For an `interrupted`, `stopped` or `failed_to_start` run, queues it to continue: passed, failed and skipped attempts are kept, the rest run. |
+| `POST /runs/:id/retry`, `/skip` | Answers a pause on a broken attempt. |
+| `POST /runs/:id/stop` `{ when: "after" \| "now" }` | `after` finishes the current test first; `now` ends at once and files the current attempt as `stopped`. A queued run is cancelled. |
+| `POST /runs/:id/redo-broken` | Runs only the broken attempts of a finished run again, with the tests they need. |
+| `GET /files/runs/…` | Artifact files (the `url` in result documents). Only files inside the data folder's `runs/`. |
+
+Run statuses: `queued`, `running`, `pausing`, `paused`, `finished`, `stopped`, `interrupted` (the server stopped mid-run), `failed_to_start`. Attempt statuses: `passed`, `failed`, `broken`, `skipped`, `stopped`, plus `running` and `interrupted`.
+
+## Events
+
+Everything that happens is an event with a growing sequence number: `{ seq, time, type, runId?, attemptId?, data }`.
+
+`GET /events?after=<seq>&wait=<seconds>&runId=&types=&limit=` returns `{ events, next, head }`. With `wait` (up to 110 seconds) it holds the request until a matching event arrives, so an agent can follow a run with one request at a time: call again with `after=next`.
+
+Event types (open set, more come with later plugins): `run.queued`, `run.started`, `run.planned`, `run.pausing`, `run.paused`, `run.resumed`, `run.decision`, `run.stopping`, `run.finished`, `run.interrupted`, `run.failed_to_start`, `run.log`, `attempt.started`, `attempt.step`, `attempt.log`, `attempt.flag`, `attempt.artifact`, `attempt.finished`, `page.opened`, `page.navigated`, `page.active`, `page.closed`, `video.unavailable`, `pack.added`, `pack.loaded`, `pack.reload_failed`, `pack.reloaded`, `pack.removed`.
+
+## Live WebSocket
+
+`ws://127.0.0.1:7420/api/v1/live`. The server greets with `{ "type": "hello", "data": { version, head } }`. Send
+
+```json
+{ "type": "subscribe", "runId": "1a2b3c4d", "after": 0, "frames": true }
+```
+
+to get the run's events after `after` (then new ones) as `{ "type": "event", "data": <event> }` text messages, and, with `frames`, binary messages with the screencast: a 4-byte big-endian header length, a JSON header `{ runId, pageId, timestamp, width, height }`, then a JPEG. Leave out `runId` for every event and no frames. Send `subscribe` again to change it. A viewer that falls behind skips frames and only ever gets the newest one per page.

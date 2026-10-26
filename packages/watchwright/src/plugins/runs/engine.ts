@@ -416,7 +416,11 @@ export class Engine {
           onVideoUnavailable: (message) => {
             if (run.videoWarned) return;
             run.videoWarned = true;
-            this.emit("video.unavailable", { message }, row.id);
+            this.emit(
+              "video.unavailable",
+              { message: "Video couldn't be saved, so this run has no video (frames still stream). Installing Playwright's ffmpeg usually fixes it: npx playwright install ffmpeg", error: message },
+              row.id,
+            );
           },
         },
       );

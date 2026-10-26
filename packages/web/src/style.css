@@ -43,3 +43,65 @@ code {
   font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
   font-size: 0.9em;
 }
+
+:root {
+  --hover: rgba(127, 127, 127, 0.12);
+  --canvas: #0b0e13;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn:hover:not(:disabled) {
+  background: var(--hover);
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.btn.primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+  background: var(--accent);
+}
+.btn.danger {
+  color: var(--bad);
+  border-color: color-mix(in srgb, var(--bad) 45%, var(--border));
+}
+
+.field {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+}
+.field:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+a {
+  color: var(--accent);
+}

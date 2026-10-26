@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getJson, liveUrl } from "../src/api";
+import { decodeFrame, getJson, liveUrl, parseRoute, sendJson } from "../src/api";
 
 const reply = (status: number, body: unknown): typeof fetch =>
   (async () => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })) as typeof fetch;
@@ -30,5 +30,33 @@ describe("api", () => {
     }) as typeof fetch);
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error.code).toBe("unreachable");
+  });
+
+  it("sends JSON with the web client header", async () => {
+    let seen: RequestInit | undefined;
+    const fetcher = (async (_url: string, init: RequestInit) => {
+      seen = init;
+      return new Response(JSON.stringify({ data: { ok: 1 } }), { status: 201 });
+    }) as unknown as typeof fetch;
+    expect(await sendJson("/api/v1/runs", { packId: "abcd1234" }, "POST", fetcher)).toEqual({ ok: true, data: { ok: 1 } });
+    expect(seen?.body).toBe('{"packId":"abcd1234"}');
+    expect((seen?.headers as Record<string, string>)["x-watchwright-client"]).toBe("web");
+  });
+
+  it("decodes a binary frame message", () => {
+    const header = new TextEncoder().encode(JSON.stringify({ runId: "r", pageId: "p1", timestamp: 5, width: 10, height: 20 }));
+    const buf = new Uint8Array(4 + header.length + 3);
+    new DataView(buf.buffer).setUint32(0, header.length, false);
+    buf.set(header, 4);
+    buf.set([0xff, 0xd8, 0xff], 4 + header.length);
+    const { header: h, jpeg } = decodeFrame(buf.buffer);
+    expect(h).toEqual({ runId: "r", pageId: "p1", timestamp: 5, width: 10, height: 20 });
+    expect([...jpeg]).toEqual([0xff, 0xd8, 0xff]);
+  });
+
+  it("parses hash routes", () => {
+    expect(parseRoute("#/runs/0a1b2c3d")).toEqual({ name: "run", id: "0a1b2c3d" });
+    expect(parseRoute("")).toEqual({ name: "home" });
+    expect(parseRoute("#/runs/nope")).toEqual({ name: "home" });
   });
 });

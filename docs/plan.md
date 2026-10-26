@@ -1,6 +1,6 @@
 # Step 1 plan: engine, store, live view, HTTP API
 
-Status: proposed (2026-10-26). This is the plan for the first step of the build order. It turns the research into concrete pieces, names what is in and out of step 1, and lists the changes to the research design that came out of reading the bench robot's code again.
+Status: built except the checks on the PC (2026-10-26). PRs 2 to 5 below landed together in one PR to `dev`; what is left is item 6 on Dumi's PC. This is the plan for the first step of the build order. It turns the research into concrete pieces, names what is in and out of step 1, and lists the changes to the research design that came out of reading the bench robot's code again.
 
 ## 1. What step 1 delivers
 
@@ -152,7 +152,7 @@ The core `h` helper in step 1 (ported from `Bot`, minus the Wildcard parts): `go
 
 ## 7. Live view
 
-- **Capture.** `page.screencast.start({ onFrame, path, size, quality, fps })` per page. Frames are JPEG `Buffer`s with `timestamp`, `viewportWidth`, `viewportHeight`. In a quick check in this sandbox (Chromium, 1280×800, quality 70) frames came at about 38 fps, 7.6 KB each, and kept flowing across a navigation. Firefox and WebKit cap at 25 fps per the docs. Firefox is the one that matters on the PC: test it there in the first engine PR.
+- **Capture.** `page.screencast.start({ onFrame, path, size, quality })` per page (there is no `fps` option; the browser decides the rate). Frames are JPEG `Buffer`s with `timestamp`, `viewportWidth`, `viewportHeight`. In a quick check in this sandbox (Chromium, 1280×800, quality 70) frames came at about 38 fps, 7.6 KB each, and kept flowing across a navigation. Firefox and WebKit cap at 25 fps per the docs. Firefox is the one that matters on the PC: test it there in the first engine PR.
 - **Fan-out.** The server keeps the latest frame per page. Each viewer gets frames over its WebSocket as binary messages with a small header (page id, timestamp, size). Backpressure: if a viewer's socket buffer is over a limit, that viewer skips frames until it drains, and only ever gets the newest. No viewers, no forwarding (capture still runs for the video).
 - **Annotations.** `showActions()` on by default (click points and action titles in the picture). `h.step` titles go through `showChapter` when the pack asks for it. Robot problems show as a red overlay banner via `showOverlay`.
 - **Viewer.** A `<canvas>` that draws the newest frame, shows frame age and fps, and a tab strip when the run has more than one page. "Mark" (save the current frame with a note) is step 2.
@@ -224,11 +224,12 @@ The WebSocket and `GET /events` share one event shape: `{ seq, time, type, runId
 
 Each PR ships with tests and, where the page changes, screenshots.
 
-## 13. Open questions
+## 13. Answered questions
 
-These are left open by the research note. None blocks step 1.
+Dumi answered these on 2026-10-26:
 
-1. Which capability after testing do you want first (scraping, crawling, monitoring, …)? It doesn't change step 1, but it is the first real test of the plugin seams, so it decides which seam gets the most care.
-2. Which site gets the second pack in step 4?
-3. Default port: the plan uses 7420. Any port you'd rather keep free?
-4. Should `watchwright serve` open the web page in the browser on start (handy on the PC), or only print the address?
+1. Testing comes first. It must be complete and polished before any other capability is built, so step 1 builds only testing while keeping the plugin seams open.
+2. The second pack (step 4) targets a public demo app, such as the Playwright TodoMVC demo.
+3. Keep Fastify, better-sqlite3 and port 7420.
+4. `watchwright serve` opens the web page on start; `--no-open` turns that off.
+5. Thread work goes to the `dev` branch; `dev` merges to `main` only when everything works.

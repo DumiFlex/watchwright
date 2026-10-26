@@ -23,6 +23,8 @@ serve      Starts the server: the web app, the HTTP API and the store. It stays 
 `;
 
 async function main(argv: string[]): Promise<number> {
+  // Pack bundles carry inline source maps: errors then point at the pack's own files and lines.
+  process.setSourceMapsEnabled(true);
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
