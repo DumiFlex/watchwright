@@ -4,7 +4,8 @@ name: Release
 # release-please opens or updates a release PR (version bump + CHANGELOG.md).
 # This workflow turns on auto-merge for that PR, so it merges itself once CI
 # passes. When it merges, release-please tags vX.Y.Z, publishes the GitHub
-# release, and this workflow opens a PR that syncs main back into dev.
+# release, and this workflow opens a PR that syncs main back into dev and
+# publishes the docs site for the new tag (site.yml; off until PAGES_ENABLED).
 #
 # RELEASE_TOKEN is a fine-grained personal access token (contents, pull
 # requests and workflows: read and write on this repository). The built-in
@@ -26,6 +27,9 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
       - id: release
         uses: googleapis/release-please-action@v5
@@ -38,8 +42,16 @@ jobs:
         if: steps.release.outputs.prs_created == 'true'
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-          PR_NUMBER: ${{ fromJSON(steps.release.outputs.pr).number }}
-        run: gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --auto --merge
+          # Parsed in the shell, not with fromJSON(): `pr` can be empty even
+          # when prs_created is true, and fromJSON('') fails the whole job.
+          PR_JSON: ${{ steps.release.outputs.pr }}
+        run: |
+          number=$(printf '%s' "$PR_JSON" | jq -r '.number // empty' 2>/dev/null || true)
+          if [ -z "$number" ]; then
+            echo "No release PR to auto-merge."
+            exit 0
+          fi
+          gh pr merge "$number" --repo "$GITHUB_REPOSITORY" --auto --merge
 
       - name: Sync main back into dev
         if: steps.release.outputs.release_created == 'true'
@@ -55,3 +67,14 @@ jobs:
               | sed 's#.*/##')
           fi
           gh pr merge "$existing" --repo "$GITHUB_REPOSITORY" --auto --merge
+
+  site:
+    needs: release
+    if: needs.release.outputs.release_created == 'true'
+    uses: ./.github/workflows/site.yml
+    with:
+      ref: ${{ needs.release.outputs.tag_name }}
+    permissions:
+      contents: read
+      pages: write
+      id-token: write

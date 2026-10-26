@@ -44,6 +44,8 @@ pnpm test             # Vitest, server and web
 pnpm typecheck        # tsc + vue-tsc
 pnpm lint             # ESLint
 pnpm build            # server to packages/watchwright/dist, web app to packages/watchwright/dist/web
+pnpm site:dev         # docs site at http://localhost:5173/watchwright/
+pnpm site:build       # docs site to packages/site/dist
 ```
 
 The repository is a pnpm workspace:
@@ -52,6 +54,7 @@ The repository is a pnpm workspace:
 |---|---|
 | `packages/watchwright` | The `watchwright` package: server, plugin host, store, CLI, and (soon) the run engine and pack API. |
 | `packages/web` | The Vue 3 + Vite web app. Its build is served by `watchwright serve`. |
+| `packages/site` | The docs site (VitePress): landing page, guide and API reference. |
 | `docs/` | The plan and design notes. |
 
 ## Contributing and releases
