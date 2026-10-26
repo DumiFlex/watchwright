@@ -1,6 +1,2 @@
 packages:
   - packages/*
-# better-sqlite3 ships prebuilt N-API binaries for Windows, macOS and Linux, so it
-# must not be built from source (that needs Visual Studio on Windows).
-onlyBuiltDependencies:
-  - esbuild
