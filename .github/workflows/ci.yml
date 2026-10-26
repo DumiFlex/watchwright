@@ -12,6 +12,8 @@ jobs:
   check:
     name: ${{ matrix.os }} / Node ${{ matrix.node }}
     runs-on: ${{ matrix.os }}
+    # A normal run takes about 3 minutes; this stops a hung step (such as a stuck apt mirror) from holding CI for hours.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -25,11 +27,24 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.os == 'Windows' && '~\AppData\Local\ms-playwright' || '~/.cache/ms-playwright' }}
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      # The system packages come from apt, whose mirrors sometimes stall: give each try 4 minutes, and try twice.
       - name: Install Playwright browsers (Linux)
         if: runner.os == 'Linux'
-        run: pnpm --filter watchwright exec playwright install --with-deps chromium firefox
+        timeout-minutes: 10
+        run: |
+          for try in 1 2; do
+            timeout 240 pnpm --filter watchwright exec playwright install --with-deps chromium firefox && exit 0
+            echo "Browser install try $try failed or timed out"
+          done
+          exit 1
       - name: Install Playwright browsers (Windows)
         if: runner.os == 'Windows'
+        timeout-minutes: 10
         run: pnpm --filter watchwright exec playwright install chromium firefox
       - run: pnpm lint
       - run: pnpm typecheck
