@@ -1,0 +1,33 @@
+{
+  "name": "watchwright-workspace",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm --filter watchwright build && pnpm --filter @watchwright/web build",
+    "dev": "pnpm --parallel --filter watchwright --filter @watchwright/web dev",
+    "serve": "pnpm build && node packages/watchwright/dist/cli/main.js serve",
+    "test": "vitest run",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.0",
+    "@types/node": "^22.20.5",
+    "eslint": "^10.13.0",
+    "eslint-plugin-vue": "^10.12.0",
+    "globals": "^17.0.0",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.72.1",
+    "vitest": "^5.0.5"
+  },
+  "pnpm": {
+    "//": "better-sqlite3 ships prebuilt N-API binaries for Windows, macOS and Linux, so it must not be built from source (that needs Visual Studio on Windows).",
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

@@ -1,0 +1,42 @@
+# AGENTS.md
+
+Guidance for AI coding agents (and people) working in this repository. Keep it short and true; update it in the same PR as the change it describes.
+
+## What this is
+
+Watchwright is a browser test harness on the Playwright library. A long-lived server runs test packs in its own run engine (not `npx playwright test`), streams a live screencast to its web page, and exposes every action through an HTTP API (later also a CLI and an MCP server). The plan for the current step is [docs/plan.md](docs/plan.md); read it before adding a feature.
+
+## Commands
+
+```bash
+pnpm install
+pnpm test         # Vitest (server + web)
+pnpm typecheck    # tsc --noEmit + vue-tsc --noEmit
+pnpm lint         # ESLint
+pnpm build        # server + web app
+pnpm serve        # build, then run the server on http://127.0.0.1:7420/
+```
+
+Run `pnpm lint && pnpm typecheck && pnpm test` before every commit.
+
+## Layout
+
+- `packages/watchwright/src/core/` — the plugin contract (`definePlugin`) and the `core` plugin (`/health`, the live WebSocket).
+- `packages/watchwright/src/server/` — Fastify app: mounts plugins under `/api/v1`, the request guard, the web app with SPA fallback.
+- `packages/watchwright/src/store/` — SQLite through better-sqlite3, migrations per plugin.
+- `packages/watchwright/src/cli/` — the `watchwright` command.
+- `packages/web/` — Vue 3 + Vite web app; `vite build` writes into `packages/watchwright/dist/web`.
+
+## Conventions
+
+- **Capabilities are plugins.** A new capability (runs, packs, later scraping) is a plugin with its own migrations, routes and, later, events and actions. Don't add feature code to `core/` or `server/`; extend the plugin contract instead when a plugin needs something new. See docs/plan.md, section 3.
+- **Migrations are append-only and per plugin.** Ids count from 1 within a plugin. Never edit a migration that has been merged; add a new one. Tables a non-core plugin owns are named `<plugin>_…`.
+- **API shape.** Routes live under `/api/v1`. Success is `{ "data": … }`, failure is `{ "error": { "code", "message", "detail"? } }` with a snake_case `code`.
+- **Request guard.** Every request must carry a loopback `Host` with the server's port; state changes and WebSocket upgrades must come from the server's own origin (or carry no `Origin`). Don't weaken this to make a client work; make the client send the right headers (the Vite dev proxy does).
+- **TypeScript strict, ESM, Node 22+.** No `any`, no `@ts-ignore`. Imports inside `packages/watchwright` use `.js` extensions (NodeNext).
+- **Web app.** Vue 3 `<script setup>` with TypeScript. Colors come from the CSS variables in `src/style.css` (light and dark). Number inputs use custom up/down buttons, never the browser's native spinners. Pages must work at phone width.
+- **Screenshots.** Any visible change to the web app ships with screenshots in the PR (light, dark and phone width).
+- **Tests.** New code comes with Vitest tests in `packages/*/test/`. Server tests use `app.inject` or a real listener on a free port; never a fixed port that could clash.
+- **Commits.** Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`, …).
+- **No secrets or personal paths** in the repo, tests or screenshots. The repo will be published under Apache-2.0; write docs for strangers.
+- **Run the harness gently on real machines.** A bench run can take hours. Never stop or restart a server that has a run in progress unless the person asks.
