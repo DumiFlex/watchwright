@@ -1,0 +1,57 @@
+name: Release
+
+# Merging dev into main is how updates ship. On every push to main,
+# release-please opens or updates a release PR (version bump + CHANGELOG.md).
+# This workflow turns on auto-merge for that PR, so it merges itself once CI
+# passes. When it merges, release-please tags vX.Y.Z, publishes the GitHub
+# release, and this workflow opens a PR that syncs main back into dev.
+#
+# RELEASE_TOKEN is a fine-grained personal access token (contents, pull
+# requests and workflows: read and write on this repository). The built-in
+# GITHUB_TOKEN can't be used: PRs and tags it creates don't trigger other
+# workflows, so CI would never run on the release PR and it could not merge.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - id: release
+        uses: googleapis/release-please-action@v5
+        with:
+          token: ${{ secrets.RELEASE_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      - name: Auto-merge the release PR
+        if: steps.release.outputs.prs_created == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          PR_NUMBER: ${{ fromJSON(steps.release.outputs.pr).number }}
+        run: gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --auto --merge
+
+      - name: Sync main back into dev
+        if: steps.release.outputs.release_created == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          TAG: ${{ steps.release.outputs.tag_name }}
+        run: |
+          existing=$(gh pr list --repo "$GITHUB_REPOSITORY" --base dev --head main --state open --json number --jq '.[0].number')
+          if [ -z "$existing" ]; then
+            existing=$(gh pr create --repo "$GITHUB_REPOSITORY" --base dev --head main \
+              --title "chore: sync $TAG into dev" \
+              --body "Brings the $TAG release commit (versions and CHANGELOG.md) back into dev. Merges itself once CI passes." \
+              | sed 's#.*/##')
+          fi
+          gh pr merge "$existing" --repo "$GITHUB_REPOSITORY" --auto --merge
