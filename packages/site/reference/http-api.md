@@ -3,9 +3,16 @@
 Everything the web page does goes through this API, so scripts and AI agents can do the same. All routes are under `http://127.0.0.1:7420/api/v1`.
 
 - JSON in and out. Success is `{ "data": … }`. Failure is `{ "error": { "code", "message", "detail"? } }` with a snake_case `code` and a matching HTTP status.
-- Requests must use a loopback `Host` with the server's port. Requests that change something must come from the server's own page or carry no `Origin` header (scripts and agents send none).
+- Requests must pass the [request guard](../guide/safety#who-can-reach-the-server): a loopback `Host` with the server's port, and for changes no `Origin` header or the server's own (scripts and agents send none).
 - Send `x-watchwright-client: <name>` to be named as who started a run (default `api`).
 - `GET /actions` lists every action with its JSON Schema input. The CLI and MCP server in a later step are built from the same list.
+
+## Server
+
+| Method and path | Does |
+|---|---|
+| `GET /health` | Whether the server is up, its version, its data folder and the loaded plugins with the newest store migration each one applied. |
+| `GET /actions` | Every action with its method, path and JSON Schema input. |
 
 ## Packs
 

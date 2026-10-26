@@ -1,0 +1,59 @@
+name: Site
+
+# Builds the docs site (packages/site) on every PR, so broken pages or dead links
+# fail like a failing test. The build is uploaded as the `github-pages` artifact,
+# which you can download from the run and open locally.
+#
+# Publishing to GitHub Pages is off until the repository variable PAGES_ENABLED
+# is "true" (Settings > Secrets and variables > Actions > Variables), because a
+# Pages site is public even while the repository is private. Once it is on, the
+# release workflow publishes the site for every new release tag, and "Run
+# workflow" here publishes the current main by hand.
+
+on:
+  pull_request:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to build, such as a release tag.
+        type: string
+        required: false
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm site:build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: packages/site/dist
+
+  deploy:
+    needs: build
+    if: github.event_name != 'pull_request' && vars.PAGES_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

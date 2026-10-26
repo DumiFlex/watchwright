@@ -11,9 +11,11 @@ my-site/watchwright/
   lib/            helpers your tests share (optional)
 ```
 
-Add it on the web page (**Packs → Add pack**, with the folder's absolute path) or through the API: `POST /api/v1/packs` with `{ "path": "/abs/path/to/my-site/watchwright" }`.
+Add it on the web page (**Packs → Add pack**, with the folder's absolute path) or through the [API](../reference/http-api#packs): `POST /api/v1/packs` with `{ "path": "/abs/path/to/my-site/watchwright" }`.
 
-> Pack code runs on your machine with your permissions, like any script. Only add packs you trust.
+::: warning Pack code is trusted
+Pack code runs on your machine with your permissions, like any script. Only add packs you wrote or trust.
+:::
 
 ## The pack file
 

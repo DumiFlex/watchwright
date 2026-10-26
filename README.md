@@ -27,7 +27,7 @@ pnpm build
 pnpm serve            # builds, starts the server at http://127.0.0.1:7420/ and opens it
 ```
 
-Then add a test pack on the home page (the path of a folder with a `watchwright.pack.ts` file) and start a run. [docs/packs.md](docs/packs.md) explains how to write a pack, and [docs/api.md](docs/api.md) lists every HTTP action, event and the live WebSocket.
+Then add a test pack on the home page (the path of a folder with a `pack.ts` file) and start a run. [Writing a test pack](packages/site/guide/test-packs.md) explains how to write a pack, and the [HTTP and WebSocket API](packages/site/reference/http-api.md) lists every route, event and the live WebSocket.
 
 `watchwright serve` options:
 
@@ -48,6 +48,8 @@ pnpm test             # Vitest, server and web (engine tests need the Playwright
 pnpm typecheck        # tsc + vue-tsc
 pnpm lint             # ESLint
 pnpm build            # server to packages/watchwright/dist, web app to packages/watchwright/dist/web
+pnpm site:dev         # docs site at http://localhost:5173/watchwright/
+pnpm site:build       # docs site to packages/site/dist
 ```
 
 The repository is a pnpm workspace:
@@ -56,7 +58,12 @@ The repository is a pnpm workspace:
 |---|---|
 | `packages/watchwright` | The `watchwright` package: server, plugin host, store, run engine, pack API and CLI. |
 | `packages/web` | The Vue 3 + Vite web app. Its build is served by `watchwright serve`. |
-| `docs/` | The plan, research notes, the pack guide and the API reference. |
+| `packages/site` | The docs site (VitePress): landing page, guide and API reference. |
+| `docs/` | The plan and research notes. |
+
+## Contributing and releases
+
+Pull requests go to the `dev` branch and need a [Conventional Commits](https://www.conventionalcommits.org) title such as `feat: pause a run from the page` or `fix: keep the live view after a reload`. When `dev` is merged into `main`, a release is cut automatically: the version is worked out from those titles, and the notes go to [CHANGELOG.md](CHANGELOG.md) and the GitHub releases page. Watchwright is in 0.x, so any release may change how things work.
 
 ## Safety
 
