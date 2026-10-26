@@ -134,7 +134,8 @@ export const runsPlugin = definePlugin({
     const root = path.resolve(dataDir, "runs");
     // Artifact files, from the data folder's runs/ only.
     app.get("/files/*", async (req, reply) => {
-      const rel = decodeURIComponent((req.params as { "*": string })["*"] ?? "");
+      // Fastify has already decoded the path once; decoding again would turn "%25" into "%".
+      const rel = (req.params as { "*": string })["*"] ?? "";
       if (!rel.startsWith("runs/")) return reply.code(404).send(errorBody("not_found", "No such file."));
       const abs = path.resolve(dataDir, ...rel.split("/"));
       if (!abs.startsWith(root + path.sep) || !existsSync(abs) || !statSync(abs).isFile()) return reply.code(404).send(errorBody("not_found", "No such file."));

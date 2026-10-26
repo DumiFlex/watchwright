@@ -26,7 +26,12 @@ async function push(header: FrameHeader, jpeg: Uint8Array) {
   } catch {
     return; // a cut-off frame: the next one replaces it
   }
-  latest.get(header.pageId)?.bitmap.close();
+  const prev = latest.get(header.pageId);
+  if (prev && prev.header.timestamp > header.timestamp) {
+    bitmap.close(); // decoded after a newer frame of the same page
+    return;
+  }
+  prev?.bitmap.close();
   latest.set(header.pageId, { header, bitmap });
   if (header.pageId === shownPage.value) {
     stamps.push(performance.now());
@@ -35,13 +40,15 @@ async function push(header: FrameHeader, jpeg: Uint8Array) {
 }
 
 function draw() {
-  const el = canvas.value;
-  const id = shownPage.value;
-  const frame = id ? latest.get(id) : undefined;
-  if (!el || !frame || drawing) return;
+  if (drawing) return;
   drawing = true;
   requestAnimationFrame(() => {
     drawing = false;
+    // Read the newest frame now: one that arrived since draw() was called has closed the older bitmap.
+    const el = canvas.value;
+    const id = shownPage.value;
+    const frame = id ? latest.get(id) : undefined;
+    if (!el || !frame) return;
     const { bitmap, header } = frame;
     if (el.width !== bitmap.width || el.height !== bitmap.height) {
       el.width = bitmap.width;
@@ -57,7 +64,11 @@ watch(
   () => props.pages.map((p) => p.id).join(","),
   () => {
     if (chosen.value && !props.pages.some((p) => p.id === chosen.value)) chosen.value = null;
-    for (const id of latest.keys()) if (!props.pages.some((p) => p.id === id)) latest.delete(id);
+    for (const [id, f] of latest) {
+      if (props.pages.some((p) => p.id === id)) continue;
+      f.bitmap.close();
+      latest.delete(id);
+    }
   },
 );
 

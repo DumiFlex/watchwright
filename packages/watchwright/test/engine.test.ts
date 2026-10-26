@@ -130,6 +130,10 @@ test("H2", { title: "Counter", needs: ["H1"] }, async ({ h, expect }) => {
 
     const files = await h.app.inject({ url: "/api/v1/files/runs/../watchwright.db", headers: { host: h.host } });
     expect(files.statusCode).toBe(404);
+    const encoded = await h.app.inject({ url: "/api/v1/files/runs/..%2Fwatchwright.db", headers: { host: h.host } });
+    expect(encoded.statusCode).toBe(404);
+    const percent = await h.app.inject({ url: "/api/v1/files/runs/50%25", headers: { host: h.host } });
+    expect(percent.statusCode).toBe(404);
   });
 
   it("classifies outcomes and skips tests whose needs broke", async () => {
