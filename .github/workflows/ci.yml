@@ -32,18 +32,9 @@ jobs:
         with:
           path: ${{ runner.os == 'Windows' && '~\AppData\Local\ms-playwright' || '~/.cache/ms-playwright' }}
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-      # The system packages come from apt, whose mirrors sometimes stall: give each try 4 minutes, and try twice.
-      - name: Install Playwright browsers (Linux)
-        if: runner.os == 'Linux'
-        timeout-minutes: 10
-        run: |
-          for try in 1 2; do
-            timeout 240 pnpm --filter watchwright exec playwright install --with-deps chromium firefox && exit 0
-            echo "Browser install try $try failed or timed out"
-          done
-          exit 1
-      - name: Install Playwright browsers (Windows)
-        if: runner.os == 'Windows'
+      # No --with-deps: the GitHub runner images already ship Chrome and Firefox, so the system
+      # libraries are there, and the apt mirrors behind --with-deps are often slow enough to stall CI.
+      - name: Install Playwright browsers
         timeout-minutes: 10
         run: pnpm --filter watchwright exec playwright install chromium firefox
       - run: pnpm lint
