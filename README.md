@@ -8,9 +8,9 @@ A browser test harness built on [Playwright](https://playwright.dev) that you wa
 - **Let your agents drive.** Everything the page does is an API call, and AI coding agents (Claude Code, Codex, any MCP client) get it through a CLI, an MCP server and an agent skill. Watchwright has no AI assistant of its own.
 - **Built to grow.** Every capability is a plugin on one core of browser sessions, jobs, events and actions. Testing comes first; scraping, crawling and other Playwright capabilities can be added later without reworking the base.
 
-> **Status: early.** This is the project skeleton. The run engine, live view and HTTP API come next; see [docs/plan.md](docs/plan.md) for the plan and what is built so far.
+> **Status: early.** The run engine, test packs, the live view and the HTTP API work. The CLI, MCP server, agent skill and richer review pages come next; see [docs/plan.md](docs/plan.md) for the plan and what is built so far.
 
-![The Watchwright web page](docs/screenshots/skeleton-light.png)
+![A run in progress, with the live browser picture](docs/screenshots/run-live-light.png)
 
 ## Requirements
 
@@ -22,9 +22,12 @@ A browser test harness built on [Playwright](https://playwright.dev) that you wa
 
 ```bash
 pnpm install
+pnpm --filter watchwright exec playwright install chromium firefox
 pnpm build
-pnpm serve            # builds, then starts the server at http://127.0.0.1:7420/
+pnpm serve            # builds, starts the server at http://127.0.0.1:7420/ and opens it
 ```
+
+Then add a test pack on the home page (the path of a folder with a `pack.ts` file) and start a run. [Writing a test pack](packages/site/guide/test-packs.md) explains how to write a pack, and the [HTTP and WebSocket API](packages/site/reference/http-api.md) lists every route, event and the live WebSocket.
 
 `watchwright serve` options:
 
@@ -33,6 +36,7 @@ pnpm serve            # builds, then starts the server at http://127.0.0.1:7420/
 | `--port` | `7420` | Port for the web page and the API. |
 | `--host` | `127.0.0.1` | Address to bind. Only loopback addresses are allowed until token auth is built. |
 | `--data` | see below | Folder for the database and everything runs save. |
+| `--no-open` | off | Don't open the web page in your browser on start. |
 
 The data folder is, in order: `--data`, the `WATCHWRIGHT_DATA` environment variable, or the usual app data folder (`%LOCALAPPDATA%\Watchwright` on Windows, `~/Library/Application Support/Watchwright` on macOS, `~/.local/share/watchwright` on Linux).
 
@@ -40,7 +44,7 @@ The data folder is, in order: `--data`, the `WATCHWRIGHT_DATA` environment varia
 
 ```bash
 pnpm dev              # server (watch mode) + web dev server at http://127.0.0.1:5173/
-pnpm test             # Vitest, server and web
+pnpm test             # Vitest, server and web (engine tests need the Playwright browsers)
 pnpm typecheck        # tsc + vue-tsc
 pnpm lint             # ESLint
 pnpm build            # server to packages/watchwright/dist, web app to packages/watchwright/dist/web
@@ -52,10 +56,10 @@ The repository is a pnpm workspace:
 
 | Path | What |
 |---|---|
-| `packages/watchwright` | The `watchwright` package: server, plugin host, store, CLI, and (soon) the run engine and pack API. |
+| `packages/watchwright` | The `watchwright` package: server, plugin host, store, run engine, pack API and CLI. |
 | `packages/web` | The Vue 3 + Vite web app. Its build is served by `watchwright serve`. |
 | `packages/site` | The docs site (VitePress): landing page, guide and API reference. |
-| `docs/` | The plan and design notes. |
+| `docs/` | The plan and research notes. |
 
 ## Contributing and releases
 

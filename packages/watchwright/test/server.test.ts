@@ -5,7 +5,7 @@ import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
-import { BUILTIN_PLUGINS } from "../src/core/core-plugin.js";
+import { BUILTIN_PLUGINS } from "../src/core/builtin.js";
 import { definePlugin, migrationsOf, type WatchwrightPlugin } from "../src/core/plugin.js";
 import { buildServer } from "../src/server/app.js";
 import { openStore, type Store } from "../src/store/db.js";
@@ -48,7 +48,17 @@ describe("server", () => {
     const res = await app.inject({ url: "/api/v1/health", headers: { host: HOST } });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({
-      data: { name: "watchwright", version: VERSION, dataDir: ":memory:", plugins: [{ name: "core", schemaVersion: 1 }] },
+      data: {
+        name: "watchwright",
+        version: VERSION,
+        dataDir: ":memory:",
+        plugins: [
+          { name: "core", schemaVersion: 2 },
+          { name: "live", schemaVersion: 0 },
+          { name: "packs", schemaVersion: 1 },
+          { name: "runs", schemaVersion: 1 },
+        ],
+      },
     });
   });
 
@@ -71,10 +81,7 @@ describe("server", () => {
     const res = await app.inject({ url: "/api/v1/notes", headers: { host: HOST } });
     expect(res.json()).toEqual({ data: [] });
     const health = await app.inject({ url: "/api/v1/health", headers: { host: HOST } });
-    expect(health.json().data.plugins).toEqual([
-      { name: "core", schemaVersion: 1 },
-      { name: "notes", schemaVersion: 1 },
-    ]);
+    expect(health.json().data.plugins.at(-1)).toEqual({ name: "notes", schemaVersion: 1 });
   });
 
   it("refuses badly named or duplicate plugins", async () => {
@@ -132,7 +139,7 @@ describe("server", () => {
       });
       ws.once("error", reject);
     });
-    expect(hello).toEqual({ type: "hello", data: { version: VERSION } });
+    expect(hello).toEqual({ type: "hello", data: { version: VERSION, head: 0 } });
 
     const refused = (opts: WebSocket.ClientOptions) =>
       new Promise<number>((resolve) => {

@@ -34,8 +34,8 @@ features:
 
 <div class="ww-status">
 
-**Status: early.** The server, its store and the web page are in place. The run engine, the live view and the pack API are being built now, so pages marked *Planned* describe how they will work.
+**Status: early.** The run engine, test packs, the live view and the HTTP API work. The CLI, MCP server and richer review pages come next.
 
-![The Watchwright web page, showing the server status, the live connection, the data folder and the loaded plugins](/web-page.png)
+![A run in progress on the Watchwright web page, with the live browser picture, the controls and the plan](/web-page.png)
 
 </div>
