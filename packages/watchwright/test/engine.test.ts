@@ -1,0 +1,403 @@
+import { existsSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import WebSocket from "ws";
+import { decodeFrame } from "../src/plugins/live/hub.js";
+import type { RunDetail } from "../src/plugins/runs/engine.js";
+import type { ResultDocument } from "../src/plugins/runs/results.js";
+import { cleanTempDirs, startSite, tempDir, writeFiles } from "./helpers/fixtures.js";
+import { engineOf, hasChromium, hasFirefox, requireBrowsers, startHarness, type Harness } from "./helpers/harness.js";
+
+// Engine tests: real browsers against a tiny local site, through the HTTP API.
+
+const run = hasChromium || requireBrowsers ? describe : describe.skip;
+
+let site: { url: string; close(): Promise<void> };
+const harnesses: Harness[] = [];
+
+beforeAll(async () => {
+  site = await startSite();
+});
+afterAll(async () => {
+  await site.close();
+});
+afterEach(async () => {
+  for (const h of harnesses.splice(0)) await h.close();
+  cleanTempDirs();
+});
+
+function packFiles(extra = "", browser = "chromium"): string {
+  return `
+import { pack, consoleErrors, failedRequests } from "watchwright";
+export default pack({
+  name: "Fixture",
+  site: { key: "fixture-${Math.random().toString(36).slice(2, 8)}", baseURL: ${JSON.stringify(site.url)} },
+  browser: { name: "${browser}", viewport: { width: 800, height: 600 } },
+  flags: { "no-card": "robot", "slow": "finding", "fyi": "info" },
+  params: { label: { default: "hello" } },
+  collectors: [consoleErrors(), failedRequests()],
+  ${extra}
+});`;
+}
+
+async function setup(files: Record<string, string>, opts: { listen?: boolean; dataDir?: string } = {}) {
+  const packDir = tempDir("ww-pack-");
+  writeFiles(packDir, { "pack.ts": packFiles(), ...files });
+  const h = await startHarness(opts.dataDir ?? tempDir("ww-data-"), opts);
+  harnesses.push(h);
+  const added = await h.api<{ id: string; status: string; problems: string[]; error: string | null }>("POST", "/packs", { path: packDir });
+  expect(added.status).toBe(201);
+  expect(added.data.error).toBeNull();
+  return { h, packDir, packId: added.data.id };
+}
+
+async function startRun(h: Harness, body: Record<string, unknown>): Promise<string> {
+  const res = await h.api<{ id: string }>("POST", "/runs", body);
+  expect(res.error).toBeUndefined();
+  expect(res.status).toBe(201);
+  return res.data.id;
+}
+
+async function finished(h: Harness, runId: string): Promise<RunDetail> {
+  await h.waitFor((e) => e.runId === runId && (e.type === "run.finished" || e.type === "run.failed_to_start" || e.type === "run.interrupted"), 45_000);
+  await engineOf(h).settled(runId);
+  return (await h.api<RunDetail>("GET", `/runs/${runId}`)).data;
+}
+
+const byTest = (d: RunDetail) => Object.fromEntries(d.attempts.map((a) => [`${a.testId}#${a.number}`, a.status]));
+
+/** Rewrites a file with a later mtime so the change is seen even within the same millisecond. */
+function rewrite(file: string, content: string) {
+  writeFileSync(file, content);
+  const later = new Date(Date.now() + 2000);
+  utimesSync(file, later, later);
+}
+
+run("engine", { timeout: 60_000 }, () => {
+  it("runs a pack and keeps every result", async () => {
+    const { h, packId } = await setup({
+      "tests/home.ts": `
+import { test } from "watchwright";
+test("H1", { title: "Home loads", section: "H", runs: 2 }, async ({ h, expect, attempt, params }) => {
+  await h.goto("/");
+  await expect(h.page.getByRole("heading", { level: 1 })).toHaveText("Fixture home");
+  await h.shot("home");
+  await h.keepText("heading", "h1");
+  h.metric("attempt", attempt, "n");
+  h.note("label is " + params.label);
+  h.save("greeting", "hi from H1 attempt " + attempt);
+});
+test("H2", { title: "Counter", needs: ["H1"] }, async ({ h, expect }) => {
+  await h.goto("/");
+  await h.step("press the button", async () => {
+    await h.click("#inc", { done: async () => (await h.page.textContent("#n")) === "1" });
+  });
+  await expect(h.page.locator("#n")).toHaveText("1");
+  await h.keepText("saved", { text: String(h.load("greeting")) });
+  h.flag("fyi", "just so you know");
+});`,
+    });
+    const runId = await startRun(h, { packId, params: { label: "custom" } });
+    const detail = await finished(h, runId);
+    expect(detail.status).toBe("finished");
+    expect(byTest(detail)).toEqual({ "H1#1": "passed", "H1#2": "passed", "H2#1": "passed" });
+    expect(detail.plan.map((p) => `${p.testId}#${p.number}/${p.of}:${p.status}`)).toEqual(["H1#1/2:passed", "H1#2/2:passed", "H2#1/1:passed"]);
+    expect(detail.counts).toMatchObject({ passed: 3, planned: 3 });
+
+    const h2 = detail.attempts.find((a) => a.testId === "H2")!;
+    const doc = (await h.api<ResultDocument>("GET", `/runs/${runId}/attempts/${h2.id}`)).data;
+    expect(doc.schemaVersion).toBe(1);
+    expect(doc.texts.saved).toBe("hi from H1 attempt 2");
+    expect(doc.flags).toEqual([{ name: "fyi", kind: "info", detail: "just so you know", declared: true }]);
+    expect(doc.log.map((l) => l.message)).toContain("Step: press the button");
+
+    const h1 = detail.attempts.find((a) => a.testId === "H1" && a.number === 1)!;
+    const doc1 = (await h.api<ResultDocument>("GET", `/runs/${runId}/attempts/${h1.id}`)).data;
+    expect(doc1.metrics.attempt).toEqual({ value: 1, unit: "n" });
+    expect(doc1.notes).toEqual(["label is custom"]);
+    const shot = doc1.artifacts.find((a) => a.kind === "shot")!;
+    expect(shot.path).toMatch(/runs\/[0-9a-f]{8}\/H1\/attempt-1\/01-home\.png$/);
+    const file = await h.app.inject({ url: shot.url, headers: { host: h.host } });
+    expect(file.statusCode).toBe(200);
+    expect(file.headers["content-type"]).toBe("image/png");
+    expect(file.rawPayload.subarray(1, 4).toString()).toBe("PNG");
+    // The result document is on disk too, next to the files.
+    const dataDir = h.app.watchwright.store.dataDir;
+    const onDisk = JSON.parse(readFileSync(path.join(dataDir, doc1.folder, "result.json"), "utf8")) as ResultDocument;
+    expect(onDisk.attemptId).toBe(h1.id);
+    // Passed attempts keep no trace by default; video is there when Playwright's ffmpeg is.
+    expect(doc1.artifacts.some((a) => a.kind === "trace")).toBe(false);
+
+    const files = await h.app.inject({ url: "/api/v1/files/runs/../watchwright.db", headers: { host: h.host } });
+    expect(files.statusCode).toBe(404);
+  });
+
+  it("classifies outcomes and skips tests whose needs broke", async () => {
+    const { h, packId } = await setup({
+      "tests/outcomes.ts": `
+import { test, StepError } from "watchwright";
+test("F1", async ({ h, expect }) => { await h.goto("/"); await expect(h.page.locator("h1")).toHaveText("Nope", { timeout: 300 }); });
+test("F2", async () => { throw new Error("the test code broke"); });
+test("F3", async ({ h }) => { h.flag("no-card"); });
+test("F4", async ({ h }) => { h.flag("slow", "took 9 s"); });
+test("F5", { needs: ["F2"] }, async () => {});
+test("F6", async ({ h }) => { h.flag("undeclared"); });
+test("F7", async () => { throw new StepError("couldn't find the panel"); });
+test("F8", { timeout: 800 }, async ({ h }) => { await h.wait(5000); });`,
+    });
+    const runId = await startRun(h, { packId, pauseOnBroken: false });
+    const detail = await finished(h, runId);
+    expect(byTest(detail)).toEqual({
+      "F1#1": "failed",
+      "F2#1": "broken",
+      "F3#1": "broken",
+      "F4#1": "failed",
+      "F5#1": "skipped",
+      "F6#1": "failed",
+      "F7#1": "broken",
+      "F8#1": "broken",
+    });
+    const errorKind = (id: string) => detail.attempts.find((a) => a.testId === id)!.error?.kind;
+    expect(errorKind("F1")).toBe("assertion");
+    expect(errorKind("F2")).toBe("exception");
+    expect(errorKind("F7")).toBe("step");
+    expect(errorKind("F8")).toBe("timeout");
+    const f1 = detail.attempts.find((a) => a.testId === "F1")!;
+    const doc = (await h.api<ResultDocument>("GET", `/runs/${runId}/attempts/${f1.id}`)).data;
+    expect(doc.artifacts.some((a) => a.kind === "trace" && a.path.endsWith("trace.zip"))).toBe(true);
+    const f5 = detail.attempts.find((a) => a.testId === "F5")!;
+    expect((await h.api<ResultDocument>("GET", `/runs/${runId}/attempts/${f5.id}`)).data.notes[0]).toMatch(/F2 ended broken/);
+  });
+
+  it("pauses at the next step, resumes, and stops after the current test", async () => {
+    const { h, packId } = await setup({
+      "tests/slow.ts": `
+import { test } from "watchwright";
+test("S1", async ({ h }) => { for (let i = 0; i < 10; i++) await h.wait(100); });
+test("S2", async ({ h }) => { await h.wait(100); });
+test("S3", async () => {});`,
+    });
+    const runId = await startRun(h, { packId });
+    await h.waitFor((e) => e.type === "attempt.started" && e.runId === runId);
+    expect((await h.api("POST", `/runs/${runId}/pause`)).status).toBe(200);
+    expect((await h.api("POST", `/runs/${runId}/pause`)).status).toBe(409);
+    const paused = await h.waitFor((e) => e.type === "run.paused" && e.runId === runId);
+    expect(paused.data.reason).toBe("manual");
+    const live = (await h.api<RunDetail>("GET", `/runs/${runId}`)).data;
+    expect(live.status).toBe("paused");
+    expect(live.live).toMatchObject({ state: "paused", pauseReason: "manual", testId: "S1" });
+    expect((await h.api("POST", `/runs/${runId}/retry`)).status).toBe(409);
+    expect((await h.api("POST", `/runs/${runId}/resume`)).status).toBe(200);
+    await h.api("POST", `/runs/${runId}/stop`, { when: "after" });
+    const detail = await finished(h, runId);
+    expect(detail.status).toBe("stopped");
+    expect(byTest(detail)).toEqual({ "S1#1": "passed" });
+    expect(detail.plan.find((p) => p.testId === "S3")?.status).toBe("pending");
+  });
+
+  it("pauses on a broken attempt, picks up the fixed test file and retries by itself", async () => {
+    const { h, packId, packDir } = await setup({
+      "tests/fix.ts": `import { test } from "watchwright"; test("X1", async ({ h }) => { await h.goto("/"); throw new Error("not fixed yet"); });`,
+    });
+    const runId = await startRun(h, { packId });
+    const paused = await h.waitFor((e) => e.type === "run.paused" && e.runId === runId);
+    expect(paused.data.reason).toBe("broken");
+    expect(paused.data.deadline).toEqual(expect.any(String));
+    rewrite(path.join(packDir, "tests", "fix.ts"), `import { test } from "watchwright"; test("X1", async ({ h }) => { await h.goto("/"); h.note("fixed"); });`);
+    const detail = await finished(h, runId);
+    expect(byTest(detail)).toEqual({ "X1#1": "passed" });
+    const history = (await h.api<{ history: { try: number; status: string; current: boolean }[] }>("GET", `/runs/${runId}?history=true`)).data.history;
+    expect(history.map((a) => [a.try, a.status, a.current])).toEqual([
+      [1, "broken", false],
+      [2, "passed", true],
+    ]);
+  });
+
+  it("skips a broken attempt on request and by itself after the pause limit", async () => {
+    const { h, packId } = await setup({
+      "tests/b.ts": `import { test } from "watchwright"; test("B1", async () => { throw new Error("x"); }); test("B2", async () => { throw new Error("y"); }); test("B3", async () => {});`,
+    });
+    const runId = await startRun(h, { packId, pauseLimitMinutes: 0.05 });
+    await h.waitFor((e) => e.type === "run.paused" && e.runId === runId && e.data.reason === "broken");
+    expect((await h.api("POST", `/runs/${runId}/skip`)).status).toBe(200);
+    const auto = await h.waitFor((e) => e.type === "run.decision" && e.runId === runId && e.data.testId === "B2", 20_000);
+    expect(auto.data.decision).toBe("skip");
+    const detail = await finished(h, runId);
+    expect(byTest(detail)).toEqual({ "B1#1": "broken", "B2#1": "broken", "B3#1": "passed" });
+  });
+
+  it("stops now, filing the attempt in progress as stopped", async () => {
+    const { h, packId } = await setup({
+      "tests/long.ts": `import { test } from "watchwright"; test("L1", async ({ h }) => { await h.goto("/"); await h.page.waitForTimeout(20000); }); test("L2", async () => {});`,
+    });
+    const runId = await startRun(h, { packId });
+    await h.waitFor((e) => e.type === "page.navigated" && e.runId === runId);
+    await h.api("POST", `/runs/${runId}/stop`, { when: "now" });
+    const detail = await finished(h, runId);
+    expect(detail.status).toBe("stopped");
+    expect(byTest(detail)).toEqual({ "L1#1": "stopped" });
+  });
+
+  it("runs children inside their parent and files them separately", async () => {
+    const { h, packId } = await setup({
+      "tests/w.ts": `
+import { test } from "watchwright";
+test("W3", { title: "Parent" }, async ({ h, child }) => {
+  await h.goto("/");
+  const r = await child("W4");
+  h.note("child said " + r);
+});
+test("W4", { title: "Child", inside: "W3" }, async ({ h, expect }) => {
+  await expect(h.page.locator("h1")).toHaveText("Fixture home");
+  await h.shot("in-parent");
+});`,
+    });
+    const runId = await startRun(h, { packId, tests: ["W4"] });
+    const detail = await finished(h, runId);
+    expect(detail.plan.map((p) => [p.testId, p.children])).toEqual([["W3", ["W4"]]]);
+    const parent = detail.attempts.find((a) => a.testId === "W3")!;
+    const child = detail.attempts.find((a) => a.testId === "W4")!;
+    expect([parent.status, child.status, child.parentId]).toEqual(["passed", "passed", parent.id]);
+    const doc = (await h.api<ResultDocument>("GET", `/runs/${runId}/attempts/${parent.id}`)).data;
+    expect(doc.notes).toEqual(["child said passed"]);
+    const childDoc = (await h.api<ResultDocument>("GET", `/runs/${runId}/attempts/${child.id}`)).data;
+    expect(childDoc.artifacts.map((a) => a.kind)).toEqual(["shot"]);
+  });
+
+  it("resumes an interrupted run after a restart, keeping what was decided", async () => {
+    const dataDir = tempDir("ww-data-");
+    const files = {
+      "tests/r.ts": `
+import { test } from "watchwright";
+test("R1", async ({ h }) => { await h.goto("/"); });
+test("R2", async ({ h }) => { await h.goto("/"); await h.wait(20000); });
+test("R3", async () => {});`,
+    };
+    const first = await setup(files, { dataDir });
+    const runId = await startRun(first.h, { packId: first.packId });
+    await first.h.waitFor((e) => e.type === "attempt.started" && e.data.testId === "R2");
+    await first.h.close(); // the server goes down mid-run
+
+    const second = await startHarness(dataDir);
+    harnesses.push(second);
+    const before = (await second.api<RunDetail>("GET", `/runs/${runId}`)).data;
+    expect(before.status).toBe("interrupted");
+    expect(byTest(before)).toEqual({ "R1#1": "passed", "R2#1": "interrupted" });
+    // Make R2 quick for the second go.
+    rewrite(path.join(first.packDir, "tests", "r.ts"), files["tests/r.ts"].replace("await h.wait(20000);", ""));
+    expect((await second.api("POST", `/runs/${runId}/resume`)).status).toBe(200);
+    const detail = await finished(second, runId);
+    expect(detail.status).toBe("finished");
+    expect(byTest(detail)).toEqual({ "R1#1": "passed", "R2#1": "passed", "R3#1": "passed" });
+    const history = (await second.api<{ history: { testId: string; try: number }[] }>("GET", `/runs/${runId}?history=true`)).data.history;
+    expect(history.filter((a) => a.testId === "R1")).toHaveLength(1);
+    expect(history.filter((a) => a.testId === "R2").map((a) => a.try)).toEqual([1, 2]);
+  });
+
+  it("redoes only broken attempts and what they need", async () => {
+    const { h, packId, packDir } = await setup({
+      "tests/d.ts": `
+import { test } from "watchwright";
+test("D1", async ({ h }) => { h.save("token", "abc"); });
+test("D2", { needs: ["D1"] }, async ({ h }) => { if (h.load("token") !== "abc") throw new Error("no token"); throw new Error("broken on purpose"); });
+test("D3", async () => {});`,
+    });
+    const runId = await startRun(h, { packId, pauseOnBroken: false });
+    const first = await finished(h, runId);
+    expect(byTest(first)).toEqual({ "D1#1": "passed", "D2#1": "broken", "D3#1": "passed" });
+    rewrite(path.join(packDir, "tests", "d.ts"), readFileSync(path.join(packDir, "tests", "d.ts"), "utf8").replace(`throw new Error("broken on purpose");`, ""));
+    const head = h.app.watchwright.events.head();
+    expect((await h.api("POST", `/runs/${runId}/redo-broken`)).status).toBe(200);
+    await h.waitFor((e) => e.runId === runId && e.type === "run.finished", 60_000, head);
+    await engineOf(h).settled(runId);
+    const detail = (await h.api<RunDetail & { history: { testId: string; try: number }[] }>("GET", `/runs/${runId}?history=true`)).data;
+    expect(byTest(detail)).toEqual({ "D1#1": "passed", "D2#1": "passed", "D3#1": "passed" });
+    expect(detail.history.filter((a) => a.testId === "D3")).toHaveLength(1);
+    expect(detail.history.filter((a) => a.testId === "D2")).toHaveLength(2);
+    expect((await h.api("POST", `/runs/${runId}/redo-broken`)).status).toBe(409);
+  });
+
+  it("streams frames and events over the live WebSocket, and follows new tabs", async () => {
+    const { h, packId } = await setup(
+      {
+        "tests/live.ts": `
+import { test } from "watchwright";
+test("V1", async ({ h }) => {
+  await h.goto("/");
+  await h.click("#popup");
+  await h.wait(1500);
+});`,
+      },
+      { listen: true },
+    );
+    const runId = await startRun(h, { packId });
+    const ws = new WebSocket(`ws://${h.host}/api/v1/live`);
+    const got = { frames: [] as ReturnType<typeof decodeFrame>[], events: [] as string[] };
+    await new Promise<void>((resolve, reject) => {
+      ws.once("open", () => {
+        ws.send(JSON.stringify({ type: "subscribe", runId, after: 0, frames: true }));
+        resolve();
+      });
+      ws.once("error", reject);
+    });
+    ws.on("message", (data: Buffer, isBinary: boolean) => {
+      if (isBinary) got.frames.push(decodeFrame(data));
+      else {
+        const msg = JSON.parse(String(data)) as { type: string; data: { type: string } };
+        if (msg.type === "event") got.events.push(msg.data.type);
+      }
+    });
+    await finished(h, runId);
+    for (let i = 0; i < 50 && !got.events.includes("run.finished"); i++) await new Promise((r) => setTimeout(r, 20));
+    ws.close();
+    expect(got.events).toEqual(expect.arrayContaining(["run.queued", "run.started", "attempt.started", "page.opened", "page.active", "attempt.finished", "run.finished"]));
+    expect(got.frames.length).toBeGreaterThan(0);
+    const f = got.frames[0]!;
+    expect(f.runId).toBe(runId);
+    expect(f.data.subarray(0, 2)).toEqual(Buffer.from([0xff, 0xd8])); // JPEG
+    expect(new Set(got.frames.map((x) => x.pageId))).toEqual(new Set(["p1", "p2"]));
+  });
+
+  it("stores collector records per attempt", async () => {
+    const { h, packId } = await setup({
+      "tests/noisy.ts": `import { test } from "watchwright"; test("N1", async ({ h }) => { await h.goto("/noisy"); await h.idle(); });`,
+    });
+    const runId = await startRun(h, { packId });
+    const detail = await finished(h, runId);
+    const doc = (await h.api<ResultDocument>("GET", `/runs/${runId}/attempts/${detail.attempts[0]!.id}`)).data;
+    const names = doc.artifacts.filter((a) => a.kind === "collector").map((a) => a.name);
+    expect(names.sort()).toEqual(["console-errors", "failed-requests"]);
+    const dataDir = h.app.watchwright.store.dataDir;
+    const errors = JSON.parse(readFileSync(path.join(dataDir, doc.folder, "collectors", "console-errors.json"), "utf8")) as { text: string }[];
+    expect(errors.map((e) => e.text)).toContain("fixture console error");
+  });
+
+  it("refuses runs it can't start", async () => {
+    const { h, packId } = await setup({ "tests/a.ts": `import { test } from "watchwright"; test("A1", async () => {});` });
+    expect((await h.api("POST", "/runs", { packId, tests: ["nope"] })).error?.code).toBe("bad_input");
+    expect((await h.api("POST", "/runs", { packId, params: { label: 3, other: 1 } })).error?.code).toBe("bad_input");
+    expect((await h.api("POST", "/runs", { packId: "00000000" })).status).toBe(404);
+    expect((await h.api("POST", "/runs/00000000/pause")).status).toBe(404);
+  });
+});
+
+(hasFirefox || requireBrowsers ? describe : describe.skip)("engine in Firefox", { timeout: 60_000 }, () => {
+  it("runs a pack and streams frames", async () => {
+    const packDir = tempDir("ww-pack-");
+    writeFiles(packDir, {
+      "pack.ts": packFiles("", "firefox"),
+      "tests/f.ts": `import { test } from "watchwright"; test("FF1", async ({ h, expect }) => { await h.goto("/"); await h.click("#inc", { done: "text=Count: 1" }); await expect(h.page.locator("#n")).toHaveText("1"); await h.shot("firefox"); });`,
+    });
+    const h = await startHarness(tempDir("ww-data-"));
+    harnesses.push(h);
+    let frames = 0;
+    const packId = (await h.api<{ id: string }>("POST", "/packs", { path: packDir })).data.id;
+    const runId = await startRun(h, { packId });
+    const { FRAMES } = await import("../src/plugins/live/hub.js");
+    h.app.watchwright.services.get(FRAMES).subscribe(runId, () => frames++);
+    const detail = await finished(h, runId);
+    expect(byTest(detail)).toEqual({ "FF1#1": "passed" });
+    expect(frames).toBeGreaterThan(0);
+    expect(existsSync(path.join(h.app.watchwright.store.dataDir, "runs", runId))).toBe(true);
+  });
+});

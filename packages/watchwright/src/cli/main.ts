@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { BUILTIN_PLUGINS } from "../core/core-plugin.js";
+import { spawn } from "node:child_process";
+import { BUILTIN_PLUGINS } from "../core/builtin.js";
 import { migrationsOf } from "../core/plugin.js";
 import { DEFAULT_HOST, DEFAULT_PORT, LOOPBACK_HOSTS, resolveDataDir } from "../config.js";
 import { buildServer } from "../server/app.js";
@@ -11,13 +12,14 @@ import { VERSION } from "../version.js";
 const HELP = `Watchwright ${VERSION}
 
 Usage:
-  watchwright serve [--port ${DEFAULT_PORT}] [--host ${DEFAULT_HOST}] [--data <folder>]
+  watchwright serve [--port ${DEFAULT_PORT}] [--host ${DEFAULT_HOST}] [--data <folder>] [--no-open]
   watchwright --version
 
 serve      Starts the server: the web app, the HTTP API and the store. It stays up between runs.
 --port     Port to listen on (default ${DEFAULT_PORT}).
 --host     Address to bind. Only loopback addresses for now (127.0.0.1, localhost, ::1).
 --data     Folder for the database and run files (default: WATCHWRIGHT_DATA, else the OS's app data folder).
+--no-open  Don't open the web page in the browser on start.
 `;
 
 async function main(argv: string[]): Promise<number> {
@@ -28,6 +30,7 @@ async function main(argv: string[]): Promise<number> {
       port: { type: "string" },
       host: { type: "string" },
       data: { type: "string" },
+      "no-open": { type: "boolean" },
       help: { type: "boolean", short: "h" },
       version: { type: "boolean", short: "v" },
     },
@@ -70,11 +73,37 @@ async function main(argv: string[]): Promise<number> {
   process.once("SIGINT", () => void shutdown());
   process.once("SIGTERM", () => void shutdown());
 
+  // Playwright can throw from its own message loop when a browser goes away mid-call (a run
+  // stopped at the wrong moment). That must not take the server and every other run down with it.
+  process.on("uncaughtException", (err) => {
+    if (/was not bound in the connection|Cannot find object to/.test(err.message)) {
+      console.error(`Ignored a Playwright error after a browser closed: ${err.message}`);
+      return;
+    }
+    console.error(err);
+    process.exit(1);
+  });
+
   await app.listen({ port, host });
   const shown = host === "::1" ? "[::1]" : host;
-  console.log(`Watchwright ${VERSION} is running at http://${shown}:${port}/`);
+  const url = `http://${shown}:${port}/`;
+  console.log(`Watchwright ${VERSION} is running at ${url}`);
   console.log(`Data folder: ${dataDir}`);
+  if (!values["no-open"]) openBrowser(url);
   return -1; // keep running
+}
+
+/** Opens the web page in the default browser. Failing to open it is not an error: the address is printed. */
+function openBrowser(url: string): void {
+  const [cmd, args] =
+    process.platform === "win32" ? ["cmd", ["/c", "start", "", url]] : process.platform === "darwin" ? ["open", [url]] : ["xdg-open", [url]];
+  try {
+    const child = spawn(cmd, args, { detached: true, stdio: "ignore" });
+    child.on("error", () => undefined);
+    child.unref();
+  } catch {
+    // no opener on this system
+  }
 }
 
 main(process.argv.slice(2)).then(
