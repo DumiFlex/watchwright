@@ -34,7 +34,7 @@ Run `pnpm lint && pnpm typecheck && pnpm test` before every commit.
 - **API shape.** Routes live under `/api/v1`. Success is `{ "data": … }`, failure is `{ "error": { "code", "message", "detail"? } }` with a snake_case `code`.
 - **Request guard.** Every request must carry a loopback `Host` with the server's port; state changes and WebSocket upgrades must come from the server's own origin (or carry no `Origin`). Don't weaken this to make a client work; make the client send the right headers (the Vite dev proxy does).
 - **TypeScript strict, ESM, Node 22+.** No `any`, no `@ts-ignore`. Imports inside `packages/watchwright` use `.js` extensions (NodeNext).
-- **Web app.** Vue 3 `<script setup>` with TypeScript. Colors come from the CSS variables in `src/style.css` (light and dark). Number inputs use custom up/down buttons, never the browser's native spinners. Pages must work at phone width.
+- **Web app.** Vue 3 `<script setup>` with TypeScript. Colors, fonts, radii and spacing come from the tokens in `src/style.css`, never literals; every look (theme) and mode must work. See [docs/design.md](docs/design.md). Number inputs use custom up/down buttons, never the browser's native spinners. Pages must work at phone width.
 - **Screenshots.** Any visible change to the web app ships with screenshots in the PR (light, dark and phone width).
 - **Tests.** New code comes with Vitest tests in `packages/*/test/`. Server tests use `app.inject` or a real listener on a free port; never a fixed port that could clash.
 - **Commits.** Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`, …). PRs to `dev` are squash-merged, so the PR title is the commit; the `pr-title` check enforces the format.
