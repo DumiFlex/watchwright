@@ -54,6 +54,10 @@ The repository is a pnpm workspace:
 | `packages/web` | The Vue 3 + Vite web app. Its build is served by `watchwright serve`. |
 | `docs/` | The plan and design notes. |
 
+## Contributing and releases
+
+Pull requests go to the `dev` branch and need a [Conventional Commits](https://www.conventionalcommits.org) title such as `feat: pause a run from the page` or `fix: keep the live view after a reload`. When `dev` is merged into `main`, a release is cut automatically: the version is worked out from those titles, and the notes go to [CHANGELOG.md](CHANGELOG.md) and the GitHub releases page. Watchwright is in 0.x, so any release may change how things work.
+
 ## Safety
 
 The server listens on `127.0.0.1` only. It refuses requests whose `Host` header isn't its own loopback address and port, and refuses changes and WebSocket connections from other origins, so web pages open in your browser can't drive it.

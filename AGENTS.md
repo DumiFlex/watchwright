@@ -37,6 +37,14 @@ Run `pnpm lint && pnpm typecheck && pnpm test` before every commit.
 - **Web app.** Vue 3 `<script setup>` with TypeScript. Colors come from the CSS variables in `src/style.css` (light and dark). Number inputs use custom up/down buttons, never the browser's native spinners. Pages must work at phone width.
 - **Screenshots.** Any visible change to the web app ships with screenshots in the PR (light, dark and phone width).
 - **Tests.** New code comes with Vitest tests in `packages/*/test/`. Server tests use `app.inject` or a real listener on a free port; never a fixed port that could clash.
-- **Commits.** Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`, …).
+- **Commits.** Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`, …). PRs to `dev` are squash-merged, so the PR title is the commit; the `pr-title` check enforces the format.
 - **No secrets or personal paths** in the repo, tests or screenshots. The repo will be published under Apache-2.0; write docs for strangers.
 - **Run the harness gently on real machines.** A bench run can take hours. Never stop or restart a server that has a run in progress unless the person asks.
+
+## Branches and releases
+
+- PRs target `dev` and are squash-merged. `dev` merges into `main` with a **merge commit** (never squash, or every change collapses into one changelog line) when everything on it works.
+- Releases are automatic ([release-please](https://github.com/googleapis/release-please), `.github/workflows/release.yml`). A push to `main` opens a release PR with the version bump and `CHANGELOG.md`; it merges itself once CI passes, which tags `vX.Y.Z`, publishes the GitHub release and opens a PR that syncs `main` back into `dev`.
+- The commit type picks the bump. Below 1.0: `feat` → minor, `fix`/`perf`/`refactor` → patch, a breaking change (`feat!:`) → minor. `docs`, `chore`, `test`, `ci`, `build` and `style` don't release and stay out of the changelog. Changes only under `.github/` never release.
+- Never edit `CHANGELOG.md`, `.release-please-manifest.json` or the `version` fields by hand. To force a version (for example 1.0.0), set `"release-as"` in `release-please-config.json` in a PR, and remove it after the release.
+- Don't merge into `dev` while a release PR is open on `main`; let it finish first.
