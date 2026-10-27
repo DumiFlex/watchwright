@@ -1,6 +1,6 @@
 # Step 1 plan: engine, store, live view, HTTP API
 
-Status: built except the checks on the PC (2026-10-26). PRs 2 to 5 below landed together in one PR to `dev`; what is left is item 6 on Dumi's PC. This is the plan for the first step of the build order. It turns the research into concrete pieces, names what is in and out of step 1, and lists the changes to the research design that came out of reading the bench robot's code again.
+Status: done (2026-10-27). PRs 2 to 5 below landed together in one PR to `dev` (#14). Item 6 was checked on Windows with Firefox: the engine tests pass, and a live run saved its video, trace (with DOM snapshots) and screenshots. This is the plan for the first step of the build order. It turns the research into concrete pieces, names what is in and out of step 1, and lists the changes to the research design that came out of reading the bench robot's code again.
 
 ## 1. What step 1 delivers
 
