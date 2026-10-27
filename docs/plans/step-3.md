@@ -1,6 +1,6 @@
 # Step 3 plan: the Wildcard Pipeline bench pack
 
-Status: planned (2026-10-27). [docs/plan.md](../plan.md) holds the base design and [step-2.md](step-2.md) the web app. This step ports the bench robot into a Watchwright test pack, adds the few engine pieces the port shows are missing, and checks on the PC that the pack reproduces the robot's q9 runs.
+Status: built. The pack is merged into the Wildcard Pipeline's `dev` (`bench/`, #141), and the check on the bench PC passed on 2026-10-27: S1, W1 to W4, W13, X1, C1 with C12 and P1 ran on qwen3.5-9b with AI times close to the robot's q9 runs. It found one false pass in the pack (a problem's Fix check), fixed in the same PR. P12 didn't run there because the app offered no **Fix all with AI** after P1's build, as with the robot. [docs/plan.md](../plan.md) holds the base design and [step-2.md](step-2.md) the web app. This step ported the bench robot into a Watchwright test pack, added the few engine pieces the port showed were missing, and checked on the PC that the pack reproduces the robot's q9 runs.
 
 ## 1. What step 3 delivers
 
