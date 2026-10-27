@@ -36,6 +36,7 @@ const seek = computed({
   set: (v: number) => {
     if (video.value) video.value.currentTime = v;
     time.value = v;
+    tell(v);
   },
 });
 
@@ -61,11 +62,17 @@ function setDuration(seconds: number) {
   duration.value = seconds;
   emit("duration", seconds);
 }
+// Every position change goes out once: from playing, the seek bar, the keys or seekTo.
+let told = -1;
+function tell(seconds: number) {
+  if (seconds === told) return;
+  told = seconds;
+  emit("time", seconds);
+}
 function onTime() {
   if (probing || !video.value) return;
-  if (time.value === video.value.currentTime) return;
   time.value = video.value.currentTime;
-  emit("time", time.value);
+  tell(time.value);
 }
 // While playing: the position every animation frame.
 let frameId = 0;

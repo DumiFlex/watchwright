@@ -4,7 +4,7 @@
 // <dialog> around the element while it shows there: a modal sits in the top layer, so a tip
 // on <body> would be drawn under the dialog's backdrop.
 import type { Directive } from "vue";
-import { placePopup, viewport } from "./popup";
+import { pageHost, placePopup, viewport } from "./popup";
 
 const DELAY_MS = 350;
 const tipId = "ww-tip";
@@ -32,7 +32,7 @@ function show(el: Tipped) {
   if (!text) return;
   const t = element();
   const dialog = el.closest("dialog");
-  const host = dialog?.open ? (dialog.querySelector<HTMLElement>(":scope > .dlg-popups") ?? dialog) : document.body;
+  const host = dialog?.open ? (dialog.querySelector<HTMLElement>(":scope > .dlg-popups") ?? dialog) : pageHost(el);
   if (t.parentElement !== host) host.append(t);
   t.textContent = text;
   t.hidden = false;
