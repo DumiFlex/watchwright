@@ -26,6 +26,9 @@ describe("matches", () => {
     expect(matches(ev("k", { ctrlKey: true }), "Mod+K", false)).toBe(true);
     expect(matches(ev("k", { metaKey: true }), "Mod+K", false)).toBe(false);
     expect(matches(ev("k", { metaKey: true }), "Mod+K", true)).toBe(true);
+    expect(matches(ev(" "), "Space", false)).toBe(true);
+    expect(matches(ev("S", { shiftKey: true }), "Shift+S", false)).toBe(true);
+    expect(matches(ev("s"), "Shift+S", false)).toBe(false);
     expect(matches(ev("k", { ctrlKey: true }), "Mod+K", true)).toBe(false);
   });
   it("ignores letter case but not extra modifiers", () => {
