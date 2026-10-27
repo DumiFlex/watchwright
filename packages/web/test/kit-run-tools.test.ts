@@ -87,13 +87,17 @@ describe("timeline", () => {
     expect(stepTimelineZoom(2, -1)).toBe(1);
     expect(stepTimelineZoom(1, -1)).toBe(1);
     expect(stepTimelineZoom(64, 1)).toBe(64);
-    const many = Array.from({ length: 60 }, (_, i) => ({ id: String(i), label: `Step ${i}`, start: i * 5000, end: (i + 1) * 5000 }));
-    // 60 steps of 5 s on 900 px are 15 px each: 4× makes them 60 px.
+    const many = Array.from({ length: 60 }, (_, i) => ({ id: String(i), label: `S${i}`, start: i * 5000, end: (i + 1) * 5000 }));
+    // 60 steps of 5 s on 900 px are 15 px each; a short label needs 56 px, so 4×.
     expect(fitTimelineZoom(many, 300_000, 900)).toBe(4);
     expect(fitTimelineZoom(many.slice(0, 5), 25_000, 900)).toBe(1);
     // Never further in than 8× on opening.
     expect(fitTimelineZoom(many, 3_000_000, 900)).toBe(8);
     expect(fitTimelineZoom([], 1000, 900)).toBe(1);
+    // Wide enough steps still zoom when their labels are longer than the step.
+    const named = Array.from({ length: 9 }, (_, i) => ({ id: String(i), label: i % 2 ? "Repeat 3 times" : "Fill placeholder \"What needs to be done?\"", start: i * 530, end: (i + 1) * 530 }));
+    expect(fitTimelineZoom(named, 4800, 900)).toBe(4);
+    expect(fitTimelineZoom(named.map((s) => ({ ...s, label: "Go" })), 4800, 900)).toBe(1);
   });
   it("formats clock times", () => {
     expect(clock(7400)).toBe("0:07");
