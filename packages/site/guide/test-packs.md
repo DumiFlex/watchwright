@@ -2,6 +2,8 @@
 
 A test pack is a folder with a pack file and test files. It usually lives in the repository of the site it tests. Watchwright bundles it with esbuild, so TypeScript works without a build step, and it reloads the pack when you save a file, even in the middle of a run.
 
+Tests can also be YAML lists of steps, next to code tests or in a pack with no code at all (`pack.yaml`). This page is about code; [YAML tests](./yaml-tests) has the rest.
+
 ```
 my-site/watchwright/
   pack.ts
@@ -16,13 +18,13 @@ my-site/watchwright/
 There are four ways, and they all end the same: the server loads the pack and lists its tests.
 
 - **On the Packs page**, type or paste the folder's path. The field suggests folders as you type (Tab completes, like a terminal) and says when the folder has a pack file. A path pasted with quotes (Windows Explorer's "Copy as path"), a `file://` address and `~` all work.
-- **Browse…** opens a folder browser of the server's machine: your home folder, the drives, the folders of packs already added and the folders you used recently on the side. Open the folder with `pack.ts` and press **Add this pack**. Type to filter the list, or type a whole path and press Enter to jump there.
+- **Browse…** opens a folder browser of the server's machine: your home folder, the drives, the folders of packs already added and the folders you used recently on the side. Open the folder with the pack file and press **Add this pack**. Type to filter the list, or type a whole path and press Enter to jump there.
 - **Find packs in a folder…** searches a folder and the four levels below it for pack files (skipping `node_modules`, build output and hidden folders) and adds the ones you tick. Handy for a folder of projects.
 - **When you start the server**: `watchwright serve ./watchwright` adds that folder (or reloads it when it's already added). When the server is already running, the same command adds the pack there and opens the page.
 
 Through the [API](../reference/http-api#packs) it's `POST /api/v1/packs` with `{ "path": "/abs/path/to/my-site/watchwright" }`.
 
-**Starting from nothing?** In the folder browser, open the folder the pack should live in and press **New pack here…**. Give it a name and the site's address, and Watchwright writes a small pack that works (`pack.ts`, a first test in `tests/home.ts` that opens the site and takes a screenshot, and a `README.md`) and adds it. It never overwrites a file that's already there.
+**Starting from nothing?** In the folder browser, open the folder the pack should live in and press **New pack here…**. Give it a name and the site's address, pick YAML or TypeScript, and Watchwright writes a small pack that works (a pack file, a first test that opens the site and takes a screenshot, and a `README.md`) and adds it. It never overwrites a file that's already there.
 
 If a pack's folder moves, its card says the folder is gone; **Locate…** points it at the new folder and keeps its runs. **Remove** in the card's menu takes a pack off the list without touching its files or runs.
 

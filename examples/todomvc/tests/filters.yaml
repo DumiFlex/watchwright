@@ -1,0 +1,38 @@
+section: Filters
+tests:
+  - id: F1
+    title: Active and Completed filters
+    steps:
+      - step:
+          title: Add two todos and complete one
+          steps:
+            - fill: { target: { placeholder: What needs to be done? }, value: Done already }
+            - press: Enter
+            - fill: { target: { placeholder: What needs to be done? }, value: Still to do }
+            - press: Enter
+            - check: { role: checkbox, name: Toggle Todo, first: true }
+      - click: { role: link, name: Active }
+      - expect: { url: { regex: "#/active$" } }
+      - expect: { target: { testId: todo-title }, text: Still to do }
+      - click: { role: link, name: Completed }
+      - expect: { target: { testId: todo-title }, text: Done already }
+      - shot: completed-filter
+
+  - id: F2
+    title: Clear completed
+    steps:
+      - fill: { target: { placeholder: What needs to be done? }, value: Finished }
+      - press: Enter
+      - check: { role: checkbox, name: Toggle Todo }
+      - click: { role: button, name: Clear completed }
+      - expect: { target: { testId: todo-item }, count: 0 }
+
+  - id: F3
+    title: Todos stay after a reload
+    description: Uses the title A1 saved, so choosing F3 runs A1 first.
+    needs: [A1]
+    steps:
+      - fill: { target: { placeholder: What needs to be done? }, value: "${saved.first}" }
+      - press: Enter
+      - reload
+      - expect: { target: { testId: todo-title }, text: "${saved.first}" }

@@ -261,7 +261,7 @@ onBeforeUnmount(() => {
           <button class="btn" @click="(packFilter = ''), (statusFilter = ''), (search = '')">Clear filters</button>
         </template>
         <template v-else-if="packs.length === 0">
-          <p class="muted">No runs yet. Add a test pack first: the folder with its <code>pack.ts</code>.</p>
+          <p class="muted">No runs yet. Add a test pack first: the folder with its pack file.</p>
           <a class="btn primary" href="#/packs">Add a pack</a>
         </template>
         <template v-else>

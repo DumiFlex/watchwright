@@ -3,16 +3,21 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { build, type Plugin as EsbuildPlugin } from "esbuild";
-import { beginCollecting, endCollecting, type PackOptions, type TestDefinition } from "./api.js";
+import { beginCollecting, endCollecting, type PackOptions, type TestDefinition, type TestMeta } from "./api.js";
 import { glob } from "./glob.js";
 import { rubricProblems } from "./rubric.js";
+import { readPackYaml } from "./yaml/pack-yaml.js";
+import { formatProblems, parseTestFile } from "./yaml/parse.js";
+import { yamlBody } from "./yaml/run.js";
 
 // Packs are ESM or TypeScript, so hot reload can't clear a require cache. Instead every load
 // bundles the pack (pack file + test files) with esbuild into one file in the data folder and
 // imports it under a new name. See docs/research/step-1-engine.md.
 
-export const PACK_FILES = ["pack.ts", "pack.mts", "pack.js", "pack.mjs"];
-export const DEFAULT_TEST_GLOB = "tests/**/*.{ts,mts,js,mjs}";
+export const PACK_FILES = ["pack.ts", "pack.mts", "pack.js", "pack.mjs", "pack.yaml", "pack.yml"];
+export const DEFAULT_TEST_GLOB = "tests/**/*.{ts,mts,js,mjs,yaml,yml}";
+
+const isYaml = (f: string) => /\.ya?ml$/i.test(f);
 
 export interface LoadedPack {
   /** Absolute path of the pack folder. */
@@ -147,29 +152,64 @@ export async function loadPack(input: string, cacheDir: string): Promise<LoadedP
   mkdirSync(cacheDir, { recursive: true });
   const id = `${Date.now().toString(36)}-${(buildCounter++).toString(36)}`;
 
-  // First the pack file alone, to read its options (the test globs live there).
-  const first = path.join(cacheDir, `${id}-pack.mjs`);
-  await bundle(dir, `await import(${JSON.stringify(`./${packFile}`)});`, first);
-  const head = await importCollecting(first);
-  rmSync(first, { force: true });
-  if (!head.pack) throw new PackLoadError(`${packFile} doesn't call pack({ ... }).`);
-  checkOptions(head.pack);
+  // First the pack options: pack.yaml is read as it is; a code pack file is bundled alone and
+  // imported, since its options name the test globs.
+  let options: PackOptions;
+  const yamlPack = isYaml(packFile);
+  if (yamlPack) {
+    const { value, problems } = readPackYaml(readFileSync(path.join(dir, packFile), "utf8"), path.join(dir, packFile));
+    if (!value) throw new PackLoadError(`${packFile} isn't valid.`, formatProblems(packFile, problems));
+    options = value;
+  } else {
+    const first = path.join(cacheDir, `${id}-pack.mjs`);
+    await bundle(dir, `await import(${JSON.stringify(`./${packFile}`)});`, first);
+    const head = await importCollecting(first);
+    rmSync(first, { force: true });
+    if (!head.pack) throw new PackLoadError(`${packFile} doesn't call pack({ ... }).`);
+    options = head.pack;
+  }
+  checkOptions(options);
 
-  // Then the whole pack. Dynamic imports keep files in order, so each test knows its file.
-  const testFiles = glob(dir, testGlobs(head.pack)).filter((f) => f !== packFile);
-  const lines = [`import { __fileMarker } from "watchwright";`, `await import(${JSON.stringify(`./${packFile}`)});`];
-  for (const f of testFiles) lines.push(`__fileMarker(${JSON.stringify(f)});`, `await import(${JSON.stringify(`./${f}`)});`);
+  // Then the code tests in one build. Dynamic imports keep files in order, so each test knows its
+  // file. YAML tests are read beside it and put back in file order.
+  const testFiles = glob(dir, testGlobs(options)).filter((f) => f !== packFile);
+  const codeFiles = testFiles.filter((f) => !isYaml(f));
+  const lines = [`import { __fileMarker } from "watchwright";`];
+  if (!yamlPack) lines.push(`await import(${JSON.stringify(`./${packFile}`)});`);
+  for (const f of codeFiles) lines.push(`__fileMarker(${JSON.stringify(f)});`, `await import(${JSON.stringify(`./${f}`)});`);
   const buildFile = path.join(cacheDir, `${id}.mjs`);
   const inputs = await bundle(dir, lines.join("\n"), buildFile);
   const full = await importCollecting(buildFile);
-  if (!full.pack) throw new PackLoadError(`${packFile} doesn't call pack({ ... }).`);
+  if (yamlPack && full.pack) throw new PackLoadError(`The pack has ${packFile} and a file that calls pack({ ... }). Keep one.`);
+  if (!yamlPack && !full.pack) throw new PackLoadError(`${packFile} doesn't call pack({ ... }).`);
+  if (!yamlPack) options = full.pack!;
+
+  const problems: string[] = [];
+  const tests: TestDefinition[] = [];
+  for (const f of testFiles) {
+    if (!isYaml(f)) {
+      tests.push(...full.tests.filter((t) => t.file === f));
+      continue;
+    }
+    const abs = path.join(dir, f);
+    const parsed = parseTestFile(readFileSync(abs, "utf8"));
+    problems.push(...formatProblems(f, parsed.problems));
+    for (const t of parsed.value) tests.push({ id: t.id, meta: t.meta as TestMeta, body: yamlBody(t.steps, abs), file: f, yaml: { line: t.line, steps: t.steps } });
+  }
+  if (problems.length > 0) throw new PackLoadError("Some YAML tests aren't valid.", problems);
+  const seen = new Set<string>();
+  for (const t of tests) {
+    if (seen.has(t.id)) throw new PackLoadError(`Two tests have the id "${t.id}".`);
+    seen.add(t.id);
+  }
   pruneBuilds(cacheDir, buildFile);
+  const stamped = [...inputs, ...(yamlPack ? [packFile] : []), ...testFiles.filter(isYaml)];
   return {
     dir,
     packFile,
-    options: full.pack,
-    tests: full.tests,
-    stamp: stampOf(dir, inputs, testFiles),
+    options,
+    tests,
+    stamp: stampOf(dir, stamped, testFiles),
     buildFile,
     builtAt: new Date().toISOString(),
   };

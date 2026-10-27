@@ -8,6 +8,8 @@ import { PACK_FILES } from "./loader.js";
 export interface StarterInput {
   name: string;
   baseURL: string;
+  /** "code" (pack.ts and a TypeScript test, the default) or "yaml" (pack.yaml and a YAML test). */
+  format?: "code" | "yaml";
 }
 
 export class StarterError extends Error {}
@@ -24,8 +26,9 @@ export function siteKey(name: string): string {
   );
 }
 
-export function starterFiles({ name, baseURL }: StarterInput): Record<string, string> {
+export function starterFiles({ name, baseURL, format = "code" }: StarterInput): Record<string, string> {
   const key = siteKey(name);
+  if (format === "yaml") return yamlStarter(name, key, baseURL);
   return {
     "pack.ts": `import { pack, consoleErrors, failedRequests } from "watchwright";
 
@@ -58,6 +61,46 @@ A [Watchwright](https://github.com/DumiFlex/watchwright) test pack for ${baseURL
 
 - \`pack.ts\` names the site, the browser and what a run can choose.
 - \`tests/\` holds the tests, one or more per file.
+
+Start a run from the Watchwright page (New run), and watch it live.
+`,
+  };
+}
+
+const yamlText = (s: string) => (/^[\w ./:-]*$/.test(s) && !/^[\s-]|: |\s$/.test(s) ? s : JSON.stringify(s));
+
+function yamlStarter(name: string, key: string, baseURL: string): Record<string, string> {
+  return {
+    "pack.yaml": `# The pack: which site it tests, in which browser, and what to keep from every attempt.
+# Every option is explained at https://github.com/DumiFlex/watchwright (YAML tests).
+name: ${yamlText(name)}
+site:
+  key: ${key}
+  baseURL: ${yamlText(baseURL)}
+browser:
+  name: chromium
+  viewport: { width: 1280, height: 800 }
+flags:
+  slow-page: finding
+collectors:
+  - consoleErrors
+  - failedRequests
+`,
+    "tests/home.yaml": `# A first test, as a list of steps. Save the file while a run is going and the next attempt uses it.
+id: HOME1
+title: The home page loads
+section: Home
+steps:
+  - goto: /
+  - expect: { target: body, visible: true }
+  - shot: home
+`,
+    "README.md": `# ${name}
+
+A [Watchwright](https://github.com/DumiFlex/watchwright) test pack for ${baseURL}, written in YAML.
+
+- \`pack.yaml\` names the site, the browser and what to keep from each attempt.
+- \`tests/\` holds the tests: each file is one test, or several under \`tests:\`.
 
 Start a run from the Watchwright page (New run), and watch it live.
 `,

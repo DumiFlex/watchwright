@@ -1,6 +1,7 @@
 import type { Browser, BrowserContext, BrowserContextOptions, LaunchOptions, Page } from "playwright";
 import type { expect as playwrightExpect } from "playwright/test";
 import type { RubricCriterion, TestReview } from "./rubric.js";
+import type { Step } from "./yaml/steps.js";
 
 // The pack API: what a test pack's files import from "watchwright". A pack is a folder with a
 // `pack.ts` (or .js) that calls `pack({...})`, and test files that call `test(id, meta, body)`.
@@ -270,6 +271,8 @@ export interface TestDefinition {
   body: TestBody;
   /** The file that declared it, relative to the pack folder. */
   file: string;
+  /** For a YAML test: where it starts in its file, and its steps. */
+  yaml?: { line: number; steps: readonly Step[] };
 }
 
 export interface PackDefinition {
