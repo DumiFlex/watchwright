@@ -11,6 +11,7 @@ import CheckBox from "./CheckBox.vue";
 import FolderBrowser from "./FolderBrowser.vue";
 import ModalDialog from "./ModalDialog.vue";
 import PathInput from "./PathInput.vue";
+import RadioGroup from "./RadioGroup.vue";
 import TextField from "./TextField.vue";
 
 const props = defineProps<{ mode: "add" | "find" | "move"; packs: readonly Pack[]; moving?: Pack | null; home?: string | null; start?: string | null }>();
@@ -24,9 +25,13 @@ const error = ref<string | null>(null);
 // find results: shown in place of the browser until "Back"
 const found = ref<{ root: string; found: FoundPack[]; truncated: boolean } | null>(null);
 const picked = ref<Record<string, boolean>>({});
+const FORMATS = [
+  { value: "yaml" as const, label: "YAML", note: "steps, no code" },
+  { value: "code" as const, label: "TypeScript", note: "full control" },
+];
 // the starter pack form, shown in place of the browser until "Back"
 const creating = ref(false);
-const starter = ref({ path: "", name: "", baseURL: "" });
+const starter = ref<{ path: string; name: string; baseURL: string; format: "yaml" | "code" }>({ path: "", name: "", baseURL: "", format: "yaml" });
 
 watch(open, (o) => {
   if (!o) return;
@@ -38,7 +43,7 @@ watch(open, (o) => {
 
 function startNew() {
   const here = listing.value;
-  starter.value = { path: here ? (here.marks.pack ? join(here.path, "watchwright") : here.folders.length === 0 ? here.path : join(here.path, "watchwright")) : "", name: "", baseURL: "http://127.0.0.1:3000/" };
+  starter.value = { path: here ? (here.marks.pack ? join(here.path, "watchwright") : here.folders.length === 0 ? here.path : join(here.path, "watchwright")) : "", name: "", baseURL: "http://127.0.0.1:3000/", format: starter.value.format };
   error.value = null;
   creating.value = true;
 }
@@ -120,7 +125,9 @@ function rel(dir: string): string {
 <template>
   <ModalDialog v-model="open" :heading="heading" width="860px">
     <form v-if="creating" class="starter" @submit.prevent="create">
-      <p class="muted">Writes a small pack that works: <code>pack.ts</code> for the site and browser, a first test in <code>tests/home.ts</code> that opens the site and takes a screenshot, and a <code>README.md</code>. Then it adds the pack. Nothing that's already there is overwritten.</p>
+      <p class="muted">Writes a small pack that works: a pack file for the site and browser, a first test that opens the site and takes a screenshot, and a <code>README.md</code>. Then it adds the pack. Nothing that's already there is overwritten.</p>
+      <span class="field-label">Written in</span>
+      <RadioGroup v-model="starter.format" label="Written in" inline :options="FORMATS" />
       <label for="st-name">Name</label>
       <TextField id="st-name" v-model="starter.name" placeholder="My shop" />
       <label for="st-url">Site address</label>
@@ -153,7 +160,7 @@ function rel(dir: string): string {
         <p v-if="l && mode !== 'find'" class="here small" :class="packHere ? 'ok' : 'muted'">
           <template v-if="addedHere && mode === 'add'">This pack is already added as "{{ addedHere.name }}".</template>
           <template v-else-if="packHere">This folder has a pack: {{ packHere }}.</template>
-          <template v-else>No pack file in this folder. Open the folder that has <code>pack.ts</code>, or search this one.</template>
+          <template v-else>No pack file in this folder. Open the folder that has <code>pack.ts</code> or <code>pack.yaml</code>, or search this one.</template>
         </p>
       </template>
     </FolderBrowser>
@@ -216,7 +223,8 @@ function rel(dir: string): string {
 .starter p {
   margin: 0 0 var(--space-2);
 }
-.starter label {
+.starter > label,
+.starter > .field-label {
   margin-top: var(--space-2);
   font-weight: 600;
   font-size: 13px;

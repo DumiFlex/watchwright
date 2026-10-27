@@ -119,6 +119,16 @@ describe("packs: starter", () => {
     expect((await h.api<{ recent: { path: string }[] }>("GET", "/folders/places")).data.recent[0]?.path).toBe(res.data.dir);
   });
 
+  it("writes a YAML starter pack that loads", async () => {
+    const root = tempDir("ww-tree-");
+    const h = await harness();
+    const res = await h.api<{ path: string; status: string; error: string | null; tests: { id: string; file: string; line: number | null }[] }>("POST", "/packs/create", { path: path.join(root, "plain"), name: "Plain: site", baseURL: "http://127.0.0.1:3000/", format: "yaml" });
+    expect(res.status).toBe(201);
+    expect(res.data).toMatchObject({ status: "ok", error: null, path: path.join(root, "plain", "pack.yaml") });
+    expect(res.data.tests).toEqual([expect.objectContaining({ id: "HOME1", file: "tests/home.yaml", line: 2 })]);
+    expect(readFileSync(path.join(root, "plain", "pack.yaml"), "utf8")).toContain('name: "Plain: site"');
+  });
+
   it("never writes over a pack or a file, and wants an http address", async () => {
     const root = tempDir("ww-tree-");
     writeFiles(root, { "has-pack/pack.ts": PACK, "has-readme/README.md": "mine" });

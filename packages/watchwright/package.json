@@ -16,15 +16,18 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    }
+    },
+    "./schema/test.json": "./dist/schema/test.json",
+    "./schema/pack.json": "./dist/schema/pack.json"
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node scripts/write-schemas.mjs",
     "dev": "tsx watch src/cli/main.ts serve",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "steps-reference": "tsx scripts/steps-reference.ts"
   },
   "dependencies": {
     "@fastify/static": "^10.1.7",
@@ -32,11 +35,13 @@
     "better-sqlite3": "^13.0.3",
     "esbuild": "^0.28.2",
     "fastify": "^5.12.7",
-    "playwright": "^1.64.1"
+    "playwright": "^1.64.1",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
     "@types/ws": "^8.18.2",
+    "ajv": "^8.20.0",
     "tsx": "^4.23.15",
     "ws": "^8.22.0"
   }

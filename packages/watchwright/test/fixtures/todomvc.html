@@ -1,0 +1,159 @@
+<!doctype html>
+<!-- A small TodoMVC in plain JavaScript with the same labels, test ids and storage key as the
+     Playwright demo app (demo.playwright.dev/todomvc), so the example pack's tests run in CI
+     without the internet. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>React • TodoMVC</title>
+    <style>
+      body { font: 16px sans-serif; max-width: 34rem; margin: 2rem auto; background: #f5f5f5; color: #111; }
+      h1 { text-align: center; color: #b83f45; font-weight: 200; font-size: 4rem; margin: 0 0 1rem; }
+      .new-todo, .edit { box-sizing: border-box; width: 100%; padding: 0.8rem 1rem 0.8rem 3rem; font-size: 1.4rem; border: 0; }
+      .todoapp { background: #fff; box-shadow: 0 2px 4px #0003; position: relative; }
+      .todo-list { list-style: none; margin: 0; padding: 0; }
+      .todo-list li { display: flex; align-items: center; gap: 0.75rem; border-top: 1px solid #ededed; padding: 0.6rem 1rem; font-size: 1.4rem; }
+      .todo-list li.completed label { text-decoration: line-through; color: #888; }
+      .todo-list label { flex: 1; }
+      .destroy { border: 0; background: none; color: #b83f45; font-size: 1.4rem; cursor: pointer; }
+      .toggle-all-row { display: flex; gap: 0.5rem; align-items: center; padding: 0.4rem 1rem; border-top: 1px solid #ededed; }
+      .footer { display: flex; justify-content: space-between; align-items: center; padding: 0.6rem 1rem; border-top: 1px solid #ededed; font-size: 0.9rem; }
+      .filters { display: flex; gap: 0.5rem; list-style: none; margin: 0; padding: 0; }
+      .filters a { color: inherit; padding: 0.1rem 0.4rem; border: 1px solid transparent; text-decoration: none; }
+      .filters a.selected { border-color: #b83f4555; }
+      .clear-completed { border: 0; background: none; cursor: pointer; }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <section class="todoapp">
+      <header class="header">
+        <h1>todos</h1>
+        <input class="new-todo" placeholder="What needs to be done?" autofocus />
+      </header>
+      <section class="main" hidden>
+        <div class="toggle-all-row">
+          <input id="toggle-all" class="toggle-all" type="checkbox" />
+          <label for="toggle-all">Mark all as complete</label>
+        </div>
+        <ul class="todo-list"></ul>
+      </section>
+      <footer class="footer" hidden>
+        <span class="todo-count" data-testid="todo-count"></span>
+        <ul class="filters">
+          <li><a href="#/">All</a></li>
+          <li><a href="#/active">Active</a></li>
+          <li><a href="#/completed">Completed</a></li>
+        </ul>
+        <button class="clear-completed">Clear completed</button>
+      </footer>
+    </section>
+    <script>
+      const KEY = "react-todos";
+      let todos = [];
+      try {
+        todos = JSON.parse(localStorage.getItem(KEY) || "[]");
+      } catch {
+        todos = [];
+      }
+      let editing = null;
+      const $ = (s) => document.querySelector(s);
+      const save = () => localStorage.setItem(KEY, JSON.stringify(todos));
+      const filter = () => location.hash.replace(/^#\/?/, "") || "all";
+
+      function render() {
+        const list = $(".todo-list");
+        list.textContent = "";
+        const shown = todos.filter((t) => (filter() === "active" ? !t.completed : filter() === "completed" ? t.completed : true));
+        for (const t of shown) {
+          const li = document.createElement("li");
+          li.dataset.testid = "todo-item";
+          if (t.completed) li.className = "completed";
+          if (editing === t.id) {
+            const input = document.createElement("input");
+            input.className = "edit";
+            input.setAttribute("aria-label", "Edit");
+            input.value = t.title;
+            const done = (keep) => {
+              if (editing !== t.id) return;
+              editing = null;
+              const title = input.value.trim();
+              if (keep) {
+                if (title) t.title = title;
+                else todos = todos.filter((x) => x !== t);
+              }
+              save();
+              render();
+            };
+            input.addEventListener("keydown", (e) => {
+              if (e.key === "Enter") done(true);
+              if (e.key === "Escape") done(false);
+            });
+            input.addEventListener("blur", () => done(true));
+            li.append(input);
+            list.append(li);
+            setTimeout(() => input.focus());
+            continue;
+          }
+          const toggle = document.createElement("input");
+          toggle.type = "checkbox";
+          toggle.className = "toggle";
+          toggle.setAttribute("aria-label", "Toggle Todo");
+          toggle.checked = t.completed;
+          toggle.addEventListener("change", () => {
+            t.completed = toggle.checked;
+            save();
+            render();
+          });
+          const label = document.createElement("label");
+          label.dataset.testid = "todo-title";
+          label.textContent = t.title;
+          label.addEventListener("dblclick", () => {
+            editing = t.id;
+            render();
+          });
+          const destroy = document.createElement("button");
+          destroy.className = "destroy";
+          destroy.setAttribute("aria-label", "Delete");
+          destroy.textContent = "×";
+          destroy.addEventListener("click", () => {
+            todos = todos.filter((x) => x !== t);
+            save();
+            render();
+          });
+          li.append(toggle, label, destroy);
+          list.append(li);
+        }
+        const left = todos.filter((t) => !t.completed).length;
+        $(".main").hidden = todos.length === 0;
+        $(".footer").hidden = todos.length === 0;
+        $(".todo-count").innerHTML = `<strong>${left}</strong> ${left === 1 ? "item" : "items"} left`;
+        $(".toggle-all").checked = todos.length > 0 && left === 0;
+        $(".clear-completed").hidden = !todos.some((t) => t.completed);
+        for (const a of document.querySelectorAll(".filters a")) a.classList.toggle("selected", (a.getAttribute("href").replace(/^#\/?/, "") || "all") === filter());
+      }
+
+      $(".new-todo").addEventListener("keydown", (e) => {
+        if (e.key !== "Enter") return;
+        const title = e.target.value.trim();
+        if (!title) return;
+        todos.push({ id: Date.now() + Math.random(), title, completed: false });
+        e.target.value = "";
+        save();
+        render();
+      });
+      $(".toggle-all").addEventListener("change", (e) => {
+        for (const t of todos) t.completed = e.target.checked;
+        save();
+        render();
+      });
+      $(".clear-completed").addEventListener("click", () => {
+        todos = todos.filter((t) => !t.completed);
+        save();
+        render();
+      });
+      addEventListener("hashchange", render);
+      render();
+    </script>
+  </body>
+</html>

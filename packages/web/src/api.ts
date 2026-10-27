@@ -60,6 +60,8 @@ export interface PackTest {
   description: string | null;
   runs: number | Record<string, unknown> | "computed";
   file: string;
+  /** For a YAML test, the line it starts on in its file; null for a code test. */
+  line: number | null;
   rubric: Criterion[];
 }
 

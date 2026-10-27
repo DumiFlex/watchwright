@@ -162,7 +162,7 @@ onBeforeUnmount(() => live?.close());
       </li>
     </ul>
     <div v-else class="card empty">
-      <p>No packs yet. A pack is a folder with a <code>pack.ts</code> and its tests, usually in the repository of the site it tests.</p>
+      <p>No packs yet. A pack is a folder with a pack file (<code>pack.ts</code> or <code>pack.yaml</code>) and its tests, usually in the repository of the site it tests.</p>
     </div>
 
     <section class="card" aria-labelledby="add-title">
@@ -173,7 +173,7 @@ onBeforeUnmount(() => live?.close());
           id="pack-path"
           v-model="newPath"
           class="grow"
-          placeholder="Folder with pack.ts, e.g. D:\sites\shop\watchwright or ~/sites/shop/watchwright"
+          placeholder="Folder with the pack file, e.g. D:\sites\shop\watchwright or ~/sites/shop/watchwright"
           :invalid="!!addError"
           mark="pack"
           mark-label="Pack"
@@ -186,7 +186,7 @@ onBeforeUnmount(() => live?.close());
       <p v-if="addError" class="error small" role="alert">{{ addError }}</p>
       <div class="more-ways">
         <button type="button" class="btn" @click="browse('find')"><FolderSearch :size="15" /> Find packs in a folder…</button>
-        <span class="muted small">Searches a folder and the ones below it for <code>pack.ts</code> files.</span>
+        <span class="muted small">Searches a folder and the ones below it for pack files.</span>
       </div>
       <p class="muted small hint">Pack code runs on this machine with your rights, so add only packs you trust.</p>
     </section>

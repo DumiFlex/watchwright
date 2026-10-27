@@ -25,6 +25,7 @@ export type {
 } from "./plugins/packs/api.js";
 export type { RubricCriterion, TestReview } from "./plugins/packs/rubric.js";
 export { consoleErrors, failedRequests, responses } from "./plugins/testing/collectors.js";
+export { firstNumber } from "./plugins/packs/yaml/run.js";
 // Used by the pack loader's generated entry file; not part of the pack API.
 export { __fileMarker } from "./plugins/packs/api.js";
 

@@ -22,6 +22,8 @@ export interface PackTestSummary {
   runs: number | Record<string, unknown> | "computed";
   timeout: number | null;
   file: string;
+  /** For a YAML test, the line it starts on in its file; null for a code test. */
+  line: number | null;
   /** The criteria reviewers score this test's attempts on. */
   rubric: Criterion[];
 }
@@ -103,6 +105,7 @@ function testSummary(t: TestDefinition, rubric: readonly RubricCriterion[] | und
     runs: r === undefined ? 1 : typeof r === "function" ? "computed" : typeof r === "number" ? r : { ...r },
     timeout: t.meta.timeout ?? null,
     file: t.file,
+    line: t.yaml?.line ?? null,
     rubric: rubricFor(rubric, t.meta.review),
   };
 }
@@ -267,7 +270,7 @@ export class PackRegistry {
       flags: s.flags ?? {},
       run: { ...RUN_DEFAULTS, ...s.run },
       rubric: s.rubric ?? rubricFor(undefined, undefined),
-      tests: (s.tests ?? []).map((t) => ({ ...t, rubric: t.rubric ?? rubricFor(undefined, undefined) })),
+      tests: (s.tests ?? []).map((t) => ({ ...t, line: t.line ?? null, rubric: t.rubric ?? rubricFor(undefined, undefined) })),
     };
   }
 }

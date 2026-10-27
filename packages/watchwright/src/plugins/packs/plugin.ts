@@ -5,7 +5,9 @@ import { definePlugin } from "../../core/plugin.js";
 import { FOLDERS, FolderError, isInside } from "../folders/folders.js";
 import { PACK_FILES, PackLoadError } from "./loader.js";
 import { discoverPacks, PACKS, PACKS_MIGRATION_SQL, PackRegistry } from "./registry.js";
+import { convertToCode } from "./convert.js";
 import { StarterError, writeStarter } from "./starter.js";
+import { packSchema, testFileSchema } from "./yaml/schema.js";
 
 const ID = { type: "string", pattern: "^[0-9a-f]{8}$", description: "Pack id." } as const;
 
@@ -68,9 +70,9 @@ export const packsPlugin = definePlugin({
             return pack;
           }),
       }),
-      defineAction<{ path: string; name: string; baseURL: string }>({
+      defineAction<{ path: string; name: string; baseURL: string; format?: "code" | "yaml" }>({
         name: "packs.create",
-        title: "Write a starter pack (pack.ts, a first test, a README) into a folder and add it",
+        title: "Write a starter pack (pack file, a first test, a README) into a folder and add it",
         method: "POST",
         path: "/packs/create",
         status: 201,
@@ -80,13 +82,14 @@ export const packsPlugin = definePlugin({
             path: { type: "string", minLength: 1, description: "The folder for the new pack; made when missing. It must not have a pack file yet." },
             name: { type: "string", minLength: 1, maxLength: 80, description: "The pack's name." },
             baseURL: { type: "string", minLength: 1, description: "The address of the site it tests, such as http://127.0.0.1:3000/." },
+            format: { type: "string", enum: ["code", "yaml"], default: "code", description: "code: pack.ts and a TypeScript test; yaml: pack.yaml and a YAML test." },
           },
           required: ["path", "name", "baseURL"],
         },
-        handler: ({ path: p, name, baseURL }) =>
+        handler: ({ path: p, name, baseURL, format = "code" }) =>
           packCall(async () => {
             const dir = folders.clean(p);
-            writeStarter(dir, { name: name.trim(), baseURL: baseURL.trim() });
+            writeStarter(dir, { name: name.trim(), baseURL: baseURL.trim(), format });
             const pack = await registry.add(dir);
             folders.remember(pack.dir);
             return pack;
@@ -143,6 +146,35 @@ export const packsPlugin = definePlugin({
             const pack = await registry.move(id, folders.clean(p));
             folders.remember(pack.dir);
             return pack;
+          });
+        },
+      }),
+      defineAction<{ kind?: "test" | "pack" }>({
+        name: "packs.yaml-schema",
+        title: "The JSON Schema of YAML test files or of pack.yaml",
+        method: "GET",
+        path: "/packs/yaml-schema",
+        input: { type: "object", properties: { kind: { type: "string", enum: ["test", "pack"], default: "test", description: "test (a YAML test file) or pack (pack.yaml)." } } },
+        handler: ({ kind = "test" }) => (kind === "pack" ? packSchema() : testFileSchema()),
+      }),
+      defineAction<{ id: string; file: string }>({
+        name: "packs.convert-test",
+        title: "Turn a YAML test file into a TypeScript test file that does the same",
+        method: "POST",
+        path: "/packs/:id/convert",
+        input: { type: "object", properties: { id: ID, file: { type: "string", minLength: 1, description: "The YAML file, relative to the pack folder." } }, required: ["id", "file"] },
+        handler: ({ id, file }) => {
+          const pack = registry.get(id) ?? notFound(id);
+          return packCall(async () => {
+            try {
+              const written = await convertToCode(pack.dir, file, async () => {
+                await registry.reload(id);
+              });
+              return { file: written, pack: registry.get(id) };
+            } catch (err) {
+              await registry.reload(id).catch(() => undefined); // back to the YAML file's build
+              throw err;
+            }
           });
         },
       }),
