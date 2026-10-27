@@ -17,6 +17,9 @@ Not in step 3: YAML tests, the editor, Record and a second pack (step 4), CLI an
 
 ## 2. What the port needs from Watchwright
 
+The rule for this step (Dumi, 2026-10-27): Watchwright is a general tester that Wildcard Pipeline uses, not a tool built for it. Everything below is a general feature any pack can use, with no Wildcard names or rules in Watchwright. What is specific to Wildcard Pipeline (its `data-test` ids, its AI debug log, its backup API) stays in the pack.
+
+
 Read side by side, most of the robot maps onto what step 1 and 2 built: `Bot.goto`/`click`/`fill`/`has`/`shot`/`scrollShots`/`keepText`/`note` are core `h` helpers, the pause loop is the engine's broken pause, `--resume` and `--redo` are actions, the live page is the run page. These parts don't map yet; each becomes a general feature, not a Wildcard special case.
 
 | Robot | Gap | Watchwright change |

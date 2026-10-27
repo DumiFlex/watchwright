@@ -37,6 +37,7 @@ Run `pnpm lint && pnpm typecheck && pnpm test` before every commit.
 
 ## Conventions
 
+- **General, not for one site.** Watchwright is a general tester; the Wildcard Pipeline bench is only its first pack. Nothing site-specific goes into Watchwright. When a pack needs something, build the general seam here and keep the site's details in the pack.
 - **Capabilities are plugins.** A new capability (runs, packs, later scraping) is a plugin with its own migrations, actions, routes and events. Plugins share code through services (`ctx.services`), not imports of each other's internals. Don't add feature code to `core/` or `server/`; extend the plugin contract instead when a plugin needs something new. See docs/plan.md, section 3.
 - **Migrations are append-only and per plugin.** Ids count from 1 within a plugin. Never edit a migration that has been merged; add a new one. A non-core plugin's main table may carry the plugin's name (`runs`); its other tables are named `<plugin>_…` (`runs_attempts`).
 - **API shape.** Routes live under `/api/v1`. Success is `{ "data": … }`, failure is `{ "error": { "code", "message", "detail"? } }` with a snake_case `code`.
