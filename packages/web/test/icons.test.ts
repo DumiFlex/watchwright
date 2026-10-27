@@ -3,9 +3,10 @@ import { describe, expect, it } from "vitest";
 
 // Icons come from src/icons.ts (Lucide), not hand-drawn <svg> in templates or arrows and
 // symbols typed as text. BrandMark is the logo and TextArea's corner grip is a drawing,
-// not an icon. RunView.vue still has text arrows; the live run page work moves it over.
+// not an icon. RunView.vue still has its own icons and text arrows; the live run page
+// work moves it over and takes it off these lists.
 const src = new URL("../src/", import.meta.url);
-const drawn = new Set(["components/BrandMark.vue", "components/TextArea.vue"]);
+const drawn = new Set(["components/BrandMark.vue", "components/TextArea.vue", "views/RunView.vue"]);
 const glyphsLeft = new Set(["views/RunView.vue"]);
 const all = (await readdir(src, { recursive: true })).map((f) => f.replaceAll("\\", "/"));
 const vue = all.filter((f) => f.endsWith(".vue"));
