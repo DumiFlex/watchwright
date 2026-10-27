@@ -24,6 +24,31 @@ export interface ParamDef {
   description?: string;
 }
 
+/** A review criterion: a 1-to-N scale, named choices, or yes/no. */
+export type Criterion = { id: string; title: string; description: string | null } & (
+  | { kind: "scale"; scale: number }
+  | { kind: "choices"; choices: string[] }
+  | { kind: "yesNo" }
+);
+export type Score = number | string | boolean;
+
+export interface Review {
+  runId: string;
+  packId: string;
+  attemptId: string;
+  testId: string;
+  reviewer: string;
+  scores: Record<string, Score>;
+  note: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AttemptReviews {
+  criteria: Criterion[];
+  reviews: Review[];
+}
+
 export interface PackTest {
   id: string;
   title: string;
@@ -33,6 +58,7 @@ export interface PackTest {
   inside: string | null;
   runs: number | Record<string, unknown> | "computed";
   file: string;
+  rubric: Criterion[];
 }
 
 export interface Pack {
@@ -50,6 +76,7 @@ export interface Pack {
   params: Record<string, ParamDef>;
   flags: Record<string, "robot" | "finding" | "info">;
   run: PackRunDefaults;
+  rubric: Criterion[];
   tests: PackTest[];
 }
 

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // Everything one attempt saved: error, flags, metrics and notes on top, then tabs for the
 // screenshots (gallery, scroll sets as strips, marks), kept texts, the log, collector records,
-// the video and the trace. J and K step to the next and previous attempt of the run.
+// the video and the trace, with the review beside them (below on narrow screens). J and K step
+// to the next and previous attempt of the run.
 import { ArrowLeft, ChevronLeft, ChevronRight } from "../icons";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, type Artifact, type ResultDocument, type RunDetail } from "../api";
@@ -12,6 +13,7 @@ import { toast } from "../toasts";
 import { vTip } from "../tooltip";
 import DataTable from "../components/DataTable.vue";
 import ImageViewer from "../components/ImageViewer.vue";
+import ReviewPanel from "../components/ReviewPanel.vue";
 import SelectMenu from "../components/SelectMenu.vue";
 import StatusChip from "../components/StatusChip.vue";
 import TabBar from "../components/TabBar.vue";
@@ -214,89 +216,92 @@ watch(
         </div>
       </section>
 
-      <section class="card tabs-card">
-        <TabBar v-model="tab" :tabs="tabs" id-prefix="att" label="What the attempt saved" />
+      <div class="body">
+        <section class="card tabs-card">
+          <TabBar v-model="tab" :tabs="tabs" id-prefix="att" label="What the attempt saved" />
 
-        <div v-if="tab === 'shots'" id="att-panel-shots" role="tabpanel" aria-labelledby="att-tab-shots" class="panel">
-          <template v-for="(g, gi) in groups" :key="gi">
-            <div v-if="g.set === null" class="gallery">
-              <button v-for="a in g.shots" :key="a.url" type="button" class="thumb" :class="{ mark: a.kind === 'mark' }" @click="openShot(a)">
-                <img :src="a.url" :alt="a.name" loading="lazy" />
-                <span class="cap"><span v-if="a.kind === 'mark'" class="tag">mark</span>{{ a.name }}</span>
-              </button>
-            </div>
-            <figure v-else class="strip">
-              <figcaption><strong>{{ g.set }}</strong> <span class="muted small">scroll set · {{ g.shots.length }} {{ g.shots.length === 1 ? "shot" : "shots" }}</span></figcaption>
-              <div class="strip-body">
-                <button v-for="a in g.shots" :key="a.url" v-tip="a.name" type="button" class="strip-shot" @click="openShot(a)">
+          <div v-if="tab === 'shots'" id="att-panel-shots" role="tabpanel" aria-labelledby="att-tab-shots" class="panel">
+            <template v-for="(g, gi) in groups" :key="gi">
+              <div v-if="g.set === null" class="gallery">
+                <button v-for="a in g.shots" :key="a.url" type="button" class="thumb" :class="{ mark: a.kind === 'mark' }" @click="openShot(a)">
                   <img :src="a.url" :alt="a.name" loading="lazy" />
+                  <span class="cap"><span v-if="a.kind === 'mark'" class="tag">mark</span>{{ a.name }}</span>
                 </button>
               </div>
-            </figure>
-          </template>
-        </div>
-
-        <div v-else-if="tab === 'texts'" id="att-panel-texts" role="tabpanel" aria-labelledby="att-tab-texts" class="panel texts">
-          <article v-for="[name, text] in texts" :key="name" class="text">
-            <header>
-              <h3>{{ name }}</h3>
-              <span class="muted small">{{ text.length }} characters</span>
-              <button class="btn small-btn" type="button" @click="copy(text)">Copy</button>
-            </header>
-            <pre>{{ text }}</pre>
-          </article>
-        </div>
-
-        <div v-else-if="tab === 'log'" id="att-panel-log" role="tabpanel" aria-labelledby="att-tab-log" class="panel">
-          <div class="filters">
-            <label for="att-log-level" class="sr-only">Which lines</label>
-            <SelectMenu id="att-log-level" v-model="logLevel" :options="levelOptions" />
+              <figure v-else class="strip">
+                <figcaption><strong>{{ g.set }}</strong> <span class="muted small">scroll set · {{ g.shots.length }} {{ g.shots.length === 1 ? "shot" : "shots" }}</span></figcaption>
+                <div class="strip-body">
+                  <button v-for="a in g.shots" :key="a.url" v-tip="a.name" type="button" class="strip-shot" @click="openShot(a)">
+                    <img :src="a.url" :alt="a.name" loading="lazy" />
+                  </button>
+                </div>
+              </figure>
+            </template>
           </div>
-          <ol v-if="shownLog.length" class="log">
-            <li v-for="(l, i) in shownLog" :key="i" :class="l.level"><time>{{ time(l.time) }}</time> {{ l.message }}</li>
-          </ol>
-          <p v-else class="muted">{{ doc.log.length ? "No lines match." : "Nothing was logged." }}</p>
-        </div>
 
-        <div v-else-if="tab === 'collectors'" id="att-panel-collectors" role="tabpanel" aria-labelledby="att-tab-collectors" class="panel">
-          <div v-if="collectors.length > 1" class="filters">
-            <label for="att-collector" class="sr-only">Collector</label>
-            <SelectMenu id="att-collector" v-model="collectorPath" :options="collectorOptions" />
+          <div v-else-if="tab === 'texts'" id="att-panel-texts" role="tabpanel" aria-labelledby="att-tab-texts" class="panel texts">
+            <article v-for="[name, text] in texts" :key="name" class="text">
+              <header>
+                <h3>{{ name }}</h3>
+                <span class="muted small">{{ text.length }} characters</span>
+                <button class="btn small-btn" type="button" @click="copy(text)">Copy</button>
+              </header>
+              <pre>{{ text }}</pre>
+            </article>
           </div>
-          <p v-if="recordsError" class="error">{{ recordsError }}</p>
-          <DataTable
-            v-else
-            :columns="recordCols"
-            :rows="recordRows"
-            :row-key="(r) => r.i"
-            :label="collectors.find((c) => c.url === collectorPath)?.name ?? 'Records'"
-            height="480px"
-            :loading="records === null"
-          >
-            <template #empty>No records.</template>
-          </DataTable>
-          <p class="muted small"><a :href="collectorPath" target="_blank" rel="noopener">Open the JSON</a></p>
-        </div>
 
-        <div v-else-if="tab === 'video'" id="att-panel-video" role="tabpanel" aria-labelledby="att-tab-video" class="panel videos">
-          <div v-for="v in videos" :key="v.url" class="video">
-            <VideoPlayer :src="v.url" :label="v.name" />
-            <p class="muted small">{{ v.name }} · {{ fileSize(v.size) }} · <a :href="v.url" download>Download</a></p>
+          <div v-else-if="tab === 'log'" id="att-panel-log" role="tabpanel" aria-labelledby="att-tab-log" class="panel">
+            <div class="filters">
+              <label for="att-log-level" class="sr-only">Which lines</label>
+              <SelectMenu id="att-log-level" v-model="logLevel" :options="levelOptions" />
+            </div>
+            <ol v-if="shownLog.length" class="log">
+              <li v-for="(l, i) in shownLog" :key="i" :class="l.level"><time>{{ time(l.time) }}</time> {{ l.message }}</li>
+            </ol>
+            <p v-else class="muted">{{ doc.log.length ? "No lines match." : "Nothing was logged." }}</p>
           </div>
-        </div>
 
-        <div v-else-if="tab === 'trace' && trace" id="att-panel-trace" role="tabpanel" aria-labelledby="att-tab-trace" class="panel trace">
-          <p>
-            The trace holds every action of this attempt with the page before and after it, the call log, console and network. It opens in Playwright's trace viewer, served by
-            Watchwright, in a new tab.
-          </p>
-          <p class="actions">
-            <a class="btn primary" :href="traceHref" target="_blank" rel="noopener">Open in the trace viewer</a>
-            <a class="btn" :href="trace.url" download>Download trace.zip</a>
-            <span class="muted small">{{ fileSize(trace.size) }}</span>
-          </p>
-        </div>
-      </section>
+          <div v-else-if="tab === 'collectors'" id="att-panel-collectors" role="tabpanel" aria-labelledby="att-tab-collectors" class="panel">
+            <div v-if="collectors.length > 1" class="filters">
+              <label for="att-collector" class="sr-only">Collector</label>
+              <SelectMenu id="att-collector" v-model="collectorPath" :options="collectorOptions" />
+            </div>
+            <p v-if="recordsError" class="error">{{ recordsError }}</p>
+            <DataTable
+              v-else
+              :columns="recordCols"
+              :rows="recordRows"
+              :row-key="(r) => r.i"
+              :label="collectors.find((c) => c.url === collectorPath)?.name ?? 'Records'"
+              height="480px"
+              :loading="records === null"
+            >
+              <template #empty>No records.</template>
+            </DataTable>
+            <p class="muted small"><a :href="collectorPath" target="_blank" rel="noopener">Open the JSON</a></p>
+          </div>
+
+          <div v-else-if="tab === 'video'" id="att-panel-video" role="tabpanel" aria-labelledby="att-tab-video" class="panel videos">
+            <div v-for="v in videos" :key="v.url" class="video">
+              <VideoPlayer :src="v.url" :label="v.name" />
+              <p class="muted small">{{ v.name }} · {{ fileSize(v.size) }} · <a :href="v.url" download>Download</a></p>
+            </div>
+          </div>
+
+          <div v-else-if="tab === 'trace' && trace" id="att-panel-trace" role="tabpanel" aria-labelledby="att-tab-trace" class="panel trace">
+            <p>
+              The trace holds every action of this attempt with the page before and after it, the call log, console and network. It opens in Playwright's trace viewer, served by
+              Watchwright, in a new tab.
+            </p>
+            <p class="actions">
+              <a class="btn primary" :href="traceHref" target="_blank" rel="noopener">Open in the trace viewer</a>
+              <a class="btn" :href="trace.url" download>Download trace.zip</a>
+              <span class="muted small">{{ fileSize(trace.size) }}</span>
+            </p>
+          </div>
+        </section>
+        <ReviewPanel :run-id="runId" :attempt-id="attemptId" />
+      </div>
 
       <ImageViewer v-model="open" :images="viewerImages" :label="`Shots of ${doc.test.id}`" />
     </template>
@@ -305,6 +310,9 @@ watch(
 </template>
 
 <style scoped>
+.page {
+  max-width: 1440px;
+}
 .crumb .num {
   color: var(--muted);
 }
@@ -401,8 +409,19 @@ watch(
 .facts dd {
   margin: 0;
 }
+.body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: var(--space-4);
+  align-items: start;
+}
 .tabs-card {
   padding-top: var(--space-2);
+}
+@media (max-width: 960px) {
+  .body {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .panel {
   padding-top: var(--space-4);

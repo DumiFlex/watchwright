@@ -3,7 +3,7 @@
 // its recent runs.
 import { ArrowLeft } from "../icons";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { getJson, sendJson, type Pack, type PackTest, type RunSummary } from "../api";
+import { getJson, sendJson, type Criterion, type Pack, type PackTest, type RunSummary } from "../api";
 import { ago, countsText, when } from "../format";
 import { LiveConnection } from "../live";
 import StatusChip from "../components/StatusChip.vue";
@@ -16,14 +16,21 @@ const pack = ref<Pack | null>(null);
 const runs = ref<RunSummary[]>([]);
 const error = ref<string | null>(null);
 const reloading = ref(false);
-type Tab = "tests" | "params" | "flags";
+type Tab = "tests" | "params" | "flags" | "rubric";
 const tab = ref<Tab>("tests");
 
 const tabs = computed(() => [
   { value: "tests" as const, label: "Tests", count: pack.value?.tests.length ?? 0 },
   { value: "params" as const, label: "Parameters", count: Object.keys(pack.value?.params ?? {}).length },
   { value: "flags" as const, label: "Flags", count: Object.keys(pack.value?.flags ?? {}).length },
+  { value: "rubric" as const, label: "Rubric", count: pack.value?.rubric.length ?? 0 },
 ]);
+// Tests that score on something other than the pack's rubric.
+const ownRubric = computed(() => {
+  const base = (pack.value?.rubric ?? []).map((c) => c.id).join(",");
+  return (pack.value?.tests ?? []).filter((t) => t.rubric.map((c) => c.id).join(",") !== base);
+});
+const criterionKind = (c: Criterion) => (c.kind === "scale" ? `1 to ${c.scale}` : c.kind === "yesNo" ? "yes or no" : c.choices.join(", "));
 
 const FLAG_KIND: Record<string, string> = {
   robot: "The harness or the test went wrong: the attempt is broken, and Redo broken runs it again.",
@@ -144,6 +151,27 @@ onBeforeUnmount(() => live?.close());
           </dl>
           <p v-else class="muted">This pack declares no flags.</p>
         </div>
+        <div v-show="tab === 'rubric'" id="pack-panel-rubric" role="tabpanel" aria-labelledby="pack-tab-rubric" class="panel">
+          <p class="muted small">What reviewers score each attempt on.</p>
+          <dl class="defs">
+            <template v-for="c in pack.rubric" :key="c.id">
+              <dt><code>{{ c.id }}</code></dt>
+              <dd>
+                <strong>{{ c.title }}</strong> <span class="muted small">{{ criterionKind(c) }}</span>
+                <span v-if="c.description" class="small"> · {{ c.description }}</span>
+              </dd>
+            </template>
+          </dl>
+          <template v-if="ownRubric.length">
+            <h3 class="sub">Tests with their own criteria</h3>
+            <dl class="defs">
+              <template v-for="t in ownRubric" :key="t.id">
+                <dt><code>{{ t.id }}</code></dt>
+                <dd>{{ t.rubric.map((c) => c.title).join(", ") }}</dd>
+              </template>
+            </dl>
+          </template>
+        </div>
       </section>
 
       <section class="card" aria-labelledby="pk-runs">
@@ -237,6 +265,11 @@ onBeforeUnmount(() => live?.close());
 }
 .defs dd {
   margin: 0;
+}
+.sub {
+  margin: var(--space-5) 0 var(--space-2);
+  font-size: 13px;
+  color: var(--muted);
 }
 .choice {
   margin-left: 4px;

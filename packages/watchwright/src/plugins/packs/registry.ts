@@ -6,6 +6,7 @@ import type { EventLog } from "../../events/log.js";
 import type { FlagKind, ParamDef, TestDefinition } from "./api.js";
 import { currentStamp, findPackFile, loadPack, packChanged, PackLoadError, type LoadedPack } from "./loader.js";
 import { checkTests, paramType } from "./order.js";
+import { rubricFor, type Criterion, type RubricCriterion } from "./rubric.js";
 
 export interface PackTestSummary {
   id: string;
@@ -18,6 +19,8 @@ export interface PackTestSummary {
   runs: number | Record<string, unknown> | "computed";
   timeout: number | null;
   file: string;
+  /** The criteria reviewers score this test's attempts on. */
+  rubric: Criterion[];
 }
 
 export interface PackSummary {
@@ -37,6 +40,8 @@ export interface PackSummary {
   flags: Record<string, FlagKind>;
   /** The pack's run settings with defaults filled in; a run can override each. */
   run: PackRunDefaults;
+  /** The pack's review criteria (tests may add or drop some; see each test's `rubric`). */
+  rubric: Criterion[];
   tests: PackTestSummary[];
 }
 
@@ -77,7 +82,7 @@ export const PACKS_MIGRATION_SQL = `
   );
 `;
 
-function testSummary(t: TestDefinition): PackTestSummary {
+function testSummary(t: TestDefinition, rubric: readonly RubricCriterion[] | undefined): PackTestSummary {
   const r = t.meta.runs;
   return {
     id: t.id,
@@ -89,6 +94,7 @@ function testSummary(t: TestDefinition): PackTestSummary {
     runs: r === undefined ? 1 : typeof r === "function" ? "computed" : typeof r === "number" ? r : { ...r },
     timeout: t.meta.timeout ?? null,
     file: t.file,
+    rubric: rubricFor(rubric, t.meta.review),
   };
 }
 
@@ -143,7 +149,7 @@ export class PackRegistry {
     const job = (async () => {
       try {
         const pack = await loadPack(row.path, path.join(this.cacheRoot, id));
-        const problems = checkTests(pack.tests);
+        const problems = checkTests(pack.tests, pack.options.rubric);
         this.store(id, pack, problems);
         this.loaded.set(id, pack);
         this.events.append("pack.loaded", { packId: id, tests: pack.tests.length, problems });
@@ -204,7 +210,8 @@ export class PackRegistry {
         trace: o.run?.trace ?? RUN_DEFAULTS.trace,
         video: o.run?.video ?? RUN_DEFAULTS.video,
       },
-      tests: pack.tests.map(testSummary),
+      rubric: rubricFor(o.rubric, undefined),
+      tests: pack.tests.map((t) => testSummary(t, o.rubric)),
     };
     this.db
       .prepare("UPDATE packs SET name = ?, site_key = ?, status = ?, error = ?, problems = ?, summary = ?, loaded_at = ? WHERE id = ?")
@@ -229,7 +236,8 @@ export class PackRegistry {
       params: s.params ?? {},
       flags: s.flags ?? {},
       run: { ...RUN_DEFAULTS, ...s.run },
-      tests: s.tests ?? [],
+      rubric: s.rubric ?? rubricFor(undefined, undefined),
+      tests: (s.tests ?? []).map((t) => ({ ...t, rubric: t.rubric ?? rubricFor(undefined, undefined) })),
     };
   }
 }
