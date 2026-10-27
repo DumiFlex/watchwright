@@ -5,6 +5,8 @@ import { LiveConnection } from "../live";
 import CheckBox from "../components/CheckBox.vue";
 import NumberInput from "../components/NumberInput.vue";
 import SelectMenu from "../components/SelectMenu.vue";
+import TextField from "../components/TextField.vue";
+import { vTip } from "../tooltip";
 import StatusChip from "../components/StatusChip.vue";
 
 const packs = ref<Pack[]>([]);
@@ -136,7 +138,7 @@ onBeforeUnmount(() => {
             <span class="psub">{{ p.tests.length }} tests · {{ p.browser }}<template v-if="p.baseURL"> · {{ p.baseURL }}</template></span>
           </button>
           <StatusChip v-if="p.status === 'error'" status="failed" />
-          <button class="btn" title="Build the pack again" @click="reloadPack(p.id)">Reload</button>
+          <button v-tip="'Build the pack again'" class="btn" @click="reloadPack(p.id)">Reload</button>
           <div v-if="p.status === 'error'" class="perr">
             <p>{{ p.error }}</p>
             <ul v-if="p.problems.length">
@@ -148,7 +150,7 @@ onBeforeUnmount(() => {
       <p v-else class="muted">No packs yet. Add the folder of a test pack (the folder with its <code>pack.ts</code>).</p>
       <form class="add" @submit.prevent="addPack">
         <label class="sr" for="pack-path">Pack folder</label>
-        <input id="pack-path" v-model="newPath" class="field" placeholder="Absolute path, e.g. D:\sites\shop\watchwright" autocomplete="off" />
+        <TextField id="pack-path" v-model="newPath" placeholder="Absolute path, e.g. D:\sites\shop\watchwright" />
         <button class="btn" type="submit" :disabled="!newPath.trim() || adding">{{ adding ? "Adding…" : "Add pack" }}</button>
       </form>
       <p v-if="addError" class="error" role="alert">{{ addError }}</p>
@@ -174,7 +176,7 @@ onBeforeUnmount(() => {
             <SelectMenu v-if="d.choices" :id="`p-${key}`" v-model="params[key]!" :options="d.choices.map((c) => ({ value: c, label: String(c) }))" />
             <NumberInput v-else-if="d.type === 'number'" :id="`p-${key}`" v-model="params[key] as number" :label="String(key)" />
             <CheckBox v-else-if="d.type === 'boolean'" :id="`p-${key}`" v-model="params[key] as boolean">{{ d.description ?? "On" }}</CheckBox>
-            <input v-else :id="`p-${key}`" v-model="params[key]" class="field" />
+            <TextField v-else :id="`p-${key}`" v-model="params[key] as string" />
             <span v-if="d.description && d.type !== 'boolean'" class="muted small">{{ d.description }}</span>
           </div>
           <CheckBox v-model="pauseOnBroken" class="test">Pause when a test breaks, and wait for Retry or Skip</CheckBox>

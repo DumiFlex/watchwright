@@ -3,8 +3,10 @@ import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, parseRoute, type HealthData, type Route } from "./api";
 import BrandMark from "./components/BrandMark.vue";
 import ThemePicker from "./components/ThemePicker.vue";
+import { vTip } from "./tooltip";
 import { applyTheme, browserStore, loadTheme, saveTheme, type Theme } from "./theme";
 import HomeView from "./views/HomeView.vue";
+import KitView from "./views/KitView.vue";
 import RunView from "./views/RunView.vue";
 
 const theme = ref<Theme>(loadTheme(browserStore()));
@@ -40,12 +42,13 @@ onBeforeUnmount(() => window.removeEventListener("hashchange", onHash));
     <a class="brand" href="#/">
       <BrandMark :size="28" />
       <span class="wordmark">Watchwright</span>
-      <span v-if="health" class="version num" :title="`Data folder: ${health.dataDir}`">v{{ health.version }}</span>
+      <span v-if="health" v-tip="`Data folder: ${health.dataDir}`" class="version num">v{{ health.version }}</span>
       <span v-else-if="down" class="down">Server unreachable</span>
     </a>
     <ThemePicker v-model="theme" />
   </header>
   <RunView v-if="route.name === 'run'" :id="route.id" />
+  <KitView v-else-if="route.name === 'kit'" />
   <HomeView v-else />
 </template>
 
