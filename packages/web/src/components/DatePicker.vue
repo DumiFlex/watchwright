@@ -85,8 +85,11 @@ function onKey(e: KeyboardEvent) {
 function onDocPointer(e: PointerEvent) {
   if (open.value && root.value && !root.value.contains(e.target as Node)) hide(false);
 }
+// Tabbing away closes the calendar. Focus going nowhere (a day cell re-rendered when the
+// month changes) does not; outside clicks are handled by onDocPointer.
 function onFocusOut(e: FocusEvent) {
-  if (open.value && root.value && !root.value.contains(e.relatedTarget as Node | null)) hide(false);
+  const to = e.relatedTarget as Node | null;
+  if (open.value && to && root.value && !root.value.contains(to)) hide(false);
 }
 onMounted(() => document.addEventListener("pointerdown", onDocPointer));
 onBeforeUnmount(() => document.removeEventListener("pointerdown", onDocPointer));

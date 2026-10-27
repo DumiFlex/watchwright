@@ -31,6 +31,10 @@ function onDrop(e: DragEvent) {
   over.value = false;
   if (!props.disabled) take(e.dataTransfer?.files ?? null);
 }
+function onLeave(e: DragEvent) {
+  // dragleave also fires when moving onto a child; only clear when the drag left the zone
+  if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node | null)) over.value = false;
+}
 function size(n: number) {
   return n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 ** 2).toFixed(1)} MB`;
 }
@@ -41,7 +45,7 @@ function size(n: number) {
     class="fp"
     :class="{ over, disabled }"
     @dragover.prevent="over = !disabled"
-    @dragleave="over = false"
+    @dragleave="onLeave"
     @drop.prevent="onDrop"
   >
     <input
