@@ -110,6 +110,11 @@ describe("compare", () => {
     expect(two).toContain("Mean score: aaaa0001 3.3, bbbb0002 3.0");
     expect(two).toContain("#### Run bbbb0002 (model=haiku)");
     expect(two).toMatch(/### Attempt 2\n\n#### Run aaaa0001 \(model=q9\)\n\n\*\*failed\*\*[^]*#### Run bbbb0002 \(model=haiku\)\n\nNot run\./);
+
+    const bare = (id: string): CompareInput => ({ ...a, run: { ...a.run, id, params: {} } });
+    const three = toMarkdown(compare([bare("cccc0003"), bare("dddd0004")]), { link: (s) => s.path, now: "2026-10-27T12:30:00.000Z" });
+    expect(three).toContain("#### Run cccc0003\n");
+    expect(three).not.toContain("#### Run cccc0003 (");
   });
 });
 

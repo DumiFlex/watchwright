@@ -264,7 +264,7 @@ function time(iso: string) {
 </script>
 
 <template>
-  <main class="page" :class="{ wide: active }">
+  <main class="page">
     <p class="crumb"><a href="#/"><ArrowLeft :size="15" />Runs</a></p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <template v-if="run">
@@ -435,8 +435,9 @@ function time(iso: string) {
   padding: 0 var(--space-2);
   font-size: 14px;
 }
+/* One width while running and after, so the page doesn't jump when the run ends. */
 .page {
-  max-width: 1280px;
+  max-width: 1600px;
   margin: 0 auto;
   padding: 16px 24px 32px;
   display: grid;
@@ -478,9 +479,6 @@ function time(iso: string) {
 .banner.warn {
   border-color: var(--warn);
   background: color-mix(in srgb, var(--warn) 10%, var(--surface));
-}
-.page.wide {
-  max-width: 1600px;
 }
 .grid {
   display: grid;
@@ -678,13 +676,14 @@ function time(iso: string) {
   list-style: none;
   margin: 0;
   padding: 0;
+  /* Whole lines only: 14 lines of 20px, so the box never ends halfway through one. */
   max-height: 280px;
   overflow-y: auto;
-  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 12.5px;
+  line-height: 20px;
 }
 .log li {
-  padding: 1px 0;
   overflow-wrap: anywhere;
 }
 .log li.warn {
