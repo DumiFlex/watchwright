@@ -364,7 +364,7 @@ function time(iso: string) {
             <button v-tip="'Save the live view to this attempt, with a note (M)'" class="btn" aria-keyshortcuts="M" :disabled="busy || !live?.attemptId" @click="markOpen = true">Mark</button>
             <button v-tip="'Stop after this test (Shift+S)'" class="btn" aria-keyshortcuts="Shift+S" :disabled="busy || !!live?.stopping" @click="act('stop', { when: 'after' })">Stop after this test</button>
             <button class="btn danger" :disabled="busy || live?.stopping === 'now'" @click="act('stop', { when: 'now' })">Stop now</button>
-            <button v-tip="'Keyboard shortcuts (?)'" class="btn" aria-label="Keyboard shortcuts" aria-keyshortcuts="?" @click="keysOpen = true"><Keyboard :size="15" /></button>
+            <button v-tip="'Keyboard shortcuts (?)'" class="btn keysbtn" aria-label="Keyboard shortcuts" aria-keyshortcuts="?" @click="keysOpen = true"><Keyboard :size="15" /></button>
           </template>
           <button v-if="run.status === 'queued'" class="btn danger" :disabled="busy" @click="act('stop', { when: 'now' })">Cancel</button>
           <button v-if="canResumeRun" class="btn primary" :disabled="busy" @click="act('resume')">Resume run</button>
@@ -512,7 +512,7 @@ function time(iso: string) {
             <dd>{{ k.what }}</dd>
           </template>
         </dl>
-        <p class="muted small">Each works only when its button shows, and not while a dialog is open.</p>
+        <p class="muted small keysnote">Each works only when its button shows, and not while a dialog is open.</p>
       </ModalDialog>
     </template>
   </main>
@@ -528,6 +528,15 @@ function time(iso: string) {
 }
 .shortcut-list dd {
   margin: 0;
+}
+.shortcut-list + .keysnote {
+  margin: var(--space-4) 0 0;
+}
+/* no keyboard to speak of at phone width */
+@media (max-width: 720px) {
+  .keysbtn {
+    display: none;
+  }
 }
 .exportlabel {
   padding: 0 var(--space-2);

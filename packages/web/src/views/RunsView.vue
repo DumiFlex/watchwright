@@ -81,6 +81,13 @@ watch([packFilter, statusFilter], () => {
   replaceRoute({ name: "runs", query: { pack: packFilter.value, status: statusFilter.value, q: search.value.trim() } });
   void load();
 });
+// A link to the list with a search (#/?q=…) while the list is open.
+watch(
+  () => props.query.q ?? "",
+  (q) => {
+    if (q !== search.value.trim()) search.value = q;
+  },
+);
 // The search waits for a pause in typing.
 let typing: ReturnType<typeof setTimeout> | null = null;
 watch(search, () => {
