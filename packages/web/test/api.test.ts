@@ -57,6 +57,7 @@ describe("api", () => {
   it("parses hash routes", () => {
     expect(parseRoute("#/runs/0a1b2c3d")).toEqual({ name: "run", id: "0a1b2c3d" });
     expect(parseRoute("")).toEqual({ name: "home" });
+    expect(parseRoute("#/kit")).toEqual({ name: "kit" });
     expect(parseRoute("#/runs/nope")).toEqual({ name: "home" });
   });
 });
