@@ -2,8 +2,10 @@
 // Every themed control on one page (#/kit), to check them in each look and mode and to copy
 // from when a feature needs one. The page is not linked from the app.
 import { computed, ref } from "vue";
+import BreadCrumbs from "../components/BreadCrumbs.vue";
 import CheckBox from "../components/CheckBox.vue";
 import CheckTree from "../components/CheckTree.vue";
+import CommandPalette, { type PaletteCommand } from "../components/CommandPalette.vue";
 import CodeView from "../components/CodeView.vue";
 import DataTable from "../components/DataTable.vue";
 import DatePicker from "../components/DatePicker.vue";
@@ -12,6 +14,7 @@ import DiffView from "../components/DiffView.vue";
 import FilePicker from "../components/FilePicker.vue";
 import ImageViewer from "../components/ImageViewer.vue";
 import JsonTree from "../components/JsonTree.vue";
+import KeyHint from "../components/KeyHint.vue";
 import MenuButton from "../components/MenuButton.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import MultiSelect from "../components/MultiSelect.vue";
@@ -20,6 +23,7 @@ import ProgressBar from "../components/ProgressBar.vue";
 import RadioGroup from "../components/RadioGroup.vue";
 import RangeSlider from "../components/RangeSlider.vue";
 import SelectMenu from "../components/SelectMenu.vue";
+import SideDrawer from "../components/SideDrawer.vue";
 import SortableList from "../components/SortableList.vue";
 import SplitPane from "../components/SplitPane.vue";
 import StatusChip from "../components/StatusChip.vue";
@@ -197,6 +201,39 @@ const shots = [
 ];
 const shotOpen = ref<number | null>(null);
 
+const drawer = ref(false);
+const drawerStart = ref(false);
+const palette = ref(false);
+const ran = ref("");
+const demoCommands: PaletteCommand[] = [
+  { id: "rerun", label: "Run again", group: "Run 0a1b2c3d", keys: "Mod+Enter", icon: icons.RotateCcw, run: () => (ran.value = "Run again") },
+  { id: "pause", label: "Pause at the next step", group: "Run 0a1b2c3d", keys: "P", icon: icons.Pause, run: () => (ran.value = "Pause") },
+  { id: "stop", label: "Stop the run", group: "Run 0a1b2c3d", icon: icons.Square, run: () => (ran.value = "Stop") },
+  { id: "trace", label: "Open the trace of C1 Guest checkout", group: "Run 0a1b2c3d", words: "playwright viewer", icon: icons.FileCode, run: () => (ran.value = "Open trace") },
+  { id: "packs", label: "Go to packs", group: "Go to", icon: icons.FolderOpen, run: () => (ran.value = "Go to packs") },
+  { id: "runs", label: "Go to runs", group: "Go to", icon: icons.ListChecks, run: () => (ran.value = "Go to runs") },
+  { id: "copy", label: "Copy the run id", group: "Other", icon: icons.Copy, run: () => (ran.value = "Copy the run id") },
+];
+const crumbs = [
+  { label: "Runs", href: "#/" },
+  { label: "0a1b2c3d", href: "#/kit" },
+  { label: "C1 Guest checkout" },
+];
+const deepCrumbs = [
+  { label: "Packs", href: "#/packs" },
+  { label: "shop-smoke", href: "#/kit" },
+  { label: "Checkout", href: "#/kit" },
+  { label: "C1 Guest checkout", href: "#/kit" },
+  { label: "Attempt 2", href: "#/kit" },
+  { label: "Step 4" },
+];
+const shortcuts = [
+  { keys: "Mod+K", what: "Open the command palette" },
+  { keys: "Mod+Enter", what: "Start the run" },
+  { keys: "Escape", what: "Close a dialog or menu" },
+  { keys: "ArrowUp", what: "Previous item" },
+  { keys: "Shift+?", what: "Show the shortcuts" },
+];
 const dialog = ref(false);
 const formDialog = ref(false);
 const picked = ref("");
@@ -479,6 +516,58 @@ const traces = [
     </section>
 
     <section class="card">
+      <h2 class="display">Getting around</h2>
+      <div class="grid">
+        <div class="item">
+          <span class="lbl">Command palette</span>
+          <div class="row">
+            <button class="btn" @click="palette = true">Open palette</button>
+            <span class="muted">{{ ran ? `Ran: ${ran}` : "Or press" }} <KeyHint v-if="!ran" keys="Mod+K" /></span>
+          </div>
+          <p class="muted note">The app's own palette (pages, looks and modes) opens with <KeyHint keys="Mod+K" /> anywhere. This one shows run commands.</p>
+          <CommandPalette v-model:open="palette" :commands="demoCommands" label="Run commands" />
+        </div>
+        <div class="item">
+          <span class="lbl">Side drawer</span>
+          <div class="row">
+            <button class="btn" @click="drawer = true">From the end</button>
+            <button class="btn" @click="drawerStart = true">From the start</button>
+          </div>
+          <SideDrawer v-model="drawer" heading="Attempt 2 of C1 Guest checkout">
+            <p class="muted">Details open next to the page instead of over it.</p>
+            <JsonTree :value="sampleJson" label="Attempt details" :open-depth="1" />
+            <template #actions>
+              <button class="btn" @click="drawer = false">Close</button>
+              <button class="btn primary" @click="drawer = false">Open attempt</button>
+            </template>
+          </SideDrawer>
+          <SideDrawer v-model="drawerStart" heading="Filters" side="start" width="320px">
+            <div class="form">
+              <label for="k-drawer-browser">Browser</label>
+              <SelectMenu id="k-drawer-browser" v-model="browser" :options="browsers" />
+              <label for="k-drawer-tests">Tests</label>
+              <MultiSelect id="k-drawer-tests" v-model="tests" :options="testOptions" empty-label="All tests" />
+            </div>
+          </SideDrawer>
+        </div>
+        <div class="item wide">
+          <span class="lbl">Breadcrumbs</span>
+          <BreadCrumbs :items="crumbs" />
+          <BreadCrumbs :items="deepCrumbs" />
+        </div>
+        <div class="item wide">
+          <span class="lbl">Shortcut keys</span>
+          <dl class="shortcut-list">
+            <template v-for="k in shortcuts" :key="k.keys">
+              <dt><KeyHint :keys="k.keys" /></dt>
+              <dd>{{ k.what }}</dd>
+            </template>
+          </dl>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
       <h2 class="display">Media</h2>
       <div class="grid">
         <div class="item wide">
@@ -658,5 +747,15 @@ header p {
   .page {
     padding: var(--space-4);
   }
+}
+.shortcut-list {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-2) var(--space-4);
+  align-items: center;
+  margin: 0;
+}
+.shortcut-list dd {
+  margin: 0;
 }
 </style>
