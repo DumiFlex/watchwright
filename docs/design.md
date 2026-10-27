@@ -49,7 +49,7 @@ Helper classes: `.label` (small uppercase group label), `.display` (the look's d
 ## Rules
 
 - Numbers that change or line up (counts, timecodes, attempts) use `.num`.
-- No stock browser controls. Use `CheckBox`, `SelectMenu` and `NumberInput` (custom up/down buttons) instead of native checkboxes, selects and number spinners; `test/controls.test.ts` checks the views. Scrollbars, placeholders, autofill and `accent-color` are themed in `style.css`.
+- No stock browser controls. Use the kit in `packages/web/src/components/`: `TextField` (text, search, password, email, url), `TextArea`, `CheckBox`, `ToggleSwitch`, `RadioGroup`, `SelectMenu`, `NumberInput` (custom up/down buttons), `RangeSlider`, `DatePicker`, `FilePicker` and `ProgressBar`, and `v-tip` (`src/tooltip.ts`) instead of `title`. The page at `#/kit` shows all of them; check a new or changed control there in every look and mode. `test/controls.test.ts` fails on native controls and `title` attributes in templates. Scrollbars, placeholders, autofill and `accent-color` are themed in `style.css`.
 - Every page works at phone width (390px) and in every look and mode. Check them with the theme picker before taking screenshots.
 - Keep motion small and respect `prefers-reduced-motion`.
 
