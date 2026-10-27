@@ -6,12 +6,14 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, sendJson, type Pack, type RunSummary } from "../api";
 import { ago, countsText, done, duration, isActive, runDuration, when } from "../format";
 import { LiveConnection } from "../live";
+import { offerNotify } from "../notify";
 import { replaceRoute } from "../router";
 import { toast } from "../toasts";
 import MenuButton from "../components/MenuButton.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import ProgressBar from "../components/ProgressBar.vue";
 import SelectMenu from "../components/SelectMenu.vue";
+import TextField from "../components/TextField.vue";
 import StatusChip from "../components/StatusChip.vue";
 import { vTip } from "../tooltip";
 
@@ -35,14 +37,16 @@ const loading = ref(true);
 const loadError = ref<string | null>(null);
 const packFilter = ref(props.query.pack ?? "");
 const statusFilter = ref(statusOptions.some((o) => o.value === props.query.status) ? (props.query.status ?? "") : "");
+const search = ref(props.query.q ?? "");
 const now = ref(Date.now());
 
 const packOptions = computed(() => [{ value: "", label: "All packs" }, ...packs.value.map((p) => ({ value: p.id, label: p.name }))]);
-const filtered = computed(() => packFilter.value !== "" || statusFilter.value !== "");
+const filtered = computed(() => packFilter.value !== "" || statusFilter.value !== "" || search.value.trim() !== "");
 
 function listUrl(before?: string) {
   const q = new URLSearchParams({ limit: String(PAGE), status: statusFilter.value || FINISHED });
   if (packFilter.value) q.set("pack", packFilter.value);
+  if (search.value.trim()) q.set("q", search.value.trim());
   if (before) q.set("before", before);
   return `/api/v1/runs?${q}`;
 }
@@ -74,8 +78,17 @@ async function loadMore() {
 }
 
 watch([packFilter, statusFilter], () => {
-  replaceRoute({ name: "runs", query: { pack: packFilter.value, status: statusFilter.value } });
+  replaceRoute({ name: "runs", query: { pack: packFilter.value, status: statusFilter.value, q: search.value.trim() } });
   void load();
+});
+// The search waits for a pause in typing.
+let typing: ReturnType<typeof setTimeout> | null = null;
+watch(search, () => {
+  if (typing) clearTimeout(typing);
+  typing = setTimeout(() => {
+    replaceRoute({ name: "runs", query: { pack: packFilter.value, status: statusFilter.value, q: search.value.trim() } });
+    void load();
+  }, 250);
 });
 
 // Delete, behind a confirm dialog.
@@ -95,6 +108,7 @@ async function onRowMenu(r: RunSummary, value: string) {
   } else if (value === "run-again") {
     const res = await sendJson<RunSummary>(`/api/v1/runs/${r.id}/again`);
     if (!res.ok) return void toast(res.error.message, { tone: "bad" });
+    offerNotify();
     window.location.hash = `#/runs/${res.data.id}`;
   }
 }
@@ -144,6 +158,7 @@ onBeforeUnmount(() => {
   live?.close();
   if (timer) clearTimeout(timer);
   if (clock) clearInterval(clock);
+  if (typing) clearTimeout(typing);
 });
 </script>
 
@@ -182,6 +197,8 @@ onBeforeUnmount(() => {
       <div class="list-head">
         <h2 id="runs-title" class="display">Earlier runs</h2>
         <div class="filters">
+          <label class="sr-only" for="f-search">Search runs</label>
+          <TextField id="f-search" v-model="search" type="search" class="search" placeholder="Search: label, id, lang=de…" />
           <label class="sr-only" for="f-pack">Pack</label>
           <SelectMenu id="f-pack" v-model="packFilter" :options="packOptions" />
           <label class="sr-only" for="f-status">Status</label>
@@ -233,8 +250,8 @@ onBeforeUnmount(() => {
       </table>
       <div v-else class="empty">
         <template v-if="filtered">
-          <p class="muted">No runs match these filters.</p>
-          <button class="btn" @click="(packFilter = ''), (statusFilter = '')">Clear filters</button>
+          <p class="muted">{{ search.trim() ? `No runs match "${search.trim()}"${packFilter || statusFilter ? " with these filters" : ""}.` : "No runs match these filters." }}</p>
+          <button class="btn" @click="(packFilter = ''), (statusFilter = ''), (search = '')">Clear filters</button>
         </template>
         <template v-else-if="packs.length === 0">
           <p class="muted">No runs yet. Add a test pack first: the folder with its <code>pack.ts</code>.</p>
@@ -325,6 +342,9 @@ onBeforeUnmount(() => {
 .filters > :deep(*) {
   min-width: 160px;
 }
+.filters > .search {
+  min-width: 240px;
+}
 .runs {
   width: 100%;
   border-collapse: collapse;
@@ -411,10 +431,14 @@ onBeforeUnmount(() => {
 @media (max-width: 720px) {
   .filters {
     width: 100%;
+    flex-wrap: wrap;
   }
   .filters > :deep(*) {
     flex: 1;
     min-width: 0;
+  }
+  .filters > .search {
+    flex-basis: 100%;
   }
   .runs thead {
     display: none;

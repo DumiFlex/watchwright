@@ -170,7 +170,7 @@ export const runsPlugin = definePlugin({
     const control = (name: string, verb: string, title: string, fn: (id: string) => unknown) =>
       defineAction<{ id: string }>({ name, title, method: "POST", path: `/runs/:id/${verb}`, input: byId, handler: ({ id }) => guard(() => fn(id)) });
     return [
-      defineAction<{ limit?: number; pack?: string; status?: string; before?: string }>({
+      defineAction<{ limit?: number; pack?: string; status?: string; before?: string; q?: string }>({
         name: "runs.list",
         title: "List runs, newest first",
         method: "GET",
@@ -182,10 +182,11 @@ export const runsPlugin = definePlugin({
             pack: { type: "string", pattern: "^[0-9a-f]{8}$", description: "Only runs of this pack." },
             status: { type: "string", pattern: "^[a-z_]+(,[a-z_]+)*$", description: "Only runs in these statuses, comma separated." },
             before: { type: "string", description: "Cursor: the createdAt of the last run of the previous page." },
+            q: { type: "string", maxLength: 200, description: "Search: words that must each appear in the run's id, label, pack name, values, facts or status." },
           },
         },
-        handler: ({ limit, pack, status, before }) =>
-          engine.list({ limit, packId: pack, statuses: status ? (status.split(",") as RunStatus[]) : undefined, before }),
+        handler: ({ limit, pack, status, before, q }) =>
+          engine.list({ limit, packId: pack, statuses: status ? (status.split(",") as RunStatus[]) : undefined, before, q }),
       }),
       defineAction<{ id: string }>({
         name: "runs.delete",

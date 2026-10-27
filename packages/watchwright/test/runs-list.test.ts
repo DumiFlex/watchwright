@@ -14,7 +14,7 @@ afterEach(async () => {
   cleanTempDirs();
 });
 
-async function withRuns(rows: { id: string; pack: string; status: RunStatus; at: string }[]) {
+async function withRuns(rows: { id: string; pack: string; status: RunStatus; at: string; label?: string; params?: Record<string, unknown> }[]) {
   const dataDir = tempDir("ww-data-");
   const h = await startHarness(dataDir);
   harnesses.push(h);
@@ -28,8 +28,9 @@ async function withRuns(rows: { id: string; pack: string; status: RunStatus; at:
       site_key: "site",
       job_kind: "test",
       tests: "[]",
-      params: "{}",
+      params: JSON.stringify(r.params ?? {}),
       options: "{}",
+      label: r.label ?? "",
       status: r.status,
       started_by: "api",
       created_at: r.at,
@@ -46,6 +47,25 @@ describe("runs list and delete", () => {
     { id: "00000003", pack: "aaaaaaaa", status: "finished" as const, at: "2026-10-03T10:00:00.000Z" },
     { id: "00000004", pack: "aaaaaaaa", status: "queued" as const, at: "2026-10-04T10:00:00.000Z" },
   ];
+
+  it("searches by id, label, pack name, values and status, every word", async () => {
+    const { h } = await withRuns([
+      { id: "0000000a", pack: "aaaaaaaa", status: "finished", at: "2026-10-01T10:00:00.000Z", label: "nightly", params: { lang: "de", n: 5 } },
+      { id: "0000000b", pack: "bbbbbbbb", status: "stopped", at: "2026-10-02T10:00:00.000Z", label: "100% sure", params: { lang: "en", n: 50 } },
+    ]);
+    const find = async (q: string) => ids((await h.api<RunSummary[]>("GET", `/runs?q=${encodeURIComponent(q)}`)).data);
+    expect(await find("NIGHT")).toEqual(["0000000a"]);
+    expect(await find("0000000b")).toEqual(["0000000b"]);
+    expect(await find("pack bbbb")).toEqual(["0000000b"]);
+    expect(await find("lang=de")).toEqual(["0000000a"]);
+    expect(await find("n=5")).toEqual(["0000000a"]);
+    expect(await find("n=50")).toEqual(["0000000b"]);
+    expect(await find("stopped")).toEqual(["0000000b"]);
+    expect(await find("nightly stopped")).toEqual([]);
+    // % and _ are letters here, not wildcards
+    expect(await find("100%")).toEqual(["0000000b"]);
+    expect(await find("_")).toEqual([]);
+  });
 
   it("filters by pack and status and pages by cursor", async () => {
     const { h } = await withRuns(rows);
