@@ -15,6 +15,10 @@ export interface PaletteCommand {
   group?: string | undefined;
   /** Extra words that find the command without being shown. */
   words?: string | undefined;
+  /** A short line shown after the label, muted (a run's status and time). */
+  note?: string | undefined;
+  /** Listed only for a search, not on the empty palette (packs, runs, tests). */
+  searchOnly?: boolean | undefined;
   /** A shortcut shown on the right, like "Mod+Enter". */
   keys?: string | undefined;
   icon?: Component | undefined;
@@ -26,6 +30,9 @@ const props = withDefaults(defineProps<{ commands: readonly PaletteCommand[]; la
   placeholder: "Type a command or search",
 });
 const open = defineModel<boolean>("open", { default: false });
+
+/** A search lists at most this many, best first. */
+const MAX_FOUND = 60;
 
 const el = ref<HTMLDialogElement | null>(null);
 const input = ref<HTMLInputElement | null>(null);
@@ -45,9 +52,10 @@ const rows = computed<Row[]>(() => {
   if (!q) {
     // In their groups, in the order given, with each group listed where it first appears.
     const order: string[] = [];
-    for (const c of props.commands) if (!order.includes(c.group ?? "")) order.push(c.group ?? "");
+    const shown = props.commands.filter((c) => !c.searchOnly);
+    for (const c of shown) if (!order.includes(c.group ?? "")) order.push(c.group ?? "");
     return order.flatMap((g) =>
-      props.commands
+      shown
         .filter((c) => (c.group ?? "") === g)
         .map((cmd, i) => ({ cmd, parts: [{ text: cmd.label, hit: false }], heading: i === 0 && g ? g : undefined })),
     );
@@ -59,7 +67,10 @@ const rows = computed<Row[]>(() => {
     if (m) found.push({ row: { cmd, parts: markHits(cmd.label, m.hits) }, score: m.score });
     else if (extra) found.push({ row: { cmd, parts: [{ text: cmd.label, hit: false }] }, score: extra.score - 50 });
   }
-  return found.sort((a, b) => b.score - a.score).map((f) => f.row);
+  return found
+    .sort((a, b) => b.score - a.score)
+    .slice(0, MAX_FOUND)
+    .map((f) => f.row);
 });
 
 watch(query, () => (active.value = 0));
@@ -160,11 +171,12 @@ function onClick(e: MouseEvent) {
                 <template v-else>{{ p.text }}</template>
               </template>
             </span>
+            <span v-if="row.cmd.note" class="note">{{ row.cmd.note }}</span>
             <span v-if="query.trim() && row.cmd.group" class="group">{{ row.cmd.group }}</span>
             <KeyHint v-if="row.cmd.keys" :keys="row.cmd.keys" />
           </div>
         </template>
-        <p v-if="!rows.length" class="none" role="status">No commands match "{{ query.trim() }}"</p>
+        <p v-if="!rows.length" class="none" role="status">Nothing matches "{{ query.trim() }}"</p>
       </div>
       <footer class="foot" aria-hidden="true">
         <span><KeyHint keys="ArrowUp" /> <KeyHint keys="ArrowDown" /> to move</span>
@@ -263,6 +275,15 @@ function onClick(e: MouseEvent) {
   background: none;
   color: var(--accent-text);
   font-weight: 600;
+}
+.note {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 12px;
 }
 .group {
   color: var(--muted);

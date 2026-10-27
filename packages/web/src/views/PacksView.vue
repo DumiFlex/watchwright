@@ -2,7 +2,7 @@
 // Packs: every pack the server knows, whether it loads, and the ways to add one: a path field
 // that completes folders as you type, a folder browser, and a search for packs in a folder.
 // The server lists the folders (a page can't learn a folder's path; docs/plans/step-qol.md).
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { Ellipsis, FolderSearch, FolderOpen, TriangleAlert } from "../icons";
 import { getJson, sendJson, type FolderPlaces, type Pack } from "../api";
 import { ago, when } from "../format";
@@ -15,6 +15,9 @@ import PathInput from "../components/PathInput.vue";
 import PathLine from "../components/PathLine.vue";
 import StatusChip from "../components/StatusChip.vue";
 import { vTip } from "../tooltip";
+import { replaceRoute } from "../router";
+
+const props = defineProps<{ query: Record<string, string> }>();
 
 const packs = ref<Pack[]>([]);
 const loading = ref(true);
@@ -101,8 +104,17 @@ function sections(p: Pack): string {
   return s.size ? `${s.size} section${s.size === 1 ? "" : "s"}` : "";
 }
 
+// #/packs?browse=add (or find) opens the folder browser, as Ctrl+K's "Add a pack" does.
+function browseFromQuery(q: Record<string, string>) {
+  if (q.browse !== "add" && q.browse !== "find") return;
+  browse(q.browse);
+  replaceRoute({ name: "packs", query: {} });
+}
+watch(() => props.query, browseFromQuery);
+
 let live: LiveConnection | null = null;
 onMounted(async () => {
+  browseFromQuery(props.query);
   void load();
   live = new LiveConnection({}, { onEvent: (e) => e.type.startsWith("pack.") && void load() });
   const places = await getJson<FolderPlaces>("/api/v1/folders/places");

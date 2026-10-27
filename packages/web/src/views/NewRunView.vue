@@ -180,6 +180,13 @@ onMounted(async () => {
   await nextTick();
   applyPack(wanted);
   opening = false;
+  // #/new?pack=…&test=… (a test found with Ctrl+K): that test alone, on the pack's defaults.
+  const test = props.query.test;
+  if (test && wanted.tests.some((t) => t.id === test)) {
+    chosen.value = [test];
+    replaceRoute({ name: "new", query: { pack: wanted.id } });
+    return;
+  }
   const from = props.query.from;
   if (from && /^[0-9a-f]{8}$/.test(from)) {
     const run = await getJson<RunSummary>(`/api/v1/runs/${from}`);
