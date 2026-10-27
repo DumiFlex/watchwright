@@ -4,6 +4,9 @@
 // and pause, arrows jump 5 s, comma and period step one frame, F full screen.
 // Videos written while recording (WebM) often report an endless duration until the end of the
 // file is read, so on load the player seeks far ahead once to make the browser find the end.
+// The browser reports the position only about four times a second (timeupdate), so while the
+// video plays the player reads it every animation frame instead, and the seek bar and any
+// timeline below move smoothly.
 import { Maximize, Pause, Play, StepBack, StepForward } from "../icons";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { clockTime } from "../format";
@@ -12,8 +15,8 @@ import RangeSlider from "./RangeSlider.vue";
 import { vTip } from "../tooltip";
 
 const props = defineProps<{ src: string; label: string }>();
-/** The position in seconds as the video plays or seeks. */
-const emit = defineEmits<{ time: [seconds: number] }>();
+/** `time`: the position in seconds as the video plays or seeks. `duration`: its length in seconds, once known. */
+const emit = defineEmits<{ time: [seconds: number]; duration: [seconds: number] }>();
 
 const SPEEDS = [0.5, 1, 1.5, 2, 4];
 const FRAME = 1 / 25;
@@ -39,7 +42,7 @@ const seek = computed({
 function onMeta() {
   const v = video.value;
   if (!v) return;
-  if (Number.isFinite(v.duration)) duration.value = v.duration;
+  if (Number.isFinite(v.duration)) setDuration(v.duration);
   else {
     probing = true;
     v.currentTime = 1e101;
@@ -48,16 +51,42 @@ function onMeta() {
 function onDuration() {
   const v = video.value;
   if (!v || !Number.isFinite(v.duration)) return;
-  duration.value = v.duration;
+  setDuration(v.duration);
   if (probing) {
     probing = false;
     v.currentTime = 0;
   }
 }
+function setDuration(seconds: number) {
+  duration.value = seconds;
+  emit("duration", seconds);
+}
 function onTime() {
   if (probing || !video.value) return;
+  if (time.value === video.value.currentTime) return;
   time.value = video.value.currentTime;
   emit("time", time.value);
+}
+// While playing: the position every animation frame.
+let frameId = 0;
+function follow() {
+  cancelAnimationFrame(frameId);
+  const tick = () => {
+    const v = video.value;
+    if (!v || v.paused || v.ended) return;
+    onTime();
+    frameId = requestAnimationFrame(tick);
+  };
+  frameId = requestAnimationFrame(tick);
+}
+function onPlay() {
+  playing.value = true;
+  follow();
+}
+function onStop() {
+  playing.value = false;
+  cancelAnimationFrame(frameId);
+  onTime();
 }
 function toggle() {
   const v = video.value;
@@ -125,6 +154,7 @@ function onKey(e: KeyboardEvent) {
   e.preventDefault();
 }
 onBeforeUnmount(() => {
+  cancelAnimationFrame(frameId);
   video.value?.pause();
   document.removeEventListener("fullscreenchange", onFullscreenChange);
 });
@@ -150,9 +180,9 @@ defineExpose({ seekTo });
       @loadedmetadata="onMeta"
       @durationchange="onDuration"
       @timeupdate="onTime"
-      @play="playing = true"
-      @pause="playing = false"
-      @ended="playing = false"
+      @play="onPlay"
+      @pause="onStop"
+      @ended="onStop"
       @error="failed = true"
     />
     <p v-if="failed" class="failed">This video can't be played here. <a :href="src" download>Download it</a> instead.</p>
