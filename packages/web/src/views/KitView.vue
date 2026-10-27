@@ -5,6 +5,8 @@ import { ref } from "vue";
 import CheckBox from "../components/CheckBox.vue";
 import DatePicker from "../components/DatePicker.vue";
 import FilePicker from "../components/FilePicker.vue";
+import MenuButton from "../components/MenuButton.vue";
+import ModalDialog from "../components/ModalDialog.vue";
 import MultiSelect from "../components/MultiSelect.vue";
 import NumberInput from "../components/NumberInput.vue";
 import ProgressBar from "../components/ProgressBar.vue";
@@ -12,6 +14,7 @@ import RadioGroup from "../components/RadioGroup.vue";
 import RangeSlider from "../components/RangeSlider.vue";
 import SelectMenu from "../components/SelectMenu.vue";
 import StatusChip from "../components/StatusChip.vue";
+import TabBar from "../components/TabBar.vue";
 import TextArea from "../components/TextArea.vue";
 import TextField from "../components/TextField.vue";
 import ToggleSwitch from "../components/ToggleSwitch.vue";
@@ -52,6 +55,20 @@ const browsers = [
   { value: "chromium" as const, label: "Chromium" },
   { value: "firefox" as const, label: "Firefox" },
   { value: "webkit" as const, label: "WebKit" },
+];
+const tab = ref<"shots" | "texts" | "log">("shots");
+const tabs = [
+  { value: "shots" as const, label: "Screenshots", count: 12 },
+  { value: "texts" as const, label: "Texts", count: 3 },
+  { value: "log" as const, label: "Log" },
+];
+const dialog = ref(false);
+const formDialog = ref(false);
+const picked = ref("");
+const menu = [
+  { value: "open", label: "Open" },
+  { value: "again", label: "New run like this" },
+  { value: "delete", label: "Delete…", danger: true },
 ];
 const traces = [
   { value: "problems", label: "Only on problems", note: "Keep a trace when an attempt fails or breaks" },
@@ -155,6 +172,50 @@ const traces = [
         </div>
       </div>
     </section>
+
+    <section class="card">
+      <h2 class="display">Navigation and dialogs</h2>
+      <div class="grid">
+        <div class="item wide">
+          <span class="lbl">Tabs</span>
+          <TabBar v-model="tab" :tabs="tabs" id-prefix="k" label="Example tabs" />
+          <p :id="`k-panel-${tab}`" role="tabpanel" :aria-labelledby="`k-tab-${tab}`" class="muted">Panel: {{ tab }}. Arrow keys move between tabs.</p>
+        </div>
+        <div class="item">
+          <span class="lbl">Menu</span>
+          <div class="row">
+            <MenuButton :items="menu" label="Run actions" align="start" @select="picked = $event" />
+            <span class="muted">{{ picked ? `Picked: ${picked}` : "Nothing picked" }}</span>
+          </div>
+        </div>
+        <div class="item">
+          <span class="lbl">Dialog</span>
+          <div class="row">
+            <button class="btn" @click="dialog = true">Confirm dialog</button>
+            <button class="btn" @click="formDialog = true">Form dialog</button>
+          </div>
+          <ModalDialog v-model="dialog" heading="Delete this run?">
+            <p>Its results and files are removed. This can't be undone.</p>
+            <template #actions>
+              <button class="btn" @click="dialog = false">Cancel</button>
+              <button class="btn danger" @click="dialog = false">Delete run</button>
+            </template>
+          </ModalDialog>
+          <ModalDialog v-model="formDialog" heading="Run again">
+            <div class="form">
+              <label for="k-again-browser">Browser</label>
+              <SelectMenu id="k-again-browser" v-model="browser" :options="browsers" />
+              <label for="k-again-tests">Tests</label>
+              <MultiSelect id="k-again-tests" v-model="tests" :options="testOptions" empty-label="All tests" />
+            </div>
+            <template #actions>
+              <button class="btn" @click="formDialog = false">Cancel</button>
+              <button class="btn primary" @click="formDialog = false">Start run</button>
+            </template>
+          </ModalDialog>
+        </div>
+      </div>
+    </section>
   </main>
 </template>
 
@@ -204,6 +265,14 @@ header p {
 }
 .item > label[for],
 .lbl {
+  font-weight: 600;
+  font-size: 13px;
+}
+.form {
+  display: grid;
+  gap: var(--space-2);
+}
+.form label {
   font-weight: 600;
   font-size: 13px;
 }

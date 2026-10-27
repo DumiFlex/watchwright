@@ -4,7 +4,7 @@
 // ARIA combobox with a multi-select listbox: arrows move, Enter picks or drops, Escape
 // closes (a second Escape clears the search), Backspace in an empty box drops the last chip.
 import { computed, nextTick, ref, useId, watch } from "vue";
-import { useOutside, usePopup } from "../popup";
+import { useOutside, usePopup, usePopupHost } from "../popup";
 
 type MultiOption<V> = { value: V; label: string; group?: string | undefined; note?: string | undefined };
 
@@ -33,6 +33,7 @@ const list = ref<HTMLElement | null>(null);
 const listId = useId();
 const { style } = usePopup(field, list, open, { matchWidth: true });
 useOutside([root, list], open, () => (open.value = false));
+const host = usePopupHost(root);
 
 const chosen = computed(() => new Set<T>(model.value));
 const chosenOptions = computed(() => props.options.filter((o) => chosen.value.has(o.value)));
@@ -144,7 +145,7 @@ function focusInput() {
       />
       <span class="count num" aria-live="polite">{{ model.length ? `${model.length} chosen` : "" }}</span>
     </div>
-    <Teleport to="body">
+    <Teleport :to="host">
       <div v-if="open" ref="list" class="ms-pop" :style="style" @pointerdown.prevent>
         <div class="bar">
           <span class="muted">{{ shown.length }} of {{ options.length }}</span>

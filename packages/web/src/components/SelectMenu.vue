@@ -3,7 +3,7 @@
 // ARIA listbox pattern: arrows, Home/End, Enter/Space to pick, Escape to close, and typing
 // jumps to the next option starting with that letter.
 import { computed, nextTick, ref, useId } from "vue";
-import { useOutside, usePopup } from "../popup";
+import { useOutside, usePopup, usePopupHost } from "../popup";
 
 const props = defineProps<{ options: readonly { value: T; label: string }[]; id?: string; disabled?: boolean }>();
 const model = defineModel<T>({ required: true });
@@ -16,6 +16,7 @@ const list = ref<HTMLUListElement | null>(null);
 const listId = useId();
 const { style } = usePopup(button, list, open, { matchWidth: true });
 useOutside([root, list], open, () => hide(false));
+const host = usePopupHost(root);
 
 const selectedIndex = computed(() => props.options.findIndex((o) => o.value === model.value));
 const current = computed(() => props.options[selectedIndex.value]?.label ?? "");
@@ -97,7 +98,7 @@ function onButtonKey(e: KeyboardEvent) {
       <span class="value">{{ current }}</span>
       <svg class="chev" viewBox="0 0 10 6" width="10" height="6" aria-hidden="true"><path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" /></svg>
     </button>
-    <Teleport to="body">
+    <Teleport :to="host">
       <ul
         v-if="open"
         :id="listId"

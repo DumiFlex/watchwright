@@ -4,7 +4,7 @@
 // week, Page Up/Down a month, Home/End the start/end of the week, Enter picks, Escape closes.
 import { computed, nextTick, ref, useId } from "vue";
 import { addDays, addMonths, compareDays, monthGrid, parseDay, toIso, today, weekday, type Day } from "../calendar";
-import { useOutside, usePopup } from "../popup";
+import { useOutside, usePopup, usePopupHost } from "../popup";
 
 const props = withDefaults(defineProps<{ id?: string | undefined; min?: string | undefined; max?: string | undefined; placeholder?: string; disabled?: boolean; clearable?: boolean }>(), {
   id: undefined,
@@ -23,6 +23,7 @@ const pop = ref<HTMLElement | null>(null);
 const titleId = useId();
 const { style } = usePopup(button, pop, open);
 useOutside([root, pop], open, () => hide(false));
+const host = usePopupHost(root);
 
 const picked = computed(() => parseDay(model.value));
 const minDay = computed(() => (props.min ? parseDay(props.min) : null));
@@ -136,7 +137,7 @@ function onFocusOut(e: FocusEvent) {
         <svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
       </button>
     </div>
-    <Teleport to="body">
+    <Teleport :to="host">
       <div v-if="open" ref="pop" class="pop" :style="style" role="dialog" aria-modal="false" :aria-labelledby="titleId" @focusout="onFocusOut">
         <div class="head">
           <button type="button" class="nav" aria-label="Previous month" :disabled="noPrev" @click="moveTo(addMonths(focus, -1))">

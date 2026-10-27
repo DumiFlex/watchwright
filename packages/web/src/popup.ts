@@ -3,7 +3,7 @@
 // with overflow: hidden never clips them. They open on the preferred side, flip when the
 // other side has more room and stay inside the viewport. The room left on their side is
 // in the CSS variable --popup-room, for `max-height: min(240px, var(--popup-room))`.
-import { onBeforeUnmount, ref, watch, type Ref } from "vue";
+import { onBeforeUnmount, onMounted, ref, watch, type Ref } from "vue";
 
 export type Side = "bottom" | "top";
 export type Align = "start" | "center" | "end";
@@ -40,6 +40,9 @@ export function usePopup(anchor: Ref<HTMLElement | null>, popup: Ref<HTMLElement
   const side = ref<Side>(opts.side ?? "bottom");
   let frame = 0;
 
+  // After the first placement the popup keeps its side while it still fits, so a list that
+  // shrinks or grows as you type doesn't jump from one side of its field to the other.
+  let placed = false;
   function update() {
     const a = anchor.value;
     const p = popup.value;
@@ -47,7 +50,8 @@ export function usePopup(anchor: Ref<HTMLElement | null>, popup: Ref<HTMLElement
     const r = a.getBoundingClientRect();
     const width = opts.matchWidth ? `${r.width}px` : "";
     p.style.width = width; // measure at the width it will have
-    const at = placePopup(r, { width: p.offsetWidth, height: p.offsetHeight }, viewport(), opts);
+    const at = placePopup(r, { width: p.offsetWidth, height: p.offsetHeight }, viewport(), placed ? { ...opts, side: side.value } : opts);
+    placed = true;
     side.value = at.side;
     style.value = { position: "fixed", top: `${at.top}px`, left: `${at.left}px`, "--popup-room": `${at.maxHeight}px`, ...(width ? { width } : {}) };
   }
@@ -55,10 +59,18 @@ export function usePopup(anchor: Ref<HTMLElement | null>, popup: Ref<HTMLElement
     cancelAnimationFrame(frame);
     frame = requestAnimationFrame(update);
   };
+  let observer: ResizeObserver | undefined;
   function listen(on: boolean) {
+    observer?.disconnect();
+    observer = undefined;
     if (on) {
       window.addEventListener("scroll", schedule, true);
       window.addEventListener("resize", schedule);
+      // Content that changes size (a filtered list) is placed again.
+      if (popup.value) {
+        observer = new ResizeObserver(schedule);
+        observer.observe(popup.value);
+      }
     } else {
       window.removeEventListener("scroll", schedule, true);
       window.removeEventListener("resize", schedule);
@@ -71,6 +83,7 @@ export function usePopup(anchor: Ref<HTMLElement | null>, popup: Ref<HTMLElement
     open,
     (isOpen) => {
       listen(false);
+      placed = false;
       if (!isOpen) return;
       update();
       listen(true);
@@ -100,4 +113,16 @@ export function useOutside(inside: Ref<HTMLElement | null>[], open: Ref<boolean>
     { immediate: true },
   );
   onBeforeUnmount(() => document.removeEventListener("pointerdown", onDown, true));
+}
+
+/**
+ * Where to teleport a popup: <body>, or the modal <dialog> around `root` when there is one,
+ * because a modal dialog sits in the top layer and makes everything outside it inert.
+ */
+export function usePopupHost(root: Ref<HTMLElement | null>) {
+  const host = ref<string | HTMLElement>("body");
+  onMounted(() => {
+    host.value = root.value?.closest("dialog") ?? "body";
+  });
+  return host;
 }

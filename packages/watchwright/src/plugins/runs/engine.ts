@@ -1,4 +1,5 @@
 import { writeFileSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import path from "node:path";
 import type { Page } from "playwright";
 import type { EventLog } from "../../events/log.js";
@@ -23,6 +24,7 @@ import {
   type PlanEntry,
   type RunMode,
   type RunOptions,
+  type RunFilter,
   type RunRow,
   type RunsRepo,
   type RunSummary,
@@ -127,8 +129,18 @@ export class Engine {
     for (const id of this.o.repo.interruptLeftovers()) this.o.events.append("run.interrupted", { reason: "server_stopped" }, { runId: id });
   }
 
-  list(limit?: number): RunSummary[] {
-    return this.o.repo.runs(limit).map((r) => runSummary(r, this.o.repo.counts(r.id)));
+  list(filter: RunFilter = {}): RunSummary[] {
+    return this.o.repo.runs(filter).map((r) => runSummary(r, this.o.repo.counts(r.id)));
+  }
+
+  /** Deletes a run that isn't queued or going, with its rows and its folder. */
+  async delete(id: string): Promise<{ id: string; deleted: true }> {
+    const r = this.requireRun(id);
+    if (this.active.has(id) || r.status === "queued") throw new EngineError("conflict", "Stop the run before deleting it.", 409);
+    this.o.repo.deleteRun(id);
+    await rm(path.join(this.o.dataDir, "runs", id), { recursive: true, force: true });
+    this.o.events.append("run.deleted", {}, { runId: id });
+    return { id, deleted: true };
   }
 
   get(id: string): RunDetail | null {

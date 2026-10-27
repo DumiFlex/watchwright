@@ -10,7 +10,7 @@ import { FRAMES } from "../live/hub.js";
 import { PACKS } from "../packs/registry.js";
 import { testKind } from "../testing/kind.js";
 import { Engine, EngineError } from "./engine.js";
-import { RUNS_MIGRATION_SQL, RunsRepo } from "./repo.js";
+import { RUNS_MIGRATION_SQL, RunsRepo, type RunStatus } from "./repo.js";
 
 export const ENGINE = serviceKey<Engine>("runs.engine");
 /** The folder that holds `runs/` (the data folder, or a temp folder for an in-memory store). */
@@ -63,13 +63,30 @@ export const runsPlugin = definePlugin({
     const control = (name: string, verb: string, title: string, fn: (id: string) => unknown) =>
       defineAction<{ id: string }>({ name, title, method: "POST", path: `/runs/:id/${verb}`, input: byId, handler: ({ id }) => guard(() => fn(id)) });
     return [
-      defineAction<{ limit?: number }>({
+      defineAction<{ limit?: number; pack?: string; status?: string; before?: string }>({
         name: "runs.list",
         title: "List runs, newest first",
         method: "GET",
         path: "/runs",
-        input: { type: "object", properties: { limit: { type: "integer", minimum: 1, maximum: 500, default: 100 } } },
-        handler: ({ limit }) => engine.list(limit),
+        input: {
+          type: "object",
+          properties: {
+            limit: { type: "integer", minimum: 1, maximum: 500, default: 100 },
+            pack: { type: "string", pattern: "^[0-9a-f]{8}$", description: "Only runs of this pack." },
+            status: { type: "string", pattern: "^[a-z_]+(,[a-z_]+)*$", description: "Only runs in these statuses, comma separated." },
+            before: { type: "string", description: "Cursor: the createdAt of the last run of the previous page." },
+          },
+        },
+        handler: ({ limit, pack, status, before }) =>
+          engine.list({ limit, packId: pack, statuses: status ? (status.split(",") as RunStatus[]) : undefined, before }),
+      }),
+      defineAction<{ id: string }>({
+        name: "runs.delete",
+        title: "Delete a run that isn't going, with its results and files",
+        method: "DELETE",
+        path: "/runs/:id",
+        input: byId,
+        handler: ({ id }) => guard(() => engine.delete(id)),
       }),
       defineAction<{ packId: string; tests?: string[]; params?: Record<string, unknown>; pauseOnBroken?: boolean; pauseLimitMinutes?: number }>({
         name: "runs.start",
