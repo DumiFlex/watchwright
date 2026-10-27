@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, provide, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
 import { Columns2, FolderOpen, ListChecks, Moon, Palette, Plus, Search, Settings, Sun, SunMoon } from "./icons";
 import { getJson, type HealthData } from "./api";
 import BrandMark from "./components/BrandMark.vue";
@@ -8,6 +8,7 @@ import KeyHint from "./components/KeyHint.vue";
 import MenuButton from "./components/MenuButton.vue";
 import ThemePicker from "./components/ThemePicker.vue";
 import ToastHost from "./components/ToastHost.vue";
+import { startNotifier } from "./notify";
 import { sectionOf, useRoute } from "./router";
 import { vTip } from "./tooltip";
 import { useShortcut } from "./keys";
@@ -61,6 +62,10 @@ const commands = computed<PaletteCommand[]>(() => [
   { id: "mode-dark", label: "Mode: Dark", group: "Theme", icon: Moon, run: () => (theme.value = { ...theme.value, mode: "dark" }) },
   { id: "mode-system", label: "Mode: System", group: "Theme", icon: SunMoon, run: () => (theme.value = { ...theme.value, mode: "system" }) },
 ]);
+
+// Desktop notices for runs, when this browser has them on (Settings).
+const stopNotifier = startNotifier(() => (route.value.name === "run" ? route.value.id : null));
+onBeforeUnmount(stopNotifier);
 
 onMounted(async () => {
   const res = await getJson<HealthData>("/api/v1/health");

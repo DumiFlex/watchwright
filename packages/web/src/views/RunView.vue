@@ -18,6 +18,7 @@ import { href } from "../router";
 import { resultRows, type ResultRow } from "../review";
 import { canMove as canMoveRow, movable as movableRow } from "../queue";
 import { useShortcut } from "../keys";
+import { offerNotify } from "../notify";
 import { resetHead, setIconDot, setTitle } from "../pagehead";
 import { openModals } from "../popup";
 import { runTitle, runTone } from "../runstate";
@@ -139,6 +140,7 @@ async function again() {
   const res = await sendJson<RunDetail>(`/api/v1/runs/${props.id}/again`);
   busy.value = false;
   if (!res.ok) return void (actionError.value = res.error.message);
+  offerNotify();
   window.location.hash = href({ name: "run", id: res.data.id });
 }
 
