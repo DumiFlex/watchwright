@@ -5,6 +5,7 @@ import { definePlugin } from "../../core/plugin.js";
 import { FOLDERS, FolderError, isInside } from "../folders/folders.js";
 import { PACK_FILES, PackLoadError } from "./loader.js";
 import { discoverPacks, PACKS, PACKS_MIGRATION_SQL, PackRegistry } from "./registry.js";
+import { StarterError, writeStarter } from "./starter.js";
 
 const ID = { type: "string", pattern: "^[0-9a-f]{8}$", description: "Pack id." } as const;
 
@@ -18,6 +19,7 @@ async function packCall<T>(fn: () => Promise<T> | T): Promise<T> {
     return await fn();
   } catch (err) {
     if (err instanceof PackLoadError) throw new ActionError("bad_pack", err.message, 400, err.problems);
+    if (err instanceof StarterError) throw new ActionError("bad_starter", err.message);
     if (err instanceof FolderError) throw new ActionError(err.code, err.message, err.code === "not_found" ? 404 : 400);
     throw err;
   }
@@ -62,6 +64,30 @@ export const packsPlugin = definePlugin({
         handler: ({ path: p }) =>
           packCall(async () => {
             const pack = await registry.add(folders.clean(p));
+            folders.remember(pack.dir);
+            return pack;
+          }),
+      }),
+      defineAction<{ path: string; name: string; baseURL: string }>({
+        name: "packs.create",
+        title: "Write a starter pack (pack.ts, a first test, a README) into a folder and add it",
+        method: "POST",
+        path: "/packs/create",
+        status: 201,
+        input: {
+          type: "object",
+          properties: {
+            path: { type: "string", minLength: 1, description: "The folder for the new pack; made when missing. It must not have a pack file yet." },
+            name: { type: "string", minLength: 1, maxLength: 80, description: "The pack's name." },
+            baseURL: { type: "string", minLength: 1, description: "The address of the site it tests, such as http://127.0.0.1:3000/." },
+          },
+          required: ["path", "name", "baseURL"],
+        },
+        handler: ({ path: p, name, baseURL }) =>
+          packCall(async () => {
+            const dir = folders.clean(p);
+            writeStarter(dir, { name: name.trim(), baseURL: baseURL.trim() });
+            const pack = await registry.add(dir);
             folders.remember(pack.dir);
             return pack;
           }),

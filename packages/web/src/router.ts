@@ -10,7 +10,8 @@ export type Route =
   | { name: "packs" }
   | { name: "pack"; id: string }
   | { name: "compare"; query: Record<string, string> }
-  | { name: "kit" };
+  | { name: "kit" }
+  | { name: "settings" };
 
 const ID8 = "([0-9a-f]{8})";
 
@@ -30,6 +31,7 @@ export function parseRoute(hash: string): Route {
   if (path === "/new") return { name: "new", query };
   if (path === "/packs") return { name: "packs" };
   if (path === "/kit") return { name: "kit" };
+  if (path === "/settings") return { name: "settings" };
   if (path === "/compare") return { name: "compare", query };
   if ((m = new RegExp(`^/runs/${ID8}$`).exec(path))) return { name: "run", id: m[1]! };
   if ((m = new RegExp(`^/runs/${ID8}/attempts/([0-9a-f]{12})$`).exec(path))) return { name: "attempt", runId: m[1]!, attemptId: m[2]! };
@@ -60,6 +62,8 @@ export function href(route: Route): string {
       return `#/compare${qs(route.query)}`;
     case "kit":
       return "#/kit";
+    case "settings":
+      return "#/settings";
   }
 }
 

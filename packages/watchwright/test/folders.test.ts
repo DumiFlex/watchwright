@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
@@ -104,6 +104,30 @@ describe("folders plugin", () => {
     expect(() => open(path.join(root, "elsewhere"))).toThrow(/only opens/);
     expect(() => open(path.join(root, "shop", "pack.ts"))).toThrow(/no folder/);
     expect((await h.api("POST", "/folders/open", { path: path.join(root, "elsewhere") })).error?.code).toBe("not_allowed");
+  });
+});
+
+describe("packs: starter", () => {
+  it("writes a starter pack that loads, adds it and remembers its folder", async () => {
+    const root = tempDir("ww-tree-");
+    const h = await harness();
+    const res = await h.api<{ name: string; dir: string; status: string; siteKey: string; tests: { id: string }[] }>("POST", "/packs/create", { path: path.join(root, "my-shop", "watchwright"), name: "My Shop", baseURL: "http://127.0.0.1:3000/" });
+    expect(res.status).toBe(201);
+    expect(res.data).toMatchObject({ name: "My Shop", dir: path.join(root, "my-shop", "watchwright"), status: "ok", siteKey: "my-shop" });
+    expect(res.data.tests.map((t) => t.id)).toEqual(["HOME1"]);
+    expect(readFileSync(path.join(res.data.dir, "README.md"), "utf8")).toContain("# My Shop");
+    expect((await h.api<{ recent: { path: string }[] }>("GET", "/folders/places")).data.recent[0]?.path).toBe(res.data.dir);
+  });
+
+  it("never writes over a pack or a file, and wants an http address", async () => {
+    const root = tempDir("ww-tree-");
+    writeFiles(root, { "has-pack/pack.ts": PACK, "has-readme/README.md": "mine" });
+    const h = await harness();
+    const body = (dir: string, baseURL = "http://localhost:8080/") => ({ path: path.join(root, dir), name: "X", baseURL });
+    expect((await h.api("POST", "/packs/create", body("has-pack"))).error?.message).toMatch(/already has a pack/);
+    expect((await h.api("POST", "/packs/create", body("has-readme"))).error?.message).toMatch(/README\.md/);
+    expect(readFileSync(path.join(root, "has-readme", "README.md"), "utf8")).toBe("mine");
+    expect((await h.api("POST", "/packs/create", body("fresh", "localhost:8080"))).error?.code).toBe("bad_starter");
   });
 });
 
