@@ -1,12 +1,17 @@
 <script setup lang="ts">
 // One pack: whether it loads, its tests with their metadata, parameters and flag kinds, and
 // its recent runs.
-import { ArrowLeft } from "../icons";
+import { ArrowLeft, Ellipsis, TriangleAlert } from "../icons";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { getJson, sendJson, type Criterion, type Pack, type PackTest, type RunSummary } from "../api";
+import { getJson, sendJson, type Criterion, type FolderPlaces, type Pack, type PackTest, type RunSummary } from "../api";
 import { ago, countsText, when } from "../format";
 import { LiveConnection } from "../live";
+import MenuButton from "../components/MenuButton.vue";
+import ModalDialog from "../components/ModalDialog.vue";
+import PackFolderDialog from "../components/PackFolderDialog.vue";
+import PathLine from "../components/PathLine.vue";
 import StatusChip from "../components/StatusChip.vue";
+import { toast } from "../toasts";
 import TabBar from "../components/TabBar.vue";
 import { vTip } from "../tooltip";
 
@@ -16,6 +21,25 @@ const pack = ref<Pack | null>(null);
 const runs = ref<RunSummary[]>([]);
 const error = ref<string | null>(null);
 const reloading = ref(false);
+const home = ref<string | null>(null);
+const moveOpen = ref(false);
+const removeOpen = ref(false);
+const menu = [
+  { value: "move", label: "Move to another folder…" },
+  { value: "remove", label: "Remove…", danger: true },
+];
+function onMenu(v: string) {
+  if (v === "move") moveOpen.value = true;
+  else if (v === "remove") removeOpen.value = true;
+}
+async function confirmRemove() {
+  const name = pack.value?.name;
+  const res = await sendJson(`/api/v1/packs/${props.id}`, {}, "DELETE");
+  removeOpen.value = false;
+  if (!res.ok) return void toast(res.error.message, { tone: "bad" });
+  toast(`Removed "${name}"`, { tone: "ok" });
+  window.location.hash = "#/packs";
+}
 type Tab = "tests" | "params" | "flags" | "rubric";
 const tab = ref<Tab>("tests");
 
@@ -66,8 +90,10 @@ async function reload() {
 
 watch(() => props.id, load);
 let live: LiveConnection | null = null;
-onMounted(() => {
+onMounted(async () => {
   void load();
+  const places = await getJson<FolderPlaces>("/api/v1/folders/places");
+  if (places.ok) home.value = places.data.home;
   live = new LiveConnection({}, { onEvent: (e) => /^(pack|run)\./.test(e.type) && void load() });
 });
 onBeforeUnmount(() => live?.close());
@@ -86,15 +112,26 @@ onBeforeUnmount(() => live?.close());
             {{ pack.browser }}<template v-if="pack.baseURL"> · {{ pack.baseURL }}</template><template v-if="pack.siteKey"> · site key <code>{{ pack.siteKey }}</code></template>
             <template v-if="pack.loadedAt"> · <span v-tip="when(pack.loadedAt)">built {{ ago(pack.loadedAt) }}</span></template>
           </p>
-          <p class="muted small path"><code>{{ pack.path }}</code></p>
+          <PathLine class="path" :path="pack.dir" :home="home" :openable="!pack.missing" />
         </div>
         <div class="acts">
-          <button class="btn" :disabled="reloading" @click="reload">{{ reloading ? "Reloading…" : "Reload" }}</button>
-          <a v-if="pack.status === 'ok'" class="btn primary" :href="`#/new?pack=${pack.id}`">New run</a>
+          <button v-if="pack.missing" class="btn primary" @click="moveOpen = true">Locate…</button>
+          <template v-else>
+            <button class="btn" :disabled="reloading" @click="reload">{{ reloading ? "Reloading…" : "Reload" }}</button>
+            <a v-if="pack.status === 'ok'" class="btn primary" :href="`#/new?pack=${pack.id}`">New run</a>
+          </template>
+          <MenuButton :items="menu" label="More for this pack" @select="onMenu">
+            <template #button><Ellipsis :size="16" /></template>
+          </MenuButton>
         </div>
       </div>
 
-      <section v-if="pack.status === 'error' || pack.problems.length" class="card problems" role="alert">
+      <section v-if="pack.missing" class="card problems" role="alert">
+        <h2 class="display"><TriangleAlert :size="16" /> The pack's folder is gone</h2>
+        <p>Nothing is at <code>{{ pack.dir }}</code> any more. If the folder moved, locate it and the pack keeps its runs. If it's gone for good, remove the pack.</p>
+      </section>
+
+      <section v-else-if="pack.status === 'error' || pack.problems.length" class="card problems" role="alert">
         <h2 class="display">The pack doesn't load</h2>
         <p v-if="pack.error" class="error">{{ pack.error }}</p>
         <ul v-if="pack.problems.length">
@@ -189,6 +226,14 @@ onBeforeUnmount(() => live?.close());
         <a v-if="runs.length" class="small" :href="`#/?pack=${pack.id}`">All runs of this pack</a>
       </section>
     </template>
+    <PackFolderDialog v-if="pack" v-model="moveOpen" mode="move" :packs="[]" :moving="pack" :home="home" @moved="load(), toast('The pack now loads from its new folder', { tone: 'ok' })" />
+    <ModalDialog v-model="removeOpen" heading="Remove this pack?">
+      <p v-if="pack"><strong>{{ pack.name }}</strong> leaves the list. Its folder and files stay as they are, and its earlier runs stay in the runs list. You can add it again later.</p>
+      <template #actions>
+        <button class="btn" @click="removeOpen = false">Cancel</button>
+        <button class="btn danger" @click="confirmRemove">Remove pack</button>
+      </template>
+    </ModalDialog>
   </main>
 </template>
 
@@ -198,8 +243,11 @@ onBeforeUnmount(() => live?.close());
   align-items: center;
   gap: var(--space-2);
 }
-.path code {
-  word-break: break-all;
+.title {
+  min-width: 0;
+}
+.path {
+  margin-top: var(--space-1);
 }
 .acts {
   display: flex;

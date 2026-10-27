@@ -22,7 +22,7 @@ The second line downloads the browsers Playwright drives.
 
 ## A first run
 
-1. On the web page, open **Packs** and add a test pack by its folder path.
+1. On the web page, open **Packs** and add a test pack: type its folder (the field completes folders as you type), or press **Browse…** and pick it, or let **Find packs in a folder…** search for it. You can also name pack folders when you start the server: `watchwright serve path/to/pack`. See [Adding a pack](./test-packs#adding-a-pack).
 2. Press **New run**. Search or pick tests by section and tag, set the parameter values and the options (attempts per test, trace, video, pausing on a broken test), and start it. The **Planned** panel shows every attempt in the order it will run, and which tests join because a chosen one needs them.
 3. The run page shows the browser live with the current test and step, and has the controls to pause, retry, skip and stop. While it runs you can skip attempts that haven't started or move tests up and down the queue. **Mark** saves what the live view shows to the current attempt with a note. The log filters by test and by warnings.
 
@@ -47,7 +47,7 @@ Press Ctrl+K (Cmd+K on a Mac) anywhere, or the search button at the top, to jump
 
 ## Options
 
-`watchwright serve` takes these options:
+`watchwright serve [pack folder…]` adds the pack folders you name (or reloads them when they are already added). When Watchwright is already running on the port, it adds them there, opens the page and exits; when another program has the port, it says so. It takes these options:
 
 | Option | Default | What it does |
 | --- | --- | --- |

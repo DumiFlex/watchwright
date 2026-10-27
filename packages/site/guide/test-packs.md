@@ -11,7 +11,18 @@ my-site/watchwright/
   lib/            helpers your tests share (optional)
 ```
 
-Add it on the web page (**Packs → Add pack**, with the folder's absolute path) or through the [API](../reference/http-api#packs): `POST /api/v1/packs` with `{ "path": "/abs/path/to/my-site/watchwright" }`.
+## Adding a pack
+
+There are four ways, and they all end the same: the server loads the pack and lists its tests.
+
+- **On the Packs page**, type or paste the folder's path. The field suggests folders as you type (Tab completes, like a terminal) and says when the folder has a pack file. A path pasted with quotes (Windows Explorer's "Copy as path"), a `file://` address and `~` all work.
+- **Browse…** opens a folder browser of the server's machine: your home folder, the drives, the folders of packs already added and the folders you used recently on the side. Open the folder with `pack.ts` and press **Add this pack**. Type to filter the list, or type a whole path and press Enter to jump there.
+- **Find packs in a folder…** searches a folder and the four levels below it for pack files (skipping `node_modules`, build output and hidden folders) and adds the ones you tick. Handy for a folder of projects.
+- **When you start the server**: `watchwright serve ./watchwright` adds that folder (or reloads it when it's already added). When the server is already running, the same command adds the pack there and opens the page.
+
+Through the [API](../reference/http-api#packs) it's `POST /api/v1/packs` with `{ "path": "/abs/path/to/my-site/watchwright" }`.
+
+If a pack's folder moves, its card says the folder is gone; **Locate…** points it at the new folder and keeps its runs. **Remove** in the card's menu takes a pack off the list without touching its files or runs.
 
 ::: warning Pack code is trusted
 Pack code runs on your machine with your permissions, like any script. Only add packs you wrote or trust.

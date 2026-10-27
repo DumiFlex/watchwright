@@ -13,6 +13,9 @@ import DatePicker from "../components/DatePicker.vue";
 import DateRangePicker, { type DateRange } from "../components/DateRangePicker.vue";
 import DiffView from "../components/DiffView.vue";
 import FilePicker from "../components/FilePicker.vue";
+import FolderBrowser from "../components/FolderBrowser.vue";
+import PathInput from "../components/PathInput.vue";
+import PathLine from "../components/PathLine.vue";
 import ImageViewer from "../components/ImageViewer.vue";
 import JsonTree from "../components/JsonTree.vue";
 import KeyHint from "../components/KeyHint.vue";
@@ -63,6 +66,8 @@ const limit = ref(20);
 const day = ref("");
 const until = ref("2026-11-03");
 const files = ref<File[]>([]);
+const folderPath = ref("");
+const browsed = ref<string | null>(null);
 const span = ref<DateRange>({ from: "2026-10-05", to: "2026-10-18" });
 const anySpan = ref<DateRange>({ from: "", to: "" });
 
@@ -363,6 +368,16 @@ const traces = [
         <div class="item"><label for="k-any">Date range, in October and November</label><DateRangePicker id="k-any" v-model="anySpan" min="2026-10-01" max="2026-11-30" /></div>
         <div class="item wide"><label for="k-files">Files</label><FilePicker id="k-files" v-model="files" accept=".ts,.json,image/*" multiple /></div>
       </div>
+    </section>
+
+    <section class="card">
+      <h2 class="display">Folders</h2>
+      <p class="muted note">Folders on the server's machine (a page never learns a folder's path from the browser). <code>PathInput</code> completes as you type (Tab, arrows, Enter) and says whether the folder has a pack; <code>PathLine</code> shows a path that always fits; <code>FolderBrowser</code> browses with places, crumbs and a filter.</p>
+      <div class="grid">
+        <div class="item wide"><label for="k-folder">Path with completion</label><PathInput id="k-folder" v-model="folderPath" placeholder="Start with / or C:\ or ~/" mark="pack" mark-label="Pack" /></div>
+        <div class="item wide"><span class="muted small">Path line</span><PathLine path="/home/sam/projects/clients/acme-storefront/packages/end-to-end/watchwright" home="/home/sam" /></div>
+      </div>
+      <FolderBrowser v-model:path="browsed" :mark-labels="{ pack: 'Pack' }" />
     </section>
 
     <section class="card">
