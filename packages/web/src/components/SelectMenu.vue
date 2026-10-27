@@ -92,6 +92,7 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onDocPointer))
       :aria-expanded="open"
       :aria-controls="listId"
       :disabled="disabled"
+      @pointerdown="open && $event.preventDefault()"
       @click="open ? hide() : show()"
       @keydown="onButtonKey"
     >
