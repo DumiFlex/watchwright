@@ -15,6 +15,15 @@ export interface ArtifactInfo {
   set?: string;
 }
 
+/** A named step (`h.step`) with when it ran; `depth` is 0 for a top-level step, 1 inside one, … */
+export interface StepRecord {
+  title: string;
+  depth: number;
+  startedAt: string;
+  finishedAt: string | null;
+  status: "running" | "passed" | "failed";
+}
+
 export interface LogLine {
   time: string;
   level: "info" | "warn" | "error";
@@ -66,6 +75,7 @@ export class AttemptRecorder {
   readonly flags: FlagRecord[] = [];
   readonly metrics: Record<string, MetricRecord> = {};
   readonly texts: Record<string, string> = {};
+  readonly steps: StepRecord[] = [];
   private counter = 0;
 
   constructor(
@@ -105,6 +115,17 @@ export class AttemptRecorder {
     mkdirSync(path.dirname(abs), { recursive: true });
     writeFileSync(abs, data);
     return this.register(kind, name, abs, contentType, extra);
+  }
+
+  beginStep(title: string, depth: number): StepRecord {
+    const step: StepRecord = { title, depth, startedAt: new Date().toISOString(), finishedAt: null, status: "running" };
+    this.steps.push(step);
+    return step;
+  }
+
+  endStep(step: StepRecord, ok: boolean): void {
+    step.finishedAt = new Date().toISOString();
+    step.status = ok ? "passed" : "failed";
   }
 
   addLog(level: LogLine["level"], message: string): void {

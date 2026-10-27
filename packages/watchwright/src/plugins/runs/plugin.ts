@@ -13,7 +13,7 @@ import { PACKS } from "../packs/registry.js";
 import { SETTINGS } from "../settings/plugin.js";
 import { testKind } from "../testing/kind.js";
 import { Engine, EngineError } from "./engine.js";
-import { RUNS_ARTIFACT_SET_SQL, RUNS_INFO_SQL, RUNS_LABELS_PRESETS_SQL, RUNS_MIGRATION_SQL, RunsRepo, type RunChoices, type RunOptions, type RunStatus } from "./repo.js";
+import { RUNS_ARTIFACT_SET_SQL, RUNS_INFO_SQL, RUNS_LABELS_PRESETS_SQL, RUNS_MIGRATION_SQL, RUNS_STEPS_SQL, RunsRepo, type RunChoices, type RunOptions, type RunStatus } from "./repo.js";
 
 export const ENGINE = serviceKey<Engine>("runs.engine");
 export const RUNS_REPO = serviceKey<RunsRepo>("runs.repo");
@@ -124,6 +124,7 @@ export const runsPlugin = definePlugin({
     { id: 2, name: "artifact-set", sql: RUNS_ARTIFACT_SET_SQL },
     { id: 3, name: "run-info", sql: RUNS_INFO_SQL },
     { id: 4, name: "labels-presets", sql: RUNS_LABELS_PRESETS_SQL },
+    { id: 5, name: "attempt-steps", sql: RUNS_STEPS_SQL },
   ],
   setup({ store, events, services }) {
     const dataDir = filesRoot(store.dataDir);
@@ -322,14 +323,35 @@ export const runsPlugin = definePlugin({
         },
         handler: ({ id, testId, direction }) => guard(() => engine.queueMove(id, testId, direction)),
       }),
-      defineAction<{ id: string; note?: string }>({
+      defineAction<{ id: string; tests: string[] }>({
+        name: "runs.queue-add",
+        title: "Add tests to a run that is going; they and what they need go at the end of the queue",
+        method: "POST",
+        path: "/runs/:id/queue/add",
+        input: {
+          type: "object",
+          properties: { id: RUN_ID, tests: { type: "array", items: { type: "string", minLength: 1 }, minItems: 1 } },
+          required: ["id", "tests"],
+        },
+        handler: ({ id, tests }) => guard(() => engine.addTests(id, tests)),
+      }),
+      defineAction<{ id: string; note?: string; pageId?: string; at?: number }>({
         name: "runs.mark",
-        title: "Save what the live view shows now, with a note, on the attempt that is running",
+        title: "Save what the live view shows now (or showed at `at`, from the rewind buffer), with a note, on the attempt that is running",
         method: "POST",
         path: "/runs/:id/mark",
         status: 201,
-        input: { type: "object", properties: { id: RUN_ID, note: { type: "string", maxLength: 2000, default: "" } }, required: ["id"] },
-        handler: ({ id, note }) => guard(() => engine.mark(id, note ?? "")),
+        input: {
+          type: "object",
+          properties: {
+            id: RUN_ID,
+            note: { type: "string", maxLength: 2000, default: "" },
+            pageId: { type: "string", minLength: 1, maxLength: 32, description: "Page of the rewind frame (with `at`)." },
+            at: { type: "number", minimum: 0, description: "Timestamp (ms since the epoch) of a frame in the rewind buffer." },
+          },
+          required: ["id"],
+        },
+        handler: ({ id, note, pageId, at }) => guard(() => engine.mark(id, note ?? "", at === undefined ? undefined : { pageId, at })),
       }),
       defineAction<{ id: string; when?: "after" | "now" }>({
         name: "runs.stop",
