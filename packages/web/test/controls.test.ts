@@ -6,7 +6,9 @@ import { describe, expect, it } from "vitest";
 // CheckBox and ThemePicker keep a hidden native input for keyboard and screen readers.
 const src = new URL("../src/", import.meta.url);
 const allowed = new Set(["components/CheckBox.vue", "components/ThemePicker.vue"]);
-const files = (await readdir(src, { recursive: true })).filter((f) => f.endsWith(".vue") && !allowed.has(f.replaceAll("\\", "/")));
+const files = (await readdir(src, { recursive: true }))
+  .map((f) => f.replaceAll("\\", "/")) // Windows lists with backslashes
+  .filter((f) => f.endsWith(".vue") && !allowed.has(f));
 
 describe("controls", () => {
   it("finds the components", () => {
