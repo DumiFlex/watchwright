@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // One pack: whether it loads, its tests with their metadata, parameters and flag kinds, and
 // its recent runs.
+import { ArrowLeft } from "../icons";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, sendJson, type Pack, type PackTest, type RunSummary } from "../api";
 import { ago, countsText, when } from "../format";
@@ -67,7 +68,7 @@ onBeforeUnmount(() => live?.close());
 
 <template>
   <main class="page">
-    <p class="crumb"><a href="#/packs">← Packs</a></p>
+    <p class="crumb"><a href="#/packs"><ArrowLeft :size="15" />Packs</a></p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <template v-if="pack">
       <div class="page-head">

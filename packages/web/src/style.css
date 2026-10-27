@@ -60,6 +60,8 @@
   --radius: 6px;
   --radius-chip: 999px;
   --border-width: 1px;
+  /* Line weight of the icons (src/icons.ts), in units of their 24px grid. */
+  --icon-stroke: 2;
 
   --space-1: 4px;
   --space-2: 8px;
@@ -186,6 +188,7 @@
   --radius: 4px;
   --radius-chip: 4px;
   --border-width: 2px;
+  --icon-stroke: 2.5;
 }
 
 :root {
@@ -436,6 +439,9 @@ a {
   font-size: 13px;
 }
 .crumb a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   color: var(--muted);
   text-decoration: none;
 }
@@ -455,4 +461,10 @@ a {
   .page {
     padding: var(--space-4);
   }
+}
+
+/* Icons from src/icons.ts (Lucide). Their size comes from the `size` prop. */
+.lucide {
+  flex: none;
+  stroke-width: var(--icon-stroke);
 }

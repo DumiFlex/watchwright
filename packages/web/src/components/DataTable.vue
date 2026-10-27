@@ -7,6 +7,7 @@
 // adds a checkbox column (v-model:selected holds row keys).
 // Slots: `cell-<key>` ({ row, value }) for custom cells, `empty`, and `footer` (for
 // "Load more").
+import { ChevronDown, ChevronUp, ChevronsUpDown } from "../icons";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import CheckBox from "./CheckBox.vue";
 import ProgressBar from "./ProgressBar.vue";
@@ -113,10 +114,9 @@ function show(v: SortValue) {
             <th v-for="c in columns" :key="c.key" scope="col" :class="c.align" :aria-sort="c.sortable ? ariaSort(c.key) : undefined">
               <button v-if="c.sortable" type="button" class="sort" @click="sort = nextSort(sort, c.key)">
                 <span>{{ c.label }}</span>
-                <svg viewBox="0 0 8 12" width="8" height="12" aria-hidden="true" :class="sort?.key === c.key ? sort.dir : 'none'">
-                  <path class="up" d="M1 4.5L4 1.5l3 3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
-                  <path class="down" d="M1 7.5l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
-                </svg>
+                <ChevronUp v-if="sort?.key === c.key && sort.dir === 'asc'" class="sort-icon on" :size="14" />
+                <ChevronDown v-else-if="sort?.key === c.key" class="sort-icon on" :size="14" />
+                <ChevronsUpDown v-else class="sort-icon" :size="14" />
               </button>
               <span v-else>{{ c.label }}</span>
             </th>
@@ -213,6 +213,7 @@ thead .busy th {
 .sort {
   display: inline-flex;
   align-items: center;
+  vertical-align: middle;
   gap: 6px;
   margin: -2px -4px;
   padding: 2px 4px;
@@ -234,11 +235,10 @@ th.end .sort {
 [aria-sort="descending"] .sort {
   color: var(--text);
 }
-.sort svg path {
-  opacity: 0.35;
+.sort-icon {
+  opacity: 0.4;
 }
-.sort svg.asc .up,
-.sort svg.desc .down {
+.sort-icon.on {
   opacity: 1;
   color: var(--accent-text);
 }

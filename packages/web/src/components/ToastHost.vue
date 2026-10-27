@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // Shows the messages from toast() (src/toasts.ts) in the bottom right corner, or along the
 // bottom at phone width. Mounted once, in App.vue.
+import { X } from "../icons";
 import { computed, onMounted, ref, watch } from "vue";
 import { openModals } from "../popup";
 import { dismissToast, holdToasts, toasts, type Toast } from "../toasts";
@@ -40,7 +41,7 @@ function act(t: Toast) {
           <span class="text">{{ t.text }}</span>
           <button v-if="t.action" type="button" class="action" @click="act(t)">{{ t.action.label }}</button>
           <button type="button" class="close" aria-label="Close" @click="dismissToast(t.id)">
-            <svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
+            <X :size="13" />
           </button>
         </li>
       </TransitionGroup>

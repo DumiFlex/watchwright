@@ -3,6 +3,7 @@
 // list grouped by `group` (a click on a group's heading picks or drops the whole group).
 // ARIA combobox with a multi-select listbox: arrows move, Enter picks or drops, Escape
 // closes (a second Escape clears the search), Backspace in an empty box drops the last chip.
+import { Check, X } from "../icons";
 import { computed, nextTick, ref, useId, watch } from "vue";
 import { useOutside, usePopup, usePopupHost } from "../popup";
 
@@ -122,7 +123,7 @@ function focusInput() {
       <span v-for="o in chips" :key="String(o.value)" class="chip">
         <span class="chip-text">{{ o.label }}</span>
         <button type="button" tabindex="-1" :aria-label="`Remove ${o.label}`" :disabled="disabled" @click.stop="toggle(o.value)">
-          <svg viewBox="0 0 12 12" width="8" height="8" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
+          <X :size="11" />
         </button>
       </span>
       <span v-if="hidden > 0" class="more">+{{ hidden }} more</span>
@@ -170,7 +171,7 @@ function focusInput() {
               @click="toggle(r.option.value)"
             >
               <span class="box" aria-hidden="true">
-                <svg viewBox="0 0 12 12" width="10" height="10"><path d="M2.5 6.2l2.4 2.4 4.6-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                <Check :size="12" />
               </span>
               <span class="opt-text">{{ r.option.label }}</span>
               <span v-if="r.option.note" class="note muted">{{ r.option.note }}</span>

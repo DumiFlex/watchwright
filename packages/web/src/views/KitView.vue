@@ -27,6 +27,7 @@ import ToggleSwitch from "../components/ToggleSwitch.vue";
 import VideoPlayer from "../components/VideoPlayer.vue";
 import type { Sort } from "../table";
 import type { TimelineStep } from "../timeline";
+import * as icons from "../icons";
 import { toast } from "../toasts";
 import { vTip } from "../tooltip";
 
@@ -73,6 +74,7 @@ const runColumns = [
 ];
 const took = (s: number) => (s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`);
 const lastRow = ref("");
+const iconList = Object.entries(icons);
 const split = ref(58);
 const logLines = ["0:00 open https://shop.example.test/", "0:04 fill search: boots", "0:09 click Add to cart", "0:12 wait for cart badge", "0:21 click Checkout", "0:33 expect total 59.90", "0:41 screenshot checkout"];
 const playhead = ref(12_400);
@@ -168,6 +170,17 @@ const traces = [
       <h1 class="display">Controls</h1>
       <p class="muted">Every control the app uses, drawn from the theme. Switch the look and mode at the top to check them.</p>
     </header>
+
+    <section class="card">
+      <h2 class="display">Icons</h2>
+      <p class="muted note">From Lucide, under Lucide's names. Import them from <code>src/icons.ts</code>; the line weight follows the look.</p>
+      <ul class="icons">
+        <li v-for="[name, icon] in iconList" :key="name">
+          <component :is="icon" :size="20" />
+          <span class="mono">{{ name }}</span>
+        </li>
+      </ul>
+    </section>
 
     <section class="card">
       <h2 class="display">Text</h2>
@@ -476,6 +489,30 @@ header p {
 .note {
   margin: 0 0 var(--space-3);
   font-size: 13px;
+}
+.icons {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.icons li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: 8px 10px;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.icons .mono {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .split-demo {
   display: grid;

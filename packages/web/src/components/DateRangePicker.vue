@@ -3,6 +3,7 @@
 // the first day and the second the last (in either order), with the span shown as a band
 // while you hover. Presets on the side pick common spans at once. The value is
 // { from, to } as "YYYY-MM-DD" strings, both "" for any date.
+import { Calendar, X } from "../icons";
 import { computed, nextTick, ref } from "vue";
 import { addDays, compareDays, parseDay, toIso, today, type Day } from "../calendar";
 import { useOutside, usePopup, usePopupHost } from "../popup";
@@ -123,13 +124,10 @@ function onFocusOut(e: FocusEvent) {
         @keydown.down.prevent="show()"
       >
         <span :class="{ placeholder: !label }">{{ label || placeholder }}</span>
-        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-          <rect x="2" y="3" width="12" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4" />
-          <path d="M2 6.5h12M5 1.5v3M11 1.5v3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-        </svg>
+        <Calendar :size="15" />
       </button>
       <button v-if="label && !disabled" type="button" class="clear" aria-label="Clear dates" @click="model = { from: '', to: '' }">
-        <svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
+        <X :size="13" />
       </button>
     </div>
     <Teleport :to="host">

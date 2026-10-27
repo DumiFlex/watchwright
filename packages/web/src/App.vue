@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
+import { Plus } from "./icons";
 import { getJson, type HealthData } from "./api";
 import BrandMark from "./components/BrandMark.vue";
 import MenuButton from "./components/MenuButton.vue";
@@ -57,7 +58,7 @@ onMounted(async () => {
     </nav>
     <div class="end">
       <a class="btn primary new" href="#/new" :aria-current="route.name === 'new' ? 'page' : undefined">
-        <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M6 1.5v9M1.5 6h9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
+        <Plus :size="15" />
         New run
       </a>
       <ThemePicker v-model="theme" />

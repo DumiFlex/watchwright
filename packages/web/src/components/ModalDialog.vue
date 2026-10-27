@@ -2,6 +2,7 @@
 // A themed modal dialog on the native <dialog> element, which keeps focus inside, makes the
 // page behind inert and closes on Escape. Clicking the backdrop closes it too. The look
 // (surface, backdrop, radius) comes from the theme; there is no browser chrome to hide.
+import { X } from "../icons";
 import { onBeforeUnmount, ref, useId, watch } from "vue";
 import { openModals } from "../popup";
 
@@ -47,7 +48,7 @@ function onClick(e: MouseEvent) {
       <header class="head">
         <h2 :id="titleId" class="display">{{ heading }}</h2>
         <button v-if="dismissable" type="button" class="x" aria-label="Close" @click="open = false">
-          <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
+          <X :size="16" />
         </button>
       </header>
       <div class="content"><slot /></div>

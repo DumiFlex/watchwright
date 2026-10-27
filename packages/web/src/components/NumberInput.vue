@@ -1,5 +1,6 @@
 <script setup lang="ts">
 // A number field with its own up/down buttons; the browser's native spinners are hidden.
+import { ChevronDown, ChevronUp } from "../icons";
 const props = withDefaults(defineProps<{ modelValue: number; step?: number; min?: number; max?: number; label: string; id?: string }>(), {
   step: 1,
   min: Number.NEGATIVE_INFINITY,
@@ -34,10 +35,10 @@ function onInput(e: Event) {
     />
     <div class="arrows">
       <button type="button" :aria-label="`Increase ${label}`" :disabled="modelValue >= max" @click="bump(1)">
-        <svg viewBox="0 0 10 6" width="10" height="6" aria-hidden="true"><path d="M1 5l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.6" /></svg>
+        <ChevronUp :size="12" />
       </button>
       <button type="button" :aria-label="`Decrease ${label}`" :disabled="modelValue <= min" @click="bump(-1)">
-        <svg viewBox="0 0 10 6" width="10" height="6" aria-hidden="true"><path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" /></svg>
+        <ChevronDown :size="12" />
       </button>
     </div>
   </div>
