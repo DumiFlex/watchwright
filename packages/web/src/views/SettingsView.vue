@@ -3,8 +3,8 @@
 // file links open in, recent folders). Machine-wide values are kept by the server (`/settings`),
 // so every browser and agent sees the same; the look stays in this browser.
 import { computed, inject, onMounted, ref, type Ref } from "vue";
-import { History, Trash2 } from "../icons";
-import { getJson, sendJson, type FolderPlaces } from "../api";
+import { History, Power, Trash2 } from "../icons";
+import { getJson, runName, sendJson, type FolderPlaces, type RunSummary } from "../api";
 import { EDITOR_OPTIONS, editorUrl, type Editor } from "../editor";
 import { when } from "../format";
 import { tildify } from "../paths";
@@ -12,6 +12,7 @@ import { loadSettings, saveSettings, settings } from "../settings";
 import { LOOKS, MODES, type Theme } from "../theme";
 import { notify, notifySupport, turnOffNotify, turnOnNotify, type NotifySupport } from "../notify";
 import { toast } from "../toasts";
+import ModalDialog from "../components/ModalDialog.vue";
 import RadioGroup from "../components/RadioGroup.vue";
 import SelectMenu from "../components/SelectMenu.vue";
 import ToggleSwitch from "../components/ToggleSwitch.vue";
@@ -63,6 +64,23 @@ async function loadRecent() {
 async function forget(path?: string) {
   const res = await sendJson<FolderPlaces["recent"]>(`/api/v1/folders/recent${path ? `?path=${encodeURIComponent(path)}` : ""}`, {}, "DELETE");
   if (res.ok) recent.value = res.data;
+}
+
+// Stopping the server: runs going now become interrupted (they can be resumed after it starts
+// again), so the dialog says which ones.
+const stopOpen = ref(false);
+const going = ref<RunSummary[]>([]);
+const stopped = ref(false);
+async function askStop() {
+  const res = await getJson<RunSummary[]>("/api/v1/runs?status=queued,running,pausing,paused&limit=50");
+  going.value = res.ok ? res.data : [];
+  stopOpen.value = true;
+}
+async function stopServer() {
+  const res = await sendJson<{ stopping: boolean }>("/api/v1/stop", {});
+  stopOpen.value = false;
+  if (!res.ok) return void toast(res.error.message, { tone: "bad" });
+  stopped.value = true;
 }
 
 onMounted(() => {
@@ -133,6 +151,25 @@ onMounted(() => {
       <p v-else class="muted">No recent folders.</p>
       <button v-if="recent.length" class="btn" @click="forget()">Clear the list</button>
     </section>
+
+    <section class="card" aria-labelledby="s-server">
+      <h2 id="s-server" class="display">Server</h2>
+      <p class="muted small">Stops the Watchwright program on this machine, like Ctrl+C in its terminal. Runs going at the time are interrupted and can be resumed after it starts again.</p>
+      <p v-if="stopped" class="stopped" role="status">Watchwright has stopped. To start it again, run <code>watchwright serve</code>.</p>
+      <div v-else>
+        <button type="button" class="btn danger" @click="askStop"><Power :size="15" /> Stop Watchwright</button>
+      </div>
+    </section>
+    <ModalDialog v-model="stopOpen" heading="Stop Watchwright?">
+      <p v-if="going.length">
+        {{ going.length === 1 ? "A run is" : `${going.length} runs are` }} going: <strong>{{ going.map((r) => `${runName(r)} (${r.packName})`).join(", ") }}</strong>. {{ going.length === 1 ? "It stops" : "They stop" }} where {{ going.length === 1 ? "it is" : "they are" }} and can be resumed after Watchwright starts again.
+      </p>
+      <p>This page stops working until you start Watchwright again with <code>watchwright serve</code>. An open recording ends without saving.</p>
+      <template #actions>
+        <button class="btn" @click="stopOpen = false">Cancel</button>
+        <button class="btn danger" @click="stopServer">Stop Watchwright</button>
+      </template>
+    </ModalDialog>
   </main>
 </template>
 
@@ -171,6 +208,11 @@ onMounted(() => {
 }
 .pick {
   max-width: 280px;
+}
+.stopped {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
 }
 .sample {
   word-break: break-all;

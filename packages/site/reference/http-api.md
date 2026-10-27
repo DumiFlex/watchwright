@@ -13,6 +13,7 @@ Everything the web page does goes through this API, so scripts and AI agents can
 |---|---|
 | `GET /health` | Whether the server is up, its version, its data folder and the loaded plugins with the newest store migration each one applied. |
 | `GET /actions` | Every action with its method, path and JSON Schema input. |
+| `POST /stop` | Stops the server, as Ctrl+C in its terminal does. It answers `{ stopping: true }` first. Runs going at the time become `interrupted` and can be resumed after it starts again. 409 `cant_stop` for a server that wasn't started by the `watchwright` command. |
 
 ## Packs
 
@@ -44,6 +45,7 @@ Every change returns the pack's state after it loads again, `pack: { status, err
 | `POST /packs/:id/files` `{ path, text? }` | Makes a new file and its folders. 201 with `{ file, pack }`, 409 `exists` when it's already there. |
 | `POST /packs/:id/file/rename` `{ from, to }` | Renames or moves a file inside the pack folder. Returns `{ from, to, pack }`; 409 `exists` when `to` is taken. |
 | `DELETE /packs/:id/file?path=` | Deletes a file. Returns `{ deleted, pack }`. |
+| `GET /packs/:id/image?path=` | An image file from the pack folder (`.png`, `.jpg`, `.gif`, `.webp`, `.avif`, `.svg`, `.bmp`, `.ico`, up to 20 MB), sent as the image itself, not JSON, for Markdown previews. The same path rules apply; other files are 400 `not_text`. SVG is sent with a sandboxing `Content-Security-Policy`, so its scripts never run. |
 
 ## Recording
 
@@ -56,7 +58,7 @@ A recording's state is `{ id, packId, testId, status, message, window, viewport,
 | `GET /record` | `{ canWindow, recordings }`. `canWindow` says whether this machine has a screen for `window: true`. |
 | `POST /record` `{ packId, testId?, replay?, line?, url?, params?, window? }` | Starts a recording (201, its state). With `testId`, the pack's `beforeEach` runs first; with `replay`, also that YAML test's first `replay` steps; with `line`, also that code test's code up to that line (it stops at the first Playwright call below it). `url` is where to open (the site's base URL by default), `params` the parameter values for those steps. 400 `bad_test`, `bad_params`, `no_window`. |
 | `GET /record/:id` | The recording's state. |
-| `POST /record/:id/input` `{ type, … }` | Input for the active page, in page pixels: `click`, `dblclick`, `down`, `up` (`x`, `y`, `button?`, `clickCount?`), `move` (`x`, `y`), `wheel` (`x`, `y`, `deltaX`, `deltaY`), `key` (`key` in Playwright's form, `Shift+Tab`), `text` (`text`, typed into the focused field), `goto` (`url`), `back`, `reload`. 409 `not_recording` before recording starts or after it ends. |
+| `POST /record/:id/input` `{ type, … }` | Input for the active page, in page pixels: `click`, `dblclick`, `down`, `up` (`x`, `y`, `button?`, `clickCount?`), `move` (`x`, `y`), `wheel` (`x`, `y`, `deltaX`, `deltaY`), `key` (`key` in Playwright's form, `Shift+Tab`), `text` (`text`, typed into the focused field), `goto` (`url`), `back`, `reload`. A `move`, `up` or `wheel` answers with `hover`: the element now under the pointer (`box` in page pixels, `tag`, and its best `target`, not checked on the page), or null. 409 `not_recording` before recording starts or after it ends. |
 | `POST /record/:id/pick` `{ x, y }` | The element at a point: `{ info, targets, groups }`. `info` has its `tag`, `text`, `value` and `checked`; `targets` pick out only it, best first; `groups` are targets it shares with elements like it, with their `count`. 404 `nothing_there`. |
 | `POST /record/:id/page` `{ pageId }` | Makes one of `pages` the active page. |
 | `POST /record/:id/steps` `{ name, args?, targets?, index? }` | Adds a step (201), at the end or at `index`. `targets` are other targets to offer for it. 400 `bad_step`. |

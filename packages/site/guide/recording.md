@@ -22,6 +22,8 @@ On a phone, a tap is a click and dragging scrolls. Use the box under the view to
 
 A recorded step points at the **element** you clicked, not at the point on the screen, so the test keeps working when the page's layout moves. Playwright's recorder picks the target, preferring what a person sees: a role and its name, a label, a placeholder or a text, and a test id when the page has one.
 
+As you move the pointer over the view, the element a click would act on is outlined, with a target that names it. While you pick an element for **Check** or **Wait for**, the outline turns green. It goes away when the pointer leaves the view.
+
 Each step also keeps the other targets that pick out the same element, checked on the page when you clicked: each matches only that element. When there are several, a menu under the step lets you switch, for example from a text that may change to a test id. When several elements share a target (items of a list with the same test id), the element's own text narrows it (`testId: todo-title` with `hasText: Buy milk`), and as a last resort its place among them (`nth`), which breaks when the list changes.
 
 Some elements don't have a meaningful middle: a canvas, a map, a color or image picker. For a click, tick **At the spot clicked** to keep where inside the element you clicked. The step gets a `position` (`{ x, y }` in pixels from the element's top-left corner), and the run clicks the same spot of the same element, wherever it is on the page.

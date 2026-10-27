@@ -137,6 +137,30 @@ describe("the editor's actions", () => {
     }
   });
 
+  it("serves images from the pack folder for Markdown, and nothing else", async () => {
+    await setup();
+    try {
+      writeFileSync(path.join(dir, "logo.svg"), '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
+      const get = (q: string) => h.app.inject({ method: "GET", url: `/api/v1/packs/${id}/image?path=${q}`, headers: { host: h.host } });
+      const png = await get("shot.png");
+      expect(png.statusCode).toBe(200);
+      expect(png.headers["content-type"]).toBe("image/png");
+      expect(png.rawPayload.equals(readFileSync(path.join(dir, "shot.png")))).toBe(true);
+      const svg = await get("logo.svg");
+      expect(svg.headers["content-type"]).toBe("image/svg+xml");
+      expect(svg.headers["content-security-policy"]).toContain("sandbox");
+      expect(svg.headers["x-content-type-options"]).toBe("nosniff");
+      expect((await get("README.md")).statusCode).toBe(400);
+      expect((await get("../outside.png")).json().error.code).toBe("bad_path");
+      expect((await get("node_modules/x/a.png")).json().error.code).toBe("bad_path");
+      expect((await get("missing.png")).statusCode).toBe(404);
+      expect((await h.app.inject({ method: "GET", url: `/api/v1/packs/${id}/image`, headers: { host: h.host } })).statusCode).toBe(400);
+      expect((await h.app.inject({ method: "GET", url: "/api/v1/packs/00000000/image?path=shot.png", headers: { host: h.host } })).statusCode).toBe(404);
+    } finally {
+      await h.close();
+    }
+  });
+
   it("checks YAML text without saving it", async () => {
     await setup();
     try {

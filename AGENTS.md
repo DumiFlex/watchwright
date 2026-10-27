@@ -23,7 +23,7 @@ Run `pnpm lint && pnpm typecheck && pnpm test` before every commit.
 
 ## Layout
 
-- `packages/watchwright/src/core/` — the plugin contract (`definePlugin`, typed services through `serviceKey`), the built-in plugin list and the `core` plugin (`/health`, `GET /actions`, `GET /events`).
+- `packages/watchwright/src/core/` — the plugin contract (`definePlugin`, typed services through `serviceKey`), the built-in plugin list and the `core` plugin (`/health`, `GET /actions`, `GET /events`, `POST /stop`).
 - `packages/watchwright/src/actions/` — the action registry: an action declares name, method, path and JSON Schema input; HTTP routes are generated from it (CLI and MCP later).
 - `packages/watchwright/src/events/` — the event log (cursor, bounded wait, subscribe).
 - `packages/watchwright/src/session/` — browser sessions (launch, contexts, screencast).

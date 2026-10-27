@@ -26,6 +26,8 @@ Through the [API](../reference/http-api#packs) it's `POST /api/v1/packs` with `{
 
 **Starting from nothing?** In the folder browser, open the folder the pack should live in and press **New pack here…**. Give it a name and the site's address, pick YAML or TypeScript, and Watchwright writes a small pack that works (a pack file, a first test that opens the site and takes a screenshot, and a `README.md`) and adds it. It never overwrites a file that's already there.
 
+A pack's page lists its tests, parameters, flags, rubric and recent runs. When the pack's folder has a `README.md` at its top (or `README`, `readme.markdown` and the like), the page shows it below, rendered as on a code host, with a pencil to edit it. Links in it to other pack files open them in the [editor](./editing).
+
 If a pack's folder moves, its card says the folder is gone; **Locate…** points it at the new folder and keeps its runs. **Remove** in the card's menu takes a pack off the list without touching its files or runs.
 
 ::: warning Pack code is trusted

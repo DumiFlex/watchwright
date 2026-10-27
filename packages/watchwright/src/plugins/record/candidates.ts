@@ -197,6 +197,20 @@ export async function snapshotAt(page: Page, x: number, y: number, testIdAttr = 
   }
 }
 
+/** What the live view outlines under the pointer: the element a press there acts on, and a target that names it. */
+export interface Hover {
+  box: ElementInfo["box"];
+  tag: string;
+  /** Its best target, not checked on the page (that takes too long for every move). */
+  target: Target | null;
+}
+
+/** The element under a viewport point, read quickly for the live view's outline. */
+export async function hoverAt(page: Page, x: number, y: number, testIdAttr = "data-testid"): Promise<Hover | null> {
+  const info = (await page.evaluate(`(() => { const r = (${READ})(${JSON.stringify({ x, y, testIdAttr })}); return r && r.info; })()`)) as ElementInfo | null;
+  return info ? { box: info.box, tag: info.tag, target: candidatesOf(info)[0] ?? null } : null;
+}
+
 /** The same target twice? (Key order doesn't count.) */
 export function sameTarget(a: Target, b: Target): boolean {
   const norm = (t: Target): string => (typeof t === "string" ? t : JSON.stringify(Object.fromEntries(Object.entries(t).sort(([x], [y]) => x.localeCompare(y)))));

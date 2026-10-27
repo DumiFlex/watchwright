@@ -33,6 +33,10 @@ A YAML test can also be edited as a list of steps. Each step shows an icon, a sh
 
 The steps are written back into the file in place, so your comments, blank lines and formatting stay as they were. Fields the form can't show are left as they are, with a note to change them in Source. Source and Steps show the same file, and switching keeps your place.
 
+## Markdown preview
+
+A Markdown file (a pack's `README.md`, notes) has three views above the editor: **Source**, **Preview** and **Side by side**, where the preview follows as you type. The preview shows headings, lists and task lists, tables, quotes, code blocks with colors and a copy button, and links. A link to another file in the pack opens it in the editor, a link to a heading scrolls to it, and a web link opens in a new tab. In **Side by side**, the preview follows the cursor: the part you're editing is marked and scrolled into view, and a click on the preview moves the cursor to that part of the source. Images stored in the pack (`![Checkout](docs/checkout.png)`) and images from the web both show; an image that can't load shows its description in a frame. HTML in the file shows as text. The editor remembers the view you picked.
+
 ## Run this test
 
 **Run** runs the test the cursor is in, with the parameters of the pack's last run. The menu beside it runs another test in the file. The run shows live under the editor, with pause, resume, retry, skip and stop. When it ends you see the result and the error, with **Go to line** for the line it broke on, and **See the attempt** opens the full attempt page.

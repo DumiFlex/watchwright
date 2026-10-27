@@ -9,6 +9,7 @@ import { getJson, sendJson, type ApiResult, type Pack, type RunSummary } from ".
 import CodeEditor from "../components/CodeEditor.vue";
 import DiffView from "../components/DiffView.vue";
 import FileLink from "../components/FileLink.vue";
+import MarkdownView from "../components/MarkdownView.vue";
 import MenuButton from "../components/MenuButton.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import RecordPanel from "../components/RecordPanel.vue";
@@ -26,6 +27,7 @@ import { ArrowLeft, ChevronDown, CircleAlert, CircleDot, Ellipsis, FileCode, Fil
 import { LiveConnection } from "../live";
 import { join, relativeTo } from "../paths";
 import { href } from "../router";
+import { packImageUrl, resolveRelative } from "../markdown";
 import { codeTestAt, insertCodeSteps, insertYamlSteps, yamlSpot, type YamlSpot } from "../recording";
 import { readTests } from "../stepsdoc";
 import { browserStore } from "../theme";
@@ -86,6 +88,39 @@ watch(view, (v) => {
   if (v === "source") setTimeout(() => editor.value?.goto(cursorLine.value), 0);
 });
 const showSteps = computed(() => role.value === "test" && view.value === "steps");
+
+// A Markdown file shows as source, rendered, or both side by side.
+type MdView = "source" | "preview" | "split";
+const mdView = ref<MdView>(((): MdView => {
+  try {
+    const v = store?.getItem("ww.editor.mdview");
+    return v === "preview" || v === "split" ? v : "source";
+  } catch {
+    return "source";
+  }
+})());
+watch(mdView, (v) => {
+  try {
+    store?.setItem("ww.editor.mdview", v);
+  } catch {
+    // remembered only when the browser allows it
+  }
+  if (v !== "preview") setTimeout(() => editor.value?.goto(cursorLine.value), 0);
+});
+const isMd = computed(() => open.value?.kind === "markdown");
+const mdTabs = [
+  { value: "source" as const, label: "Source" },
+  { value: "preview" as const, label: "Preview" },
+  { value: "split" as const, label: "Side by side" },
+];
+const mdPanel = computed(() => (isMd.value ? { id: `edit-md-panel-${mdView.value}`, role: "tabpanel", "aria-labelledby": `edit-md-tab-${mdView.value}` } : {}));
+const sourcePanel = computed(() => (role.value === "test" ? { id: "edit-view-panel-source", role: "tabpanel", "aria-labelledby": "edit-view-tab-source" } : {}));
+/** A relative link in the preview opens the pack file it names in the editor. */
+function mdLink(target: string): string | null {
+  const from = open.value?.path;
+  const to = from ? resolveRelative(from, target) : null;
+  return to && files.value.some((f) => f.path === to) ? href({ name: "edit", id: props.id, file: to, line: null }) : null;
+}
 const viewTabs = [
   { value: "source" as const, label: "Source" },
   { value: "steps" as const, label: "Steps" },
@@ -469,6 +504,7 @@ const problemSpot = (p: string) => buildErrorSpot(p);
           <span class="fpath mono small">{{ open?.path ?? path ?? "" }}<span v-if="isDirty" v-tip="'Unsaved changes'" class="dot" aria-label="unsaved"></span></span>
           <StatusChip v-if="pack.status === 'error'" status="failed" class="loads" />
           <TabBar v-if="role === 'test'" v-model="view" :tabs="viewTabs" id-prefix="edit-view" label="Show the file as" class="views" />
+          <TabBar v-else-if="isMd" v-model="mdView" :tabs="mdTabs" id-prefix="edit-md" label="Show the file as" class="views" />
           <span class="grow"></span>
           <div v-if="fileTests.length" class="runbtn">
             <button v-tip="cursorTest ? `Run ${cursorTest.id} with the pack's last values` : ''" type="button" class="btn" :disabled="starting || !cursorTest || pack.status === 'error'" @click="cursorTest && runTest(cursorTest.id)">
@@ -502,8 +538,8 @@ const problemSpot = (p: string) => buildErrorSpot(p);
 
         <p v-if="fileError" class="error pad" role="alert">{{ fileError }}</p>
         <p v-else-if="!open && !path" class="muted pad">This pack has no text files yet. Make one with the new file button.</p>
-        <div v-if="open" class="body">
-          <div v-show="!showSteps" id="edit-view-panel-source" class="pane" role="tabpanel" aria-labelledby="edit-view-tab-source">
+        <div v-if="open" class="body" :class="{ split: isMd && mdView === 'split' }" v-bind="mdPanel">
+          <div v-show="!showSteps && !(isMd && mdView === 'preview')" class="pane" v-bind="sourcePanel">
             <CodeEditor
               :key="open.path"
               ref="editor"
@@ -514,6 +550,16 @@ const problemSpot = (p: string) => buildErrorSpot(p);
               :label="`Contents of ${open.path}`"
               @save="save()"
               @cursor="(l) => (cursorLine = l)"
+            />
+          </div>
+          <div v-if="isMd && mdView !== 'source'" class="pane preview" tabindex="0">
+            <MarkdownView
+              :source="text"
+              :resolve-link="mdLink"
+              :resolve-image="(src) => packImageUrl(props.id, open?.path ?? '', src)"
+              :active-line="mdView === 'split' ? cursorLine : undefined"
+              :label="`Preview of ${open.path}`"
+              @line="(l) => (mdView === 'split' ? editor?.goto(l) : undefined)"
             />
           </div>
           <div v-if="showSteps" id="edit-view-panel-steps" class="pane steps" role="tabpanel" aria-labelledby="edit-view-tab-steps">
@@ -731,9 +777,6 @@ const problemSpot = (p: string) => buildErrorSpot(p);
   display: inline-flex;
   gap: 2px;
 }
-.btn.icon {
-  padding: 6px;
-}
 .tree-btn {
   display: none;
 }
@@ -765,6 +808,13 @@ const problemSpot = (p: string) => buildErrorSpot(p);
 }
 .pane.steps {
   overflow: auto;
+}
+.pane.preview {
+  overflow: auto;
+  padding: var(--space-5) var(--space-6);
+}
+.body.split .pane.preview {
+  border-left: var(--border-width) solid var(--line);
 }
 .problems {
   max-height: 30%;
@@ -870,6 +920,16 @@ const problemSpot = (p: string) => buildErrorSpot(p);
   }
   .views {
     margin-left: 0;
+  }
+  .body.split {
+    flex-direction: column;
+  }
+  .body.split .pane.preview {
+    border-left: 0;
+    border-top: var(--border-width) solid var(--line);
+  }
+  .pane.preview {
+    padding: var(--space-4);
   }
 }
 </style>

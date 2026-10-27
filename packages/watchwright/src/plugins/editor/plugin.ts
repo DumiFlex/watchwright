@@ -1,7 +1,9 @@
+import { createReadStream } from "node:fs";
 import { ActionError, defineAction } from "../../actions/registry.js";
 import { definePlugin } from "../../core/plugin.js";
 import { PACKS, type PackRegistry, type PackSummary } from "../packs/registry.js";
-import { createPackFile, deletePackFile, FileError, listFiles, readPackFile, renamePackFile, savePackFile } from "./files.js";
+import { errorBody } from "../../server/errors.js";
+import { createPackFile, deletePackFile, FileError, listFiles, packImage, readPackFile, renamePackFile, savePackFile } from "./files.js";
 
 // The editor: reading and writing a pack's text files from the web app (or an agent). Every
 // change rebuilds the pack, and the answer says whether it still loads; a run that uses the pack
@@ -117,5 +119,30 @@ export const editorPlugin = definePlugin({
         },
       }),
     ];
+  },
+  routes(app, { services }) {
+    const registry = services.get(PACKS);
+    // An image from the pack folder, for Markdown previews. The same path rules as the text files
+    // apply. The headers keep an SVG opened on its own from running scripts on this origin.
+    app.get("/packs/:id/image", async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const rel = (req.query as { path?: unknown }).path;
+      try {
+        if (!/^[0-9a-f]{8}$/.test(id)) throw new ActionError("not_found", `No pack with id ${id}.`, 404);
+        if (typeof rel !== "string") throw new FileError("bad_path", "Give the image's path inside the pack folder.");
+        const img = wrap(() => packImage(packDir(registry, id), rel));
+        return reply
+          .type(img.type)
+          .header("content-length", img.size)
+          .header("cache-control", "no-cache")
+          .header("x-content-type-options", "nosniff")
+          .header("content-security-policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox")
+          .send(createReadStream(img.abs));
+      } catch (err) {
+        if (err instanceof ActionError) return reply.code(err.status).send(errorBody(err.code, err.message));
+        if (err instanceof FileError) return reply.code(STATUS[err.code]).send(errorBody(err.code, err.message));
+        throw err;
+      }
+    });
   },
 });

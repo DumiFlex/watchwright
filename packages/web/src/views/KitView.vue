@@ -9,6 +9,7 @@ import CheckTree from "../components/CheckTree.vue";
 import CommandPalette, { type PaletteCommand } from "../components/CommandPalette.vue";
 import CodeEditor from "../components/CodeEditor.vue";
 import CodeView from "../components/CodeView.vue";
+import MarkdownView from "../components/MarkdownView.vue";
 import DataTable from "../components/DataTable.vue";
 import DatePicker from "../components/DatePicker.vue";
 import DateRangePicker, { type DateRange } from "../components/DateRangePicker.vue";
@@ -98,6 +99,32 @@ const runColumns = [
 const took = (s: number) => (s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`);
 const lastRow = ref("");
 const iconList = Object.entries(icons);
+const mdText = ref(`# Checkout pack
+
+Tests for the **shop's** checkout. Start with [the setup notes](#setup), or read the
+[Watchwright guide](https://example.com/guide).
+
+## Setup
+
+1. Start the shop on \`http://localhost:3000\`.
+2. Run the *smoke* tests first.
+
+- [x] Guest checkout
+- [ ] Saved cards
+- [ ] ~~Gift wrap~~ (dropped)
+
+> Runs take about ten minutes on a laptop.
+
+| Test | Needs | Time |
+|:-----|:------|-----:|
+| C1 | S1 | 42 s |
+| C2 | C1 | 1 m 5 s |
+
+\`\`\`ts
+await h.click("Pay now");
+\`\`\`
+`);
+
 const testCode = `import { test, expect } from "watchwright";
 
 // Guest checkout: add boots to the cart and pay as a guest.
@@ -528,6 +555,13 @@ const traces = [
           <TargetField id="kit-target" v-model="pickedTarget" label="target" />
         </div>
         <div class="item wide">
+          <span class="lbl">Markdown (edit the source, the preview follows)</span>
+          <div class="kit-md">
+            <div class="kit-editor tall"><CodeEditor v-model="mdText" lang="markdown" label="Markdown source" /></div>
+            <div class="kit-md-preview"><MarkdownView :source="mdText" id-prefix="kit-md-" label="Markdown preview" /></div>
+          </div>
+        </div>
+        <div class="item wide">
           <span class="lbl">Diff</span>
           <DiffView v-model:mode="diffMode" :before="expectedText" :after="actualText" label="Page text, checkout" before-label="Expected" after-label="Got" :context="2" />
         </div>
@@ -786,6 +820,22 @@ header p {
   border-radius: var(--radius);
   overflow: hidden;
 }
+.kit-editor.tall {
+  height: 480px;
+}
+.kit-md {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+.kit-md-preview {
+  height: 480px;
+  overflow: auto;
+  padding: var(--space-4) var(--space-5);
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
 .item.wide {
   grid-column: 1 / -1;
 }
@@ -900,6 +950,9 @@ header p {
   max-width: 640px;
 }
 @media (max-width: 640px) {
+  .kit-md {
+    grid-template-columns: 1fr;
+  }
   .page {
     padding: var(--space-4);
   }
