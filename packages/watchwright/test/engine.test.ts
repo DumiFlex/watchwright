@@ -145,6 +145,7 @@ test("H1", { title: "Home loads", section: "H", runs: 2 }, async ({ h, expect, a
   await h.goto("/");
   await expect(h.page.getByRole("heading", { level: 1 })).toHaveText("Fixture home");
   await h.shot("home");
+  await h.scrollShots("page", { max: 2 });
   await h.keepText("heading", "h1");
   h.metric("attempt", attempt, "n");
   h.note("label is " + params.label);
@@ -184,6 +185,18 @@ test("H2", { title: "Counter", needs: ["H1"] }, async ({ h, expect }) => {
     expect(file.statusCode).toBe(200);
     expect(file.headers["content-type"]).toBe("image/png");
     expect(file.rawPayload.subarray(1, 4).toString()).toBe("PNG");
+    expect(file.headers["accept-ranges"]).toBe("bytes");
+    const part = await h.app.inject({ url: shot.url, headers: { host: h.host, range: "bytes=1-3" } });
+    expect(part.statusCode).toBe(206);
+    expect(part.headers["content-range"]).toBe(`bytes 1-3/${file.rawPayload.length}`);
+    expect(part.rawPayload.toString()).toBe("PNG");
+    const past = await h.app.inject({ url: shot.url, headers: { host: h.host, range: `bytes=${file.rawPayload.length}-` } });
+    expect(past.statusCode).toBe(416);
+    // Scroll shots carry their set's name; single shots carry none.
+    const set = doc1.artifacts.filter((a) => a.set === "page");
+    expect(set.length).toBeGreaterThan(0);
+    expect(set[0]!.name).toBe("page 1");
+    expect(shot.set).toBeUndefined();
     // The result document is on disk too, next to the files.
     const dataDir = h.app.watchwright.store.dataDir;
     const onDisk = JSON.parse(readFileSync(path.join(dataDir, doc1.folder, "result.json"), "utf8")) as ResultDocument;

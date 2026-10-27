@@ -32,7 +32,7 @@ Everything the web page does goes through this API, so scripts and AI agents can
 | `POST /runs` `{ packId, tests?, params?, pauseOnBroken?, pauseLimitMinutes?, attempts?, trace?, video? }` | Queues a run. `tests` defaults to all; tests they need, and parents and children, join by themselves. `attempts` gives every test the same number of attempts instead of its own `runs`; `trace` (`problems`, `always`, `never`) and `video` override the pack's settings for this run. |
 | `POST /runs/preview` (same body) | Plans the run without starting it: `plan` (every attempt in order), `attempts`, the resolved `params`, and `joined`: tests that run although they weren't chosen, with the reason (`needed`, `parent`, `inside`) and the tests that brought them in. |
 | `GET /runs/:id?history=` | The run, its plan (every planned attempt with its status), current attempts, and `live` (state, current test and step, pages) while it runs. `history=true` adds earlier tries of retried attempts. |
-| `GET /runs/:id/attempts/:attemptId` | One attempt's result document (`schemaVersion: 1`): status, error, flags, metrics, notes, kept texts, log, artifacts with URLs. |
+| `GET /runs/:id/attempts/:attemptId` | One attempt's result document (`schemaVersion: 1`): status, error, flags, metrics, notes, kept texts, log, artifacts with URLs. Shots from one `h.scrollShots` call carry the call's name as `set`. |
 | `DELETE /runs/:id` | Deletes a run that isn't queued or going, with its attempts and its folder in the data folder. Its events stay in the event log. |
 | `POST /runs/:id/pause` | Pauses at the next step. |
 | `POST /runs/:id/resume` | Resumes a manual pause. For an `interrupted`, `stopped` or `failed_to_start` run, queues it to continue: passed, failed and skipped attempts are kept, the rest run. |
@@ -42,7 +42,8 @@ Everything the web page does goes through this API, so scripts and AI agents can
 | `POST /runs/:id/queue/move` `{ testId, direction: "up" \| "down" }` | Moves a test that hasn't started one place up or down, past the next test that hasn't started. Refused (400) when a test would run before a test it needs. Children move with their parent. |
 | `POST /runs/:id/mark` `{ note? }` | Saves the live view's newest frame to the running attempt as a `mark` artifact named by the note, and adds the note to the attempt. Returns `{ attemptId, artifact }` (201). 409 `no_frame` before the first frame arrives. |
 | `POST /runs/:id/redo-broken` | Runs only the broken attempts of a finished run again, with the tests they need. |
-| `GET /files/runs/…` | Artifact files (the `url` in result documents). Only files inside the data folder's `runs/`. |
+| `GET /files/runs/…` | Artifact files (the `url` in result documents). Only files inside the data folder's `runs/`. Answers `Range` requests (206), so videos can seek. |
+| `GET /trace-viewer/index.html?trace=<url>` | Playwright's trace viewer, served from the installed `playwright-core`. Pass the full URL of an attempt's `trace` artifact; the viewer opens it without uploading it anywhere. |
 
 Run statuses: `queued`, `running`, `pausing`, `paused`, `finished`, `stopped`, `interrupted` (the server stopped mid-run), `failed_to_start`. Attempt statuses: `passed`, `failed`, `broken`, `skipped`, `stopped`, plus `running` and `interrupted`.
 

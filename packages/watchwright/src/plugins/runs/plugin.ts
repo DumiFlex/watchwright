@@ -1,6 +1,8 @@
 import { createReadStream, existsSync, mkdtempSync, statSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import fastifyStatic from "@fastify/static";
 import { ActionError, defineAction, type ObjectSchema } from "../../actions/registry.js";
 import { definePlugin } from "../../core/plugin.js";
 import { serviceKey } from "../../core/services.js";
@@ -10,11 +12,41 @@ import { FRAMES } from "../live/hub.js";
 import { PACKS } from "../packs/registry.js";
 import { testKind } from "../testing/kind.js";
 import { Engine, EngineError } from "./engine.js";
-import { RUNS_MIGRATION_SQL, RunsRepo, type RunOptions, type RunStatus } from "./repo.js";
+import { RUNS_ARTIFACT_SET_SQL, RUNS_MIGRATION_SQL, RunsRepo, type RunOptions, type RunStatus } from "./repo.js";
 
 export const ENGINE = serviceKey<Engine>("runs.engine");
 /** The folder that holds `runs/` (the data folder, or a temp folder for an in-memory store). */
 export const FILES_ROOT = serviceKey<string>("runs.files-root");
+
+/** Playwright's trace viewer, a static app inside playwright-core (which playwright depends on). */
+function traceViewerDir(): string | null {
+  try {
+    const require = createRequire(import.meta.url);
+    const core = path.dirname(require.resolve("playwright-core/package.json", { paths: [path.dirname(require.resolve("playwright"))] }));
+    const dir = path.join(core, "lib", "vite", "traceViewer");
+    return existsSync(path.join(dir, "index.html")) ? dir : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Parses a single-range `Range` header against a file size: [start, end] inclusive, "bad" when it can't be met, null when absent. */
+export function byteRange(header: string | undefined, size: number): [number, number] | "bad" | null {
+  if (!header) return null;
+  const m = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!m || (m[1] === "" && m[2] === "")) return "bad";
+  let start: number;
+  let end: number;
+  if (m[1] === "") {
+    // "bytes=-N": the last N bytes.
+    start = Math.max(0, size - Number(m[2]));
+    end = size - 1;
+  } else {
+    start = Number(m[1]);
+    end = m[2] === "" ? size - 1 : Math.min(Number(m[2]), size - 1);
+  }
+  return start > end || start >= size ? "bad" : [start, end];
+}
 
 const RUN_ID = { type: "string", pattern: "^[0-9a-f]{8}$", description: "Run id." } as const;
 const byId: ObjectSchema = { type: "object", properties: { id: RUN_ID }, required: ["id"] };
@@ -73,7 +105,10 @@ function filesRoot(dataDir: string): string {
 /** Runs: starting, controlling and reading them, and the files they save. */
 export const runsPlugin = definePlugin({
   name: "runs",
-  migrations: [{ id: 1, name: "init", sql: RUNS_MIGRATION_SQL }],
+  migrations: [
+    { id: 1, name: "init", sql: RUNS_MIGRATION_SQL },
+    { id: 2, name: "artifact-set", sql: RUNS_ARTIFACT_SET_SQL },
+  ],
   setup({ store, events, services }) {
     const dataDir = filesRoot(store.dataDir);
     services.provide(FILES_ROOT, dataDir);
@@ -209,17 +244,30 @@ export const runsPlugin = definePlugin({
       }),
     ];
   },
-  routes(app, { services }) {
+  async routes(app, { services }) {
     const dataDir = services.get(FILES_ROOT);
     const root = path.resolve(dataDir, "runs");
-    // Artifact files, from the data folder's runs/ only.
+    // Artifact files, from the data folder's runs/ only. Ranges are served so videos can seek.
     app.get("/files/*", async (req, reply) => {
       // Fastify has already decoded the path once; decoding again would turn "%25" into "%".
       const rel = (req.params as { "*": string })["*"] ?? "";
       if (!rel.startsWith("runs/")) return reply.code(404).send(errorBody("not_found", "No such file."));
       const abs = path.resolve(dataDir, ...rel.split("/"));
       if (!abs.startsWith(root + path.sep) || !existsSync(abs) || !statSync(abs).isFile()) return reply.code(404).send(errorBody("not_found", "No such file."));
-      return reply.type(contentTypeOf(abs)).header("cache-control", "no-cache").send(createReadStream(abs));
+      const size = statSync(abs).size;
+      reply.type(contentTypeOf(abs)).header("cache-control", "no-cache").header("accept-ranges", "bytes");
+      const range = byteRange(req.headers.range, size);
+      if (range === "bad") return reply.code(416).header("content-range", `bytes */${size}`).send();
+      if (!range) return reply.header("content-length", size).send(createReadStream(abs));
+      const [start, end] = range;
+      return reply
+        .code(206)
+        .header("content-range", `bytes ${start}-${end}/${size}`)
+        .header("content-length", end - start + 1)
+        .send(createReadStream(abs, { start, end }));
     });
+    // Playwright's trace viewer, from our own origin: open /api/v1/trace-viewer/index.html?trace=<file url>.
+    const viewer = traceViewerDir();
+    if (viewer) await app.register(fastifyStatic, { root: viewer, prefix: "/trace-viewer/", decorateReply: false, cacheControl: false });
   },
 });

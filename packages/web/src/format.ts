@@ -50,3 +50,19 @@ export function done(c: RunSummary["counts"]): number {
 
 export const ACTIVE = ["queued", "running", "pausing", "paused"] as const;
 export const isActive = (status: string) => (ACTIVE as readonly string[]).includes(status);
+
+/** A position in a video: "0:07", "12:34", "1:02:03". */
+export function clockTime(seconds: number): string {
+  const s = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = String(s % 60).padStart(2, "0");
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
+}
+
+/** A file size: "820 B", "12 KB", "3.4 MB". */
+export function fileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}

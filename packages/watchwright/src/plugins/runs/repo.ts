@@ -22,6 +22,9 @@ export const ACTIVE_STATUSES: readonly RunStatus[] = ["running", "pausing", "pau
 /** Outcomes a resume keeps; everything else runs again. */
 export const DECIDED: readonly AttemptStatus[] = ["passed", "failed", "skipped"];
 
+/** Migration 2: shots taken as a set (scroll shots) keep the set's name. */
+export const RUNS_ARTIFACT_SET_SQL = `ALTER TABLE runs_artifacts ADD COLUMN set_name TEXT;`;
+
 export const RUNS_MIGRATION_SQL = `
   CREATE TABLE runs (
     id          TEXT PRIMARY KEY,
@@ -307,14 +310,15 @@ export class RunsRepo {
 
   addArtifact(attemptId: string, runId: string, a: ArtifactInfo): void {
     this.db
-      .prepare("INSERT INTO runs_artifacts (attempt_id, run_id, kind, name, content_type, path, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(attemptId, runId, a.kind, a.name, a.contentType, a.path, a.size, new Date().toISOString());
+      .prepare("INSERT INTO runs_artifacts (attempt_id, run_id, kind, name, content_type, path, size, set_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(attemptId, runId, a.kind, a.name, a.contentType, a.path, a.size, a.set ?? null, new Date().toISOString());
   }
 
   artifacts(attemptId: string): ArtifactInfo[] {
-    return this.db
-      .prepare("SELECT kind, name, content_type AS contentType, path, size FROM runs_artifacts WHERE attempt_id = ? ORDER BY id")
-      .all(attemptId) as ArtifactInfo[];
+    const rows = this.db
+      .prepare("SELECT kind, name, content_type AS contentType, path, size, set_name AS setName FROM runs_artifacts WHERE attempt_id = ? ORDER BY id")
+      .all(attemptId) as (Omit<ArtifactInfo, "set"> & { setName: string | null })[];
+    return rows.map(({ setName, ...a }) => (setName === null ? a : { ...a, set: setName }));
   }
 
   artifactByPath(rel: string): { contentType: string } | null {

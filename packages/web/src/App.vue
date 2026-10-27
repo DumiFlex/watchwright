@@ -8,6 +8,7 @@ import ToastHost from "./components/ToastHost.vue";
 import { sectionOf, useRoute } from "./router";
 import { vTip } from "./tooltip";
 import { applyTheme, browserStore, loadTheme, saveTheme, type Theme } from "./theme";
+import AttemptView from "./views/AttemptView.vue";
 import KitView from "./views/KitView.vue";
 import NewRunView from "./views/NewRunView.vue";
 import PacksView from "./views/PacksView.vue";
@@ -64,6 +65,7 @@ onMounted(async () => {
     </div>
   </header>
   <RunView v-if="route.name === 'run'" :id="route.id" />
+  <AttemptView v-else-if="route.name === 'attempt'" :run-id="route.runId" :attempt-id="route.attemptId" />
   <NewRunView v-else-if="route.name === 'new'" :query="route.query" />
   <PacksView v-else-if="route.name === 'packs'" />
   <PackView v-else-if="route.name === 'pack'" :id="route.id" />

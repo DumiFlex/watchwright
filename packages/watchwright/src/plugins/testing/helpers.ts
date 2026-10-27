@@ -180,7 +180,7 @@ export function createHelpers(rt: HelperRuntime, extend?: (h: Helpers) => Record
         await control.checkpoint("attempt");
         const file = recorder.numberedName(`${name}-${n + 1}`, ".png");
         const data = scroller ? await scroller.screenshot() : await page.screenshot();
-        recorder.write("shot", `${name} ${n + 1}`, file, data, "image/png");
+        recorder.write("shot", `${name} ${n + 1}`, file, data, "image/png", { set: name });
         const m = await metrics();
         if (m.top + m.view >= m.height - 1) {
           n++;

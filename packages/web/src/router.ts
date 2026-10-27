@@ -6,6 +6,7 @@ export type Route =
   | { name: "runs"; query: Record<string, string> }
   | { name: "new"; query: Record<string, string> }
   | { name: "run"; id: string }
+  | { name: "attempt"; runId: string; attemptId: string }
   | { name: "packs" }
   | { name: "pack"; id: string }
   | { name: "kit" };
@@ -29,6 +30,7 @@ export function parseRoute(hash: string): Route {
   if (path === "/packs") return { name: "packs" };
   if (path === "/kit") return { name: "kit" };
   if ((m = new RegExp(`^/runs/${ID8}$`).exec(path))) return { name: "run", id: m[1]! };
+  if ((m = new RegExp(`^/runs/${ID8}/attempts/([0-9a-f]{12})$`).exec(path))) return { name: "attempt", runId: m[1]!, attemptId: m[2]! };
   if ((m = new RegExp(`^/packs/${ID8}$`).exec(path))) return { name: "pack", id: m[1]! };
   return { name: "runs", query: path === "/" ? query : {} };
 }
@@ -46,6 +48,8 @@ export function href(route: Route): string {
       return `#/new${qs(route.query)}`;
     case "run":
       return `#/runs/${route.id}`;
+    case "attempt":
+      return `#/runs/${route.runId}/attempts/${route.attemptId}`;
     case "packs":
       return "#/packs";
     case "pack":
@@ -57,7 +61,7 @@ export function href(route: Route): string {
 
 /** Which top bar section a route belongs to. */
 export function sectionOf(route: Route): "runs" | "packs" | null {
-  if (route.name === "runs" || route.name === "run" || route.name === "new") return "runs";
+  if (route.name === "runs" || route.name === "run" || route.name === "attempt" || route.name === "new") return "runs";
   if (route.name === "packs" || route.name === "pack") return "packs";
   return null;
 }
@@ -68,7 +72,7 @@ export function useRoute(): Ref<Route> {
   const onHash = () => {
     const next = parseRoute(window.location.hash);
     // Changing only the query (filters) keeps the scroll position; a new page starts at the top.
-    if (next.name !== route.value.name || ("id" in next && "id" in route.value && next.id !== route.value.id)) window.scrollTo(0, 0);
+    if (href(next).split("?")[0] !== href(route.value).split("?")[0]) window.scrollTo(0, 0);
     route.value = next;
   };
   onMounted(() => window.addEventListener("hashchange", onHash));

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { getJson, sendJson, type ResultDocument, type RunDetail, type WwEvent } from "../api";
+import { getJson, sendJson, type RunDetail, type WwEvent } from "../api";
 import { LiveConnection, type LiveState } from "../live";
 import LiveViewer from "../components/LiveViewer.vue";
 import ModalDialog from "../components/ModalDialog.vue";
@@ -8,6 +8,7 @@ import SelectMenu from "../components/SelectMenu.vue";
 import StatusChip from "../components/StatusChip.vue";
 import TextArea from "../components/TextArea.vue";
 import { countsText, duration } from "../format";
+import { href } from "../router";
 import { canMove as canMoveRow, movable as movableRow } from "../queue";
 import { vTip } from "../tooltip";
 
@@ -23,8 +24,6 @@ const log = ref<{ seq: number; time: string; level: string; message: string; tes
 const pages = ref<{ id: string; url: string }[]>([]);
 const activePageId = ref<string | null>(null);
 const step = ref<string | null>(null);
-const selected = ref<string | null>(null);
-const result = ref<ResultDocument | null>(null);
 const now = ref(Date.now());
 
 const active = computed(() => run.value !== null && ["running", "pausing", "paused"].includes(run.value.status));
@@ -128,12 +127,8 @@ async function act(path: string, body: unknown = {}) {
   else run.value = res.data;
 }
 
-async function openAttempt(attemptId: string | null) {
-  selected.value = attemptId;
-  result.value = null;
-  if (!attemptId) return;
-  const res = await getJson<ResultDocument>(`/api/v1/runs/${props.id}/attempts/${attemptId}`);
-  if (res.ok && selected.value === attemptId) result.value = res.data;
+function openAttempt(attemptId: string | null) {
+  if (attemptId) window.location.hash = href({ name: "attempt", runId: props.id, attemptId });
 }
 
 // Queue edits: attempts that haven't started can be skipped, tests that haven't started moved.
@@ -289,7 +284,7 @@ function time(iso: string) {
             <li
               v-for="(p, i) in run.plan"
               :key="`${p.testId}#${p.number}`"
-              :class="{ cur: live?.testId === p.testId && p.status === 'running', sel: selected === p.attemptId && !!p.attemptId, skip: p.skip && p.status === 'pending' }"
+              :class="{ cur: live?.testId === p.testId && p.status === 'running', skip: p.skip && p.status === 'pending' }"
             >
               <div class="qline">
                 <button class="qrow" :disabled="!p.attemptId" @click="openAttempt(p.attemptId)">
@@ -329,37 +324,6 @@ function time(iso: string) {
           </ol>
         </section>
       </div>
-
-      <section v-if="selected" class="card" aria-labelledby="result-title">
-        <h2 id="result-title" class="display">
-          Result <template v-if="result">· {{ result.test.id }} {{ result.test.title }}</template>
-          <button class="btn close" @click="openAttempt(null)">Close</button>
-        </h2>
-        <p v-if="!result" class="muted">Loading…</p>
-        <template v-else>
-          <p><StatusChip :status="result.status" /> <span v-if="result.error" class="error inline">{{ result.error.message }}</span></p>
-          <ul v-if="result.flags.length" class="plain">
-            <li v-for="f in result.flags" :key="f.name">Flag <code>{{ f.name }}</code> ({{ f.kind }}){{ f.detail ? `: ${f.detail}` : "" }}</li>
-          </ul>
-          <ul v-if="result.notes.length" class="plain">
-            <li v-for="(n, i) in result.notes" :key="i">{{ n }}</li>
-          </ul>
-          <dl v-if="Object.keys(result.metrics).length" class="facts">
-            <template v-for="(m, k) in result.metrics" :key="k"><dt>{{ k }}</dt><dd>{{ m.value }} {{ m.unit ?? "" }}</dd></template>
-          </dl>
-          <div class="shots">
-            <a v-for="a in result.artifacts.filter((x) => x.kind === 'shot' || x.kind === 'mark')" :key="a.url" :href="a.url" target="_blank" rel="noopener">
-              <img :src="a.url" :alt="a.name" loading="lazy" />
-              <span>{{ a.name }}</span>
-            </a>
-          </div>
-          <ul class="plain files">
-            <li v-for="a in result.artifacts.filter((x) => x.kind !== 'shot' && x.kind !== 'mark')" :key="a.url">
-              <a :href="a.url" target="_blank" rel="noopener">{{ a.name }}</a> <span class="muted small">{{ a.kind }} · {{ Math.max(1, Math.round(a.size / 1024)) }} KB</span>
-            </li>
-          </ul>
-        </template>
-      </section>
 
       <section class="card" aria-labelledby="log-title">
         <div class="loghead">
@@ -570,9 +534,6 @@ function time(iso: string) {
 .cur > .qline {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
-.sel > .qline {
-  outline: 1px solid var(--accent);
-}
 .qt {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -581,44 +542,6 @@ function time(iso: string) {
 }
 .n {
   margin-left: 6px;
-}
-.close {
-  margin-left: auto;
-  font-size: 13px;
-  padding: 2px 10px;
-}
-.plain {
-  margin: 6px 0;
-  padding-left: 18px;
-}
-.facts {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 2px 16px;
-}
-.facts dt {
-  color: var(--muted);
-}
-.facts dd {
-  margin: 0;
-}
-.shots {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 10px;
-  margin: 10px 0;
-}
-.shots a {
-  display: grid;
-  gap: 4px;
-  font-size: 13px;
-  text-decoration: none;
-  color: var(--muted);
-}
-.shots img {
-  width: 100%;
-  border: var(--border-width) solid var(--line);
-  border-radius: var(--radius);
 }
 .loghead {
   display: flex;
