@@ -116,8 +116,8 @@ export function useOutside(inside: Ref<HTMLElement | null>[], open: Ref<boolean>
 }
 
 /**
- * Where to teleport a popup: <body>, or the modal <dialog> around `root` when there is one,
- * because a modal dialog sits in the top layer and makes everything outside it inert.
+ * Where to teleport a popup: <body>, or the popup holder of the modal <dialog> around `root` when
+ * there is one, because a modal dialog sits in the top layer and makes everything outside it inert.
  */
 /** Open modal dialogs, innermost last. ModalDialog keeps it; ToastHost follows the top one. */
 export const openModals = shallowReactive<HTMLDialogElement[]>([]);
@@ -140,7 +140,8 @@ if (typeof document !== "undefined") {
 export function usePopupHost(root: Ref<HTMLElement | null>) {
   const host = ref<string | HTMLElement>("body");
   onMounted(() => {
-    host.value = root.value?.closest("dialog") ?? "body";
+    const dialog = root.value?.closest("dialog");
+    host.value = dialog ? (dialog.querySelector<HTMLElement>(":scope > .dlg-popups") ?? dialog) : "body";
   });
   return host;
 }

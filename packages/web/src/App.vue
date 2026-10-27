@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
-import { Columns2, FolderOpen, ListChecks, Moon, Palette, Plus, Search, Sun, SunMoon } from "./icons";
+import { computed, onMounted, provide, ref, watch } from "vue";
+import { Columns2, FolderOpen, ListChecks, Moon, Palette, Plus, Search, Settings, Sun, SunMoon } from "./icons";
 import { getJson, type HealthData } from "./api";
 import BrandMark from "./components/BrandMark.vue";
 import CommandPalette, { type PaletteCommand } from "./components/CommandPalette.vue";
@@ -20,6 +20,7 @@ import PacksView from "./views/PacksView.vue";
 import PackView from "./views/PackView.vue";
 import RunsView from "./views/RunsView.vue";
 import RunView from "./views/RunView.vue";
+import SettingsView from "./views/SettingsView.vue";
 
 const theme = ref<Theme>(loadTheme(browserStore()));
 watch(
@@ -30,6 +31,7 @@ watch(
   },
   { deep: true },
 );
+provide("theme", theme);
 
 const route = useRoute();
 const section = computed(() => sectionOf(route.value));
@@ -41,6 +43,7 @@ const nav = computed(() => [
   { value: "packs", label: "Packs", href: "#/packs", current: section.value === "packs" },
   { value: "compare", label: "Compare", href: "#/compare", current: section.value === "compare" },
   { value: "new", label: "New run", href: "#/new", current: route.value.name === "new" },
+  { value: "settings", label: "Settings", href: "#/settings", current: route.value.name === "settings" },
 ]);
 
 // Mod+K anywhere opens the command palette: go to a page or switch the look and mode.
@@ -52,6 +55,7 @@ const commands = computed<PaletteCommand[]>(() => [
   { id: "go-packs", label: "Packs", group: "Go to", words: "tests suites", icon: FolderOpen, run: go("#/packs") },
   { id: "go-new", label: "New run", group: "Go to", words: "start", icon: Plus, run: go("#/new") },
   { id: "go-compare", label: "Compare", group: "Go to", words: "side by side matrix export", icon: Columns2, run: go("#/compare") },
+  { id: "go-settings", label: "Settings", group: "Go to", words: "preferences editor folders", icon: Settings, run: go("#/settings") },
   ...LOOKS.map((l) => ({ id: `look-${l.id}`, label: `Look: ${l.name}`, group: "Theme", words: l.note, icon: Palette, run: () => (theme.value = { ...theme.value, look: l.id }) })),
   { id: "mode-light", label: "Mode: Light", group: "Theme", icon: Sun, run: () => (theme.value = { ...theme.value, mode: "light" }) },
   { id: "mode-dark", label: "Mode: Dark", group: "Theme", icon: Moon, run: () => (theme.value = { ...theme.value, mode: "dark" }) },
@@ -86,6 +90,7 @@ onMounted(async () => {
         <KeyHint keys="Mod+K" class="cmd-keys" />
       </button>
       <ThemePicker v-model="theme" />
+      <a v-tip="'Settings'" class="cmd gear" href="#/settings" aria-label="Settings" :aria-current="route.name === 'settings' ? 'page' : undefined"><Settings :size="16" /></a>
       <MenuButton class="navmenu" :items="nav" label="Menu" />
     </div>
   </header>
@@ -96,6 +101,7 @@ onMounted(async () => {
   <PackView v-else-if="route.name === 'pack'" :id="route.id" />
   <CompareView v-else-if="route.name === 'compare'" :query="route.query" />
   <KitView v-else-if="route.name === 'kit'" />
+  <SettingsView v-else-if="route.name === 'settings'" />
   <RunsView v-else :query="route.query" />
   <CommandPalette v-model:open="palette" :commands="commands" />
   <ToastHost />
@@ -197,6 +203,9 @@ onMounted(async () => {
   background: var(--hover);
   color: var(--text);
 }
+.gear[aria-current] {
+  color: var(--accent-text);
+}
 @media (max-width: 640px) {
   .top {
     padding: 0 var(--space-4);
@@ -204,6 +213,7 @@ onMounted(async () => {
   }
   .nav,
   .new,
+  .gear,
   .version {
     display: none;
   }

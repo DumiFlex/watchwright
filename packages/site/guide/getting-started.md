@@ -28,7 +28,7 @@ The second line downloads the browsers Playwright drives.
 
 ## Looking at results
 
-Click an attempt in the queue to open its page. It shows the error, the flags (robot problems apart from findings), metrics and notes, then tabs for:
+Click an attempt in the queue to open its page. It shows the error (with **In your code**, the line of your test it broke on), the flags (robot problems apart from findings), metrics and notes, then tabs for:
 
 - the screenshots, with a full-size viewer (scroll shots show as one strip),
 - kept texts,
@@ -44,6 +44,8 @@ A finished run's page shows every test's attempts and scores as a grid, with **C
 **Runs**, the home page, lists the runs that are going and every earlier one, with filters by pack and status. From there you can open a run again, start a new one with the same choices, or delete it.
 
 Press Ctrl+K (Cmd+K on a Mac) anywhere, or the search button at the top, to jump to a page or switch the look and mode from the keyboard.
+
+File names of your tests, build errors and the line a test broke on are links that open in your editor at that line. Pick the editor (VS Code, Cursor, Windsurf, IntelliJ IDEA, WebStorm, or none) on the **Settings** page (the gear at the top), which also has the look and mode and the list of recent folders.
 
 ## Options
 

@@ -54,6 +54,9 @@ function onClick(e: MouseEvent) {
       <div class="content"><slot /></div>
       <footer v-if="$slots.actions" class="actions"><slot name="actions" /></footer>
     </div>
+    <!-- Popups inside the dialog (menus, suggestions) teleport here, never straight into the
+         <dialog>: a node Vue doesn't track next to the body breaks Vue's patching when the body goes. -->
+    <div class="dlg-popups" />
   </dialog>
 </template>
 

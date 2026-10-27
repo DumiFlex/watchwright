@@ -8,11 +8,15 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, type Artifact, type Pack, type ResultDocument, type RunDetail } from "../api";
 import { attemptOrder, cellOf, plainText, recordColumns, shotGroups, traceViewerUrl } from "../attempt";
 import { duration, fileSize, when } from "../format";
+import { firstOwnFrame } from "../editor";
+import { tildify } from "../paths";
 import { href } from "../router";
+import { loadSettings, settings } from "../settings";
 import { toast } from "../toasts";
 import { vTip } from "../tooltip";
 import CodeView from "../components/CodeView.vue";
 import DataTable from "../components/DataTable.vue";
+import FileLink from "../components/FileLink.vue";
 import ImageViewer from "../components/ImageViewer.vue";
 import ReviewPanel from "../components/ReviewPanel.vue";
 import SelectMenu from "../components/SelectMenu.vue";
@@ -172,6 +176,7 @@ function onKey(e: KeyboardEvent) {
 }
 onMounted(() => {
   void load();
+  void loadSettings();
   window.addEventListener("keydown", onKey);
 });
 onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
@@ -217,6 +222,10 @@ watch(
       <section v-if="doc.error" class="card problem" :class="{ calm: doc.error.kind === 'skipped' }" aria-labelledby="err-title">
         <h2 id="err-title">{{ doc.error.kind === "assertion" ? "A check failed" : doc.error.kind === "timeout" ? "Timed out" : doc.error.kind === "stopped" ? "Stopped" : doc.error.kind === "skipped" ? "Skipped" : "The harness couldn't go on" }}</h2>
         <pre class="msg">{{ plainText(doc.error.message) }}</pre>
+        <p v-if="doc.error.stack && firstOwnFrame(doc.error.stack)" class="where small">
+          In your code:
+          <FileLink :file="firstOwnFrame(doc.error.stack)!.file" :label="tildify(firstOwnFrame(doc.error.stack)!.file, settings.home)" :line="firstOwnFrame(doc.error.stack)!.line" :column="firstOwnFrame(doc.error.stack)!.column" />
+        </p>
         <details v-if="doc.error.stack" class="stack">
           <summary>Stack</summary>
           <pre>{{ plainText(doc.error.stack) }}</pre>
@@ -414,6 +423,10 @@ watch(
 }
 .stack {
   margin-top: var(--space-2);
+}
+.where {
+  margin: var(--space-2) 0 0;
+  color: var(--muted);
 }
 .stack summary {
   cursor: pointer;
