@@ -4,6 +4,7 @@
   "private": true,
   "description": "A browser test harness on Playwright that you watch work live, control from its own website, and drive from your own AI agents.",
   "license": "Apache-2.0",
+  "author": "DumiFlex",
   "type": "module",
   "engines": {
     "node": ">=22"
