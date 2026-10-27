@@ -222,9 +222,12 @@ onBeforeUnmount(() => live?.close());
         <h2 id="pk-runs" class="display">Recent runs</h2>
         <ul v-if="runs.length" class="rlist">
           <li v-for="r in runs" :key="r.id">
-            <a :href="`#/runs/${r.id}`" class="num">{{ r.id }}</a>
+            <a :href="`#/runs/${r.id}`" class="rid"><span v-if="r.label" class="rlabel">{{ r.label }}</span><span class="num">{{ r.id }}</span></a>
             <StatusChip :status="r.status" />
             <span class="small">{{ countsText(r.counts) }}</span>
+            <span v-if="Object.keys(r.params).length" class="rparams small">
+              <code v-for="(v, k) in r.params" :key="k">{{ k }}={{ v }}</code>
+            </span>
             <span v-tip="when(r.startedAt ?? r.createdAt)" class="muted small">{{ ago(r.startedAt ?? r.createdAt) }}</span>
           </li>
         </ul>
@@ -373,6 +376,25 @@ onBeforeUnmount(() => live?.close());
   gap: var(--space-2) var(--space-3);
   padding: 6px 0;
   border-top: var(--border-width) solid var(--line);
+}
+.rid {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  text-decoration: none;
+}
+.rid:hover .num {
+  text-decoration: underline;
+}
+.rlabel {
+  font-weight: 600;
+  color: var(--text);
+}
+.rparams {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  color: var(--muted);
 }
 @media (max-width: 720px) {
   .tbl thead {

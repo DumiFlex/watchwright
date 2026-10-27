@@ -4,9 +4,10 @@
 import { Ellipsis } from "../icons";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, sendJson, type Pack, type RunSummary } from "../api";
-import { ago, countsText, done, duration, runDuration, when } from "../format";
+import { ago, countsText, done, duration, isActive, runDuration, when } from "../format";
 import { LiveConnection } from "../live";
 import { replaceRoute } from "../router";
+import { toast } from "../toasts";
 import MenuButton from "../components/MenuButton.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import ProgressBar from "../components/ProgressBar.vue";
@@ -87,10 +88,14 @@ const deleteOpen = computed({
 });
 const deleteError = ref<string | null>(null);
 const busy = ref(false);
-function onRowMenu(r: RunSummary, value: string) {
+async function onRowMenu(r: RunSummary, value: string) {
   if (value === "delete") {
     deleteError.value = null;
     deleting.value = r;
+  } else if (value === "run-again") {
+    const res = await sendJson<RunSummary>(`/api/v1/runs/${r.id}/again`);
+    if (!res.ok) return void toast(res.error.message, { tone: "bad" });
+    window.location.hash = `#/runs/${res.data.id}`;
   }
 }
 async function confirmDelete() {
@@ -107,7 +112,8 @@ async function confirmDelete() {
 function rowMenu(r: RunSummary) {
   return [
     { value: "open", label: "Open", href: `#/runs/${r.id}` },
-    { value: "again", label: "New run like this", href: `#/new?pack=${r.packId}&from=${r.id}` },
+    ...(isActive(r.status) ? [] : [{ value: "run-again", label: "Run again" }]),
+    { value: "again", label: "New run like this…", href: `#/new?pack=${r.packId}&from=${r.id}` },
     { value: "delete", label: "Delete…", danger: true },
   ];
 }
@@ -156,7 +162,7 @@ onBeforeUnmount(() => {
       <ul class="active">
         <li v-for="r in active" :key="r.id">
           <a class="arun" :href="`#/runs/${r.id}`">
-            <span class="aname">{{ r.packName }} <span class="muted num small">{{ r.id }}</span></span>
+            <span class="aname">{{ r.packName }} <span v-if="r.label" class="rlabel">{{ r.label }}</span> <span class="muted num small">{{ r.id }}</span></span>
             <StatusChip :status="r.status" />
             <ProgressBar class="aprog" :value="done(r.counts)" :max="Math.max(1, r.counts.planned)" :label="`${r.packName} progress`" :tone="r.counts.broken || r.counts.failed ? 'warn' : 'accent'" />
             <span class="muted small">
@@ -199,6 +205,7 @@ onBeforeUnmount(() => {
           <tr v-for="r in runs" :key="r.id">
             <td class="c-run">
               <a :href="`#/runs/${r.id}`" class="rname">{{ r.packName }}</a>
+              <span v-if="r.label" class="rlabel">{{ r.label }}</span>
               <span class="muted num small">{{ r.id }}</span>
               <span v-if="Object.keys(r.params).length" class="params small">
                 <code v-for="(v, k) in r.params" :key="k">{{ k }}={{ v }}</code>
@@ -344,6 +351,15 @@ onBeforeUnmount(() => {
   font-weight: 600;
   color: var(--text);
   text-decoration: none;
+}
+.rlabel {
+  margin-right: 2px;
+  padding: 0 6px;
+  border-radius: var(--radius-chip);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-size: 12px;
+  font-weight: 500;
 }
 .rname:hover {
   color: var(--accent-text);

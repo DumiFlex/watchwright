@@ -9,6 +9,8 @@ import type { Review } from "./repo.js";
 
 export interface CompareRun {
   id: string;
+  /** The run's label; empty when it has none. */
+  label: string;
   params: RunDetail["params"];
   info: RunDetail["info"];
   status: RunDetail["status"];
@@ -146,6 +148,7 @@ export function compare(inputs: readonly CompareInput[]): Comparison {
     packName: first.packName,
     runs: inputs.map(({ run }) => ({
       id: run.id,
+      label: run.label ?? "",
       params: run.params,
       info: run.info ?? {},
       status: run.status,

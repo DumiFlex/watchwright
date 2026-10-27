@@ -36,7 +36,10 @@ Preferences for the whole machine, the same for every browser and agent. Plugins
 | `GET /settings` | `{ values, definitions }`: every setting's value (its default when never changed) and, for each, `key`, `title`, the JSON Schema of its value and its `default`. |
 | `POST /settings` `{ values }` | Changes several settings at once, all or none; `null` puts one back to its default. Returns `{ values }`. 400 `unknown_setting` or `invalid_setting`. |
 
-The settings so far: `settings.editor`, the editor that file links open in (`vscode`, `cursor`, `windsurf`, `idea`, `webstorm` or `none`; default `vscode`).
+The settings so far:
+
+- `settings.editor`: the editor that file links open in (`vscode`, `cursor`, `windsurf`, `idea`, `webstorm` or `none`; default `vscode`).
+- `runs.newRunFrom`: what the New run page fills in when it opens: `latest` (the pack's latest run, the default) or `defaults` (the pack's defaults).
 
 ## Folders
 
@@ -54,10 +57,12 @@ A web page can't learn a folder's path from the browser, so the server lists fol
 | Method and path | Does |
 |---|---|
 | `GET /runs?limit=&pack=&status=&before=` | Runs, newest first, with counts. `pack` keeps one pack's runs, `status` a comma-separated list of statuses (`finished,stopped`). For the next page, pass the `createdAt` of the last run as `before`. |
-| `POST /runs` `{ packId, tests?, params?, pauseOnBroken?, pauseLimitMinutes?, attempts?, trace?, video? }` | Queues a run. `tests` defaults to all; tests they need, and parents and children, join by themselves. `attempts` gives every test the same number of attempts instead of its own `runs`; `trace` (`problems`, `always`, `never`) and `video` override the pack's settings for this run. |
+| `POST /runs` `{ packId, tests?, params?, pauseOnBroken?, pauseLimitMinutes?, attempts?, trace?, video?, label?, preset? }` | Queues a run. `tests` defaults to all; tests they need, and parents and children, join by themselves. `attempts` gives every test the same number of attempts instead of its own `runs`; `trace` (`problems`, `always`, `never`) and `video` override the pack's settings for this run. `label` names the run (up to 120 characters). `preset` starts from the pack's preset with that name; the other fields given override it (404 when the pack has no such preset). |
+| `POST /runs/:id/again` | Queues a new run with the run's pack, tests, values, options and label (201). Queue edits made during the run aren't copied. |
+| `POST /runs/:id/label` `{ label }` | Names a run; an empty label takes the name away. Runs carry `label` (empty when none). |
 | `POST /runs/preview` (same body) | Plans the run without starting it: `plan` (every attempt in order), `attempts`, the resolved `params`, and `joined`: tests that run although they weren't chosen, with the reason (`needed`, `parent`, `inside`) and the tests that brought them in. |
 | `GET /runs/:id?history=` | The run, its plan (every planned attempt with its status), current attempts, and `live` (state, current test and step, pages) while it runs. `info` holds the facts the run saved with `info(key, value)`. `history=true` adds earlier tries of retried attempts. |
-| `GET /runs/:id/attempts/:attemptId` | One attempt's result document (`schemaVersion: 1`): status, error, flags, metrics, notes, kept texts, log, artifacts with URLs. Shots from one `h.scrollShots` call carry the call's name as `set`. |
+| `GET /runs/:id/attempts/:attemptId` | One attempt's result document (`schemaVersion: 1`): status, error, flags, metrics, notes, kept texts, log, `steps` (`{ title, depth, startedAt, finishedAt, status }` for each `h.step`), artifacts with URLs. Shots from one `h.scrollShots` call carry the call's name as `set`. |
 | `DELETE /runs/:id` | Deletes a run that isn't queued or going, with its attempts and its folder in the data folder. Its events stay in the event log. |
 | `POST /runs/:id/pause` | Pauses at the next step. |
 | `POST /runs/:id/resume` | Resumes a manual pause. For an `interrupted`, `stopped` or `failed_to_start` run, queues it to continue: passed, failed and skipped attempts are kept, the rest run. |
@@ -65,10 +70,22 @@ A web page can't learn a folder's path from the browser, so the server lists fol
 | `POST /runs/:id/stop` `{ when: "after" \| "now" }` | `after` finishes the current test first; `now` ends at once and files the current attempt as `stopped`. A queued run is cancelled. |
 | `POST /runs/:id/queue/skip` `{ testId, number?, undo? }` | Skips attempt `number` (default 1) of a test that hasn't started yet; `undo: true` takes the skip back. A skipped attempt is filed as `skipped` when its turn comes. The plan marks it with `skip: true`. |
 | `POST /runs/:id/queue/move` `{ testId, direction: "up" \| "down" }` | Moves a test that hasn't started one place up or down, past the next test that hasn't started. Refused (400) when a test would run before a test it needs. Children move with their parent. |
-| `POST /runs/:id/mark` `{ note? }` | Saves the live view's newest frame to the running attempt as a `mark` artifact named by the note, and adds the note to the attempt. Returns `{ attemptId, artifact }` (201). 409 `no_frame` before the first frame arrives. |
+| `POST /runs/:id/queue/add` `{ tests }` | Adds tests to a run that is going. They go at the end of the queue in the pack's order, with the tests they need that the run doesn't have yet. The pack is read again first, so a test written since the run started can be added. 400 when every test is already in the run, 409 once the run has gone through its queue. Emits `run.tests-added`. |
+| `POST /runs/:id/mark` `{ note?, pageId?, at? }` | Saves the live view's newest frame (or, with `at`, the [rewind](#rewind) frame of `pageId` at that time) to the running attempt as a `mark` artifact named by the note, and adds the note to the attempt. Returns `{ attemptId, artifact }` (201). 409 `no_frame` before the first frame arrives. |
 | `POST /runs/:id/redo-broken` | Runs only the broken attempts of a finished run again, with the tests they need. |
 | `GET /files/runs/…` | Artifact files (the `url` in result documents). Only files inside the data folder's `runs/`. Answers `Range` requests (206), so videos can seek. |
 | `GET /trace-viewer/index.html?trace=<url>` | Playwright's trace viewer, served from the installed `playwright-core`. Pass the full URL of an attempt's `trace` artifact; the viewer opens it without uploading it anywhere. |
+
+## Presets
+
+Named run choices, kept per pack: tests, values and options, the same fields as `POST /runs` takes.
+
+| Method and path | Does |
+|---|---|
+| `GET /presets?pack=` | Presets, by pack and name: `{ id, packId, name, choices, createdAt, updatedAt }`. |
+| `POST /presets` `{ packId, name, tests?, params?, pauseOnBroken?, pauseLimitMinutes?, attempts?, trace?, video? }` | Saves choices under a name (201). Saving a name the pack already has replaces that preset's choices. |
+| `POST /presets/:id` `{ name }` | Renames a preset. 409 `conflict` when the pack has another preset with that name. |
+| `DELETE /presets/:id` | Deletes a preset. |
 
 ## Reviews
 
@@ -88,6 +105,7 @@ Deleting a run deletes its reviews.
 | Method and path | Does |
 |---|---|
 | `GET /compare?runs=a,b,c` | Lines up one to six runs of the same pack: `runs` (id, params, status, counts), `criteria` by test, `rows` (one per test and attempt number, with one cell per run: status, duration, error, flags, metrics, notes, kept texts, screenshots, reviews and `score`, the mean of the scale scores on 1 to 5), and the `shotNames` and `textNames` found. Only current attempts count. 400 `mixed_packs` for runs of different packs. |
+| `GET /runs/:id/changes?against=` | What changed in a run since `against`, or (without it) since the newest earlier finished, stopped or interrupted run of the same pack with the same params. `{ previous, rows, same }`: each row is a test and attempt number with `before` and `after` (`{ runId, attemptId, status, durationMs, score, flags }`, null when that run didn't have it) and `changes` from `status`, `flags`, `score` (moved by 0.5 or more), `time` (half again as long or short, and at least 2 s apart), `new` and `gone`. `same` counts the attempts that didn't change. `previous` is null when there is no earlier run. |
 | `GET /export?runs=a,b` | `{ name, markdown }`: the same runs as Markdown, one section per test, then per attempt: status, flags, metrics, the scores as a table, the reviewers' notes and links to the screenshots. |
 | `GET /export.md?runs=a,b` | The Markdown as a file to download, with screenshot links to this server. |
 | `GET /export.zip?runs=a,b` | A zip of the Markdown and its screenshots (`shots/<run>/<attempt>/…`), linked by relative paths, so it reads anywhere. |
@@ -100,7 +118,7 @@ Everything that happens is an event with a growing sequence number: `{ seq, time
 
 `GET /events?after=<seq>&wait=<seconds>&runId=&types=&limit=` returns `{ events, next, head }`. With `wait` (up to 110 seconds) it holds the request until a matching event arrives, so an agent can follow a run with one request at a time: call again with `after=next`.
 
-Event types (open set, more come with later plugins): `run.queued`, `run.started`, `run.planned`, `run.pausing`, `run.paused`, `run.resumed`, `run.decision`, `run.stopping`, `run.finished`, `run.interrupted`, `run.failed_to_start`, `run.log`, `run.info`, `attempt.started`, `attempt.step`, `attempt.log`, `attempt.flag`, `attempt.artifact`, `attempt.finished`, `page.opened`, `page.navigated`, `page.active`, `page.closed`, `video.unavailable`, `pack.added`, `pack.loaded`, `pack.reload_failed`, `pack.reloaded`, `pack.removed`, `review.saved`.
+Event types (open set, more come with later plugins): `run.queued`, `run.started`, `run.planned`, `run.pausing`, `run.paused`, `run.resumed`, `run.decision`, `run.stopping`, `run.labeled`, `run.finished`, `run.interrupted`, `run.failed_to_start`, `run.log`, `run.info`, `run.tests-added`, `attempt.started`, `attempt.step`, `attempt.log`, `attempt.flag`, `attempt.artifact`, `attempt.finished`, `page.opened`, `page.navigated`, `page.active`, `page.closed`, `video.unavailable`, `pack.added`, `pack.loaded`, `pack.reload_failed`, `pack.reloaded`, `pack.removed`, `review.saved`.
 
 ## Live WebSocket
 
@@ -111,3 +129,14 @@ Event types (open set, more come with later plugins): `run.queued`, `run.started
 ```
 
 to get the run's events after `after` (then new ones) as `{ "type": "event", "data": <event> }` text messages, and, with `frames`, binary messages with the screencast: a 4-byte big-endian header length, a JSON header `{ runId, pageId, timestamp, width, height }`, then a JPEG. Leave out `runId` for every event and no frames. Send `subscribe` again to change it. A viewer that falls behind skips frames and only ever gets the newest one per page.
+
+### Rewind
+
+While a run is going, the server keeps the last 30 seconds of its screencast in memory, at most five frames a second per page. A listed frame stays fetchable for 30 seconds after it leaves the list, so a viewer can still load the oldest frames of the list it fetched. Nothing is written to disk, and the frames are dropped when the run ends.
+
+| Route | What it does |
+|---|---|
+| `GET /live/:runId/rewind` | `{ windowMs, frames }`, oldest first. Each frame is `{ pageId, timestamp, width, height, url }`. |
+| `GET /live/:runId/rewind/:pageId/:timestamp.jpg` | The kept frame of that page at `timestamp`, or the last one before it, as a JPEG. 404 once it has left the buffer. |
+
+`POST /runs/:id/mark` with `{ pageId, at }` saves a rewind frame instead of the newest one.

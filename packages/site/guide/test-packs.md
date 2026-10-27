@@ -125,7 +125,7 @@ Every `h` call is a pause point: Pause takes effect at the next one.
 | `h.click(target, { done?, timeout? })` | Clicks. `done` (a selector that must appear, or a function that must return true) says how to tell the click worked; without it a click that had no effect isn't noticed. |
 | `h.fill(target, value)`, `h.press(key)`, `h.press(target, key)` | Typing. |
 | `h.has(target, timeout?)` | True when the target is visible. |
-| `h.step(title, fn)` | A named step: shown live, logged, a pause point. Steps nest. |
+| `h.step(title, fn)` | A named step: shown live, logged, a pause point, and kept with its start, end and outcome for the attempt's step timeline. Steps nest. |
 | `h.idle({ timeout?, quietMs? })` | Waits for the network to go quiet and for the pack's `idle` check. |
 | `h.wait(ms)` | Waits; time paused doesn't count. |
 | `h.waitUntil(check, { timeout?, interval?, progress?, stallMs?, what? })` | Polls `check` until it returns true and resolves `"done"`. With `progress` (a function whose value changes while the app works) and `stallMs`, it gives up early and resolves `"stalled"` when the value stays the same that long, so a stuck spinner or a model that stopped producing output doesn't cost the whole time limit. After `timeout` (default 30 s) the attempt is broken. |

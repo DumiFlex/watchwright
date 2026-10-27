@@ -23,12 +23,12 @@ The second line downloads the browsers Playwright drives.
 ## A first run
 
 1. On the web page, open **Packs** and add a test pack: type its folder (the field completes folders as you type), or press **Browse…** and pick it, or let **Find packs in a folder…** search for it. You can also name pack folders when you start the server: `watchwright serve path/to/pack`. See [Adding a pack](./test-packs#adding-a-pack).
-2. Press **New run**. Search or pick tests by section and tag, set the parameter values and the options (attempts per test, trace, video, pausing on a broken test), and start it. The **Planned** panel shows every attempt in the order it will run, and which tests join because a chosen one needs them.
-3. The run page shows the browser live with the current test and step, and has the controls to pause, retry, skip and stop. While it runs you can skip attempts that haven't started or move tests up and down the queue. **Mark** saves what the live view shows to the current attempt with a note. The log filters by test and by warnings.
+2. Press **New run**. It opens on the pack of your latest run, filled with that run's choices (**Use pack defaults** starts over; Settings can make it always start from the defaults). Search or pick tests by section and tag, set the parameter values and the options (attempts per test, trace, video, pausing on a broken test), give the run a label if you like, and start it with the button or Ctrl+Enter (Cmd+Enter on a Mac). Choices you use often can be saved as a **preset** with the menu beside the preset list, and picked again later; agents can start a preset by name. The **Planned** panel shows every attempt in the order it will run, and which tests join because a chosen one needs them.
+3. The run page shows the browser live with the current test and step, and has the controls to pause, retry, skip and stop. While it runs you can skip attempts that haven't started, move tests up and down the queue, or add tests to the end of it. **Rewind** under the live view scrubs back through the last 30 seconds, with the steps that ran then. **Mark** saves what the live view shows (or the rewound moment) to the current attempt with a note. The log filters by test and by warnings.
 
 ## Looking at results
 
-Click an attempt in the queue to open its page. It shows the error (with **In your code**, the line of your test it broke on), the flags (robot problems apart from findings), metrics and notes, then tabs for:
+Click an attempt in the queue to open its page. It shows the error (with **In your code**, the line of your test it broke on), the flags (robot problems apart from findings), metrics and notes. When the test names its steps (`h.step`), a **Steps** timeline shows when each ran and how long it took, with warnings from the log as marks; picking a step jumps the video there. The same timeline sits under the video and follows it as it plays, and dragging either one moves the video. Attempts recorded before steps were kept read their steps from the log's `Step:` lines (without outcomes). Then come tabs for:
 
 - the screenshots, with a full-size viewer (scroll shots show as one strip),
 - kept texts,
@@ -41,7 +41,7 @@ J and K step to the next and previous attempt. Beside the results, the **Review*
 
 A finished run's page shows every test's attempts and scores as a grid, with **Compare** and **Export** (Markdown, or a zip with the screenshots). **Compare** in the top bar lines up runs of one pack side by side.
 
-**Runs**, the home page, lists the runs that are going and every earlier one, with filters by pack and status. From there you can open a run again, start a new one with the same choices, or delete it.
+**Runs**, the home page, lists the runs that are going and every earlier one, with filters by pack and status. From there you can open a run, **Run again** (the same pack, tests, values and options, started at once), start a new one from its choices with **New run like this…**, or delete it. A run's page has the same buttons, and the pencil beside its title gives it a name that shows in the lists, Compare and exports.
 
 Press Ctrl+K (Cmd+K on a Mac) anywhere, or the search button at the top, to jump to a page or switch the look and mode from the keyboard.
 

@@ -1,15 +1,17 @@
 <script setup lang="ts">
-import { ArrowDown, ArrowLeft, ArrowUp, Ban, Undo2 } from "../icons";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Ban, Pencil, Plus, Repeat, Undo2 } from "../icons";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { getJson, sendJson, type Criterion, type Review, type RunDetail, type WwEvent } from "../api";
+import { getJson, sendJson, type ChangeSide, type Criterion, type Pack, type Review, type RunChanges, type RunDetail, type WwEvent } from "../api";
 import { LiveConnection, type LiveState } from "../live";
 import DataTable from "../components/DataTable.vue";
 import LiveViewer from "../components/LiveViewer.vue";
 import MenuButton from "../components/MenuButton.vue";
 import ModalDialog from "../components/ModalDialog.vue";
+import MultiSelect from "../components/MultiSelect.vue";
 import SelectMenu from "../components/SelectMenu.vue";
 import StatusChip from "../components/StatusChip.vue";
 import TextArea from "../components/TextArea.vue";
+import TextField from "../components/TextField.vue";
 import { exportUrl } from "../compare";
 import { countsText, duration } from "../format";
 import { href } from "../router";
@@ -30,6 +32,13 @@ const pages = ref<{ id: string; url: string }[]>([]);
 const activePageId = ref<string | null>(null);
 const step = ref<string | null>(null);
 const now = ref(Date.now());
+// Steps as they start, for the live view's rewind scrubber.
+const recentSteps = ref<{ at: number; label: string }[]>([]);
+const rewound = ref<{ pageId: string; at: number } | null>(null);
+function noteStep(time: string, label: string) {
+  recentSteps.value.push({ at: Date.parse(time), label });
+  if (recentSteps.value.length > 300) recentSteps.value.splice(0, recentSteps.value.length - 300);
+}
 
 const active = computed(() => run.value !== null && ["running", "pausing", "paused"].includes(run.value.status));
 const live = computed(() => run.value?.live ?? null);
@@ -90,6 +99,7 @@ function onEvent(e: WwEvent) {
       break;
     case "attempt.step":
       step.value = (d.title as string | null) ?? null;
+      if (step.value) noteStep(e.time, step.value);
       break;
     case "page.opened":
       if (!pages.value.some((p) => p.id === d.pageId)) pages.value.push({ id: String(d.pageId), url: String(d.url ?? "") });
@@ -107,6 +117,7 @@ function onEvent(e: WwEvent) {
       break;
     case "attempt.started":
       step.value = null;
+      noteStep(e.time, `${String(d.testId)} starts`);
       if (e.attemptId) attemptTests.set(e.attemptId, String(d.testId));
       log.value.push({ seq: e.seq, time: e.time, level: "info", message: `Started ${d.testId} ${titles.value.get(String(d.testId)) ?? ""} (attempt ${d.number} of ${d.of}${Number(d.try) > 1 ? `, try ${d.try}` : ""})`, test: String(d.testId) });
       scheduleLoad();
@@ -124,6 +135,30 @@ function onEvent(e: WwEvent) {
     default:
       if (e.type.startsWith("run.") || e.type.startsWith("pack.")) scheduleLoad();
   }
+}
+
+// "Run again": the same pack, tests, values, options and label, started right away.
+async function again() {
+  actionError.value = null;
+  busy.value = true;
+  const res = await sendJson<RunDetail>(`/api/v1/runs/${props.id}/again`);
+  busy.value = false;
+  if (!res.ok) return void (actionError.value = res.error.message);
+  window.location.hash = href({ name: "run", id: res.data.id });
+}
+
+// The run's label, edited in place beside the title.
+const editingLabel = ref(false);
+const labelDraft = ref("");
+function editLabel() {
+  labelDraft.value = run.value?.label ?? "";
+  editingLabel.value = true;
+}
+async function saveLabel() {
+  const res = await sendJson<RunDetail>(`/api/v1/runs/${props.id}/label`, { label: labelDraft.value });
+  if (!res.ok) return void (actionError.value = res.error.message);
+  if (run.value) run.value = { ...run.value, label: res.data.label };
+  editingLabel.value = false;
 }
 
 async function act(path: string, body: unknown = {}) {
@@ -146,6 +181,49 @@ const movable = (i: number) => movableRow(run.value?.plan ?? [], i);
 const canMove = (i: number, direction: -1 | 1) => canMoveRow(run.value?.plan ?? [], i, direction);
 const queueAct = (path: "skip" | "move", body: Record<string, unknown>) => act(`queue/${path}`, body);
 
+// Add tests: tests of the pack that aren't in the run go at the end of the queue, with what they need.
+const addOpen = ref(false);
+const addChosen = ref<string[]>([]);
+const addPack = ref<Pack | null>(null);
+const addError = ref<string | null>(null);
+const inRun = computed(() => {
+  const ids = new Set<string>();
+  for (const p of run.value?.plan ?? []) {
+    ids.add(p.testId);
+    for (const c of p.children ?? []) ids.add(c);
+  }
+  return ids;
+});
+const addOptions = computed(() =>
+  (addPack.value?.tests ?? [])
+    .filter((t) => !inRun.value.has(t.id))
+    .map((t) => {
+      const bits = [t.inside.length ? `inside ${t.inside.join(" or ")}` : "", t.needs.length ? `needs ${t.needs.join(", ")}` : "", ...t.tags.map((x) => `#${x}`)].filter(Boolean);
+      return { value: t.id, label: t.title !== t.id ? `${t.id} · ${t.title}` : t.id, group: t.section ?? "Tests", note: bits.join(" · ") || undefined };
+    }),
+);
+async function openAdd() {
+  addOpen.value = true;
+  addChosen.value = [];
+  addError.value = null;
+  if (!run.value) return;
+  const res = await getJson<Pack>(`/api/v1/packs/${run.value.packId}`);
+  if (res.ok) addPack.value = res.data;
+  else addError.value = res.error.message;
+}
+async function addTests() {
+  addError.value = null;
+  busy.value = true;
+  const res = await sendJson<RunDetail>(`/api/v1/runs/${props.id}/queue/add`, { tests: addChosen.value });
+  busy.value = false;
+  if (!res.ok) {
+    addError.value = res.error.message;
+    return;
+  }
+  run.value = res.data;
+  addOpen.value = false;
+}
+
 /** How long an attempt took, or has taken so far. */
 function elapsed(p: PlanRow): string | null {
   const a = p.attemptId ? run.value?.attempts.find((x) => x.id === p.attemptId) : undefined;
@@ -161,7 +239,8 @@ const markSaved = ref<string | null>(null);
 async function saveMark() {
   actionError.value = null;
   busy.value = true;
-  const res = await sendJson<{ attemptId: string; artifact: { name: string; path: string } }>(`/api/v1/runs/${props.id}/mark`, { note: markNote.value.trim() });
+  const at = rewound.value ? { pageId: rewound.value.pageId, at: rewound.value.at } : {};
+  const res = await sendJson<{ attemptId: string; artifact: { name: string; path: string } }>(`/api/v1/runs/${props.id}/mark`, { note: markNote.value.trim(), ...at });
   busy.value = false;
   markOpen.value = false;
   if (!res.ok) {
@@ -199,6 +278,22 @@ async function loadReviews() {
   if (c.ok) rubric.value = c.data;
 }
 watch(showResults, () => void loadReviews(), { immediate: true });
+
+// Since the last run: attempts whose status, flags, score or time moved since the newest earlier
+// run of the same pack and params.
+const changes = ref<RunChanges | null>(null);
+async function loadChanges() {
+  if (!showResults.value) return;
+  const res = await getJson<RunChanges>(`/api/v1/runs/${props.id}/changes`);
+  changes.value = res.ok ? res.data : null;
+}
+watch(showResults, () => void loadChanges(), { immediate: true });
+const flagDiff = (before: ChangeSide | null, after: ChangeSide | null) => {
+  const b = new Set(before?.flags ?? []);
+  const a = new Set(after?.flags ?? []);
+  return { added: [...a].filter((f) => !b.has(f)), dropped: [...b].filter((f) => !a.has(f)) };
+};
+const scoreOf = (s: ChangeSide | null) => (s?.score === null || s?.score === undefined ? "–" : s.score.toFixed(1));
 const results = computed(() => (run.value ? resultRows(run.value, reviews.value, rubric.value) : []));
 const maxAttempts = computed(() => Math.max(1, ...results.value.flatMap((r) => Object.keys(r.cells).map(Number))));
 const resultColumns = computed(() => [
@@ -271,6 +366,18 @@ function time(iso: string) {
       <header class="head">
         <div class="title">
           <h1 class="display">{{ run.packName }} <span class="muted rid">{{ run.id }}</span></h1>
+          <form v-if="editingLabel" class="labelform" @submit.prevent="saveLabel" @keydown.esc.stop="editingLabel = false">
+            <label for="run-label" class="sr-only">Label</label>
+            <TextField id="run-label" v-model="labelDraft" class="labelfield" placeholder="A name for this run, e.g. nightly" />
+            <button class="btn primary" type="submit">Save</button>
+            <button class="btn" type="button" @click="editingLabel = false">Cancel</button>
+          </form>
+          <p v-else class="named">
+            <span v-if="run.label" class="lbltxt">{{ run.label }}</span>
+            <button v-tip="run.label ? 'Rename this run' : 'Give this run a name'" type="button" class="ib" :aria-label="run.label ? 'Rename this run' : 'Give this run a name'" @click="editLabel">
+              <Pencil :size="14" /><span v-if="!run.label" class="small">Name this run</span>
+            </button>
+          </p>
           <p class="muted">
             <StatusChip :status="run.status" />
             <span v-if="run.mode !== 'normal'">&nbsp;{{ run.mode === "redo" ? "redoing broken tests" : "resumed" }}</span>
@@ -294,7 +401,8 @@ function time(iso: string) {
           <button v-if="run.status === 'queued'" class="btn danger" :disabled="busy" @click="act('stop', { when: 'now' })">Cancel</button>
           <button v-if="canResumeRun" class="btn primary" :disabled="busy" @click="act('resume')">Resume run</button>
           <button v-if="canRedo" class="btn" :disabled="busy" @click="act('redo-broken')">Redo broken</button>
-          <a v-if="!active" class="btn" :href="`#/new?pack=${run.packId}&from=${run.id}`">New run like this</a>
+          <button v-if="!active && run.status !== 'queued'" v-tip="'Start the same pack, tests, values and options now'" class="btn" :disabled="busy" @click="again"><Repeat :size="15" /> Run again</button>
+          <a v-if="!active" class="btn" :href="`#/new?pack=${run.packId}&from=${run.id}`">New run like this…</a>
           <a v-if="showResults" class="btn" :href="`#/compare?runs=${run.id}`">Compare</a>
           <MenuButton v-if="showResults" :items="exports" label="Export" class="export">
             <template #button><span class="exportlabel">Export</span></template>
@@ -321,12 +429,16 @@ function time(iso: string) {
 
       <div class="grid" :class="{ done: !active }">
         <section v-if="active || run.status === 'queued'" class="card viewer-card" aria-label="Live view">
-          <LiveViewer ref="viewer" :pages="pages" :active-page-id="activePageId" :running="active" />
+          <LiveViewer ref="viewer" :pages="pages" :active-page-id="activePageId" :running="active" :run-id="run.id" :steps="recentSteps" @rewound="(m) => (rewound = m)" />
           <p v-if="liveState !== 'open'" class="muted small">Live connection: {{ liveState === "connecting" ? "connecting…" : "lost, retrying" }}</p>
         </section>
 
         <section v-if="!showResults" class="card" aria-labelledby="queue-title">
-          <h2 id="queue-title" class="display">Queue <span class="muted small">{{ run.counts.passed }} passed · {{ run.counts.failed }} failed · {{ run.counts.broken }} broken · {{ run.counts.planned }} planned</span></h2>
+          <div class="qhead">
+            <h2 id="queue-title" class="display">Queue</h2>
+            <button v-if="active" class="btn" :disabled="busy" @click="openAdd"><Plus :size="15" /> Add tests</button>
+          </div>
+          <p class="qcounts muted small">{{ run.counts.passed }} passed · {{ run.counts.failed }} failed · {{ run.counts.broken }} broken · {{ run.counts.planned }} planned</p>
           <ol class="queue">
             <li
               v-for="(p, i) in run.plan"
@@ -348,6 +460,10 @@ function time(iso: string) {
                     <button v-tip="'Move down'" class="ibtn" :aria-label="`Move ${p.testId} down`" :disabled="busy || !canMove(i, 1)" @click="queueAct('move', { testId: p.testId, direction: 'down' })">
                       <ArrowDown :size="15" />
                     </button>
+                  </template>
+                  <template v-else>
+                    <span class="ibtn-gap" aria-hidden="true" />
+                    <span class="ibtn-gap" aria-hidden="true" />
                   </template>
                   <button
                     v-tip="p.skip ? 'Run this attempt after all' : 'Skip this attempt'"
@@ -371,6 +487,38 @@ function time(iso: string) {
           </ol>
         </section>
       </div>
+
+      <section v-if="showResults && changes?.previous" class="card" aria-labelledby="changes-title">
+        <div class="reshead">
+          <h2 id="changes-title" class="display">Since the last run</h2>
+          <span class="muted small">
+            Against <a :href="href({ name: 'run', id: changes.previous.id })" class="num">{{ changes.previous.id }}</a>, the last run of this pack with the same parameters.
+            <template v-if="changes.rows.length"> {{ changes.same }} {{ changes.same === 1 ? "attempt" : "attempts" }} didn't change.</template>
+            {{ " " }}<a :href="`#/compare?runs=${changes.previous.id},${run.id}`">Compare side by side</a>
+          </span>
+        </div>
+        <p v-if="changes.rows.length === 0" class="muted">Nothing changed: every attempt has the same status and flags, and no score or time moved.</p>
+        <ul v-else class="changes">
+          <li v-for="c in changes.rows" :key="`${c.testId}#${c.number}`">
+            <a class="chrow" :href="c.after ? href({ name: 'attempt', runId: run.id, attemptId: c.after.attemptId }) : href({ name: 'attempt', runId: c.before!.runId, attemptId: c.before!.attemptId })">
+              <span class="chtest"><code>{{ c.testId }}</code> {{ c.title !== c.testId ? c.title : "" }}<span v-if="c.number > 1" class="muted n"> #{{ c.number }}</span></span>
+              <span class="chwhat">
+                <template v-if="c.changes.includes('new')"><span class="muted">new</span> <StatusChip :status="c.after!.status" /></template>
+                <template v-else-if="c.changes.includes('gone')"><StatusChip :status="c.before!.status" /> <span class="muted">not in this run</span></template>
+                <template v-else>
+                  <span v-if="c.changes.includes('status')" class="pair"><StatusChip :status="c.before!.status" /><ArrowRight :size="13" class="muted" /><StatusChip :status="c.after!.status" /></span>
+                  <span v-if="c.changes.includes('flags')" class="pair small">
+                    <span v-for="f in flagDiff(c.before, c.after).added" :key="`+${f}`" class="flag add">+ {{ f }}</span>
+                    <span v-for="f in flagDiff(c.before, c.after).dropped" :key="`-${f}`" class="flag drop">− {{ f }}</span>
+                  </span>
+                  <span v-if="c.changes.includes('score')" class="pair small"><span class="muted">score</span> <span class="num">{{ scoreOf(c.before) }}</span><ArrowRight :size="13" class="muted" /><span class="num">{{ scoreOf(c.after) }}</span></span>
+                  <span v-if="c.changes.includes('time')" class="pair small"><span class="muted">time</span> <span class="num">{{ duration(c.before!.durationMs) }}</span><ArrowRight :size="13" class="muted" /><span class="num">{{ duration(c.after!.durationMs) }}</span></span>
+                </template>
+              </span>
+            </a>
+          </li>
+        </ul>
+      </section>
 
       <section v-if="showResults" class="card" aria-labelledby="results-title">
         <div class="reshead">
@@ -415,11 +563,21 @@ function time(iso: string) {
         </p>
       </section>
       <ModalDialog v-model="markOpen" heading="Mark this moment">
-        <p class="muted small">Saves what the live view shows now to the running attempt{{ live?.testId ? ` (${live.testId})` : "" }}, with your note. It shows with the attempt's screenshots.</p>
+        <p class="muted small">Saves what the live view shows {{ rewound ? "at the rewound moment" : "now" }} to the running attempt{{ live?.testId ? ` (${live.testId})` : "" }}, with your note. It shows with the attempt's screenshots.</p>
         <TextArea v-model="markNote" :rows="3" placeholder="What you saw (optional)" />
         <template #actions>
           <button class="btn" :disabled="busy" @click="markOpen = false">Cancel</button>
           <button class="btn primary" :disabled="busy" @click="saveMark">{{ busy ? "Saving…" : "Save mark" }}</button>
+        </template>
+      </ModalDialog>
+      <ModalDialog v-model="addOpen" heading="Add tests to this run">
+        <p class="muted small">They go at the end of the queue, after what they need. A test the run doesn't have yet that they need comes along.</p>
+        <MultiSelect id="run-add-tests" v-model="addChosen" :options="addOptions" placeholder="Search by id, title, section or tag" empty-label="Pick tests" :max-chips="8" />
+        <p v-if="addPack && addOptions.length === 0" class="muted small">Every test of the pack is in the run.</p>
+        <p v-if="addError" class="error" role="alert">{{ addError }}</p>
+        <template #actions>
+          <button class="btn" :disabled="busy" @click="addOpen = false">Cancel</button>
+          <button class="btn primary" :disabled="busy || addChosen.length === 0" @click="addTests">{{ busy ? "Adding…" : addChosen.length > 1 ? `Add ${addChosen.length} tests` : "Add test" }}</button>
         </template>
       </ModalDialog>
       <ModalDialog v-model="confirmDelete" heading="Delete this run?">
@@ -434,6 +592,19 @@ function time(iso: string) {
 </template>
 
 <style scoped>
+.qhead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.qhead h2 {
+  margin: 0;
+}
+.qcounts {
+  margin: var(--space-1) 0 var(--space-3);
+}
 .exportlabel {
   padding: 0 var(--space-2);
   font-size: 14px;
@@ -467,6 +638,48 @@ function time(iso: string) {
 .rid {
   font-size: 14px;
   font-weight: 400;
+}
+.head .named {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+}
+.lbltxt {
+  font-weight: 600;
+}
+.ib {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 26px;
+  padding: 0 var(--space-1);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.ib:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.labelform {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  max-width: 520px;
+}
+.labelfield {
+  flex: 1;
+  min-width: 200px;
+}
+.controls .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
 }
 .controls {
   display: flex;
@@ -551,6 +764,10 @@ function time(iso: string) {
   gap: 2px;
   padding-right: 4px;
 }
+/* Keeps the skip button and the status in line on rows that can't move. */
+.ibtn-gap {
+  width: 26px;
+}
 .ibtn {
   display: grid;
   place-items: center;
@@ -625,6 +842,53 @@ function time(iso: string) {
 }
 .reshead h2 {
   margin: 0;
+}
+.changes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+}
+.chrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 16px;
+  padding: 8px 4px;
+  border-top: var(--border-width) solid var(--line);
+  color: var(--text);
+  text-decoration: none;
+}
+.changes li:first-child .chrow {
+  border-top: 0;
+}
+.chrow:hover {
+  background: var(--raised);
+}
+.chwhat {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+}
+.pair {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.flag {
+  padding: 0 6px;
+  border-radius: var(--radius-chip);
+  font-size: 12px;
+}
+.flag.add {
+  color: var(--bad);
+  background: var(--raised);
+}
+.flag.drop {
+  color: var(--ok);
+  background: var(--raised);
 }
 .child {
   padding-left: 18px;
