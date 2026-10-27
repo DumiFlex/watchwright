@@ -121,6 +121,10 @@ const span = computed(() => {
   const end = d.durationMs ?? Math.max(0, ...steps.value.map((x) => x.end));
   return Math.max(end, ...steps.value.map((x) => x.end), 1);
 });
+// The video can run on past the attempt's last step (it stops when the page closes), so the
+// timeline under it covers whichever is longer, or the playhead would run off its end.
+const videoMs = ref(0);
+const videoSpan = computed(() => Math.max(span.value, videoMs.value));
 const playhead = ref(0);
 const players = ref<InstanceType<typeof VideoPlayer>[]>([]);
 function seekVideo(ms: number) {
@@ -423,13 +427,13 @@ watch(
 
           <div v-else-if="tab === 'video'" id="att-panel-video" role="tabpanel" aria-labelledby="att-tab-video" class="panel videos">
             <div v-for="v in videos" :key="v.url" class="video">
-              <VideoPlayer ref="players" :src="v.url" :label="v.name" @time="(sec) => (playhead = sec * 1000)">
+              <VideoPlayer ref="players" :src="v.url" :label="v.name" @time="(sec) => (playhead = sec * 1000)" @duration="(sec) => (videoMs = Math.round(sec * 1000))">
                 <TimelineScrubber
                   v-if="steps.length"
                   class="vtimeline"
                   :model-value="playhead"
                   :steps="steps"
-                  :duration="span"
+                  :duration="videoSpan"
                   :marks="marks"
                   :label="`Steps in ${v.name}`"
                   @update:model-value="scrub"

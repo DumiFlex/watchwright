@@ -13,6 +13,7 @@ Everything the web page does goes through this API, so scripts and AI agents can
 |---|---|
 | `GET /health` | Whether the server is up, its version, its data folder and the loaded plugins with the newest store migration each one applied. |
 | `GET /actions` | Every action with its method, path and JSON Schema input. |
+| `POST /stop` | Stops the server, as Ctrl+C in its terminal does. It answers `{ stopping: true }` first. Runs going at the time become `interrupted` and can be resumed after it starts again. 409 `cant_stop` for a server that wasn't started by the `watchwright` command. |
 
 ## Packs
 

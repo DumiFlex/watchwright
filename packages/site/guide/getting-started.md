@@ -28,7 +28,7 @@ The second line downloads the browsers Playwright drives.
 
 ## Looking at results
 
-Click an attempt in the queue to open its page. It shows the error (with **In your code**, the line of your test it broke on), the flags (robot problems apart from findings), metrics and notes. When the test names its steps (`h.step`), a **Steps** timeline shows when each ran and how long it took, with warnings from the log as marks; picking a step jumps the video there. The same timeline sits under the video and follows it as it plays, and dragging either one moves the video. Attempts recorded before steps were kept read their steps from the log's `Step:` lines (without outcomes). Then come tabs for:
+Click an attempt in the queue to open its page. It shows the error (with **In your code**, the line of your test it broke on), the flags (robot problems apart from findings), metrics and notes. When the test names its steps (`h.step`), a **Steps** timeline shows when each ran and how long it took, with warnings from the log as marks; picking a step jumps the video there. The same timeline sits under the video and follows it as it plays, and dragging either one moves the video. When steps are too short for their names, the timeline opens zoomed in and scrolls sideways with the playhead; zoom with its buttons, + and -, or Ctrl (Cmd on a Mac) with the mouse wheel. Hovering shows the time, the step and any warning under the pointer above the timeline, and warnings too close together show as one mark with their count. Attempts recorded before steps were kept read their steps from the log's `Step:` lines (without outcomes). Then come tabs for:
 
 - the screenshots, with a full-size viewer (scroll shots show as one strip),
 - kept texts,
@@ -59,7 +59,7 @@ While a run goes, the browser tab's title says how it's going (`Running 4/12`, `
 
 Watchwright can also send a desktop notification when a run finishes, pauses on a broken test (with the minutes left before it skips the test by itself) or fails to start, while its tab is in the background; clicking one opens the run. Switch them on under **Notifications** in **Settings**, or answer the offer that shows the first time you start a run. The choice is kept by each browser. While the tab is in front, the same news shows as a short message in the corner, except on that run's own page.
 
-File names of your tests, build errors and the line a test broke on are links that open in your editor at that line. Pick the editor (VS Code, Cursor, Windsurf, IntelliJ IDEA, WebStorm, or none) on the **Settings** page (the gear at the top), which also has the look and mode, notifications, what a new run starts from, and the list of recent folders.
+File names of your tests, build errors and the line a test broke on are links that open in your editor at that line. Pick the editor (VS Code, Cursor, Windsurf, IntelliJ IDEA, WebStorm, or none) on the **Settings** page (the gear at the top), which also has the look and mode, notifications, what a new run starts from, the list of recent folders, and **Stop Watchwright**. That button stops the server, as Ctrl+C in its terminal does. Runs going at the time can be resumed after it starts again.
 
 ## Options
 

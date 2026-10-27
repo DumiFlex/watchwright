@@ -72,6 +72,7 @@ export {
   Pencil,
   Play,
   Plus,
+  Power,
   Radio,
   Repeat,
   RotateCcw,
