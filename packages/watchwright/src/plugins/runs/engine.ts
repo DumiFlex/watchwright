@@ -218,7 +218,7 @@ export class Engine {
     if (!ctx) throw new EngineError("not_running", "The run is still setting up; try again in a moment.", 409);
     if (ctx.ended) throw new EngineError("not_running", "The run has gone through its queue.", 409);
     // A test written since the run started can be added, so take the pack as it is now.
-    const r = await this.o.packs.refresh(ctx.row.pack_id);
+    const r = await this.o.packs.refresh(ctx.row.pack_id, ctx.pack);
     if (r.reloaded) {
       ctx.pack = r.pack;
       this.emit("pack.reloaded", { packId: ctx.row.pack_id }, id);
@@ -714,7 +714,7 @@ export class Engine {
           continue;
         }
 
-        const r = await packs.refresh(row.pack_id);
+        const r = await packs.refresh(row.pack_id, ctx.pack);
         if (r.reloaded) {
           ctx.pack = r.pack;
           this.emit("pack.reloaded", { packId: row.pack_id }, row.id);
@@ -1122,7 +1122,7 @@ export class Engine {
       const d = await this.pauseOnBroken(ctx, childId, attemptId);
       this.emit("run.decision", { decision: d, testId: childId, number: parent.number }, ctx.row.id);
       if (d !== "retry") return outcome;
-      const r = await this.o.packs.refresh(ctx.row.pack_id);
+      const r = await this.o.packs.refresh(ctx.row.pack_id, ctx.pack);
       if (r.reloaded) ctx.pack = r.pack;
     }
   }
