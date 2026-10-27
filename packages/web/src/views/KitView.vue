@@ -1,9 +1,11 @@
 <script setup lang="ts">
 // Every themed control on one page (#/kit), to check them in each look and mode and to copy
 // from when a feature needs one. The page is not linked from the app.
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import CheckBox from "../components/CheckBox.vue";
+import DataTable from "../components/DataTable.vue";
 import DatePicker from "../components/DatePicker.vue";
+import DateRangePicker, { type DateRange } from "../components/DateRangePicker.vue";
 import FilePicker from "../components/FilePicker.vue";
 import MenuButton from "../components/MenuButton.vue";
 import ModalDialog from "../components/ModalDialog.vue";
@@ -18,6 +20,8 @@ import TabBar from "../components/TabBar.vue";
 import TextArea from "../components/TextArea.vue";
 import TextField from "../components/TextField.vue";
 import ToggleSwitch from "../components/ToggleSwitch.vue";
+import type { Sort } from "../table";
+import { toast } from "../toasts";
 import { vTip } from "../tooltip";
 
 const text = ref("");
@@ -37,6 +41,40 @@ const limit = ref(20);
 const day = ref("");
 const until = ref("2026-11-03");
 const files = ref<File[]>([]);
+const span = ref<DateRange>({ from: "2026-10-05", to: "2026-10-18" });
+const anySpan = ref<DateRange>({ from: "", to: "" });
+
+// 500 made-up runs, so the table scrolls and renders only the rows on screen.
+type DemoRun = { id: number; pack: string; status: "running" | "passed" | "failed" | "paused"; tests: number; took: number; started: string };
+const packs = ["shop-smoke", "checkout-bench", "search-suite", "account-flows"];
+const statuses = ["passed", "passed", "passed", "failed", "paused", "running"] as const;
+const allRuns: DemoRun[] = Array.from({ length: 500 }, (_, i) => {
+  const n = (i * 7919) % 997;
+  const day = new Date(Date.UTC(2026, 9, 27) - i * 3_600_000 * 5);
+  return { id: 500 - i, pack: packs[n % 4]!, status: statuses[n % 6]!, tests: 4 + (n % 40), took: 20 + ((n * 13) % 900), started: day.toISOString().slice(0, 16).replace("T", " ") };
+});
+const shown = ref(200);
+const runs = computed(() => allRuns.slice(0, shown.value));
+const runSort = ref<Sort>({ key: "id", dir: "desc" });
+const chosenRuns = ref<(string | number)[]>([]);
+const runColumns = [
+  { key: "id", label: "Run", sortable: true, width: "80px" },
+  { key: "pack", label: "Pack", sortable: true },
+  { key: "status", label: "Status", sortable: true },
+  { key: "tests", label: "Tests", sortable: true, align: "end" as const },
+  { key: "took", label: "Took", sortable: true, align: "end" as const },
+  { key: "started", label: "Started", sortable: true },
+];
+const took = (s: number) => (s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`);
+const lastRow = ref("");
+let toastCount = 0;
+function demoToast(tone: "info" | "ok" | "bad" | "warn") {
+  toastCount++;
+  if (tone === "ok") toast(`Run #${500 + toastCount} passed`, { tone });
+  else if (tone === "bad") toast("Run failed to start: the browser closed", { tone, action: { label: "Retry", run: () => toast("Starting again") } });
+  else if (tone === "warn") toast("Pack changed while a run was in progress", { tone, timeout: 0 });
+  else toast("Pack reloaded", { action: { label: "Undo", run: () => toast("Reload undone") } });
+}
 const tests = ref<string[]>(["S1", "C1"]);
 const testOptions = [
   ["H1", "Home page loads", "Home"],
@@ -139,6 +177,8 @@ const traces = [
         <div class="item"><label for="k-quality">Slider</label><RangeSlider id="k-quality" v-model="quality" label="Frame quality" :min="10" :max="100" :step="5" :format="(v) => `${v}%`" /></div>
         <div class="item"><label for="k-day">Date</label><DatePicker id="k-day" v-model="day" /></div>
         <div class="item"><label for="k-until">Date between Oct 1 and Dec 31</label><DatePicker id="k-until" v-model="until" min="2026-10-01" max="2026-12-31" clearable /></div>
+        <div class="item"><label for="k-span">Date range</label><DateRangePicker id="k-span" v-model="span" /></div>
+        <div class="item"><label for="k-any">Date range, in October and November</label><DateRangePicker id="k-any" v-model="anySpan" min="2026-10-01" max="2026-11-30" /></div>
         <div class="item wide"><label for="k-files">Files</label><FilePicker id="k-files" v-model="files" accept=".ts,.json,image/*" multiple /></div>
       </div>
     </section>
@@ -162,6 +202,15 @@ const traces = [
           </div>
         </div>
         <div class="item">
+          <span class="lbl">Toasts</span>
+          <div class="row">
+            <button class="btn" @click="demoToast('info')">Info</button>
+            <button class="btn" @click="demoToast('ok')">Passed</button>
+            <button class="btn" @click="demoToast('bad')">Error</button>
+            <button class="btn" @click="demoToast('warn')">Stays</button>
+          </div>
+        </div>
+        <div class="item">
           <span class="lbl">Status</span>
           <div class="row">
             <StatusChip status="running" />
@@ -170,6 +219,40 @@ const traces = [
             <StatusChip status="paused" />
           </div>
         </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2 class="display">Table</h2>
+      <p class="muted note">{{ runs.length }} runs, sorted by a click on a heading. Only the rows on screen are drawn. {{ chosenRuns.length ? `${chosenRuns.length} selected.` : "" }} {{ lastRow }}</p>
+      <DataTable
+        v-model:sort="runSort"
+        v-model:selected="chosenRuns"
+        :columns="runColumns"
+        :rows="runs"
+        :row-key="(r) => r.id"
+        label="Runs"
+        height="360px"
+        selectable
+        clickable
+        @row-click="(r) => (lastRow = `Opened run ${r.id}.`)"
+      >
+        <template #cell-id="{ row }"><span class="num">#{{ row.id }}</span></template>
+        <template #cell-status="{ row }"><StatusChip :status="row.status" /></template>
+        <template #cell-tests="{ row }"><span class="num">{{ row.tests }}</span></template>
+        <template #cell-took="{ row }"><span class="num">{{ took(row.took) }}</span></template>
+        <template #cell-started="{ row }"><span class="num">{{ row.started }}</span></template>
+        <template #footer>
+          <button v-if="shown < allRuns.length" class="btn" @click="shown += 150">Load more</button>
+          <span v-else class="muted">All {{ allRuns.length }} runs shown</span>
+        </template>
+      </DataTable>
+      <p class="muted note">Empty and loading:</p>
+      <div class="pair">
+        <DataTable :columns="runColumns.slice(0, 3)" :rows="[]" :row-key="(r: DemoRun) => r.id" label="No runs">
+          <template #empty>No runs yet. Start one from a pack.</template>
+        </DataTable>
+        <DataTable :columns="runColumns.slice(0, 3)" :rows="[]" :row-key="(r: DemoRun) => r.id" label="Loading runs" loading />
       </div>
     </section>
 
@@ -275,6 +358,15 @@ header p {
 .form label {
   font-weight: 600;
   font-size: 13px;
+}
+.note {
+  margin: 0 0 var(--space-3);
+  font-size: 13px;
+}
+.pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-4);
 }
 .err {
   color: var(--bad);

@@ -3,7 +3,7 @@
 // with overflow: hidden never clips them. They open on the preferred side, flip when the
 // other side has more room and stay inside the viewport. The room left on their side is
 // in the CSS variable --popup-room, for `max-height: min(240px, var(--popup-room))`.
-import { onBeforeUnmount, onMounted, ref, watch, type Ref } from "vue";
+import { onBeforeUnmount, onMounted, ref, shallowReactive, watch, type Ref } from "vue";
 
 export type Side = "bottom" | "top";
 export type Align = "start" | "center" | "end";
@@ -119,6 +119,9 @@ export function useOutside(inside: Ref<HTMLElement | null>[], open: Ref<boolean>
  * Where to teleport a popup: <body>, or the modal <dialog> around `root` when there is one,
  * because a modal dialog sits in the top layer and makes everything outside it inert.
  */
+/** Open modal dialogs, innermost last. ModalDialog keeps it; ToastHost follows the top one. */
+export const openModals = shallowReactive<HTMLDialogElement[]>([]);
+
 export function usePopupHost(root: Ref<HTMLElement | null>) {
   const host = ref<string | HTMLElement>("body");
   onMounted(() => {

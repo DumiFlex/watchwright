@@ -3,6 +3,7 @@
 // page behind inert and closes on Escape. Clicking the backdrop closes it too. The look
 // (surface, backdrop, radius) comes from the theme; there is no browser chrome to hide.
 import { onBeforeUnmount, ref, useId, watch } from "vue";
+import { openModals } from "../popup";
 
 const props = withDefaults(defineProps<{ heading: string; width?: string; dismissable?: boolean }>(), { width: "440px", dismissable: true });
 const open = defineModel<boolean>({ default: false });
@@ -14,12 +15,21 @@ watch(
   [open, el],
   ([o, d]) => {
     if (!d) return;
-    if (o && !d.open) d.showModal();
-    else if (!o && d.open) d.close();
+    if (o && !d.open) {
+      d.showModal();
+      openModals.push(d);
+    } else if (!o && d.open) d.close();
   },
   { immediate: true, flush: "post" },
 );
-onBeforeUnmount(() => el.value?.open && el.value.close());
+function forget() {
+  const i = el.value ? openModals.indexOf(el.value) : -1;
+  if (i >= 0) openModals.splice(i, 1);
+}
+onBeforeUnmount(() => {
+  if (el.value?.open) el.value.close();
+  forget();
+});
 
 function onCancel(e: Event) {
   e.preventDefault();
@@ -32,7 +42,7 @@ function onClick(e: MouseEvent) {
 </script>
 
 <template>
-  <dialog ref="el" class="dlg" :aria-labelledby="titleId" :style="{ '--dlg-width': width }" @cancel="onCancel" @close="open = false" @click="onClick">
+  <dialog ref="el" class="dlg" :aria-labelledby="titleId" :style="{ '--dlg-width': width }" @cancel="onCancel" @close="forget(), (open = false)" @click="onClick">
     <div v-if="open" class="body">
       <header class="head">
         <h2 :id="titleId" class="display">{{ heading }}</h2>
