@@ -6,6 +6,7 @@ import { decodeFrame } from "../src/plugins/live/hub.js";
 import type { RunDetail } from "../src/plugins/runs/engine.js";
 import type { ResultDocument } from "../src/plugins/runs/results.js";
 import { cleanTempDirs, startSite, tempDir, writeFiles } from "./helpers/fixtures.js";
+import { readZip } from "./helpers/zip.js";
 import { engineOf, hasChromium, hasFirefox, requireBrowsers, startHarness, type Harness } from "./helpers/harness.js";
 
 // Engine tests: real browsers against a tiny local site, through the HTTP API.
@@ -168,7 +169,12 @@ test("F8", { timeout: 800 }, async ({ h }) => { await h.wait(5000); });`,
     expect(errorKind("F8")).toBe("timeout");
     const f1 = detail.attempts.find((a) => a.testId === "F1")!;
     const doc = (await h.api<ResultDocument>("GET", `/runs/${runId}/attempts/${f1.id}`)).data;
-    expect(doc.artifacts.some((a) => a.kind === "trace" && a.path.endsWith("trace.zip"))).toBe(true);
+    const trace = doc.artifacts.find((a) => a.kind === "trace");
+    expect(trace?.path.endsWith("trace.zip")).toBe(true);
+    // The trace has DOM snapshots, so the trace viewer shows the page at each action, not just the action list.
+    const entries = readZip(path.join(h.app.watchwright.store.dataDir, trace!.path));
+    const events = [...entries].filter(([name]) => name.endsWith(".trace")).map(([, data]) => data.toString("utf8")).join("\n");
+    expect(events).toContain('"type":"frame-snapshot"');
     const f5 = detail.attempts.find((a) => a.testId === "F5")!;
     expect((await h.api<ResultDocument>("GET", `/runs/${runId}/attempts/${f5.id}`)).data.notes[0]).toMatch(/F2 ended broken/);
   });
