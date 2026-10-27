@@ -9,6 +9,7 @@ export type Route =
   | { name: "attempt"; runId: string; attemptId: string }
   | { name: "packs" }
   | { name: "pack"; id: string }
+  | { name: "compare"; query: Record<string, string> }
   | { name: "kit" };
 
 const ID8 = "([0-9a-f]{8})";
@@ -29,6 +30,7 @@ export function parseRoute(hash: string): Route {
   if (path === "/new") return { name: "new", query };
   if (path === "/packs") return { name: "packs" };
   if (path === "/kit") return { name: "kit" };
+  if (path === "/compare") return { name: "compare", query };
   if ((m = new RegExp(`^/runs/${ID8}$`).exec(path))) return { name: "run", id: m[1]! };
   if ((m = new RegExp(`^/runs/${ID8}/attempts/([0-9a-f]{12})$`).exec(path))) return { name: "attempt", runId: m[1]!, attemptId: m[2]! };
   if ((m = new RegExp(`^/packs/${ID8}$`).exec(path))) return { name: "pack", id: m[1]! };
@@ -54,15 +56,18 @@ export function href(route: Route): string {
       return "#/packs";
     case "pack":
       return `#/packs/${route.id}`;
+    case "compare":
+      return `#/compare${qs(route.query)}`;
     case "kit":
       return "#/kit";
   }
 }
 
 /** Which top bar section a route belongs to. */
-export function sectionOf(route: Route): "runs" | "packs" | null {
+export function sectionOf(route: Route): "runs" | "packs" | "compare" | null {
   if (route.name === "runs" || route.name === "run" || route.name === "attempt" || route.name === "new") return "runs";
   if (route.name === "packs" || route.name === "pack") return "packs";
+  if (route.name === "compare") return "compare";
   return null;
 }
 

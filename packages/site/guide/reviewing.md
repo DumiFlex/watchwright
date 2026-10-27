@@ -38,6 +38,14 @@ Open an attempt from the run page. The **Review** panel beside the results has o
 
 Once a run is over, its page shows the results as a grid: one row per test, one column per attempt, with each attempt's status, its score and its flags, and the test's mean score at the end. Scale scores count on a 1-to-5 footing so tests with different scales compare; choices and yes/no criteria are shown but not averaged.
 
+## Comparing runs
+
+**Compare** in the top bar puts up to six runs of one pack side by side: tests down the side, runs across the top. Runs with different parameter values make a matrix, for example one run per model, and the parameters that differ are shown in bold. Each cell has the attempt's status, score, flags and metrics; **Show in cells** adds a screenshot or a kept text to every cell, and **All screenshots** on a row opens every screenshot of that row's attempts side by side. Click a cell to open the attempt and review it. The address holds the runs and the choice, so a comparison can be shared. A finished run's page has a **Compare** button that starts one with that run.
+
+## Exporting
+
+**Export** on a run page or the compare page downloads the results as Markdown: the runs with their parameters and mean scores, then one section per test with each attempt's status, flags, metrics, the scores as a small table, the reviewers' notes and links to the screenshots. The plain Markdown links to the Watchwright server. **Markdown and screenshots (zip)** puts the screenshots next to the Markdown, so it reads anywhere, for example attached to an issue.
+
 ## Reviews from agents and scripts
 
 Each review belongs to a reviewer: the name a client sends in `x-watchwright-client`. The web page is `web`. An agent that sends its own name keeps its own review of the same attempt, and the web page shows it below yours, read only. See [Reviews in the HTTP API](../reference/http-api#reviews).

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import { FolderOpen, ListChecks, Moon, Palette, Plus, Search, Sun, SunMoon } from "./icons";
+import { Columns2, FolderOpen, ListChecks, Moon, Palette, Plus, Search, Sun, SunMoon } from "./icons";
 import { getJson, type HealthData } from "./api";
 import BrandMark from "./components/BrandMark.vue";
 import CommandPalette, { type PaletteCommand } from "./components/CommandPalette.vue";
@@ -13,6 +13,7 @@ import { vTip } from "./tooltip";
 import { useShortcut } from "./keys";
 import { applyTheme, browserStore, loadTheme, LOOKS, saveTheme, type Theme } from "./theme";
 import AttemptView from "./views/AttemptView.vue";
+import CompareView from "./views/CompareView.vue";
 import KitView from "./views/KitView.vue";
 import NewRunView from "./views/NewRunView.vue";
 import PacksView from "./views/PacksView.vue";
@@ -38,6 +39,7 @@ const down = ref(false);
 const nav = computed(() => [
   { value: "runs", label: "Runs", href: "#/", current: section.value === "runs" && route.value.name !== "new" },
   { value: "packs", label: "Packs", href: "#/packs", current: section.value === "packs" },
+  { value: "compare", label: "Compare", href: "#/compare", current: section.value === "compare" },
   { value: "new", label: "New run", href: "#/new", current: route.value.name === "new" },
 ]);
 
@@ -49,6 +51,7 @@ const commands = computed<PaletteCommand[]>(() => [
   { id: "go-runs", label: "Runs", group: "Go to", words: "history list", icon: ListChecks, run: go("#/") },
   { id: "go-packs", label: "Packs", group: "Go to", words: "tests suites", icon: FolderOpen, run: go("#/packs") },
   { id: "go-new", label: "New run", group: "Go to", words: "start", icon: Plus, run: go("#/new") },
+  { id: "go-compare", label: "Compare", group: "Go to", words: "side by side matrix export", icon: Columns2, run: go("#/compare") },
   ...LOOKS.map((l) => ({ id: `look-${l.id}`, label: `Look: ${l.name}`, group: "Theme", words: l.note, icon: Palette, run: () => (theme.value = { ...theme.value, look: l.id }) })),
   { id: "mode-light", label: "Mode: Light", group: "Theme", icon: Sun, run: () => (theme.value = { ...theme.value, mode: "light" }) },
   { id: "mode-dark", label: "Mode: Dark", group: "Theme", icon: Moon, run: () => (theme.value = { ...theme.value, mode: "dark" }) },
@@ -71,7 +74,7 @@ onMounted(async () => {
     <span v-if="health" v-tip="`Data folder: ${health.dataDir}`" class="version num">v{{ health.version }}</span>
     <span v-else-if="down" class="down" role="alert">Server unreachable</span>
     <nav class="nav" aria-label="Main">
-      <a v-for="n in nav.slice(0, 2)" :key="n.value" :href="n.href" class="link" :aria-current="n.current ? 'page' : undefined">{{ n.label }}</a>
+      <a v-for="n in nav.slice(0, 3)" :key="n.value" :href="n.href" class="link" :aria-current="n.current ? 'page' : undefined">{{ n.label }}</a>
     </nav>
     <div class="end">
       <a class="btn primary new" href="#/new" :aria-current="route.name === 'new' ? 'page' : undefined">
@@ -91,6 +94,7 @@ onMounted(async () => {
   <NewRunView v-else-if="route.name === 'new'" :query="route.query" />
   <PacksView v-else-if="route.name === 'packs'" />
   <PackView v-else-if="route.name === 'pack'" :id="route.id" />
+  <CompareView v-else-if="route.name === 'compare'" :query="route.query" />
   <KitView v-else-if="route.name === 'kit'" />
   <RunsView v-else :query="route.query" />
   <CommandPalette v-model:open="palette" :commands="commands" />

@@ -58,6 +58,15 @@ A review is one reviewer's scores and note for one attempt. The reviewer is the 
 
 Deleting a run deletes its reviews.
 
+## Compare and export
+
+| Method and path | Does |
+|---|---|
+| `GET /compare?runs=a,b,c` | Lines up one to six runs of the same pack: `runs` (id, params, status, counts), `criteria` by test, `rows` (one per test and attempt number, with one cell per run: status, duration, error, flags, metrics, notes, kept texts, screenshots, reviews and `score`, the mean of the scale scores on 1 to 5), and the `shotNames` and `textNames` found. Only current attempts count. 400 `mixed_packs` for runs of different packs. |
+| `GET /export?runs=a,b` | `{ name, markdown }`: the same runs as Markdown, one section per test, then per attempt: status, flags, metrics, the scores as a table, the reviewers' notes and links to the screenshots. |
+| `GET /export.md?runs=a,b` | The Markdown as a file to download, with screenshot links to this server. |
+| `GET /export.zip?runs=a,b` | A zip of the Markdown and its screenshots (`shots/<run>/<attempt>/…`), linked by relative paths, so it reads anywhere. |
+
 Run statuses: `queued`, `running`, `pausing`, `paused`, `finished`, `stopped`, `interrupted` (the server stopped mid-run), `failed_to_start`. Attempt statuses: `passed`, `failed`, `broken`, `skipped`, `stopped`, plus `running` and `interrupted`.
 
 ## Events

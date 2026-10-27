@@ -13,6 +13,7 @@ describe("router", () => {
     expect(parseRoute("#/packs")).toEqual({ name: "packs" });
     expect(parseRoute("#/packs/0a1b2c3d")).toEqual({ name: "pack", id: "0a1b2c3d" });
     expect(parseRoute("#/kit")).toEqual({ name: "kit" });
+    expect(parseRoute("#/compare?runs=0a1b2c3d,1a1b2c3d")).toEqual({ name: "compare", query: { runs: "0a1b2c3d,1a1b2c3d" } });
   });
 
   it("shows the runs list for unknown or malformed addresses", () => {
@@ -30,6 +31,7 @@ describe("router", () => {
       { name: "attempt", runId: "0a1b2c3d", attemptId: "0a1b2c3d4e5f" },
       { name: "packs" },
       { name: "pack", id: "0a1b2c3d" },
+      { name: "compare", query: { runs: "0a1b2c3d", show: "shot:home" } },
       { name: "kit" },
     ];
     for (const r of routes) expect(parseRoute(href(r))).toEqual(r);
@@ -40,6 +42,7 @@ describe("router", () => {
     expect(sectionOf({ name: "run", id: "0a1b2c3d" })).toBe("runs");
     expect(sectionOf({ name: "attempt", runId: "0a1b2c3d", attemptId: "0a1b2c3d4e5f" })).toBe("runs");
     expect(sectionOf({ name: "pack", id: "0a1b2c3d" })).toBe("packs");
+    expect(sectionOf({ name: "compare", query: {} })).toBe("compare");
     expect(sectionOf({ name: "kit" })).toBeNull();
   });
 });
