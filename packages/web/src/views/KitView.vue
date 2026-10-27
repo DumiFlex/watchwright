@@ -3,6 +3,7 @@
 // from when a feature needs one. The page is not linked from the app.
 import { computed, ref } from "vue";
 import BreadCrumbs from "../components/BreadCrumbs.vue";
+import BarChart, { type BarItem, type BarSeries } from "../components/BarChart.vue";
 import CheckBox from "../components/CheckBox.vue";
 import CheckTree from "../components/CheckTree.vue";
 import CommandPalette, { type PaletteCommand } from "../components/CommandPalette.vue";
@@ -25,6 +26,9 @@ import RangeSlider from "../components/RangeSlider.vue";
 import ScoreInput from "../components/ScoreInput.vue";
 import SelectMenu from "../components/SelectMenu.vue";
 import SideDrawer from "../components/SideDrawer.vue";
+import SkeletonBlock from "../components/SkeletonBlock.vue";
+import SparkLine from "../components/SparkLine.vue";
+import StatTile from "../components/StatTile.vue";
 import SortableList from "../components/SortableList.vue";
 import SplitPane from "../components/SplitPane.vue";
 import StatusChip from "../components/StatusChip.vue";
@@ -203,6 +207,29 @@ const shots = [
 ];
 const shotOpen = ref<number | null>(null);
 
+// "At a glance": made-up numbers for the last 24 runs of a pack.
+const runIds = Array.from({ length: 24 }, (_, i) => `#${101 + i}`);
+const passedPerRun = runIds.map((_, i) => 38 + ((i * 7) % 9) - (i % 5 === 3 ? 6 : 0));
+const failedPerRun = runIds.map((_, i) => (i % 5 === 3 ? 7 : (i * 3) % 4));
+const brokenPerRun = runIds.map((_, i) => (i % 7 === 2 ? 2 : 0));
+const skippedPerRun = runIds.map((_, i) => (i % 6 === 0 ? 3 : 1));
+const runSeries: BarSeries[] = [
+  { key: "passed", label: "Passed", tone: "ok" },
+  { key: "failed", label: "Failed", tone: "bad" },
+  { key: "broken", label: "Broken", tone: "warn" },
+  { key: "skipped", label: "Skipped", tone: "muted" },
+];
+const runBars: BarItem[] = runIds.map((label, i) => ({
+  label,
+  values: { passed: passedPerRun[i] ?? 0, failed: failedPerRun[i] ?? 0, broken: brokenPerRun[i] ?? 0, skipped: skippedPerRun[i] ?? 0 },
+}));
+const passRate = runIds.map((_, i) => {
+  const p = passedPerRun[i] ?? 0;
+  return Math.round((p / (p + (failedPerRun[i] ?? 0) + (brokenPerRun[i] ?? 0))) * 1000) / 10;
+});
+const minutes = runIds.map((_, i) => 14 + ((i * 5) % 7) + (i > 16 ? 3 : 0));
+const pickedRun = ref("");
+const loading = ref(true);
 const drawer = ref(false);
 const drawerStart = ref(false);
 const palette = ref(false);
@@ -578,6 +605,62 @@ const traces = [
     </section>
 
     <section class="card">
+      <h2 class="display">At a glance</h2>
+      <div class="grid">
+        <div class="item wide">
+          <span class="lbl">Stat tiles</span>
+          <div class="tiles">
+            <StatTile label="Pass rate" :value="passRate.at(-1) ?? 0" unit="%" :delta="1.6" period="last week" :format-delta="(v: number) => `${v > 0 ? '+' : ''}${v} pts`" :trend="passRate" :trend-labels="runIds" />
+            <StatTile label="Runs this week" :value="24" :delta="6" period="last week" :trend="[3, 2, 4, 5, 3, 4, 3]" />
+            <StatTile label="Median run time" :value="18" unit=" min" :delta="3" period="last week" good-when="down" :trend="minutes" :trend-labels="runIds" />
+            <StatTile label="Broken tests" :value="0" :delta="0" period="the previous run" good-when="down" />
+          </div>
+        </div>
+        <div class="item wide">
+          <span class="lbl">Bar chart</span>
+          <p class="muted note">Tests per run for shop-smoke. {{ pickedRun ? `Clicked: ${pickedRun}` : "Hover a column; click to open it." }}</p>
+          <BarChart :items="runBars" :series="runSeries" label="Tests per run, shop-smoke" @pick="pickedRun = runBars[$event]?.label ?? ''" />
+        </div>
+        <div class="item">
+          <span class="lbl">Sparklines</span>
+          <div class="spark-rows">
+            <span class="muted">Pass rate</span>
+            <SparkLine :values="passRate" :labels="runIds" label="Pass rate" :format="(v: number) => `${v}%`" />
+            <span class="num">{{ passRate.at(-1) }}%</span>
+            <span class="muted">Failures</span>
+            <SparkLine :values="failedPerRun" :labels="runIds" label="Failures per run" kind="bars" />
+            <span class="num">{{ failedPerRun.at(-1) }}</span>
+            <span class="muted">Run time</span>
+            <SparkLine :values="minutes" :labels="runIds" label="Run time in minutes" tone="muted" :format="(v: number) => `${v} min`" />
+            <span class="num">{{ minutes.at(-1) }} min</span>
+          </div>
+        </div>
+        <div class="item">
+          <span class="lbl">Loading placeholders</span>
+          <ToggleSwitch v-model="loading">Loading</ToggleSwitch>
+          <div class="skeleton-demo" :aria-busy="loading">
+            <template v-if="loading">
+              <div class="row">
+                <SkeletonBlock shape="circle" width="36px" />
+                <SkeletonBlock width="50%" />
+              </div>
+              <SkeletonBlock :lines="3" />
+              <SkeletonBlock shape="block" height="64px" />
+            </template>
+            <template v-else>
+              <div class="row">
+                <span class="avatar" aria-hidden="true">S</span>
+                <strong>shop-smoke</strong>
+              </div>
+              <p class="muted">Smoke tests for the shop: home, search and a guest checkout, in Chromium and Firefox.</p>
+              <SparkLine :values="passRate" :labels="runIds" label="Pass rate" kind="bars" :height="64" :format="(v: number) => `${v}%`" />
+            </template>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
       <h2 class="display">Media</h2>
       <div class="grid">
         <div class="item wide">
@@ -789,5 +872,38 @@ header p {
 }
 .shortcut-list dd {
   margin: 0;
+}
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-3);
+}
+.spark-rows {
+  display: grid;
+  grid-template-columns: max-content minmax(80px, 1fr) max-content;
+  gap: var(--space-3);
+  align-items: center;
+}
+.skeleton-demo {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  min-height: 170px;
+  padding: var(--space-4);
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius);
+}
+.skeleton-demo p {
+  margin: 0;
+}
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-weight: 600;
 }
 </style>

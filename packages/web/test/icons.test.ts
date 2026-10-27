@@ -2,10 +2,10 @@ import { readdir, readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 // Icons come from src/icons.ts (Lucide), not hand-drawn <svg> in templates or arrows and
-// symbols typed as text. BrandMark is the logo and TextArea's corner grip is a drawing,
-// not an icon.
+// symbols typed as text. BrandMark is the logo, TextArea's corner grip is a drawing, and
+// SparkLine and BarChart draw data; none of them is an icon.
 const src = new URL("../src/", import.meta.url);
-const drawn = new Set(["components/BrandMark.vue", "components/TextArea.vue"]);
+const drawn = new Set(["components/BrandMark.vue", "components/TextArea.vue", "components/SparkLine.vue", "components/BarChart.vue"]);
 const all = (await readdir(src, { recursive: true })).map((f) => f.replaceAll("\\", "/"));
 const vue = all.filter((f) => f.endsWith(".vue"));
 const code = all.filter((f) => /\.(vue|ts)$/.test(f) && f !== "icons.ts");
