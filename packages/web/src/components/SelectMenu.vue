@@ -2,7 +2,8 @@
 // A themed replacement for <select>: a button that opens a listbox. Keyboard follows the
 // ARIA listbox pattern: arrows, Home/End, Enter/Space to pick, Escape to close, and typing
 // jumps to the next option starting with that letter.
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId } from "vue";
+import { computed, nextTick, ref, useId } from "vue";
+import { useOutside, usePopup, usePopupHost } from "../popup";
 
 const props = defineProps<{ options: readonly { value: T; label: string }[]; id?: string; disabled?: boolean }>();
 const model = defineModel<T>({ required: true });
@@ -13,6 +14,9 @@ const root = ref<HTMLElement | null>(null);
 const button = ref<HTMLButtonElement | null>(null);
 const list = ref<HTMLUListElement | null>(null);
 const listId = useId();
+const { style } = usePopup(button, list, open, { matchWidth: true });
+useOutside([root, list], open, () => hide(false));
+const host = usePopupHost(root);
 
 const selectedIndex = computed(() => props.options.findIndex((o) => o.value === model.value));
 const current = computed(() => props.options[selectedIndex.value]?.label ?? "");
@@ -74,11 +78,6 @@ function onButtonKey(e: KeyboardEvent) {
     void show();
   }
 }
-function onDocPointer(e: PointerEvent) {
-  if (open.value && root.value && !root.value.contains(e.target as Node)) hide(false);
-}
-onMounted(() => document.addEventListener("pointerdown", onDocPointer));
-onBeforeUnmount(() => document.removeEventListener("pointerdown", onDocPointer));
 </script>
 
 <template>
@@ -99,33 +98,36 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onDocPointer))
       <span class="value">{{ current }}</span>
       <svg class="chev" viewBox="0 0 10 6" width="10" height="6" aria-hidden="true"><path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" /></svg>
     </button>
-    <ul
-      v-if="open"
-      :id="listId"
-      ref="list"
-      class="list"
-      role="listbox"
-      tabindex="-1"
-      :aria-labelledby="id"
-      :aria-activedescendant="optionId(active)"
-      @keydown="onListKey"
-      @blur="hide(false)"
-    >
-      <li
-        v-for="(o, i) in options"
-        :id="optionId(i)"
-        :key="String(o.value)"
-        role="option"
-        :aria-selected="i === selectedIndex"
-        :class="{ active: i === active, selected: i === selectedIndex }"
-        @pointerenter="active = i"
-        @pointerdown.prevent
-        @click="choose(i)"
+    <Teleport :to="host">
+      <ul
+        v-if="open"
+        :id="listId"
+        ref="list"
+        class="list"
+        role="listbox"
+        tabindex="-1"
+        :aria-labelledby="id"
+        :aria-activedescendant="optionId(active)"
+        :style="style"
+        @keydown="onListKey"
+        @blur="hide(false)"
       >
-        <span>{{ o.label }}</span>
-        <svg v-if="i === selectedIndex" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M2.5 6.2l2.4 2.4 4.6-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
-      </li>
-    </ul>
+        <li
+          v-for="(o, i) in options"
+          :id="optionId(i)"
+          :key="String(o.value)"
+          role="option"
+          :aria-selected="i === selectedIndex"
+          :class="{ active: i === active, selected: i === selectedIndex }"
+          @pointerenter="active = i"
+          @pointerdown.prevent
+          @click="choose(i)"
+        >
+          <span>{{ o.label }}</span>
+          <svg v-if="i === selectedIndex" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M2.5 6.2l2.4 2.4 4.6-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
+        </li>
+      </ul>
+    </Teleport>
   </div>
 </template>
 
@@ -173,12 +175,8 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onDocPointer))
   transform: rotate(180deg);
 }
 .list {
-  position: absolute;
   z-index: 30;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
-  max-height: 240px;
+  max-height: min(240px, var(--popup-room, 240px));
   overflow-y: auto;
   margin: 0;
   padding: 4px;
