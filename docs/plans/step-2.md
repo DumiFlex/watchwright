@@ -1,6 +1,6 @@
 # Step 2 plan: the web app
 
-Status: research and plan, written 2026-10-27 before building. [docs/plan.md](../plan.md) holds the base design from step 1 (plugins, engine, store, API), and this plan builds on it. Section 8 lists the questions the build waits on.
+Status: research and plan, written 2026-10-27 before building. [docs/plan.md](../plan.md) holds the base design from step 1 (plugins, engine, store, API), and this plan builds on it. Section 8 records the answers to the questions it raised.
 
 ## 1. What step 2 delivers
 
@@ -68,7 +68,7 @@ All of it goes into plugins (`AGENTS.md`, Conventions). New actions, with their 
 | `runs.compare` | `GET /compare?runs=a,b,c` | reviews (reads runs through the `runs` service) |
 | — | `GET /trace-viewer/*` (static, from `playwright-core`) | runs (a route, not an action) |
 
-**Rubric in the pack.** `pack({ rubric: [...] })`, loaded and shown by the `packs` plugin. The shape depends on question 1 in section 8; with the recommended answer:
+**Rubric in the pack.** `pack({ rubric: [...] })`, loaded and shown by the `packs` plugin. Each criterion is a 1 to 5 scale, named choices or yes/no (section 8):
 
 ```ts
 rubric: [
@@ -85,7 +85,7 @@ A pack without a rubric gets one criterion, `overall` (1 to 5), plus the note. A
 
 **Compare.** For a list of 2 to 6 runs of the same pack, the server lines up the current attempts by test id and attempt number and returns, per cell: status, flags, metrics, scores, the first screenshot of each name and the kept texts. Runs of different packs are refused with a clear error. The page lets you pick which screenshot name or text to show across the row.
 
-**Export.** Markdown, one section per test, then per attempt: status, flags, metrics, the scores as a small table, the note, and links to screenshots. A run export and a compare export use the same writer. Shape depends on question 3.
+**Export.** Markdown, one section per test, then per attempt: status, flags, metrics, the scores as a small table, the note, and links to screenshots. A run export and a compare export use the same writer. The zip export holds the same Markdown with its screenshots next to it, linked by relative paths.
 
 **Storage.** `reviews` gets its own migration 1. `runs` gets migration 2 only if the queue edits need a column (they may fit in the existing `plan` JSON). Results keep `schemaVersion: 1`; new fields (marks, the review) are additive.
 
@@ -115,8 +115,10 @@ Each targets `dev`, with tests, docs and screenshots.
 7. Compare and export.
 8. Step 2 sign-off: a short run on the PC in Firefox, screenshots of every page, docs pass.
 
-## 8. Questions for Dumi
+## 8. Answered questions
 
-1. **Rubric scoring.** Recommended: the pack picks per criterion (1 to 5 scale, named choices, or yes/no), since a lens like "correct, follows the request, quality, UI issues" mixes kinds. Alternatives: every criterion 1 to 5, or every criterion pass / partial / fail.
-2. **What gets a review.** Recommended: each attempt (in the bench, W1 with three attempts is three different AI answers). Alternative: one review per test per run, covering all its attempts.
-3. **Export.** Recommended: Markdown, plus a zip of the Markdown and the screenshots it links, so the export stands on its own when pasted or sent. Alternatives: Markdown only, or Markdown, zip and a CSV of scores.
+Dumi answered these on 2026-10-27:
+
+1. **Rubric scoring:** the pack picks per criterion: a 1 to 5 scale, named choices, or yes/no. A pack without a rubric gets one `overall` criterion (1 to 5).
+2. **What gets a review:** each attempt. Compare and export group reviews by test and show averages.
+3. **Export:** Markdown, plus a zip of the Markdown and the screenshots it links.
