@@ -24,7 +24,7 @@ The second line downloads the browsers Playwright drives.
 
 1. On the web page, open **Packs** and add a test pack: type its folder (the field completes folders as you type), or press **Browse…** and pick it, or let **Find packs in a folder…** search for it. You can also name pack folders when you start the server: `watchwright serve path/to/pack`. See [Adding a pack](./test-packs#adding-a-pack).
 2. Press **New run**. It opens on the pack of your latest run, filled with that run's choices (**Use pack defaults** starts over; Settings can make it always start from the defaults). Search or pick tests by section and tag, set the parameter values and the options (attempts per test, trace, video, pausing on a broken test), give the run a label if you like, and start it with the button or Ctrl+Enter (Cmd+Enter on a Mac). Choices you use often can be saved as a **preset** with the menu beside the preset list, and picked again later; agents can start a preset by name. The **Planned** panel shows every attempt in the order it will run, and which tests join because a chosen one needs them.
-3. The run page shows the browser live with the current test and step, and has the controls to pause, retry, skip and stop. While it runs you can skip attempts that haven't started, move tests up and down the queue, or add tests to the end of it. **Rewind** under the live view scrubs back through the last 30 seconds, with the steps that ran then. **Mark** saves what the live view shows (or the rewound moment) to the current attempt with a note. The log filters by test and by warnings.
+3. The run page shows the browser live with the current test and step, and has the controls to pause, retry, skip and stop. While it runs you can skip attempts that haven't started, move tests up and down the queue, or add tests to the end of it. **Rewind** under the live view scrubs back through the last 30 seconds, with the steps that ran then. **Mark** saves what the live view shows (or the rewound moment) to the current attempt with a note. The log keeps the newest lines at the bottom and follows them as they come in (scroll up and it stops; **Follow** or scrolling back to the end starts it again). Search it (Enter and Shift+Enter go from match to match), show or hide info, warning and error lines with their counts, filter by test, and wrap long lines.
 
 ## Looking at results
 
@@ -32,7 +32,7 @@ Click an attempt in the queue to open its page. It shows the error (with **In yo
 
 - the screenshots, with a full-size viewer (scroll shots show as one strip),
 - kept texts,
-- the log,
+- the log, with the same search, level toggles and wrapping as the run page; a line's number copies a link that opens the attempt at that line,
 - collector records in a table,
 - the video,
 - the trace, which opens in Playwright's trace viewer served by Watchwright.

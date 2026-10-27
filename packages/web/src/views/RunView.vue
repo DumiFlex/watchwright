@@ -7,6 +7,7 @@ import DataTable from "../components/DataTable.vue";
 import LiveViewer from "../components/LiveViewer.vue";
 import MenuButton from "../components/MenuButton.vue";
 import KeyHint from "../components/KeyHint.vue";
+import LogViewer from "../components/LogViewer.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import MultiSelect from "../components/MultiSelect.vue";
 import PageSkeleton from "../components/PageSkeleton.vue";
@@ -16,6 +17,7 @@ import TextArea from "../components/TextArea.vue";
 import TextField from "../components/TextField.vue";
 import { exportUrl } from "../compare";
 import { countsText, duration } from "../format";
+import { levelOf, type LogLine } from "../logview";
 import { href } from "../router";
 import { resultRows, type ResultRow } from "../review";
 import { canMove as canMoveRow, movable as movableRow } from "../queue";
@@ -92,6 +94,17 @@ function scheduleLoad() {
 }
 
 const titles = computed(() => new Map((run.value?.plan ?? []).map((p) => [p.testId, p.title])));
+// The log keeps its newest lines; line numbers count from the first line since the page opened.
+const LOG_LIMIT = 5000;
+const logDropped = ref(0);
+function addLog(line: (typeof log.value)[number]) {
+  log.value.push(line);
+  const over = log.value.length - LOG_LIMIT;
+  if (over > 0) {
+    log.value.splice(0, over);
+    logDropped.value += over;
+  }
+}
 // Which test an attempt belongs to, so log lines can be filtered by test.
 const attemptTests = new Map<string, string>();
 watch(run, (r) => r?.attempts.forEach((a) => attemptTests.set(a.id, a.testId)));
@@ -101,8 +114,7 @@ function onEvent(e: WwEvent) {
   switch (e.type) {
     case "attempt.log":
     case "run.log":
-      log.value.push({ seq: e.seq, time: String(d.time ?? e.time), level: String(d.level ?? "info"), message: String(d.message ?? ""), test: (e.attemptId && attemptTests.get(e.attemptId)) || null });
-      if (log.value.length > 500) log.value.splice(0, log.value.length - 500);
+      addLog({ seq: e.seq, time: String(d.time ?? e.time), level: String(d.level ?? "info"), message: String(d.message ?? ""), test: (e.attemptId && attemptTests.get(e.attemptId)) || null });
       break;
     case "attempt.step":
       step.value = (d.title as string | null) ?? null;
@@ -126,18 +138,18 @@ function onEvent(e: WwEvent) {
       step.value = null;
       noteStep(e.time, `${String(d.testId)} starts`);
       if (e.attemptId) attemptTests.set(e.attemptId, String(d.testId));
-      log.value.push({ seq: e.seq, time: e.time, level: "info", message: `Started ${d.testId} ${titles.value.get(String(d.testId)) ?? ""} (attempt ${d.number} of ${d.of}${Number(d.try) > 1 ? `, try ${d.try}` : ""})`, test: String(d.testId) });
+      addLog({ seq: e.seq, time: e.time, level: "info", message: `Started ${d.testId} ${titles.value.get(String(d.testId)) ?? ""} (attempt ${d.number} of ${d.of}${Number(d.try) > 1 ? `, try ${d.try}` : ""})`, test: String(d.testId) });
       scheduleLoad();
       break;
     case "attempt.finished":
-      log.value.push({ seq: e.seq, time: e.time, level: d.status === "passed" ? "info" : "warn", message: `${d.testId} ${d.status}${d.error ? `: ${String(d.error).split("\n")[0]}` : ""}`, test: String(d.testId) });
+      addLog({ seq: e.seq, time: e.time, level: d.status === "passed" ? "info" : "warn", message: `${d.testId} ${d.status}${d.error ? `: ${String(d.error).split("\n")[0]}` : ""}`, test: String(d.testId) });
       scheduleLoad();
       break;
     case "review.saved":
       void loadReviews();
       break;
     case "video.unavailable":
-      log.value.push({ seq: e.seq, time: e.time, level: "warn", message: String(d.message), test: null });
+      addLog({ seq: e.seq, time: e.time, level: "warn", message: String(d.message), test: null });
       break;
     default:
       if (e.type.startsWith("run.") || e.type.startsWith("pack.")) scheduleLoad();
@@ -259,16 +271,11 @@ async function saveMark() {
   markNote.value = "";
 }
 
-// Log filters.
-const logLevel = ref<"all" | "problems">("all");
+// Log, with a filter by test (the viewer has the level filters and search).
 const logTest = ref("");
-const levelOptions = [
-  { value: "all" as const, label: "Every line" },
-  { value: "problems" as const, label: "Warnings and errors" },
-];
 const testOptions = computed(() => [{ value: "", label: "All tests" }, ...[...titles.value].map(([id, t]) => ({ value: id, label: t && t !== id ? `${id} · ${t}` : id }))]);
-const shownLog = computed(() =>
-  log.value.filter((l) => (logLevel.value === "all" || l.level !== "info") && (!logTest.value || l.test === logTest.value)).reverse(),
+const logLines = computed<LogLine[]>(() =>
+  log.value.flatMap((l, i) => (!logTest.value || l.test === logTest.value ? [{ key: l.seq, n: logDropped.value + i + 1, time: l.time, level: levelOf(l.level), message: l.message, test: l.test }] : [])),
 );
 
 // Results with review scores, once the run is over.
@@ -324,6 +331,7 @@ let clock: ReturnType<typeof setInterval> | null = null;
 function connect() {
   conn?.close();
   log.value = [];
+  logDropped.value = 0;
   markSaved.value = null;
   conn = new LiveConnection(
     { runId: props.id, frames: true, after: 0 },
@@ -390,9 +398,6 @@ async function remove() {
   confirmDelete.value = false;
   if (!res.ok) actionError.value = res.error.message;
   else window.location.hash = "#/";
-}
-function time(iso: string) {
-  return new Date(iso).toLocaleTimeString();
 }
 </script>
 
@@ -585,17 +590,16 @@ function time(iso: string) {
       <section class="card" aria-labelledby="log-title">
         <div class="loghead">
           <h2 id="log-title" class="display">Log</h2>
-          <div class="logfilters">
-            <label for="log-level" class="sr-only">Which lines</label>
-            <SelectMenu id="log-level" v-model="logLevel" :options="levelOptions" />
-            <label for="log-test" class="sr-only">Which test</label>
-            <SelectMenu id="log-test" v-model="logTest" :options="testOptions" />
-          </div>
+          <span v-if="active" class="live-tag">live</span>
         </div>
-        <ol v-if="shownLog.length" class="log">
-          <li v-for="l in shownLog" :key="l.seq" :class="l.level"><time>{{ time(l.time) }}</time> {{ l.message }}</li>
-        </ol>
-        <p v-else class="muted">{{ log.length ? "No lines match." : "Nothing logged yet." }}</p>
+        <LogViewer :lines="logLines" label="Run log" :live="active" height="360px" :empty-text="log.length ? 'No lines from this test.' : 'Nothing logged yet.'">
+          <template #filters>
+            <div class="logtest">
+              <label for="log-test" class="sr-only">Which test</label>
+              <SelectMenu id="log-test" v-model="logTest" :options="testOptions" />
+            </div>
+          </template>
+        </LogViewer>
         <p v-if="run.attempts.length" class="muted small">
           {{ run.attempts.filter((a) => !a.parentId).length }} {{ run.attempts.filter((a) => !a.parentId).length === 1 ? "attempt" : "attempts" }} ·
           {{ duration(run.attempts.reduce((s, a) => s + (a.durationMs ?? 0), 0)) }} of test time
@@ -981,51 +985,27 @@ function time(iso: string) {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 8px;
   margin-bottom: 10px;
 }
 .loghead h2 {
   margin: 0;
 }
-.logfilters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.logfilters > :not(label) {
+.logtest {
   width: 200px;
 }
 @media (max-width: 640px) {
-  .logfilters {
+  .logtest {
     width: 100%;
-    flex-wrap: nowrap;
-  }
-  .logfilters > :not(label) {
-    flex: 1 1 0;
-    width: auto;
-    min-width: 0;
   }
 }
-.log {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  /* Whole lines only: 14 lines of 20px, so the box never ends halfway through one. */
-  max-height: 280px;
-  overflow-y: auto;
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  line-height: 20px;
-}
-.log li {
-  overflow-wrap: anywhere;
-}
-.log li.warn {
-  color: var(--warn);
-}
-.log li.error {
-  color: var(--bad);
+.live-tag {
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-chip);
+  background: color-mix(in srgb, var(--live) 15%, transparent);
+  color: var(--live);
+  font-size: 12px;
 }
 .log time {
   color: var(--muted);

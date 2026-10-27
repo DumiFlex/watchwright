@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Every themed control on one page (#/kit), to check them in each look and mode and to copy
 // from when a feature needs one. The page is not linked from the app.
-import { computed, ref } from "vue";
+import { computed, onBeforeUnmount, ref } from "vue";
 import BreadCrumbs from "../components/BreadCrumbs.vue";
 import BarChart, { type BarItem, type BarSeries } from "../components/BarChart.vue";
 import CheckBox from "../components/CheckBox.vue";
@@ -22,6 +22,8 @@ import PathLine from "../components/PathLine.vue";
 import ImageViewer from "../components/ImageViewer.vue";
 import JsonTree from "../components/JsonTree.vue";
 import KeyHint from "../components/KeyHint.vue";
+import LogViewer from "../components/LogViewer.vue";
+import type { LogLine } from "../logview";
 import MenuButton from "../components/MenuButton.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import MultiSelect from "../components/MultiSelect.vue";
@@ -251,6 +253,37 @@ const shots = [
   { url: sampleShot("Cart", 20), name: "03 cart", note: "mark" },
 ];
 const shotOpen = ref<number | null>(null);
+
+// Log viewer: a made-up overnight run's log.
+const KIT_LOG_SAMPLES: [LogLine["level"], string, string][] = [
+  ["info", "C1", "goto http://localhost:3000/ → 200 in 312 ms"],
+  ["info", "C1", 'click link "Boots"'],
+  ["info", "C1", 'click button "Add to cart"'],
+  ["warn", "C1", "slow response: POST /api/cart took 2,410 ms (limit 2,000)"],
+  ["info", "C1", 'fill label "Card number"'],
+  ["error", "C1", 'expect text "Thank you" failed: timeout 30,000 ms exceeded'],
+  ["info", "S1", 'fill role searchbox with "boots"'],
+  ["warn", "S1", "console: Failed to load resource /img/banner-de.webp (404)"],
+  ["info", "S1", "expect count of role listitem ≥ 1: 24"],
+  ["info", "S2", 'click label "Only reduced items"'],
+];
+const kitLogStart = Date.parse("2026-10-27T02:00:00Z");
+const kitLine = (i: number): LogLine => {
+  const [level, test, message] = KIT_LOG_SAMPLES[(i * 7) % KIT_LOG_SAMPLES.length]!;
+  return { key: i, n: i + 1, time: new Date(kitLogStart + i * 731).toISOString(), level: i % 97 === 50 ? "error" : level, message, test };
+};
+const kitLog = ref<LogLine[]>(Array.from({ length: 2500 }, (_, i) => kitLine(i)));
+const kitLogLive = ref(false);
+let kitLogTimer = 0;
+function startKitLog() {
+  kitLogLive.value = true;
+  kitLogTimer = window.setInterval(() => kitLog.value.push(kitLine(kitLog.value.length)), 500);
+}
+function stopKitLog() {
+  kitLogLive.value = false;
+  clearInterval(kitLogTimer);
+}
+onBeforeUnmount(stopKitLog);
 
 // "At a glance": made-up numbers for the last 24 runs of a pack.
 const runIds = Array.from({ length: 24 }, (_, i) => `#${101 + i}`);
@@ -559,6 +592,11 @@ const traces = [
     <section class="card">
       <h2 class="display">Inspecting</h2>
       <div class="grid">
+        <div class="item wide">
+          <span class="lbl">Log viewer (search with Enter and Shift+Enter, level toggles, Follow, Wrap; 2,500 lines, only those on screen drawn)</span>
+          <LogViewer :lines="kitLog" label="Sample run log" :live="kitLogLive" height="300px" :line-href="(n: number) => `#/kit?line=${n}`" />
+          <button type="button" class="btn kit-log-btn" @click="kitLogLive ? stopKitLog() : startKitLog()">{{ kitLogLive ? "Stop adding lines" : "Add a line every half second" }}</button>
+        </div>
         <div class="item wide">
           <span class="lbl">Code</span>
           <CodeView :code="testCode" lang="ts" label="Test file" name="tests/checkout.test.ts" :marked="[9]" max-height="320px" />
@@ -1025,5 +1063,8 @@ header p {
   background: var(--accent-soft);
   color: var(--accent-text);
   font-weight: 600;
+}
+.kit-log-btn {
+  justify-self: start;
 }
 </style>

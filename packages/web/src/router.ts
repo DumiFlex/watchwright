@@ -6,7 +6,8 @@ export type Route =
   | { name: "runs"; query: Record<string, string> }
   | { name: "new"; query: Record<string, string> }
   | { name: "run"; id: string }
-  | { name: "attempt"; runId: string; attemptId: string }
+  /** An attempt; `line` opens its log at that line. */
+  | { name: "attempt"; runId: string; attemptId: string; line?: number }
   | { name: "packs"; query: Record<string, string> }
   | { name: "pack"; id: string }
   /** The editor: a pack's file (null for the first one), optionally at a line; `record` starts Record there. */
@@ -36,7 +37,10 @@ export function parseRoute(hash: string): Route {
   if (path === "/settings") return { name: "settings" };
   if (path === "/compare") return { name: "compare", query };
   if ((m = new RegExp(`^/runs/${ID8}$`).exec(path))) return { name: "run", id: m[1]! };
-  if ((m = new RegExp(`^/runs/${ID8}/attempts/([0-9a-f]{12})$`).exec(path))) return { name: "attempt", runId: m[1]!, attemptId: m[2]! };
+  if ((m = new RegExp(`^/runs/${ID8}/attempts/([0-9a-f]{12})$`).exec(path))) {
+    const line = Number(query.line);
+    return { name: "attempt", runId: m[1]!, attemptId: m[2]!, ...(Number.isInteger(line) && line > 0 ? { line } : {}) };
+  }
   if ((m = new RegExp(`^/packs/${ID8}$`).exec(path))) return { name: "pack", id: m[1]! };
   if ((m = new RegExp(`^/packs/${ID8}/edit(?:/(.+))?$`).exec(path))) {
     let file: string | null;
@@ -65,7 +69,7 @@ export function href(route: Route): string {
     case "run":
       return `#/runs/${route.id}`;
     case "attempt":
-      return `#/runs/${route.runId}/attempts/${route.attemptId}`;
+      return `#/runs/${route.runId}/attempts/${route.attemptId}${qs(route.line ? { line: String(route.line) } : {})}`;
     case "packs":
       return `#/packs${qs(route.query)}`;
     case "pack":
