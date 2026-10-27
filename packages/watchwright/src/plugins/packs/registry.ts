@@ -1,10 +1,11 @@
 import { randomBytes } from "node:crypto";
+import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import type Database from "better-sqlite3";
 import { serviceKey } from "../../core/services.js";
 import type { EventLog } from "../../events/log.js";
 import type { FlagKind, ParamDef, TestDefinition } from "./api.js";
-import { currentStamp, findPackFile, loadPack, packChanged, PackLoadError, type LoadedPack } from "./loader.js";
+import { currentStamp, findPackFile, loadPack, PACK_FILES, packChanged, PackLoadError, type LoadedPack } from "./loader.js";
 import { checkTests, paramType, parentsOf } from "./order.js";
 import { rubricFor, type Criterion, type RubricCriterion } from "./rubric.js";
 
@@ -27,7 +28,12 @@ export interface PackTestSummary {
 
 export interface PackSummary {
   id: string;
+  /** The pack file. */
   path: string;
+  /** The pack's folder. */
+  dir: string;
+  /** True when the pack file is gone (the folder moved or was deleted); `packs.move` points the pack at its new place. */
+  missing: boolean;
   name: string;
   description: string | null;
   siteKey: string | null;
@@ -136,6 +142,25 @@ export class PackRegistry {
     return this.get(id)!;
   }
 
+  /** Points a pack at a new folder (it moved), keeping its id and runs, and loads it from there. */
+  async move(id: string, input: string): Promise<PackSummary> {
+    if (!this.get(id)) throw new PackLoadError(`No pack with id ${id}.`);
+    const { dir, packFile } = findPackFile(input);
+    const full = path.join(dir, packFile);
+    const other = this.db.prepare("SELECT id, name FROM packs WHERE path = ? AND id <> ?").get(full, id) as { id: string; name: string } | undefined;
+    if (other) throw new PackLoadError(`${full} is already added as the pack "${other.name}".`);
+    this.loaded.delete(id);
+    this.db.prepare("UPDATE packs SET path = ? WHERE id = ?").run(full, id);
+    this.events.append("pack.moved", { packId: id, path: full });
+    await this.reload(id).catch(() => undefined);
+    return this.get(id)!;
+  }
+
+  /** The pack whose folder is `dir`, if any. */
+  byDir(dir: string): PackSummary | null {
+    return this.list().find((p) => p.dir === dir) ?? null;
+  }
+
   remove(id: string): boolean {
     this.loaded.delete(id);
     const info = this.db.prepare("DELETE FROM packs WHERE id = ?").run(id);
@@ -226,6 +251,8 @@ export class PackRegistry {
     return {
       id: r.id,
       path: r.path,
+      dir: path.dirname(r.path),
+      missing: !existsSync(r.path),
       name: r.name,
       description: s.description ?? null,
       siteKey: r.site_key,
@@ -243,6 +270,46 @@ export class PackRegistry {
       tests: (s.tests ?? []).map((t) => ({ ...t, rubric: t.rubric ?? rubricFor(undefined, undefined) })),
     };
   }
+}
+
+export interface FoundPack {
+  dir: string;
+  packFile: string;
+  /** The id of the pack when it is already added. */
+  packId: string | null;
+}
+
+// Folders a pack never lives in, skipped by `discover` (hidden folders are skipped too).
+const SKIP_DIRS = new Set(["node_modules", "dist", "build", "out", "coverage", "target", "vendor", "__pycache__", "venv"]);
+export const DISCOVER_MAX_DIRS = 5000;
+
+/**
+ * Finds pack files under `root`, `depth` levels down. A pack folder isn't searched further (its
+ * tests aren't packs). Stops after DISCOVER_MAX_DIRS folders so a scan of a whole drive ends.
+ */
+export function discoverPacks(root: string, depth: number, known: (dir: string) => string | null): { found: FoundPack[]; truncated: boolean } {
+  const found: FoundPack[] = [];
+  let seen = 0;
+  let truncated = false;
+  const walk = (dir: string, level: number) => {
+    if (seen >= DISCOVER_MAX_DIRS) return void (truncated = true);
+    seen++;
+    const packFile = PACK_FILES.find((f) => existsSync(path.join(dir, f)));
+    if (packFile) return void found.push({ dir, packFile, packId: known(dir) });
+    if (level >= depth) return;
+    let names: string[];
+    try {
+      names = readdirSync(dir, { withFileTypes: true })
+        .filter((d) => d.isDirectory() && !d.name.startsWith(".") && !d.name.startsWith("$") && !SKIP_DIRS.has(d.name))
+        .map((d) => d.name)
+        .sort((a, b) => a.localeCompare(b));
+    } catch {
+      return; // unreadable folders are skipped
+    }
+    for (const n of names) walk(path.join(dir, n), level + 1);
+  };
+  walk(root, 0);
+  return { found, truncated };
 }
 
 export const PACKS = serviceKey<PackRegistry>("packs.registry");

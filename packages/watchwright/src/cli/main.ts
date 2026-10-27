@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { spawn } from "node:child_process";
@@ -12,10 +13,12 @@ import { VERSION } from "../version.js";
 const HELP = `Watchwright ${VERSION}
 
 Usage:
-  watchwright serve [--port ${DEFAULT_PORT}] [--host ${DEFAULT_HOST}] [--data <folder>] [--no-open]
+  watchwright serve [pack folder…] [--port ${DEFAULT_PORT}] [--host ${DEFAULT_HOST}] [--data <folder>] [--no-open]
   watchwright --version
 
 serve      Starts the server: the web app, the HTTP API and the store. It stays up between runs.
+           Pack folders given after it are added (or reloaded when already added). When the
+           server is already running on the port, it adds them there and opens the page.
 --port     Port to listen on (default ${DEFAULT_PORT}).
 --host     Address to bind. Only loopback addresses for now (127.0.0.1, localhost, ::1).
 --data     Folder for the database and run files (default: WATCHWRIGHT_DATA, else the OS's app data folder).
@@ -62,6 +65,13 @@ async function main(argv: string[]): Promise<number> {
     return 1;
   }
 
+  const shown = host === "::1" ? "[::1]" : host;
+  const url = `http://${shown}:${port}/`;
+  const folders = positionals.slice(1);
+  // Before the store opens: a second server on the same data folder would take over the first one's runs.
+  const running = await watchwrightAt(url);
+  if (running) return alreadyRunning(url, running, folders, !values["no-open"]);
+
   const dataDir = resolveDataDir({ flag: values.data });
   const plugins = BUILTIN_PLUGINS;
   const store = openStore(dataDir, migrationsOf(plugins));
@@ -86,13 +96,50 @@ async function main(argv: string[]): Promise<number> {
     process.exit(1);
   });
 
-  await app.listen({ port, host });
-  const shown = host === "::1" ? "[::1]" : host;
-  const url = `http://${shown}:${port}/`;
+  try {
+    await app.listen({ port, host });
+  } catch (err) {
+    await app.close();
+    store.close();
+    if ((err as NodeJS.ErrnoException).code !== "EADDRINUSE") throw err;
+    console.error(`Port ${port} is taken by another program. Start Watchwright on another port with --port, for example --port ${port + 1}.`);
+    return 1;
+  }
   console.log(`Watchwright ${VERSION} is running at ${url}`);
   console.log(`Data folder: ${dataDir}`);
+  await addPacks(folders, (body) => app.inject({ method: "POST", url: "/api/v1/packs", headers: { host: `${shown}:${port}` }, payload: body }).then((r) => r.json() as PackReply));
   if (!values["no-open"]) openBrowser(url);
   return -1; // keep running
+}
+
+type PackReply = { data?: { name: string; dir?: string; path: string; status: string; error: string | null }; error?: { message: string } };
+
+/** Adds each pack folder through the API and says how it went. */
+async function addPacks(folders: string[], post: (body: { path: string }) => Promise<PackReply>): Promise<void> {
+  for (const f of folders) {
+    // relative folders are relative to where the command runs; the server cleans up the rest
+    const res = await post({ path: path.isAbsolute(f) || /^(file:|~|["'])/i.test(f) ? f : path.resolve(f) }).catch((err: unknown) => ({ error: { message: err instanceof Error ? err.message : String(err) } }) as PackReply);
+    if (res.data) console.log(`Pack "${res.data.name}" (${res.data.dir ?? res.data.path})${res.data.status === "ok" ? "" : `: ${res.data.error ?? "doesn't load"}`}`);
+    else console.error(`Couldn't add ${f}: ${res.error?.message ?? "no answer"}`);
+  }
+}
+
+/** The version of the Watchwright answering at `url`, or null when nothing (or something else) does. */
+async function watchwrightAt(url: string): Promise<string | null> {
+  const health = await fetch(`${url}api/v1/health`, { signal: AbortSignal.timeout(2000) })
+    .then((r) => r.json() as Promise<{ data?: { name?: string; version?: string } }>)
+    .catch(() => null);
+  return health?.data?.name === "watchwright" ? (health.data.version ?? "") : null;
+}
+
+/** Watchwright already runs on the port: add the packs there and open its page. */
+async function alreadyRunning(url: string, version: string, folders: string[], open: boolean): Promise<number> {
+  console.log(`Watchwright ${version} is already running at ${url}`);
+  await addPacks(folders, (body) =>
+    fetch(`${url}api/v1/packs`, { method: "POST", headers: { "content-type": "application/json", "x-watchwright-client": "cli" }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<PackReply>),
+  );
+  if (open) openBrowser(url);
+  return 0;
 }
 
 /** Opens the web page in the default browser. Failing to open it is not an error: the address is printed. */

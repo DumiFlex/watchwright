@@ -19,10 +19,23 @@ Everything the web page does goes through this API, so scripts and AI agents can
 | Method and path | Does |
 |---|---|
 | `GET /packs` | Every pack with its tests (each with its `description`, `inside` (a list, empty for top-level tests) and the `rubric` it is scored on), params, flag kinds, the pack's own `rubric`, run settings (`run`: `pauseOnBroken`, `pauseLimitMinutes`, `trace`, `video`, defaults filled in) and load errors. |
-| `POST /packs` `{ path }` | Adds a pack by its absolute folder (or pack file) path and loads it. A pack that doesn't load is still added, with its error. |
-| `GET /packs/:id` | One pack. |
+| `POST /packs` `{ path }` | Adds a pack by its absolute folder (or pack file) path and loads it. Quotes around the path (Windows' "Copy as path"), `file://` addresses, `~` and either slash are accepted. A pack that doesn't load is still added, with its error. Adding the same folder again returns the pack already added. |
+| `GET /packs/:id` | One pack. Every pack carries `path` (its pack file), `dir` (its folder) and `missing` (true when the pack file is gone). |
 | `POST /packs/:id/reload` | Builds it again now. |
+| `POST /packs/:id/move` `{ path }` | Points a pack whose folder moved at its new folder. It keeps its id and runs. 400 `bad_pack` when the folder has no pack file or another pack already uses it. |
+| `POST /packs/discover` `{ path, depth? }` | Finds pack files in a folder and up to `depth` (default 4, at most 8) levels below it, skipping `node_modules`, `dist`, `build` and hidden folders, and not looking inside a pack. Returns `{ root, found: [{ dir, packFile, packId }], truncated }`; `packId` is set for packs already added. |
 | `DELETE /packs/:id` | Forgets the pack (its files and past runs stay). |
+
+## Folders
+
+A web page can't learn a folder's path from the browser, so the server lists folders on its machine for the web app's folder browser. It lists folder names and the marker files plugins ask about (a pack file), never other files or what's in them.
+
+| Route | Does |
+|---|---|
+| `GET /folders?path=…&hidden=` | The folders inside a folder: `{ path, parent, sep, marks, folders: [{ name, path, marks }], truncated }`. `marks` says which markers a folder has, such as `{ "pack": "pack.ts" }`. Hidden and system folders and `node_modules` are left out unless `hidden=true`. At most 1000 folders. 404 `not_found`, 400 `not_a_folder` or `bad_path` (a relative path). |
+| `GET /folders/places` | Where to start: `home`, `roots` (the drives on Windows, `/` elsewhere) and `recent`, the last ten folders packs were added or moved from (`{ path, usedAt, exists }`). |
+| `DELETE /folders/recent?path=` | Forgets one recent folder, or all of them without `path`. |
+| `POST /folders/open` `{ path }` | Shows a folder in Explorer, Finder or the desktop's file manager. Only pack folders (and the folders inside them) and the data folder; 403 `not_allowed` for anything else. |
 
 ## Runs
 

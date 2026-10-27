@@ -65,7 +65,12 @@ export interface PackTest {
 
 export interface Pack {
   id: string;
+  /** The pack file. */
   path: string;
+  /** The pack's folder. */
+  dir: string;
+  /** The pack file is gone: the folder moved or was deleted. */
+  missing: boolean;
   name: string;
   description: string | null;
   siteKey: string | null;
@@ -80,6 +85,39 @@ export interface Pack {
   run: PackRunDefaults;
   rubric: Criterion[];
   tests: PackTest[];
+}
+
+export interface FolderEntry {
+  name: string;
+  path: string;
+  /** Markers found in the folder, such as `{ pack: "pack.ts" }`. */
+  marks: Record<string, string>;
+}
+
+export interface FolderListing {
+  path: string;
+  parent: string | null;
+  sep: string;
+  marks: Record<string, string>;
+  folders: FolderEntry[];
+  truncated: boolean;
+}
+
+export interface FolderPlaces {
+  home: string;
+  sep: string;
+  roots: string[];
+  recent: { path: string; usedAt: string; exists: boolean }[];
+}
+
+export interface FoundPack {
+  dir: string;
+  packFile: string;
+  packId: string | null;
+}
+
+export function folderUrl(path: string): string {
+  return `/api/v1/folders?path=${encodeURIComponent(path)}`;
 }
 
 export type TraceMode = "problems" | "always" | "never";
