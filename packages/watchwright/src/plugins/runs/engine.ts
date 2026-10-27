@@ -134,6 +134,10 @@ interface RunCtx {
   pauseLimitMs: number;
   /** For children with several parents: which parent test ran each `child#number`. */
   childRanIn: Map<string, { parent: string; outcome: Outcome }>;
+  /** Top-level attempts this run goes through (by mode), as `test#number`. */
+  todo: Set<string>;
+  /** Set once the run has gone through its queue, so it takes no more edits. */
+  ended: boolean;
 }
 
 export interface EngineOptions {
@@ -183,6 +187,7 @@ export class Engine {
     const run = this.requireActive(id);
     const ctx = run.ctx;
     if (!ctx) throw new EngineError("not_running", "The run is still setting up; try again in a moment.", 409);
+    if (ctx.ended) throw new EngineError("not_running", "The run has gone through its queue.", 409);
     try {
       edit(ctx.queue);
     } catch (err) {
@@ -206,14 +211,60 @@ export class Engine {
     return this.editQueue(id, (q) => q.move(testId, direction));
   }
 
-  /** Saves what the live view shows now (the newest frame of the followed page) with a note, on the attempt that is running. */
-  mark(id: string, note: string): { attemptId: string; artifact: ArtifactInfo & { url: string } } {
+  /** Adds tests to a run that is going: they (and what they need that the run doesn't have) go at the end of the queue. */
+  async addTests(id: string, tests: string[]): Promise<RunDetail> {
+    const run = this.requireActive(id);
+    const ctx = run.ctx;
+    if (!ctx) throw new EngineError("not_running", "The run is still setting up; try again in a moment.", 409);
+    if (ctx.ended) throw new EngineError("not_running", "The run has gone through its queue.", 409);
+    // A test written since the run started can be added, so take the pack as it is now.
+    const r = await this.o.packs.refresh(ctx.row.pack_id);
+    if (r.reloaded) {
+      ctx.pack = r.pack;
+      this.emit("pack.reloaded", { packId: ctx.row.pack_id }, id);
+    }
+    const top = [...new Set(ctx.plan.items.map((i) => i.itemId))];
+    const inRun = new Set([...top, ...top.flatMap((t) => ctx.plan.children.get(t) ?? [])]);
+    const fresh = [...new Set(tests)].filter((t) => !inRun.has(t));
+    if (fresh.length === 0) throw new EngineError("bad_input", tests.length === 1 ? `${tests[0]} is already in the run.` : "Those tests are already in the run.");
+    const chosen = JSON.parse(ctx.row.tests) as string[];
+    const all = [...(chosen.length > 0 ? chosen : top), ...fresh];
+    let plan: KindPlan;
+    try {
+      plan = ctx.kind.plan(ctx.pack, ctx.params, all, { attempts: ctx.options.attempts });
+    } catch (err) {
+      throw new EngineError("bad_input", err instanceof Error ? err.message : String(err));
+    }
+    const added = ctx.queue.extend(plan);
+    ctx.plan = plan;
+    for (const i of added) ctx.todo.add(`${i.itemId}#${i.number}`);
+    ctx.row.tests = JSON.stringify(all);
+    ctx.options = { ...ctx.options, queue: ctx.queue.edits() };
+    const entries = this.planEntries(ctx.kind, ctx.pack, ctx.plan, ctx.queue);
+    this.o.repo.updateRun(id, { tests: ctx.row.tests, plan: JSON.stringify(entries), options: JSON.stringify(ctx.options) });
+    this.emit("run.tests-added", { tests: fresh, attempts: added.length }, id);
+    this.emit("run.planned", { plan: entries }, id);
+    return this.get(id)!;
+  }
+
+  /**
+   * Saves what the live view shows now (the newest frame of the followed page), or a frame of the
+   * rewind buffer with `back`, with a note, on the attempt that is running.
+   */
+  mark(id: string, note: string, back?: { pageId?: string | undefined; at: number }): { attemptId: string; artifact: ArtifactInfo & { url: string } } {
     const run = this.requireActive(id);
     const recorder = run.recorder;
     if (!recorder || !run.attemptId) throw new EngineError("not_running", "No test is running right now, so there is nothing to mark.", 409);
-    const frames = this.o.frames.latestFrames(id);
-    const frame = frames.find((f) => f.pageId === run.session?.activePage) ?? frames[frames.length - 1];
-    if (!frame) throw new EngineError("no_frame", "The live view has no picture yet.", 409);
+    let frame;
+    if (back) {
+      const pageId = back.pageId ?? run.session?.activePage ?? "";
+      frame = this.o.frames.frameAt(id, pageId, back.at);
+      if (!frame) throw new EngineError("no_frame", "That moment is no longer in the rewind buffer.", 409);
+    } else {
+      const frames = this.o.frames.latestFrames(id);
+      frame = frames.find((f) => f.pageId === run.session?.activePage) ?? frames[frames.length - 1];
+      if (!frame) throw new EngineError("no_frame", "The live view has no picture yet.", 409);
+    }
     const text = note.trim();
     const artifact = recorder.write("mark", text || "Mark", recorder.numberedName("mark", ".jpg"), frame.data, "image/jpeg");
     recorder.notes.push(text ? `Mark ${path.posix.basename(artifact.path)}: ${text}` : `Mark ${path.posix.basename(artifact.path)}`);
@@ -618,15 +669,17 @@ export class Engine {
         pauseOnBroken: options.pauseOnBroken ?? o.run?.pauseOnBroken ?? true,
         pauseLimitMs: (options.pauseLimitMinutes ?? o.run?.pauseLimitMinutes ?? DEFAULT_PAUSE_LIMIT_MINUTES) * 60_000,
         childRanIn: new Map(),
+        todo: new Set(),
+        ended: false,
       };
+      ctx.todo = this.select(ctx);
       run.ctx = ctx;
-      const todo = this.select(ctx);
       for (;;) {
         await run.control.checkpoint("boundary");
         if (run.control.stopMode) break;
         const item = ctx.queue.next();
         if (!item) break;
-        if (!todo.has(`${item.itemId}#${item.number}`)) {
+        if (!ctx.todo.has(`${item.itemId}#${item.number}`)) {
           ctx.queue.finish(item);
           continue;
         }
@@ -659,6 +712,7 @@ export class Engine {
         }
         ctx.queue.finish(item);
       }
+      ctx.ended = true;
       if (!run.control.stopMode && !run.shutdown && mode === "normal") this.fileUnrunChildren(ctx);
     } finally {
       await session.stopCapture();
@@ -923,6 +977,7 @@ export class Engine {
       notes: recorder.notes,
       texts: recorder.texts,
       log: recorder.log,
+      steps: recorder.steps,
       error: attemptError,
     });
     const doc = resultDocument(this.o.repo.attempt(id)!, this.o.repo.artifacts(id));

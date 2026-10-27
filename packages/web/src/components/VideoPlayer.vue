@@ -12,6 +12,8 @@ import RangeSlider from "./RangeSlider.vue";
 import { vTip } from "../tooltip";
 
 const props = defineProps<{ src: string; label: string }>();
+/** The position in seconds as the video plays or seeks. */
+const emit = defineEmits<{ time: [seconds: number] }>();
 
 const SPEEDS = [0.5, 1, 1.5, 2, 4];
 const FRAME = 1 / 25;
@@ -53,7 +55,9 @@ function onDuration() {
   }
 }
 function onTime() {
-  if (!probing && video.value) time.value = video.value.currentTime;
+  if (probing || !video.value) return;
+  time.value = video.value.currentTime;
+  emit("time", time.value);
 }
 function toggle() {
   const v = video.value;
@@ -91,8 +95,8 @@ watch(
 );
 
 function onKey(e: KeyboardEvent) {
-  // Keys that the seek bar and the speed menu handle themselves stay theirs.
-  if ((e.target as HTMLElement).closest(".seek, .speed")) return;
+  // Keys that the seek bar, the speed menu and a timeline below handle themselves stay theirs.
+  if ((e.target as HTMLElement).closest(".seek, .speed, .below")) return;
   const k = e.key;
   if (k === " " || k === "k" || k === "K") toggle();
   else if (k === "ArrowRight") jump(5);
@@ -104,6 +108,15 @@ function onKey(e: KeyboardEvent) {
   e.preventDefault();
 }
 onBeforeUnmount(() => video.value?.pause());
+
+/** Jumps to `seconds` (kept inside the video), pausing it there. */
+function seekTo(seconds: number) {
+  const v = video.value;
+  if (!v) return;
+  v.pause();
+  seek.value = Math.min(Math.max(0, seconds), duration.value || seconds);
+}
+defineExpose({ seekTo });
 </script>
 
 <template>
@@ -145,6 +158,8 @@ onBeforeUnmount(() => video.value?.pause());
         <Maximize :size="17" />
       </button>
     </div>
+    <!-- Under the controls: a timeline of what happened in the video (the attempt page's steps). -->
+    <div v-if="$slots.default" class="below"><slot /></div>
   </div>
 </template>
 
@@ -180,6 +195,10 @@ video {
   margin: 0;
   padding: var(--space-2) var(--space-3);
   color: var(--bad);
+}
+.below {
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  border-top: var(--border-width) solid var(--line);
 }
 .controls {
   display: flex;

@@ -27,7 +27,7 @@ function runOf(id: string, params: Record<string, string>, plan: [string, number
 function docOf(runId: string, attemptId: string, testId: string, number: number, extra: Partial<ResultDocument> = {}): ResultDocument {
   return {
     schemaVersion: 1, runId, attemptId, kind: "test", test: { id: testId, title: `Test ${testId}` },
-    attempt: { number, of: 2, try: 1, current: true, parentId: null }, status: "passed", error: null, flags: [], metrics: {}, notes: [], texts: {}, log: [],
+    attempt: { number, of: 2, try: 1, current: true, parentId: null }, status: "passed", error: null, flags: [], metrics: {}, notes: [], texts: {}, log: [], steps: [],
     startedAt: "2026-10-27T10:00:01.000Z", finishedAt: "2026-10-27T10:00:02.500Z", durationMs: 1500, folder: `runs/${runId}/${attemptId}`, artifacts: [], ...extra,
   };
 }

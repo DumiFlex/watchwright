@@ -126,15 +126,20 @@ export function createHelpers(rt: HelperRuntime, extend?: (h: Helpers) => Record
       steps.push(title);
       rt.onStep(steps.join(" › "));
       recorder.addLog("info", `Step: ${title}`);
+      const record = recorder.beginStep(title, steps.length - 1);
+      let ok = false;
       if (rt.chapters) await page.screencast.showChapter(title, { duration: 1200 }).catch(() => undefined);
       try {
-        return await fn();
+        const out = await fn();
+        ok = true;
+        return out;
       } catch (err) {
         if (err instanceof Error && !err.message.startsWith(`[${title}]`) && err.name !== "StopNow" && err.name !== "AttemptAborted") {
           err.message = `[${title}] ${err.message}`;
         }
         throw err;
       } finally {
+        recorder.endStep(record, ok);
         steps.pop();
         rt.onStep(steps.length > 0 ? steps.join(" › ") : null);
         await control.checkpoint("attempt");

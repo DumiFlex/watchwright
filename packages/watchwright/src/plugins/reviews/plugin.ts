@@ -9,6 +9,7 @@ import { PACKS } from "../packs/registry.js";
 import { rubricFor, scoreProblem, type Criterion, type Score } from "../packs/rubric.js";
 import { ENGINE, FILES_ROOT } from "../runs/plugin.js";
 import type { ResultDocument } from "../runs/results.js";
+import { runChanges, type RunChanges } from "./changes.js";
 import { compare, type CompareCell, type CompareShot, type Comparison } from "./compare.js";
 import { toMarkdown } from "./markdown.js";
 import { REVIEWS_MIGRATION_SQL, ReviewsRepo, type Review } from "./repo.js";
@@ -54,6 +55,27 @@ export function comparisonOf(services: Services, list: string): Comparison {
       criteria: (testId: string) => criteriaFor(services, run.id, run.packId, testId),
     })),
   );
+}
+
+/** Same params, whatever the key order. */
+const sameParams = (a: Record<string, unknown>, b: Record<string, unknown>) => {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  return [...keys].every((k) => a[k] === b[k]);
+};
+
+/** What changed in a run since `against`, or since the newest earlier run of its pack with the same params. */
+export function changesOf(services: Services, runId: string, against?: string): RunChanges {
+  const engine = services.get(ENGINE);
+  const run = engine.get(runId);
+  if (!run) throw new ActionError("not_found", `No run with id ${runId}.`, 404);
+  let previous = against;
+  if (previous === undefined) {
+    const earlier = engine.list({ packId: run.packId, before: run.createdAt, statuses: ["finished", "stopped", "interrupted"], limit: 200 });
+    previous = earlier.find((r) => r.id !== run.id && sameParams(r.params, run.params))?.id;
+  }
+  if (previous === undefined) return { previous: null, rows: [], same: 0 };
+  if (previous === runId) throw new ActionError("bad_input", "Compare a run with another run.");
+  return runChanges(comparisonOf(services, `${previous},${runId}`));
 }
 
 /** A file name for the export: the pack's name and the run ids. */
@@ -187,6 +209,14 @@ export const reviewsPlugin = definePlugin({
         path: "/compare",
         input: { type: "object", properties: { runs: RUN_LIST }, required: ["runs"] },
         handler: ({ runs }) => comparisonOf(services, runs),
+      }),
+      defineAction<{ id: string; against?: string }, RunChanges>({
+        name: "runs.changes",
+        title: "What changed in a run since the last run of the same pack and params (or since `against`): status, flags, score and time per attempt",
+        method: "GET",
+        path: "/runs/:id/changes",
+        input: { type: "object", properties: { id: RUN_ID, against: RUN_ID }, required: ["id"] },
+        handler: ({ id, against }) => changesOf(services, id, against),
       }),
       defineAction<{ runs: string }, { name: string; markdown: string }>({
         name: "reviews.export",

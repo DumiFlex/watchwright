@@ -22,6 +22,8 @@ const dragging = ref(false);
 const lanes = computed(() => laneSteps(props.steps));
 const ticks = computed(() => timeTicks(props.duration, width.value));
 const fine = computed(() => props.duration < 60_000);
+// Ticks less than a second apart need tenths, or neighbours read the same.
+const fineTicks = computed(() => ticks.value.length > 1 && ticks.value[1]! - ticks.value[0]! < 1000);
 const current = computed(() => stepAt(props.steps, at.value));
 const pos = (t: number) => (props.duration > 0 ? Math.min(100, Math.max(0, (t / props.duration) * 100)) : 0);
 const hoverAt = computed(() => (hoverX.value === null || !width.value ? null : (hoverX.value / width.value) * props.duration));
@@ -136,7 +138,7 @@ function key(e: KeyboardEvent) {
       </div>
     </div>
     <div class="axis" aria-hidden="true">
-      <span v-for="t in ticks" :key="t" class="tick num" :style="{ left: `${pos(t)}%` }">{{ clock(t) }}</span>
+      <span v-for="t in ticks" :key="t" class="tick num" :class="{ end: pos(t) > 96 }" :style="{ left: `${pos(t)}%` }">{{ clock(t, fineTicks) }}</span>
     </div>
   </div>
 </template>
@@ -329,5 +331,9 @@ function key(e: KeyboardEvent) {
 }
 .tick:first-child {
   transform: none;
+}
+/* A label at the far end ends at the edge instead of being cut off. */
+.tick.end {
+  transform: translateX(-100%);
 }
 </style>

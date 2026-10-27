@@ -253,10 +253,20 @@ export interface ResultDocument {
   metrics: Record<string, { value: number; unit: string | null }>;
   flags: { name: string; kind: string; detail: string | null }[];
   log: { time: string; level: "info" | "warn" | "error"; message: string }[];
+  /** Named steps with their times (older results have none). */
+  steps?: StepRecord[];
   startedAt: string;
   finishedAt: string | null;
   durationMs: number | null;
   artifacts: Artifact[];
+}
+
+export interface StepRecord {
+  title: string;
+  depth: number;
+  startedAt: string;
+  finishedAt: string | null;
+  status: "running" | "passed" | "failed";
 }
 
 export interface CompareShot {
@@ -290,6 +300,24 @@ export interface Comparison {
   rows: { testId: string; title: string; number: number; cells: (CompareCell | null)[] }[];
   shotNames: string[];
   textNames: string[];
+}
+
+export type Change = "status" | "flags" | "score" | "time" | "new" | "gone";
+
+export interface ChangeSide {
+  runId: string;
+  attemptId: string;
+  status: AttemptStatus;
+  durationMs: number | null;
+  score: number | null;
+  flags: string[];
+}
+
+/** What changed in a run since an earlier run of the same pack and params (GET /runs/:id/changes). */
+export interface RunChanges {
+  previous: Comparison["runs"][number] | null;
+  rows: { testId: string; title: string; number: number; before: ChangeSide | null; after: ChangeSide | null; changes: Change[] }[];
+  same: number;
 }
 
 export interface WwEvent {

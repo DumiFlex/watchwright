@@ -1,8 +1,10 @@
 import type { WebSocket } from "ws";
+import { defineAction } from "../../actions/registry.js";
 import { definePlugin } from "../../core/plugin.js";
 import { matches, type EventFilter, type WwEvent } from "../../events/log.js";
+import { errorBody } from "../../server/errors.js";
 import { VERSION } from "../../version.js";
-import { encodeFrame, FrameHub, FRAMES, type Frame } from "./hub.js";
+import { encodeFrame, FrameHub, FRAMES, REWIND_MS, type Frame } from "./hub.js";
 
 /** A viewer with more than this queued on its socket skips frames until it drains. */
 export const FRAME_BACKLOG_BYTES = 1024 * 1024;
@@ -35,8 +37,34 @@ export const livePlugin = definePlugin({
   setup({ services }) {
     services.provide(FRAMES, new FrameHub());
   },
+  actions({ services }) {
+    const hub = services.get(FRAMES);
+    return [
+      defineAction<{ runId: string }>({
+        name: "live.rewind",
+        title: "What the live view showed in the last 30 s of a run that is going: one entry per kept frame (at most 5 a second per page)",
+        method: "GET",
+        path: "/live/:runId/rewind",
+        input: { type: "object", properties: { runId: { type: "string", pattern: "^[0-9a-f]{8}$" } }, required: ["runId"] },
+        handler: ({ runId }) => ({
+          windowMs: REWIND_MS,
+          frames: hub.history(runId).map((f) => ({ pageId: f.pageId, timestamp: f.timestamp, width: f.width, height: f.height, url: `/api/v1/live/${runId}/rewind/${f.pageId}/${f.timestamp}.jpg` })),
+        }),
+      }),
+    ];
+  },
   routes(app, { events, services }) {
     const hub = services.get(FRAMES);
+    const RUN = /^[0-9a-f]{8}$/;
+    // A frame of the rewind buffer as a JPEG (the index is the `live.rewind` action).
+    app.get<{ Params: { runId: string; pageId: string; timestamp: string } }>("/live/:runId/rewind/:pageId/:timestamp", async (req, reply) => {
+      const { runId, pageId, timestamp } = req.params;
+      const at = Number(timestamp.replace(/\.jpg$/, ""));
+      if (!RUN.test(runId) || !Number.isFinite(at)) return reply.code(400).send(errorBody("bad_input", "Ask for /live/<run>/rewind/<page>/<timestamp>.jpg."));
+      const frame = hub.frameAt(runId, pageId, at);
+      if (!frame) return reply.code(404).send(errorBody("not_found", "That moment is no longer in the rewind buffer."));
+      return reply.header("content-type", "image/jpeg").header("cache-control", "private, max-age=60").header("x-frame-timestamp", String(frame.timestamp)).send(frame.data);
+    });
     app.get("/live", { websocket: true }, (socket: WebSocket) => {
       let stopEvents: (() => void) | null = null;
       let stopFrames: (() => void) | null = null;
