@@ -5,10 +5,12 @@ import { getJson, sendJson, type Criterion, type Review, type RunDetail, type Ww
 import { LiveConnection, type LiveState } from "../live";
 import DataTable from "../components/DataTable.vue";
 import LiveViewer from "../components/LiveViewer.vue";
+import MenuButton from "../components/MenuButton.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import SelectMenu from "../components/SelectMenu.vue";
 import StatusChip from "../components/StatusChip.vue";
 import TextArea from "../components/TextArea.vue";
+import { exportUrl } from "../compare";
 import { countsText, duration } from "../format";
 import { href } from "../router";
 import { resultRows, type ResultRow } from "../review";
@@ -184,6 +186,10 @@ const shownLog = computed(() =>
 
 // Results with review scores, once the run is over.
 const showResults = computed(() => run.value !== null && !active.value && run.value.status !== "queued" && run.value.attempts.length > 0);
+const exports = computed(() => [
+  { value: "md", label: "Markdown", href: exportUrl("md", [props.id]) },
+  { value: "zip", label: "Markdown and screenshots (zip)", href: exportUrl("zip", [props.id]) },
+]);
 const reviews = ref<Review[]>([]);
 const rubric = ref<Record<string, Criterion[]>>({});
 async function loadReviews() {
@@ -286,6 +292,10 @@ function time(iso: string) {
           <button v-if="canResumeRun" class="btn primary" :disabled="busy" @click="act('resume')">Resume run</button>
           <button v-if="canRedo" class="btn" :disabled="busy" @click="act('redo-broken')">Redo broken</button>
           <a v-if="!active" class="btn" :href="`#/new?pack=${run.packId}&from=${run.id}`">New run like this</a>
+          <a v-if="showResults" class="btn" :href="`#/compare?runs=${run.id}`">Compare</a>
+          <MenuButton v-if="showResults" :items="exports" label="Export" class="export">
+            <template #button><span class="exportlabel">Export</span></template>
+          </MenuButton>
           <button v-if="!active && run.status !== 'queued'" class="btn danger" :disabled="busy" @click="confirmDelete = true">Delete</button>
         </div>
       </header>
@@ -421,6 +431,10 @@ function time(iso: string) {
 </template>
 
 <style scoped>
+.exportlabel {
+  padding: 0 var(--space-2);
+  font-size: 14px;
+}
 .page {
   max-width: 1280px;
   margin: 0 auto;

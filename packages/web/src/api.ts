@@ -197,6 +197,39 @@ export interface ResultDocument {
   artifacts: Artifact[];
 }
 
+export interface CompareShot {
+  name: string;
+  url: string;
+  path: string;
+  set?: string;
+}
+
+export interface CompareCell {
+  runId: string;
+  attemptId: string;
+  status: AttemptStatus;
+  durationMs: number | null;
+  error: string | null;
+  flags: { name: string; kind: string; detail: string | null }[];
+  metrics: Record<string, { value: number; unit: string | null }>;
+  notes: string[];
+  texts: Record<string, string>;
+  shots: CompareShot[];
+  reviews: Review[];
+  score: number | null;
+}
+
+/** Runs of one pack lined up by test and attempt number (GET /compare). */
+export interface Comparison {
+  packId: string;
+  packName: string;
+  runs: Pick<RunSummary, "id" | "params" | "status" | "startedBy" | "createdAt" | "startedAt" | "counts">[];
+  criteria: Record<string, Criterion[]>;
+  rows: { testId: string; title: string; number: number; cells: (CompareCell | null)[] }[];
+  shotNames: string[];
+  textNames: string[];
+}
+
 export interface WwEvent {
   seq: number;
   time: string;

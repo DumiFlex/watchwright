@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import type { Comparison } from "../src/plugins/reviews/compare.js";
 import type { AttemptReviews } from "../src/plugins/reviews/plugin.js";
 import type { Review } from "../src/plugins/reviews/repo.js";
 import type { RunDetail } from "../src/plugins/runs/engine.js";
@@ -96,5 +97,69 @@ test("B", { title: "Own rubric", review: { drop: ["ui"], add: [{ id: "usable", t
     // Deleting the run deletes its reviews.
     await h.api("DELETE", `/runs/${runId}`);
     expect((await h.api<Review[]>("GET", `/reviews?run=${runId}`)).data).toEqual([]);
+  });
+
+  it("compares runs of one pack and exports them as Markdown and zip", async () => {
+    const packDir = tempDir("ww-pack-");
+    writeFiles(packDir, {
+      "pack.ts": packFile(`[{ id: "overall", title: "Overall" }]`).replace("rubric:", `params: { size: { choices: ["s", "l"], default: "s" } },\n  rubric:`),
+      "tests/t.ts": `
+import { test } from "watchwright";
+test("A", { title: "Home" }, async ({ h, params }) => { await h.goto("/"); await h.shot("home"); await h.keepText("size", { text: String(params.size) }); });`,
+    });
+    const otherDir = tempDir("ww-pack-");
+    writeFiles(otherDir, { "pack.ts": packFile("[]").replace('name: "Reviewed"', 'name: "Other"'), "tests/t.ts": `import { test } from "watchwright";\ntest("Z", { title: "Z" }, async () => {});` });
+    const h = await startHarness(tempDir("ww-data-"));
+    harnesses.push(h);
+    const pack = await h.api<{ id: string }>("POST", "/packs", { path: packDir });
+    const other = await h.api<{ id: string }>("POST", "/packs", { path: otherDir });
+    const ids: string[] = [];
+    for (const [packId, params] of [[pack.data.id, { size: "s" }], [pack.data.id, { size: "l" }], [other.data.id, {}]] as const) {
+      const started = await h.api<{ id: string }>("POST", "/runs", { packId, params });
+      await h.waitFor((e) => e.runId === started.data.id && e.type === "run.finished", 45_000);
+      await engineOf(h).settled(started.data.id);
+      ids.push(started.data.id);
+    }
+    const [r1, r2, r3] = ids as [string, string, string];
+    const a1 = (await h.api<RunDetail>("GET", `/runs/${r1}`)).data.attempts[0]!;
+    await h.api("POST", `/runs/${r1}/attempts/${a1.id}/review`, { scores: { overall: 4 }, note: "Looks right." });
+
+    const c = await h.api<Comparison>("GET", `/compare?runs=${r1},${r2}`);
+    expect(c.status).toBe(200);
+    expect(c.data.runs.map((r) => r.params)).toEqual([{ size: "s" }, { size: "l" }]);
+    expect(c.data.rows).toHaveLength(1);
+    expect(c.data.rows[0]!.cells.map((x) => x?.texts.size)).toEqual(["s", "l"]);
+    expect(c.data.rows[0]!.cells[0]!.score).toBe(4);
+    expect(c.data.shotNames).toEqual(["home"]);
+
+    const mixed = await h.api("GET", `/compare?runs=${r1},${r3}`);
+    expect(mixed.status).toBe(400);
+    expect(mixed.error?.code).toBe("mixed_packs");
+    expect((await h.api("GET", `/compare?runs=${r1},00000000`)).status).toBe(404);
+    expect((await h.api("GET", `/compare?runs=nope`)).status).toBe(400);
+
+    const md = await h.api<{ name: string; markdown: string }>("GET", `/export?runs=${r1}`);
+    expect(md.data.name).toBe(`reviewed-${r1}.md`);
+    expect(md.data.markdown).toContain("| Overall | 4 / 5 |");
+    expect(md.data.markdown).toContain("> **api**: Looks right.");
+    expect(md.data.markdown).toMatch(/\[home\]\(\/api\/v1\/files\/runs\//);
+
+    const file = await h.app.inject({ method: "GET", url: `/api/v1/export.md?runs=${r1},${r2}`, headers: { host: h.host } });
+    expect(file.statusCode).toBe(200);
+    expect(file.headers["content-type"]).toMatch(/text\/markdown/);
+    expect(file.headers["content-disposition"]).toBe(`attachment; filename="reviewed-${r1}-${r2}.md"`);
+    expect(file.body).toContain(`[home](http://${h.host}/api/v1/files/runs/`);
+
+    const z = await h.app.inject({ method: "GET", url: `/api/v1/export.zip?runs=${r1}`, headers: { host: h.host } });
+    expect(z.statusCode).toBe(200);
+    expect(z.headers["content-type"]).toBe("application/zip");
+    const body = z.rawPayload;
+    expect(body.readUInt32LE(0)).toBe(0x04034b50);
+    const names = body.toString("latin1");
+    expect(names).toContain(`reviewed-${r1}.md`);
+    expect(names).toContain(`shots/${r1}/${a1.id}/`);
+    const badZip = await h.app.inject({ method: "GET", url: `/api/v1/export.zip?runs=${r1},${r3}`, headers: { host: h.host } });
+    expect(badZip.statusCode).toBe(400);
+    expect(badZip.json()).toMatchObject({ error: { code: "mixed_packs" } });
   });
 });

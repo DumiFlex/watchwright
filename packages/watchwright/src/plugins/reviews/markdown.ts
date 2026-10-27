@@ -1,0 +1,99 @@
+import type { Criterion, Score } from "../packs/rubric.js";
+import { mean, type CompareCell, type CompareShot, type Comparison } from "./compare.js";
+
+// Writes a comparison (one run or several) as Markdown: the runs, then one section per test with
+// its mean score, then per attempt: status, flags, metrics, the scores as a small table, the
+// reviewers' notes and links to the screenshots. `link` decides where a screenshot link points:
+// the server for a plain export, a file next to the Markdown in a zip.
+
+export interface MarkdownOptions {
+  link: (shot: CompareShot, cell: CompareCell) => string;
+  /** When the export was made (ISO); shown under the title. */
+  now: string;
+}
+
+const esc = (s: string) => s.replace(/([\\`*_[\]<>|])/g, "\\$1");
+const oneLine = (s: string) => esc(s.replace(/\s+/g, " ").trim());
+const cellText = (s: string) => oneLine(s) || " ";
+const fixed = (n: number | null) => (n === null ? "–" : n.toFixed(1));
+
+function scoreText(c: Criterion, v: Score | undefined): string {
+  if (v === undefined) return "–";
+  if (c.kind === "scale") return `${String(v)} / ${c.scale}`;
+  if (c.kind === "yesNo") return v ? "yes" : "no";
+  return String(v);
+}
+
+function duration(ms: number | null): string {
+  if (ms === null) return "";
+  if (ms < 1000) return `${ms} ms`;
+  const s = ms / 1000;
+  return s < 60 ? `${s.toFixed(1)} s` : `${Math.floor(s / 60)} min ${Math.round(s % 60)} s`;
+}
+
+function params(p: Comparison["runs"][number]["params"]): string {
+  const xs = Object.entries(p);
+  return xs.length ? xs.map(([k, v]) => `${k}=${String(v)}`).join(", ") : "–";
+}
+
+function cellLines(cell: CompareCell, criteria: Criterion[], o: MarkdownOptions): string[] {
+  const out: string[] = [];
+  const head = [`**${cell.status}**`, duration(cell.durationMs), cell.score === null ? "" : `score ${fixed(cell.score)} / 5`].filter(Boolean);
+  out.push(head.join(" · "), "");
+  if (cell.error) out.push(`Error: ${oneLine(cell.error.split("\n")[0] ?? "")}`, "");
+  if (cell.flags.length) {
+    out.push("Flags:", "");
+    for (const f of cell.flags) out.push(`- \`${f.name}\` (${f.kind})${f.detail ? `: ${oneLine(f.detail)}` : ""}`);
+    out.push("");
+  }
+  const metrics = Object.entries(cell.metrics);
+  if (metrics.length) out.push(`Metrics: ${metrics.map(([k, m]) => `${oneLine(k)} ${m.value}${m.unit ? ` ${oneLine(m.unit)}` : ""}`).join(", ")}`, "");
+  if (cell.notes.length) {
+    out.push("Notes from the test:", "");
+    for (const n of cell.notes) out.push(`- ${oneLine(n)}`);
+    out.push("");
+  }
+  if (cell.reviews.length) {
+    out.push(`| Criterion | ${cell.reviews.map((r) => cellText(r.reviewer)).join(" | ")} |`);
+    out.push(`|---|${cell.reviews.map(() => "---").join("|")}|`);
+    for (const c of criteria) out.push(`| ${cellText(c.title)} | ${cell.reviews.map((r) => scoreText(c, r.scores[c.id])).join(" | ")} |`);
+    out.push("");
+    for (const r of cell.reviews.filter((x) => x.note.trim())) out.push(`> **${esc(r.reviewer)}**: ${r.note.trim().split("\n").map(esc).join("\n> ")}`, "");
+  } else out.push("Not reviewed.", "");
+  if (cell.shots.length) {
+    out.push(`Screenshots: ${cell.shots.map((s) => `[${esc(s.name)}](${o.link(s, cell)})`).join(", ")}`, "");
+  }
+  return out;
+}
+
+export function toMarkdown(c: Comparison, o: MarkdownOptions): string {
+  const many = c.runs.length > 1;
+  const out: string[] = [];
+  out.push(many ? `# ${esc(c.packName)}: ${c.runs.length} runs compared` : `# ${esc(c.packName)}: run ${c.runs[0]!.id}`, "");
+  out.push(`Exported ${o.now.slice(0, 16).replace("T", " ")} UTC from Watchwright.`, "");
+  out.push("| Run | Started | Parameters | Status | Passed | Failed | Broken | Score |", "|---|---|---|---|---|---|---|---|");
+  c.runs.forEach((r, i) => {
+    const score = mean(c.rows.map((row) => row.cells[i]?.score ?? null));
+    const started = (r.startedAt ?? r.createdAt).slice(0, 16).replace("T", " ");
+    out.push(`| ${r.id} | ${started} | ${cellText(params(r.params))} | ${r.status} | ${r.counts.passed} | ${r.counts.failed} | ${r.counts.broken} | ${fixed(score)} |`);
+  });
+  out.push("", "Scores are the mean of the scale criteria on 1 to 5, over every reviewer.", "");
+
+  const tests = new Map<string, typeof c.rows>();
+  for (const row of c.rows) tests.set(row.testId, [...(tests.get(row.testId) ?? []), row]);
+  for (const [testId, rows] of tests) {
+    const criteria = c.criteria[testId] ?? [];
+    out.push(`## ${esc(testId)} ${esc(rows[0]!.title)}`, "");
+    const perRun = c.runs.map((_, i) => mean(rows.map((r) => r.cells[i]?.score ?? null)));
+    out.push(many ? `Mean score: ${c.runs.map((r, i) => `${r.id} ${fixed(perRun[i] ?? null)}`).join(", ")}` : `Mean score: ${fixed(perRun[0] ?? null)}`, "");
+    for (const row of rows) {
+      if (rows.length > 1 || many) out.push(`### Attempt ${row.number}`, "");
+      row.cells.forEach((cell, i) => {
+        if (many) out.push(`#### Run ${c.runs[i]!.id} (${cellText(params(c.runs[i]!.params))})`, "");
+        if (!cell) out.push("Not run.", "");
+        else out.push(...cellLines(cell, criteria, o));
+      });
+    }
+  }
+  return `${out.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd()}\n`;
+}
