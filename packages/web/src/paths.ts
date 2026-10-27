@@ -86,3 +86,14 @@ export function join(dir: string, name: string): string {
   const sep = sepOf(dir);
   return dir.endsWith("/") || dir.endsWith("\\") ? dir + name : dir + sep + name;
 }
+
+/** `file` relative to `dir` with `/` between folders, or null when it isn't inside `dir`. */
+export function relativeTo(dir: string, file: string): string | null {
+  const norm = (p: string) => p.replaceAll("\\", "/").replace(/\/+$/, "");
+  const d = norm(dir);
+  const f = norm(file);
+  const win = /^[a-zA-Z]:\//.test(d);
+  const same = (a: string, b: string) => (win ? a.toLowerCase() === b.toLowerCase() : a === b);
+  if (f.length <= d.length + 1 || !same(f.slice(0, d.length), d) || f[d.length] !== "/") return null;
+  return f.slice(d.length + 1);
+}

@@ -9,6 +9,8 @@ export type Route =
   | { name: "attempt"; runId: string; attemptId: string }
   | { name: "packs"; query: Record<string, string> }
   | { name: "pack"; id: string }
+  /** The editor: a pack's file (null for the first one), optionally at a line. */
+  | { name: "edit"; id: string; file: string | null; line: number | null }
   | { name: "compare"; query: Record<string, string> }
   | { name: "kit" }
   | { name: "settings" };
@@ -36,6 +38,16 @@ export function parseRoute(hash: string): Route {
   if ((m = new RegExp(`^/runs/${ID8}$`).exec(path))) return { name: "run", id: m[1]! };
   if ((m = new RegExp(`^/runs/${ID8}/attempts/([0-9a-f]{12})$`).exec(path))) return { name: "attempt", runId: m[1]!, attemptId: m[2]! };
   if ((m = new RegExp(`^/packs/${ID8}$`).exec(path))) return { name: "pack", id: m[1]! };
+  if ((m = new RegExp(`^/packs/${ID8}/edit(?:/(.+))?$`).exec(path))) {
+    let file: string | null;
+    try {
+      file = m[2] ? m[2].split("/").map(decodeURIComponent).join("/") : null;
+    } catch {
+      file = null;
+    }
+    const line = Number(query.line);
+    return { name: "edit", id: m[1]!, file, line: Number.isInteger(line) && line > 0 ? line : null };
+  }
   return { name: "runs", query: path === "/" ? query : {} };
 }
 
@@ -58,6 +70,8 @@ export function href(route: Route): string {
       return `#/packs${qs(route.query)}`;
     case "pack":
       return `#/packs/${route.id}`;
+    case "edit":
+      return `#/packs/${route.id}/edit${route.file ? `/${route.file.split("/").map(encodeURIComponent).join("/")}` : ""}${route.line ? `?line=${route.line}` : ""}`;
     case "compare":
       return `#/compare${qs(route.query)}`;
     case "kit":
@@ -70,7 +84,7 @@ export function href(route: Route): string {
 /** Which top bar section a route belongs to. */
 export function sectionOf(route: Route): "runs" | "packs" | "compare" | null {
   if (route.name === "runs" || route.name === "run" || route.name === "attempt" || route.name === "new") return "runs";
-  if (route.name === "packs" || route.name === "pack") return "packs";
+  if (route.name === "packs" || route.name === "pack" || route.name === "edit") return "packs";
   if (route.name === "compare") return "compare";
   return null;
 }

@@ -8,6 +8,8 @@ import { discoverPacks, PACKS, PACKS_MIGRATION_SQL, PackRegistry } from "./regis
 import { convertToCode } from "./convert.js";
 import { StarterError, writeStarter } from "./starter.js";
 import { packSchema, testFileSchema } from "./yaml/schema.js";
+import { PACK_SHAPE } from "./yaml/pack-shape.js";
+import { checkDocument, parseTestFile } from "./yaml/parse.js";
 
 const ID = { type: "string", pattern: "^[0-9a-f]{8}$", description: "Pack id." } as const;
 
@@ -156,6 +158,25 @@ export const packsPlugin = definePlugin({
         path: "/packs/yaml-schema",
         input: { type: "object", properties: { kind: { type: "string", enum: ["test", "pack"], default: "test", description: "test (a YAML test file) or pack (pack.yaml)." } } },
         handler: ({ kind = "test" }) => (kind === "pack" ? packSchema() : testFileSchema()),
+      }),
+      defineAction<{ text: string; kind?: "test" | "pack" }>({
+        name: "packs.check-yaml",
+        title: "Check the text of a YAML test file or of pack.yaml, without saving it",
+        method: "POST",
+        path: "/packs/check-yaml",
+        input: {
+          type: "object",
+          properties: {
+            text: { type: "string", maxLength: 1048576, description: "The file's text." },
+            kind: { type: "string", enum: ["test", "pack"], default: "test", description: "test (a YAML test file) or pack (pack.yaml)." },
+          },
+          required: ["text"],
+        },
+        handler: ({ text, kind = "test" }) => {
+          if (kind === "pack") return { problems: checkDocument(text, PACK_SHAPE, "pack").problems };
+          const parsed = parseTestFile(text);
+          return { problems: parsed.problems, tests: parsed.value.map((t) => ({ id: t.id, line: t.line, steps: t.steps.length })) };
+        },
       }),
       defineAction<{ id: string; file: string }>({
         name: "packs.convert-test",

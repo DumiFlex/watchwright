@@ -7,6 +7,7 @@ import BarChart, { type BarItem, type BarSeries } from "../components/BarChart.v
 import CheckBox from "../components/CheckBox.vue";
 import CheckTree from "../components/CheckTree.vue";
 import CommandPalette, { type PaletteCommand } from "../components/CommandPalette.vue";
+import CodeEditor from "../components/CodeEditor.vue";
 import CodeView from "../components/CodeView.vue";
 import DataTable from "../components/DataTable.vue";
 import DatePicker from "../components/DatePicker.vue";
@@ -38,6 +39,7 @@ import StatusChip from "../components/StatusChip.vue";
 import TabBar from "../components/TabBar.vue";
 import TextArea from "../components/TextArea.vue";
 import TextField from "../components/TextField.vue";
+import TargetField from "../components/TargetField.vue";
 import TimelineScrubber, { type TimelineMark } from "../components/TimelineScrubber.vue";
 import ToggleSwitch from "../components/ToggleSwitch.vue";
 import VideoPlayer from "../components/VideoPlayer.vue";
@@ -45,6 +47,7 @@ import type { Criterion, Score } from "../api";
 import type { Sort } from "../table";
 import type { TimelineStep } from "../timeline";
 import type { TreeNode } from "../tree";
+import type { Target } from "../yamlsteps";
 import * as icons from "../icons";
 import { toast } from "../toasts";
 import { vTip } from "../tooltip";
@@ -111,6 +114,15 @@ test("C1 Guest checkout", { needs: ["S1"] }, async ({ page, h }) => {
 const expectedText = ["Order summary", "Trail boots, size 42", "Qty 1", "Subtotal 59.90", "Shipping free", "Total 59.90", "", "Pay as a guest", "Email", "Card number", "Pay now"].join("\n");
 const actualText = ["Order summary", "Trail boots, size 42", "Qty 1", "Subtotal 59.90", "Shipping 5.00", "Total 64.90", "", "Pay as a guest", "Email", "Card number", "Pay now", "Have a coupon?"].join("\n");
 const diffMode = ref<"unified" | "split">("split");
+const yamlText = ref(`id: T1
+title: Add a todo
+steps:
+  - goto: /todomvc/
+  - fill: { target: { placeholder: What needs to be done? }, value: Buy milk }
+  - press: Enter
+  - expect: { target: { testId: todo-title }, text: Buy milk }
+`);
+const pickedTarget = ref<Target | undefined>({ role: "button", name: "Save" });
 const sampleJson = {
   id: "0a1b2c3d",
   pack: "shop-smoke",
@@ -508,6 +520,14 @@ const traces = [
           <CodeView :code="testCode" lang="ts" label="Test file" name="tests/checkout.test.ts" :marked="[9]" max-height="320px" />
         </div>
         <div class="item wide">
+          <span class="lbl">Code editor (a YAML test: completion and hover)</span>
+          <div class="kit-editor"><CodeEditor v-model="yamlText" lang="yaml" steps label="YAML test" /></div>
+        </div>
+        <div class="item">
+          <span class="lbl">Target</span>
+          <TargetField id="kit-target" v-model="pickedTarget" label="target" />
+        </div>
+        <div class="item wide">
           <span class="lbl">Diff</span>
           <DiffView v-model:mode="diffMode" :before="expectedText" :after="actualText" label="Page text, checkout" before-label="Expected" after-label="Got" :context="2" />
         </div>
@@ -759,6 +779,12 @@ header p {
   align-content: start;
   gap: var(--space-2);
   min-width: 0;
+}
+.kit-editor {
+  height: 220px;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
 }
 .item.wide {
   grid-column: 1 / -1;

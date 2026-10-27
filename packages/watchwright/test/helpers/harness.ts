@@ -30,7 +30,7 @@ export interface Harness {
   app: FastifyInstance;
   port: number;
   host: string;
-  api<T = unknown>(method: "GET" | "POST" | "DELETE", url: string, body?: unknown): Promise<{ status: number; data: T; error?: { code: string; message: string } }>;
+  api<T = unknown>(method: "GET" | "POST" | "DELETE", url: string, body?: unknown): Promise<{ status: number; data: T; error?: { code: string; message: string; detail?: unknown } }>;
   /** Waits for the first event after `after` (default: the start) that matches. */
   waitFor(match: (e: WwEvent) => boolean, timeoutMs?: number, after?: number): Promise<WwEvent>;
   close(): Promise<void>;
@@ -49,7 +49,7 @@ export async function startHarness(dataDir: string, opts: { listen?: boolean } =
     host,
     async api(method, url, body) {
       const res = await app.inject({ method, url: `/api/v1${url}`, headers: { host }, ...(body === undefined ? {} : { payload: body as object }) });
-      const json = res.json() as { data?: never; error?: { code: string; message: string } };
+      const json = res.json() as { data?: never; error?: { code: string; message: string; detail?: unknown } };
       return { status: res.statusCode, data: json.data as never, ...(json.error ? { error: json.error } : {}) };
     },
     async waitFor(match, timeoutMs = 30_000, after = 0) {
