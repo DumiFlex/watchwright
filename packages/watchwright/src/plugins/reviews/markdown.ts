@@ -89,7 +89,10 @@ export function toMarkdown(c: Comparison, o: MarkdownOptions): string {
     for (const row of rows) {
       if (rows.length > 1 || many) out.push(`### Attempt ${row.number}`, "");
       row.cells.forEach((cell, i) => {
-        if (many) out.push(`#### Run ${c.runs[i]!.id} (${cellText(params(c.runs[i]!.params))})`, "");
+        if (many) {
+          const p = c.runs[i]!.params;
+          out.push(Object.keys(p).length ? `#### Run ${c.runs[i]!.id} (${cellText(params(p))})` : `#### Run ${c.runs[i]!.id}`, "");
+        }
         if (!cell) out.push("Not run.", "");
         else out.push(...cellLines(cell, criteria, o));
       });

@@ -1,6 +1,6 @@
 # Step 2 plan: the web app
 
-Status: research and plan, written 2026-10-27 before building. [docs/plan.md](../plan.md) holds the base design from step 1 (plugins, engine, store, API), and this plan builds on it. Section 8 records the answers to the questions it raised.
+Status: built. All eight PRs below are merged into `dev`; the Firefox sign-off run on Windows passed on 2026-10-27. [docs/plan.md](../plan.md) holds the base design from step 1 (plugins, engine, store, API), and this plan builds on it. Section 8 records the answers to the questions it raised.
 
 ## 1. What step 2 delivers
 

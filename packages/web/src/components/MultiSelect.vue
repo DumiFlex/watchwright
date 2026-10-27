@@ -37,7 +37,10 @@ useOutside([root, list], open, () => (open.value = false));
 const host = usePopupHost(root);
 
 const chosen = computed(() => new Set<T>(model.value));
-const chosenOptions = computed(() => props.options.filter((o) => chosen.value.has(o.value)));
+// Chips in the order the values were picked, which is the order the model keeps.
+const chosenOptions = computed(() =>
+  model.value.map((v) => props.options.find((o) => o.value === v)).filter((o): o is (typeof props.options)[number] => o !== undefined),
+);
 const chips = computed(() => chosenOptions.value.slice(0, props.maxChips));
 const hidden = computed(() => chosenOptions.value.length - chips.value.length);
 

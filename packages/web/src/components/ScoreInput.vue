@@ -97,7 +97,7 @@ function onKey(e: KeyboardEvent) {
 .is-scale .opt {
   font-family: var(--font-mono);
 }
-.opt:hover:not(:disabled) {
+.opt:hover:not(:disabled, [aria-checked="true"]) {
   border-color: var(--line-strong);
   background: var(--hover);
 }
