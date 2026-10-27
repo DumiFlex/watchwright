@@ -96,7 +96,7 @@ export const recordPlugin = definePlugin({
         path: "/record",
         handler: () => ({ canWindow: canOpenWindow(), recordings: recordings.list().map((r) => r.state()) }),
       }),
-      defineAction<{ packId: string; testId?: string; replay?: number; url?: string; params?: Record<string, unknown>; window?: boolean }>({
+      defineAction<{ packId: string; testId?: string; replay?: number; line?: number; url?: string; params?: Record<string, unknown>; window?: boolean }>({
         name: "record.start",
         title: "Start recording: a browser with the pack's options, shown on the live view (or in a window), whose clicks and typing become steps",
         method: "POST",
@@ -107,24 +107,25 @@ export const recordPlugin = definePlugin({
           properties: {
             packId: { type: "string", pattern: "^[0-9a-f]{8}$" },
             testId: { type: "string", description: "The test the steps are for; with `replay`, its first steps run before recording starts." },
-            replay: { type: "integer", minimum: 0, default: 0, description: "How many of the test's top-level steps to run first (Record from here)." },
+            replay: { type: "integer", minimum: 0, default: 0, description: "In a YAML test: how many of its top-level steps to run first (Record from here)." },
+            line: { type: "integer", minimum: 1, description: "In a code test: run its code up to this line first (Record from here); it stops at the first Playwright call below it." },
             url: { type: "string", description: "Where to open; the site's base URL by default." },
             params: { type: "object", description: "Parameter values for the steps that run first." },
             window: { type: "boolean", default: false, description: "Open a browser window on the server's machine instead of the live view." },
           },
           required: ["packId"],
         },
-        handler: async ({ packId, testId, replay = 0, url, params = {}, window = false }) => {
+        handler: async ({ packId, testId, replay = 0, line, url, params = {}, window = false }) => {
           const summary = packs.get(packId);
           if (!summary) throw new ActionError("not_found", `No pack with id ${packId}.`, 404);
           const pack = await packs.current(packId).catch((err: unknown) => {
             throw new ActionError("bad_pack", err instanceof Error ? err.message : String(err), 400);
           });
           if (window && !canOpenWindow()) throw new ActionError("no_window", "This machine has no screen to open a window on. Record on the live view instead.", 400);
-          if (replay > 0) {
-            const test = pack.tests.find((t) => t.id === testId);
-            if (!test?.yaml) throw new ActionError("bad_test", testId ? `${testId} isn't a YAML test of this pack (save the file first).` : "Record from here needs `testId`.", 400);
-          }
+          const test = testId === undefined ? undefined : pack.tests.find((t) => t.id === testId);
+          if (testId !== undefined && !test) throw new ActionError("bad_test", `The pack has no test ${testId} (save the file first).`, 400);
+          if (replay > 0 && !test?.yaml) throw new ActionError("bad_test", testId ? `${testId} isn't a YAML test of this pack (save the file first).` : "Record from here needs `testId`.", 400);
+          if (line !== undefined && (!test || test.yaml)) throw new ActionError("bad_test", testId ? `${testId} isn't a code test; use \`replay\` for a YAML test.` : "`line` needs `testId`.", 400);
           const resolved = (() => {
             try {
               return resolveParams(pack.options.params ?? {}, params);
@@ -133,7 +134,7 @@ export const recordPlugin = definePlugin({
             }
           })();
           const session = new RecordSession(
-            { pack, packId, siteKey: pack.options.site.key, testId: testId ?? null, replay, url: url ?? null, params: resolved, window, dataDir },
+            { pack, packId, siteKey: pack.options.site.key, testId: testId ?? null, replay, line: line ?? null, url: url ?? null, params: resolved, window, dataDir },
             { events, frames, siteBusy: (k) => engine.siteBusy(k), holdSite: (k) => engine.holdSite(k) },
           );
           recordings.add(session);

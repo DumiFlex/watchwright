@@ -116,7 +116,7 @@ The server side is a new `editor` plugin with actions in the registry (`packs.fi
 
 The `record` plugin owns record sessions, their actions (`record.start`, `record.input`, `record.check`, `record.stop`) and events (`record.step`, `record.step-updated`, `record.ended`). Frames go through the live hub as for a run. Recording uses Playwright's internal `_startRecording` (research, section 2); an engine test drives it in CI so a Playwright update that changes it fails there.
 
-As built (PR 4): Record starts from the editor only (a new test file plus Record covers "New recording"). On a code test it runs the pack's `beforeEach` and records from the site's address; running code up to the cursor is left for later. Each recorded step also keeps the other targets that pick out the same element, switchable before Done, and a click can keep the spot clicked as `position` (for canvases and pickers). Check can also count the elements like the one picked.
+As built (PR 4): "New recording" on the pack page makes a YAML test with no steps and opens it in the editor with Record started. On a code test, Record from here runs the test until its first Playwright call below the cursor's line (a listener on Playwright's client instrumentation reads each call's stack), so code that doesn't touch the page may run a little further. Each recorded step also keeps the other targets that pick out the same element, switchable before Done, and a click can keep the spot clicked as `position` (for canvases and pickers). Check can also count the elements like the one picked.
 
 ## 5. The second pack: TodoMVC
 

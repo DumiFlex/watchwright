@@ -336,6 +336,8 @@ function carry(old: Node | null, fresh: Node): Node {
 export function insertStep(text: string, listPath: NodePath, index: number, name: string, args: StepArgs = blankArgs(name)): string {
   const doc = open(text);
   const seq = seqAt(doc, listPath);
+  // An empty `[]` list becomes a block list, so steps land one per line.
+  if (seq.flow && seq.items.length === 0) seq.flow = false;
   seq.items.splice(Math.max(0, Math.min(index, seq.items.length)), 0, newItem(doc, name, args));
   return write(doc, text);
 }

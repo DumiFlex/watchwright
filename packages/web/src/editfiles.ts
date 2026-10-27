@@ -95,6 +95,14 @@ steps:
 `;
 }
 
+/**
+ * A new YAML test for "New recording", with no steps yet: Record starts where the pack's
+ * beforeEach leaves the page (or at the site), and the steps go in after `line`.
+ */
+export function recordingTestTemplate(id: string, title: string): { text: string; line: number } {
+  return { text: `id: ${id}\ntitle: ${title}\nsteps: []\n`, line: 3 };
+}
+
 export function codeTestTemplate(id: string, title: string): string {
   return `import { expect, test } from "watchwright";
 

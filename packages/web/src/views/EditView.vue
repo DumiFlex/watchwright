@@ -26,7 +26,7 @@ import { ArrowLeft, ChevronDown, CircleAlert, CircleDot, Ellipsis, FileCode, Fil
 import { LiveConnection } from "../live";
 import { join, relativeTo } from "../paths";
 import { href } from "../router";
-import { insertCodeSteps, insertYamlSteps, yamlSpot, type YamlSpot } from "../recording";
+import { codeTestAt, insertCodeSteps, insertYamlSteps, yamlSpot, type YamlSpot } from "../recording";
 import { readTests } from "../stepsdoc";
 import { browserStore } from "../theme";
 import { toast } from "../toasts";
@@ -34,7 +34,7 @@ import { vTip } from "../tooltip";
 import { rangeAt } from "../yamlhints";
 import { parseTestFile, type Problem } from "../yamlsteps";
 
-const props = defineProps<{ id: string; file: string | null; line: number | null }>();
+const props = defineProps<{ id: string; file: string | null; line: number | null; record?: boolean }>();
 
 const pack = ref<Pack | null>(null);
 const files = ref<PackFile[]>([]);
@@ -223,7 +223,11 @@ const elsewhere = computed(() => (pack.value ? otherProblems(pack.value.problems
 const fileTests = computed(() => testsInFile(pack.value, open.value?.path ?? null));
 const cursorTest = computed(() => {
   const list = fileTests.value;
-  if (list.length <= 1 || role.value !== "test") return list[0] ?? null;
+  if (list.length <= 1) return list[0] ?? null;
+  if (role.value !== "test") {
+    const id = codeTestAt(text.value, cursorLine.value, list.map((t) => t.id));
+    return list.find((t) => t.id === id) ?? list[0] ?? null;
+  }
   const parsed = readTests(text.value);
   const at = parsed?.filter((t) => t.line <= cursorLine.value).at(-1);
   return list.find((t) => t.id === at?.id) ?? list[0] ?? null;
@@ -244,17 +248,19 @@ async function runTest(testId: string) {
   dockRun.value = res.data.id;
 }
 
-// Record: steps from clicking on a recording browser go in at the cursor. In a YAML test the
-// steps above the cursor run first; a code test's recording starts at the site.
+// Record: steps from clicking on a recording browser go in at the cursor. The test runs up to the
+// cursor first: a YAML test's steps above it, a code test's code down to its line.
 const canWindow = ref(false);
 const canRecord = computed(() => !!open.value && (role.value === "test" || (open.value.kind === "code" && fileTests.value.length > 0)) && pack.value?.status !== "error");
 const recordMenu = computed(() => [
-  { value: "here", label: role.value === "test" ? "Record from here" : "Record at the cursor" },
+  { value: "here", label: "Record from here" },
   ...(canWindow.value ? [{ value: "window", label: "Record in a window" }] : []),
 ]);
 interface Recording {
   testId: string | null;
   replay: number;
+  /** A code test runs up to this line first. */
+  codeLine: number | null;
   window: boolean;
   params: Record<string, unknown>;
   yaml: YamlSpot | null;
@@ -268,11 +274,13 @@ async function startRecording(how: string) {
   if (!o) return;
   const yaml = role.value === "test" ? yamlSpot(text.value, cursorLine.value) : null;
   if (role.value === "test" && !yaml) return void toast("Fix the YAML first: Record needs to know which test the cursor is in.", { tone: "bad" });
-  if (yaml && yaml.index > 0 && isDirty.value) await save();
+  const codeTest = role.value === "test" ? null : (cursorTest.value?.id ?? null);
+  if (((yaml && yaml.index > 0) || codeTest) && isDirty.value) await save();
   const last = await getJson<RunSummary[]>(`/api/v1/runs?pack=${props.id}&limit=1`);
   recording.value = {
     testId: yaml?.testId ?? cursorTest.value?.id ?? null,
     replay: yaml?.index ?? 0,
+    codeLine: codeTest ? cursorLine.value : null,
     window: how === "window",
     params: last.ok && last.data[0] ? last.data[0].params : {},
     yaml,
@@ -409,6 +417,12 @@ onMounted(async () => {
   void getJson<{ canWindow: boolean }>("/api/v1/record").then((r) => (canWindow.value = r.ok && r.data.canWindow));
   await loadPack();
   await openFile(path.value);
+  // "New recording" on the pack page lands here with a new test: start Record once, and drop the
+  // flag from the address so a reload doesn't start another.
+  if (props.record && open.value) {
+    window.history.replaceState(null, "", href({ name: "edit", id: props.id, file: open.value.path, line: props.line }));
+    if (canRecord.value) void startRecording("here");
+  }
   live = new LiveConnection({}, {
     onEvent: (e) => {
       if (e.type === "editor.file_changed") void onFileEvent(e.data);
@@ -465,7 +479,7 @@ const problemSpot = (p: string) => buildErrorSpot(p);
             </MenuButton>
           </div>
           <div v-if="canRecord" class="runbtn">
-            <button v-tip="role === 'test' ? 'Record steps after the cursor; the steps above it run first' : 'Record steps into this test at the cursor'" type="button" class="btn" @click="startRecording('here')"><CircleDot :size="15" /> Record</button>
+            <button v-tip="'Record steps after the cursor; the test runs up to it first'" type="button" class="btn" @click="startRecording('here')"><CircleDot :size="15" /> Record</button>
             <MenuButton v-if="recordMenu.length > 1" :items="recordMenu" label="More ways to record" @select="startRecording">
               <template #button><ChevronDown :size="15" /></template>
             </MenuButton>
@@ -595,7 +609,7 @@ const problemSpot = (p: string) => buildErrorSpot(p);
       </template>
     </ModalDialog>
     <ModalDialog v-model="recordOpen" :heading="recording?.window ? 'Recording in a window' : 'Recording'" width="min(1280px, 100%)" :dismissable="false">
-      <RecordPanel v-if="recording" :pack-id="id" :test-id="recording.testId" :replay="recording.replay" :window="recording.window" :params="recording.params" @done="recorded" @cancel="recording = null" />
+      <RecordPanel v-if="recording" :pack-id="id" :test-id="recording.testId" :replay="recording.replay" :line="recording.codeLine" :window="recording.window" :params="recording.params" @done="recorded" @cancel="recording = null" />
     </ModalDialog>
     <ModalDialog v-model="diffOpen" heading="Changes on disk" width="860px">
       <DiffView v-if="conflict?.text != null && open" :before="conflict.text" :after="open.text" label="The file on disk and your version" before-label="On disk" after-label="Yours" />

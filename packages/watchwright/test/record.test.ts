@@ -5,6 +5,7 @@ import { keyWithModifiers, relativeUrl, stepOfAction, targetOfLocator } from "..
 import { candidatesOf, roleOf, sameTarget, withAlternatives, type ElementInfo } from "../src/plugins/record/candidates.js";
 import { canOpenWindow } from "../src/plugins/record/plugin.js";
 import type { RecordEntry } from "../src/plugins/record/session.js";
+import { outermostLine } from "../src/plugins/record/upto.js";
 import { cleanTempDirs, startSite, tempDir, writeFiles } from "./helpers/fixtures.js";
 import { engineOf, hasChromium, requireBrowsers, startHarness, type Harness } from "./helpers/harness.js";
 
@@ -50,6 +51,22 @@ describe("recorder actions as steps", () => {
     expect(relativeUrl("http://a.test/x#y", "http://a.test/app/")).toBe("/x#y");
     expect(relativeUrl("http://b.test/x", "http://a.test/")).toBe("http://b.test/x");
     expect(relativeUrl("http://b.test/x", null)).toBe("http://b.test/x");
+  });
+});
+
+describe("stopping a code test at the cursor", () => {
+  it("reads the line of the outermost frame in the test file", () => {
+    const stack = [
+      "Error",
+      "    at Object.onApiCallBegin (/srv/ww/dist/plugins/record/upto.js:50:21)",
+      "    at helper (/packs/demo/tests/home.ts:30:11)",
+      "    at async body (/packs/demo/tests/home.ts:12:5)",
+      "    at async file:///packs/demo/tests/home.ts:14:3",
+      "    at async RecordSession.runCodeUpTo (/srv/ww/dist/plugins/record/session.js:300:7)",
+    ].join("\n");
+    expect(outermostLine(stack, "/packs/demo/tests/home.ts")).toBe(14);
+    expect(outermostLine(stack, "/packs/demo/tests/other.ts")).toBeNull();
+    if (process.platform === "win32") expect(outermostLine("    at async file:///C:/packs/t.ts:7:3\n    at async C:\\packs\\t.ts:9:3", "C:\\packs\\t.ts")).toBe(9);
   });
 });
 
@@ -148,6 +165,18 @@ run("recording", { timeout: 90_000 }, () => {
       "pack.yaml": `name: Record fixture\nsite: { key: ${key}, baseURL: "${site.url}" }\nbrowser: { viewport: { width: ${VIEWPORT.width}, height: ${VIEWPORT.height} } }\n`,
       "tests/form.yaml": "id: R1\ntitle: Send the form\nsteps:\n  - goto: /form\n  - check: { label: I agree }\n",
       "tests/slow.yaml": "id: S1\ntitle: Take a while\nsteps:\n  - goto: /\n  - wait: 2500\n",
+      // Record from here at line 6: the goto and the first fill run, the second fill doesn't.
+      "tests/code.ts": [
+        'import { test } from "watchwright";',
+        'test("C1", { title: "Code" }, async ({ page, h }) => {',
+        '  await h.goto("/form");',
+        "  const email = page.getByLabel(\"Email\");",
+        "",
+        '  await email.fill("first");',
+        '  await email.fill("second");',
+        '  await h.click("#send");',
+        "});",
+      ].join("\n"),
     });
     const added = await h.api<{ id: string }>("POST", "/packs", { path: dir });
     return { h, packId: added.data.id };
@@ -209,6 +238,22 @@ run("recording", { timeout: 90_000 }, () => {
     expect(stopped.data.status).toBe("ended");
     expect(stopped.data.steps.map((s) => s.name)).toEqual(["click", "fill", "expect"]);
     expect((await h.api("POST", `/record/${id}/input`, { type: "key", key: "a" })).error?.code).toBe("not_recording");
+  });
+
+  it("runs a code test up to the cursor's line before recording", async () => {
+    const { h, packId } = await setup();
+    const started = await h.api<{ id: string }>("POST", "/record", { packId, testId: "C1", line: 6 });
+    expect(started.status).toBe(201);
+    const id = started.data.id;
+    const ready = await h.waitFor((e) => e.runId === id && e.type === "record.status" && e.data.status === "recording", 30_000);
+    expect(ready.data.message).toBeNull();
+    const email = await centerOf(new URL("/form", site.url).href, "#email");
+    const picked = await h.api<{ info: { value: string } }>("POST", `/record/${id}/pick`, email);
+    expect(picked.data.info.value).toBe("first");
+    await h.api("POST", `/record/${id}/stop`);
+    // `line` is for code tests, `replay` for YAML ones.
+    expect((await h.api("POST", "/record", { packId, testId: "R1", line: 3 })).error?.code).toBe("bad_test");
+    expect((await h.api("POST", "/record", { packId, testId: "C1", replay: 1 })).error?.code).toBe("bad_test");
   });
 
   it("holds the site: a run of it waits for the recording, and a recording waits for a run", async () => {

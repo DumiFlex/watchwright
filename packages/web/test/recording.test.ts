@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { keyOf, pagePoint } from "../src/liveinput";
-import { insertCodeSteps, insertYamlSteps, targetLabel, yamlSpot } from "../src/recording";
+import { recordingTestTemplate } from "../src/editfiles";
+import { codeTestAt, insertCodeSteps, insertYamlSteps, targetLabel, yamlSpot } from "../src/recording";
 
 const FILE = `section: Adding
 tests:
@@ -86,5 +87,26 @@ describe("live view input", () => {
     expect(k("a", { ctrlKey: true })).toBe("Control+a");
     expect(k("A", { ctrlKey: true, shiftKey: true })).toBe("Control+Shift+a");
     expect(k("Shift", { shiftKey: true })).toBeNull();
+  });
+});
+
+describe("code tests and new recordings", () => {
+  it("finds the code test the cursor is in", () => {
+    const text = ['import { test } from "watchwright";', "", 'test("A1", async () => {', "  await one();", "});", "test('A2', { title: \"x\" }, async () => {", "  await two();", "});"].join("\n");
+    expect(codeTestAt(text, 4, ["A1", "A2"])).toBe("A1");
+    expect(codeTestAt(text, 7, ["A1", "A2"])).toBe("A2");
+    expect(codeTestAt(text, 1, ["A1", "A2"])).toBe("A1");
+    expect(codeTestAt(text, 7, ["A1"])).toBe("A1");
+    expect(codeTestAt("nothing here", 1, ["A1"])).toBeNull();
+  });
+
+  it("starts a new recording's test with no steps, and Record fills them in", () => {
+    const t = recordingTestTemplate("T3", "Check out");
+    const spot = yamlSpot(t.text, t.line);
+    expect(spot).toEqual({ testId: "T3", listPath: ["steps"], index: 0 });
+    // The empty list turns into a block list as the steps go in.
+    expect(insertYamlSteps(t.text, spot!, [{ name: "click", args: { target: { role: "button", name: "Go" } } }, { name: "press", args: { key: "Enter" } }])).toBe(
+      "id: T3\ntitle: Check out\nsteps:\n  - click: { role: button, name: Go }\n  - press: Enter\n",
+    );
   });
 });

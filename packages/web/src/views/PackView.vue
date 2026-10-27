@@ -1,7 +1,9 @@
 <script setup lang="ts">
 // One pack: whether it loads, its tests with their metadata, parameters and flag kinds, and
 // its recent runs.
-import { ArrowLeft, Ellipsis, Pencil, TriangleAlert } from "../icons";
+import { ArrowLeft, CircleDot, Ellipsis, Pencil, TriangleAlert } from "../icons";
+import { nextTestId, recordingTestTemplate, slug } from "../editfiles";
+import TextField from "../components/TextField.vue";
 import { href } from "../router";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, sendJson, type Criterion, type FolderPlaces, type Pack, type PackTest, type RunSummary } from "../api";
@@ -28,6 +30,27 @@ const reloading = ref(false);
 const home = ref<string | null>(null);
 const moveOpen = ref(false);
 const removeOpen = ref(false);
+
+// New recording: a new YAML test that opens the site, then the editor with Record started.
+const recOpen = ref(false);
+const recTitle = ref("");
+const recId = ref("");
+const recPath = ref("");
+function startNewRecording() {
+  recTitle.value = "";
+  recId.value = nextTestId(pack.value, (pack.value?.tests[0]?.id.match(/^[A-Za-z]+/)?.[0] ?? "T").toUpperCase());
+  recPath.value = "tests/new-recording.yaml";
+  recOpen.value = true;
+}
+watch(recTitle, (t) => (recPath.value = `tests/${slug(t || "new recording")}.yaml`));
+async function createRecording() {
+  if (!recPath.value.trim() || !recId.value.trim()) return;
+  const t = recordingTestTemplate(recId.value.trim(), recTitle.value.trim() || recId.value.trim());
+  const res = await sendJson<{ file: { path: string } }>(`/api/v1/packs/${props.id}/files`, { path: recPath.value.trim(), text: t.text });
+  if (!res.ok) return void toast(res.error.message, { tone: "bad" });
+  recOpen.value = false;
+  window.location.hash = href({ name: "edit", id: props.id, file: res.data.file.path, line: t.line, record: true });
+}
 const menu = [
   { value: "move", label: "Move to another folder…" },
   { value: "remove", label: "Remove…", danger: true },
@@ -123,6 +146,7 @@ onBeforeUnmount(() => live?.close());
           <template v-else>
             <button class="btn" :disabled="reloading" @click="reload">{{ reloading ? "Reloading…" : "Reload" }}</button>
             <a class="btn" :href="href({ name: 'edit', id: pack.id, file: null, line: null })"><Pencil :size="15" /> Edit</a>
+            <button v-if="pack.status === 'ok'" v-tip="'Make a new YAML test by clicking through the site'" type="button" class="btn" @click="startNewRecording"><CircleDot :size="15" /> New recording</button>
             <a v-if="pack.status === 'ok'" class="btn primary" :href="`#/new?pack=${pack.id}`">New run</a>
           </template>
           <MenuButton :items="menu" label="More for this pack" @select="onMenu">
@@ -241,6 +265,21 @@ onBeforeUnmount(() => live?.close());
       </section>
     </template>
     <PackFolderDialog v-if="pack" v-model="moveOpen" mode="move" :packs="[]" :moving="pack" :home="home" @moved="load(), toast('The pack now loads from its new folder', { tone: 'ok' })" />
+    <ModalDialog v-model="recOpen" heading="New recording" width="480px">
+      <form class="form" @submit.prevent="createRecording">
+        <p class="muted small">A new YAML test with no steps yet. The editor opens on it and Record starts where the pack's beforeEach leaves the page, so the steps you click through become the test.</p>
+        <label class="field-label" for="rec-title">Title</label>
+        <TextField id="rec-title" v-model="recTitle" placeholder="Check out as a guest" />
+        <label class="field-label" for="rec-id">Test id</label>
+        <TextField id="rec-id" v-model="recId" />
+        <label class="field-label" for="rec-path">File, in the pack folder</label>
+        <TextField id="rec-path" v-model="recPath" />
+      </form>
+      <template #actions>
+        <button type="button" class="btn" @click="recOpen = false">Cancel</button>
+        <button type="button" class="btn primary" :disabled="!recPath.trim() || !recId.trim()" @click="createRecording">Start recording</button>
+      </template>
+    </ModalDialog>
     <ModalDialog v-model="removeOpen" heading="Remove this pack?">
       <p v-if="pack"><strong>{{ pack.name }}</strong> leaves the list. Its folder and files stay as they are, and its earlier runs stay in the runs list. You can add it again later.</p>
       <template #actions>
@@ -252,6 +291,18 @@ onBeforeUnmount(() => live?.close());
 </template>
 
 <style scoped>
+.form {
+  display: grid;
+  gap: var(--space-2);
+}
+.form p {
+  margin: 0;
+}
+.field-label {
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: var(--space-1);
+}
 .title h1 {
   display: flex;
   align-items: center;
@@ -265,6 +316,7 @@ onBeforeUnmount(() => live?.close());
 }
 .acts {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-2);
 }
 .acts a.btn {

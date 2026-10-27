@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { rmSync } from "node:fs";
 import path from "node:path";
 import type { BrowserContext, Page } from "playwright";
+import { expect } from "playwright/test";
 import type { EventLog } from "../../events/log.js";
 import { RunControl } from "../../jobs/control.js";
 import { AttemptRecorder } from "../../jobs/recorder.js";
@@ -11,9 +12,10 @@ import type { LoadedPack } from "../packs/loader.js";
 import { runSteps } from "../packs/yaml/run.js";
 import type { StepArgs } from "../packs/yaml/steps.js";
 import type { Target } from "../packs/yaml/targets.js";
-import type { ParamValues } from "../packs/api.js";
+import type { Helpers, ParamValues, TestDefinition } from "../packs/api.js";
 import { createHelpers } from "../testing/helpers.js";
 import { stepOfAction, type RecorderAction } from "./actions.js";
+import { StopHere, stopBelow } from "./upto.js";
 import { sameTarget, snapshotAt, withAlternatives, type ElementInfo, type Snapshot } from "./candidates.js";
 
 // One recording: a browser with the pack's options, its pages streamed to the live view, input
@@ -51,8 +53,10 @@ export interface RecordOptions {
   siteKey: string;
   /** The test being recorded into, for "Record from here". */
   testId: string | null;
-  /** How many of the test's top-level steps run first (Record from here); 0 starts at `url`. */
+  /** How many of the test's top-level steps run first (Record from here in a YAML test). */
   replay: number;
+  /** In a code test: the test's code runs up to this line (from 1) first (Record from here). */
+  line: number | null;
   /** Where to open: the site's base URL by default. */
   url: string | null;
   params: ParamValues;
@@ -218,8 +222,12 @@ export class RecordSession {
     const test = this.opts.pack.tests.find((t) => t.id === this.opts.testId);
     const steps = test?.yaml?.steps.slice(0, this.opts.replay) ?? [];
     const hook = this.opts.pack.options.beforeAttempt;
-    if (!test || (steps.length === 0 && !hook)) return;
-    this.setStatus("replaying", steps.length === 0 ? "Running the pack's steps before each test…" : `Running the ${steps.length === 1 ? "step" : `${steps.length} steps`} above the cursor…`);
+    const upTo = test && !test.yaml ? this.opts.line : null;
+    if (!test || (steps.length === 0 && upTo === null && !hook)) return;
+    this.setStatus(
+      "replaying",
+      upTo !== null ? `Running the test up to line ${upTo}…` : steps.length === 0 ? "Running the pack's steps before each test…" : `Running the ${steps.length === 1 ? "step" : `${steps.length} steps`} above the cursor…`,
+    );
     const session = this.session!;
     const saves = new Map<string, unknown>();
     const control = new RunControl({ onState: () => undefined });
@@ -248,10 +256,34 @@ export class RecordSession {
       const meta = test.meta;
       await hook?.({ page, h, params: this.opts.params, packDir: this.opts.pack.dir, test: { id: test.id, title: meta.title ?? test.id, section: meta.section ?? null, tags: [...(meta.tags ?? [])] }, attempt: 1, attempts: 1, last: true });
       await runSteps(steps, { page, h, params: this.opts.params, packDir: this.opts.pack.dir, file: path.join(this.opts.pack.dir, test.file), attempt: 1, attempts: 1, last: true });
+      if (upTo !== null) await this.runCodeUpTo(test, upTo, page, h);
       this.message = null;
     } catch (err) {
       const msg = err instanceof Error ? err.message.split("\n")[0] : String(err);
       this.message = `A step before the cursor didn't work, so recording starts from where it stopped: ${msg}`;
+    }
+  }
+
+  /** A code test's body, stopped at its first Playwright call below `line`. */
+  private async runCodeUpTo(test: TestDefinition, line: number, page: Page, h: Helpers): Promise<void> {
+    const gate = stopBelow(this.session!.context as BrowserContext, path.join(this.opts.pack.dir, test.file), line);
+    if (!gate) throw new Error("this version of Playwright can't stop a test at a line, so recording starts after the pack's beforeEach");
+    try {
+      await test.body({
+        page,
+        h,
+        expect,
+        params: this.opts.params,
+        attempt: 1,
+        attempts: 1,
+        last: true,
+        packDir: this.opts.pack.dir,
+        child: () => Promise.reject(new Error("Child tests don't run before a recording.")),
+      });
+    } catch (err) {
+      if (!(err instanceof StopHere) && !gate.stopped()) throw err;
+    } finally {
+      gate.release();
     }
   }
 

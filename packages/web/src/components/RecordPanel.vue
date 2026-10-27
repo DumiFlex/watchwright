@@ -25,6 +25,8 @@ const props = defineProps<{
   testId: string | null;
   /** How many of the test's steps run first (Record from here). */
   replay: number;
+  /** In a code test: run it up to this line first. */
+  line?: number | null;
   window: boolean;
   params: Record<string, unknown>;
 }>();
@@ -39,7 +41,7 @@ let live: LiveConnection | null = null;
 const STATUS_TEXT: Record<RecordState["status"], string> = {
   waiting: "Waiting for the site",
   starting: "Opening the browser…",
-  replaying: "Running the steps above…",
+  replaying: "Running the test up to the cursor…",
   recording: "Recording",
   ended: "Ended",
 };
@@ -91,7 +93,7 @@ function onEvent(e: WwEvent) {
 }
 
 onMounted(async () => {
-  const res = await sendJson<RecordState>("/api/v1/record", { packId: props.packId, ...(props.testId ? { testId: props.testId } : {}), replay: props.replay, window: props.window, params: props.params });
+  const res = await sendJson<RecordState>("/api/v1/record", { packId: props.packId, ...(props.testId ? { testId: props.testId } : {}), replay: props.replay, ...(props.line ? { line: props.line } : {}), window: props.window, params: props.params });
   if (!res.ok) {
     startError.value = res.error.message;
     return;

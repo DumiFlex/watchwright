@@ -69,6 +69,18 @@ export function insertCodeSteps(text: string, line: number, steps: readonly { na
   return [...lines.slice(0, at), ...code, ...lines.slice(at)].join("\n");
 }
 
+/**
+ * The code test the cursor is in: the last `test("id", …)` call of a known id that starts at or
+ * above the cursor's line (from 1), or the first one of the file when the cursor is above them all.
+ */
+export function codeTestAt(text: string, cursorLine: number, ids: readonly string[]): string | null {
+  const known = new Set(ids);
+  const found: { id: string; line: number }[] = [];
+  const re = /\btest\s*\(\s*(["'`])((?:(?!\1).)+)\1/g;
+  for (let m = re.exec(text); m; m = re.exec(text)) if (known.has(m[2]!)) found.push({ id: m[2]!, line: text.slice(0, m.index).split("\n").length });
+  return (found.filter((f) => f.line <= cursorLine).at(-1) ?? found[0])?.id ?? null;
+}
+
 /** A target menu label: `button "Save"`, and the kind of target for plain selectors. */
 export function targetLabel(t: Target): string {
   return typeof t === "string" ? `CSS ${t}` : describeTarget(t);

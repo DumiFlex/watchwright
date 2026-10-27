@@ -1,6 +1,6 @@
 # Recording
 
-Record writes test steps for you while you click through your site. Open a test in the [editor](./editing), put the cursor where the new steps should go and press **Record**. A browser opens with the pack's browser, viewport and options, and its page shows in a live view on the Watchwright page. Click, type and scroll on that view as you would on the site: each action becomes a step in the list beside it.
+Record writes test steps for you while you click through your site. Open a test in the [editor](./editing), put the cursor where the new steps should go and press **Record**. To start a new test, press **New recording** on the pack's page: it makes a YAML test with no steps yet, opens it in the editor and starts Record. A browser opens with the pack's browser, viewport and options, and its page shows in a live view on the Watchwright page. Click, type and scroll on that view as you would on the site: each action becomes a step in the list beside it.
 
 Nothing is written until **Done**, which puts the steps into the file at the cursor as an unsaved edit, so you can look them over before you save. **Cancel** throws them away. Both close the recording browser.
 
@@ -8,7 +8,7 @@ Nothing is written until **Done**, which puts the steps into the file at the cur
 
 In a YAML test, Record starts **from here**: the pack's `beforeEach` and the test's steps above the cursor run first, and you watch them run. Recording starts from the state they leave the page in, so you only record what comes next. If one of those steps fails, recording still starts, from where it stopped, and says which step broke. A file with unsaved edits is saved first, so the steps that run are the ones you see.
 
-In a code test, the pack's `beforeEach` runs and recording starts at the site's address. Done writes the steps as `h` calls after the cursor's line.
+In a code test, the pack's `beforeEach` and the test's code run up to the cursor's line: the test stops at its first Playwright call (a page, locator, `h` or `expect` call) on a line below the cursor, and recording starts from there. Plain code that doesn't touch the page keeps running until that call. Done writes the steps as `h` calls after the cursor's line. A test that calls `child()` before the cursor stops with an error there, because child tests don't run before a recording.
 
 A recording uses the pack's site the way a run does: a run of the same site waits until the recording ends, and a recording waits (and says so) while a run of the site is going.
 
