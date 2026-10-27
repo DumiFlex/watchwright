@@ -2,8 +2,9 @@
 // A themed table for lists of records (runs, attempts, collector records). Columns sort on
 // a click of their heading (ascending, descending, off), or the parent sorts when
 // `manualSort` is set (server-side paging). With `height` the body scrolls under a sticky
-// header, and past `virtualFrom` rows only the rows on screen are rendered, which needs a
-// fixed `rowHeight`. `selectable` adds a checkbox column (v-model:selected holds row keys).
+// header, and past `virtualFrom` rows only the rows on screen are rendered. That needs rows
+// of one height, measured from a drawn row (`rowHeight` is the first guess). `selectable`
+// adds a checkbox column (v-model:selected holds row keys).
 // Slots: `cell-<key>` ({ row, value }) for custom cells, `empty`, and `footer` (for
 // "Load more").
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
@@ -46,10 +47,21 @@ const scroller = ref<HTMLElement | null>(null);
 const scrollTop = ref(0);
 const viewHeight = ref(600);
 const virtual = computed(() => !!props.height && sorted.value.length > props.virtualFrom);
+// rowHeight is a first guess; the height of a drawn row (it differs per look) replaces it.
+const measured = ref(props.rowHeight);
 const win = computed(() =>
-  virtual.value ? rowWindow(scrollTop.value, viewHeight.value, props.rowHeight, sorted.value.length) : { start: 0, end: sorted.value.length, padTop: 0, padBottom: 0 },
+  virtual.value ? rowWindow(scrollTop.value, viewHeight.value, measured.value, sorted.value.length) : { start: 0, end: sorted.value.length, padTop: 0, padBottom: 0 },
 );
 const visible = computed(() => sorted.value.slice(win.value.start, win.value.end));
+watch(
+  [virtual, () => win.value.start],
+  () => {
+    const row = virtual.value && scroller.value?.querySelector<HTMLElement>("tbody tr.row");
+    const h = row ? row.getBoundingClientRect().height : 0;
+    if (h && Math.abs(h - measured.value) > 0.5) measured.value = h;
+  },
+  { flush: "post", immediate: true },
+);
 const span = computed(() => props.columns.length + (props.selectable ? 1 : 0));
 
 let observer: ResizeObserver | undefined;
@@ -119,8 +131,8 @@ function show(v: SortValue) {
             v-for="(row, i) in visible"
             :key="rowKey(row)"
             :aria-rowindex="virtual ? win.start + i + 2 : undefined"
+            class="row"
             :class="{ clickable, chosen: chosen.has(rowKey(row)) }"
-            :style="virtual ? { height: `${rowHeight}px` } : undefined"
             :tabindex="clickable ? 0 : undefined"
             @click="clickable && emit('rowClick', row)"
             @keydown.enter="clickable && emit('rowClick', row)"
@@ -170,6 +182,8 @@ td {
   padding: 8px 12px;
   text-align: left;
   vertical-align: middle;
+  /* One line per row, so all rows have one height; narrow screens scroll sideways. */
+  white-space: nowrap;
 }
 th.end,
 td.end {
