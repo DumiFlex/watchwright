@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ago, countsText, done, duration, isActive, runDuration } from "../src/format";
+import { ago, clockTime, countsText, done, duration, fileSize, isActive, runDuration } from "../src/format";
 
 const counts = { passed: 3, failed: 1, broken: 1, skipped: 0, stopped: 0, running: 0, interrupted: 0, planned: 6 };
 
@@ -33,5 +33,14 @@ describe("format", () => {
     expect(done(counts)).toBe(5);
     expect(isActive("paused")).toBe(true);
     expect(isActive("finished")).toBe(false);
+  });
+  it("writes video positions and file sizes", () => {
+    expect(clockTime(7.9)).toBe("0:07");
+    expect(clockTime(754)).toBe("12:34");
+    expect(clockTime(3723)).toBe("1:02:03");
+    expect(clockTime(Infinity)).toBe("0:00");
+    expect(fileSize(820)).toBe("820 B");
+    expect(fileSize(12 * 1024)).toBe("12 KB");
+    expect(fileSize(3.4 * 1024 * 1024)).toBe("3.4 MB");
   });
 });

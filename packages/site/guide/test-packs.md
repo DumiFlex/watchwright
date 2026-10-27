@@ -112,7 +112,7 @@ Every `h` call is a pause point: Pause takes effect at the next one.
 | `h.idle({ timeout?, quietMs? })` | Waits for the network to go quiet and for the pack's `idle` check. |
 | `h.wait(ms)` | Waits; time paused doesn't count. |
 | `h.shot(name, { fullPage?, target? })` | Saves a screenshot. |
-| `h.scrollShots(name, { target?, max? })` | Scrolls top to bottom, one screenshot per screen. |
+| `h.scrollShots(name, { target?, max? })` | Scrolls top to bottom, one screenshot per screen. The shots are kept as one set and show as a single strip on the attempt page. |
 | `h.keepText(name, target \| { text })` | Saves text: an element's inner text, or a string. |
 | `h.log(msg)`, `h.note(msg)` | A log line; a note for whoever reviews the result. |
 | `h.flag(name, detail?)` | Raises a flag declared in the pack's `flags`. |

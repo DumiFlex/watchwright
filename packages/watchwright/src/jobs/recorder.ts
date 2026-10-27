@@ -11,6 +11,8 @@ export interface ArtifactInfo {
   /** Path relative to the data folder, with forward slashes. */
   path: string;
   size: number;
+  /** Shots taken as one set (a scroll-shot series) share the set's name, in order. */
+  set?: string;
 }
 
 export interface LogLine {
@@ -83,24 +85,25 @@ export class AttemptRecorder {
   }
 
   /** Registers a file already written inside the attempt folder (or anywhere under the data folder). */
-  register(kind: string, name: string, absPath: string, contentType = contentTypeOf(absPath)): ArtifactInfo {
+  register(kind: string, name: string, absPath: string, contentType = contentTypeOf(absPath), extra: { set?: string } = {}): ArtifactInfo {
     const info: ArtifactInfo = {
       kind,
       name,
       contentType,
       path: path.relative(this.dataDir, absPath).split(path.sep).join("/"),
       size: statSync(absPath).size,
+      ...(extra.set !== undefined ? { set: extra.set } : {}),
     };
     this.artifacts.push(info);
     this.onArtifact(info);
     return info;
   }
 
-  write(kind: string, name: string, fileName: string, data: string | Buffer, contentType?: string): ArtifactInfo {
+  write(kind: string, name: string, fileName: string, data: string | Buffer, contentType?: string, extra: { set?: string } = {}): ArtifactInfo {
     const abs = path.join(this.dir, fileName);
     mkdirSync(path.dirname(abs), { recursive: true });
     writeFileSync(abs, data);
-    return this.register(kind, name, abs, contentType);
+    return this.register(kind, name, abs, contentType, extra);
   }
 
   addLog(level: LogLine["level"], message: string): void {

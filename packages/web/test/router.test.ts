@@ -8,6 +8,8 @@ describe("router", () => {
     expect(parseRoute("#/?pack=0a1b2c3d&status=finished")).toEqual({ name: "runs", query: { pack: "0a1b2c3d", status: "finished" } });
     expect(parseRoute("#/new?pack=0a1b2c3d")).toEqual({ name: "new", query: { pack: "0a1b2c3d" } });
     expect(parseRoute("#/runs/0a1b2c3d")).toEqual({ name: "run", id: "0a1b2c3d" });
+    expect(parseRoute("#/runs/0a1b2c3d/attempts/0a1b2c3d4e5f")).toEqual({ name: "attempt", runId: "0a1b2c3d", attemptId: "0a1b2c3d4e5f" });
+    expect(parseRoute("#/runs/0a1b2c3d/attempts/xyz").name).toBe("runs");
     expect(parseRoute("#/packs")).toEqual({ name: "packs" });
     expect(parseRoute("#/packs/0a1b2c3d")).toEqual({ name: "pack", id: "0a1b2c3d" });
     expect(parseRoute("#/kit")).toEqual({ name: "kit" });
@@ -25,6 +27,7 @@ describe("router", () => {
       { name: "runs", query: { pack: "0a1b2c3d", status: "finished,stopped" } },
       { name: "new", query: { pack: "0a1b2c3d" } },
       { name: "run", id: "0a1b2c3d" },
+      { name: "attempt", runId: "0a1b2c3d", attemptId: "0a1b2c3d4e5f" },
       { name: "packs" },
       { name: "pack", id: "0a1b2c3d" },
       { name: "kit" },
@@ -35,6 +38,7 @@ describe("router", () => {
 
   it("knows which section a route is in", () => {
     expect(sectionOf({ name: "run", id: "0a1b2c3d" })).toBe("runs");
+    expect(sectionOf({ name: "attempt", runId: "0a1b2c3d", attemptId: "0a1b2c3d4e5f" })).toBe("runs");
     expect(sectionOf({ name: "pack", id: "0a1b2c3d" })).toBe("packs");
     expect(sectionOf({ name: "kit" })).toBeNull();
   });

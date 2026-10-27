@@ -7,6 +7,7 @@ import DataTable from "../components/DataTable.vue";
 import DatePicker from "../components/DatePicker.vue";
 import DateRangePicker, { type DateRange } from "../components/DateRangePicker.vue";
 import FilePicker from "../components/FilePicker.vue";
+import ImageViewer from "../components/ImageViewer.vue";
 import MenuButton from "../components/MenuButton.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import MultiSelect from "../components/MultiSelect.vue";
@@ -23,6 +24,7 @@ import TextArea from "../components/TextArea.vue";
 import TextField from "../components/TextField.vue";
 import TimelineScrubber, { type TimelineMark } from "../components/TimelineScrubber.vue";
 import ToggleSwitch from "../components/ToggleSwitch.vue";
+import VideoPlayer from "../components/VideoPlayer.vue";
 import type { Sort } from "../table";
 import type { TimelineStep } from "../timeline";
 import { toast } from "../toasts";
@@ -131,6 +133,20 @@ const tabs = [
   { value: "texts" as const, label: "Texts", count: 3 },
   { value: "log" as const, label: "Log" },
 ];
+// Sample screenshots drawn as SVG, so the kit needs no image files.
+const sampleShot = (title: string, hue: number) =>
+  `data:image/svg+xml;utf8,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="800"><rect width="1280" height="800" fill="#f4f1ea"/><rect width="1280" height="72" fill="hsl(${hue},30%,25%)"/><text x="32" y="48" font-family="sans-serif" font-size="28" font-weight="700" fill="#fff">${title}</text>${[0, 1, 2]
+      .map((i) => `<rect x="${40 + i * 410}" y="120" width="380" height="240" rx="12" fill="hsl(${hue + i * 40},35%,72%)"/>`)
+      .join("")}<rect x="40" y="400" width="1200" height="24" rx="6" fill="#ddd"/><rect x="40" y="440" width="900" height="24" rx="6" fill="#ddd"/></svg>`,
+  )}`;
+const shots = [
+  { url: sampleShot("Home", 140), name: "01 home" },
+  { url: sampleShot("Search results", 210), name: "02 search" },
+  { url: sampleShot("Cart", 20), name: "03 cart", note: "mark" },
+];
+const shotOpen = ref<number | null>(null);
+
 const dialog = ref(false);
 const formDialog = ref(false);
 const picked = ref("");
@@ -377,6 +393,26 @@ const traces = [
         </div>
       </div>
     </section>
+
+    <section class="card">
+      <h2 class="display">Media</h2>
+      <div class="grid">
+        <div class="item wide">
+          <span class="lbl">Image viewer (click a shot; arrows, Z to zoom, Esc to close)</span>
+          <div class="shots">
+            <button v-for="(s, i) in shots" :key="s.name" type="button" class="shot" @click="shotOpen = i">
+              <img :src="s.url" :alt="s.name" />
+              <span class="muted">{{ s.name }}</span>
+            </button>
+          </div>
+          <ImageViewer v-model="shotOpen" :images="shots" label="Sample shots" />
+        </div>
+        <div class="item wide">
+          <span class="lbl">Video player (Space or K, arrows, comma and period, F)</span>
+          <VideoPlayer class="video" src="kit/sample.webm" label="Sample video" />
+        </div>
+      </div>
+    </section>
   </main>
 </template>
 
@@ -487,6 +523,28 @@ header p {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
+}
+.shots {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--space-3);
+}
+.shot {
+  display: grid;
+  gap: var(--space-1);
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: zoom-in;
+}
+.shot img {
+  width: 100%;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius);
+}
+.video {
+  max-width: 640px;
 }
 @media (max-width: 640px) {
   .page {

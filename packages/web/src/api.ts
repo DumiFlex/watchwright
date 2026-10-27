@@ -141,17 +141,33 @@ export interface RunDetail extends RunSummary {
   live: LiveSnapshot | null;
 }
 
+export interface Artifact {
+  kind: string;
+  name: string;
+  contentType: string;
+  url: string;
+  size: number;
+  /** Shots taken as one set (scroll shots) share the set's name. */
+  set?: string;
+}
+
 export interface ResultDocument {
   schemaVersion: 1;
+  runId: string;
   attemptId: string;
   test: { id: string; title: string };
+  attempt: { number: number; of: number; try: number; current: boolean; parentId: string | null };
   status: AttemptStatus;
-  error: { kind: string; message: string } | null;
+  error: { kind: string; message: string; stack?: string | null } | null;
   notes: string[];
   texts: Record<string, string>;
   metrics: Record<string, { value: number; unit: string | null }>;
   flags: { name: string; kind: string; detail: string | null }[];
-  artifacts: { kind: string; name: string; contentType: string; url: string; size: number }[];
+  log: { time: string; level: "info" | "warn" | "error"; message: string }[];
+  startedAt: string;
+  finishedAt: string | null;
+  durationMs: number | null;
+  artifacts: Artifact[];
 }
 
 export interface WwEvent {
