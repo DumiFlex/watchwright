@@ -80,6 +80,7 @@ export {
   Rows2,
   Save,
   Search,
+  SearchX,
   Send,
   Settings,
   SkipForward,

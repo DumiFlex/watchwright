@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // The home page: runs that are going (or waiting) first, then every earlier run with filters
 // by pack and status, a page at a time. Filters live in the address so a list can be linked.
-import { Ellipsis } from "../icons";
+import { Ellipsis, Package, Play, SearchX } from "../icons";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, sendJson, type Pack, type RunSummary } from "../api";
 import { ago, countsText, done, duration, isActive, runDuration, when } from "../format";
@@ -9,10 +9,12 @@ import { LiveConnection } from "../live";
 import { offerNotify } from "../notify";
 import { replaceRoute } from "../router";
 import { toast } from "../toasts";
+import EmptyState from "../components/EmptyState.vue";
 import MenuButton from "../components/MenuButton.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import ProgressBar from "../components/ProgressBar.vue";
 import SelectMenu from "../components/SelectMenu.vue";
+import SkeletonBlock from "../components/SkeletonBlock.vue";
 import TextField from "../components/TextField.vue";
 import StatusChip from "../components/StatusChip.vue";
 import { vTip } from "../tooltip";
@@ -213,7 +215,13 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <p v-if="loading" class="muted">Loading…</p>
+      <div v-if="loading" class="skeleton-rows" aria-busy="true" aria-label="Loading runs">
+        <div v-for="w in [52, 38, 61, 45, 30]" :key="w" class="skeleton-row">
+          <SkeletonBlock :width="`${w}%`" />
+          <SkeletonBlock shape="block" width="64px" height="20px" />
+          <SkeletonBlock width="80px" />
+        </div>
+      </div>
       <table v-else-if="runs.length" class="runs">
         <thead>
           <tr>
@@ -255,20 +263,26 @@ onBeforeUnmount(() => {
           </tr>
         </tbody>
       </table>
-      <div v-else class="empty">
-        <template v-if="filtered">
-          <p class="muted">{{ search.trim() ? `No runs match "${search.trim()}"${packFilter || statusFilter ? " with these filters" : ""}.` : "No runs match these filters." }}</p>
-          <button class="btn" @click="(packFilter = ''), (statusFilter = ''), (search = '')">Clear filters</button>
-        </template>
-        <template v-else-if="packs.length === 0">
-          <p class="muted">No runs yet. Add a test pack first: the folder with its pack file.</p>
-          <a class="btn primary" href="#/packs">Add a pack</a>
-        </template>
-        <template v-else>
-          <p class="muted">No finished runs yet.</p>
-          <a class="btn primary" href="#/new">Start a run</a>
-        </template>
-      </div>
+      <template v-else-if="!loadError">
+        <EmptyState v-if="filtered" :icon="SearchX" heading="No runs match" compact :level="3">
+          <p>{{ search.trim() ? `Nothing matches "${search.trim()}"${packFilter || statusFilter ? " with these filters" : ""}.` : "No runs have this pack and status." }}</p>
+          <template #actions>
+            <button class="btn" @click="(packFilter = ''), (statusFilter = ''), (search = '')">Clear the filters</button>
+          </template>
+        </EmptyState>
+        <EmptyState v-else-if="packs.length === 0" :icon="Package" heading="No packs yet" compact :level="3">
+          <p>Runs start from a test pack: a folder with a pack file and its tests. Add one first.</p>
+          <template #actions>
+            <a class="btn primary" href="#/packs?browse=add">Add a pack</a>
+          </template>
+        </EmptyState>
+        <EmptyState v-else :icon="Play" heading="Nothing has run yet" compact :level="3">
+          <p>Start a run to watch it live here. Runs keep their videos, screenshots and logs.</p>
+          <template #actions>
+            <a class="btn primary" href="#/new">Start a run</a>
+          </template>
+        </EmptyState>
+      </template>
       <div v-if="more" class="more"><button class="btn" @click="loadMore">Show older runs</button></div>
     </section>
 
@@ -422,13 +436,16 @@ onBeforeUnmount(() => {
   text-align: right;
   padding-right: 0;
 }
-.empty {
+.skeleton-rows {
   display: grid;
-  justify-items: start;
-  gap: var(--space-2);
 }
-.empty p {
-  margin: 0;
+.skeleton-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--line);
 }
 .more {
   margin-top: var(--space-3);

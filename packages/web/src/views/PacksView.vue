@@ -3,16 +3,18 @@
 // that completes folders as you type, a folder browser, and a search for packs in a folder.
 // The server lists the folders (a page can't learn a folder's path; docs/plans/step-qol.md).
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { Ellipsis, FolderSearch, FolderOpen, TriangleAlert } from "../icons";
+import { Ellipsis, FolderSearch, FolderOpen, Package, TriangleAlert } from "../icons";
 import { getJson, sendJson, type FolderPlaces, type Pack } from "../api";
 import { ago, when } from "../format";
 import { LiveConnection } from "../live";
 import { toast } from "../toasts";
 import MenuButton from "../components/MenuButton.vue";
+import EmptyState from "../components/EmptyState.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import PackFolderDialog from "../components/PackFolderDialog.vue";
 import PathInput from "../components/PathInput.vue";
 import PathLine from "../components/PathLine.vue";
+import SkeletonBlock from "../components/SkeletonBlock.vue";
 import StatusChip from "../components/StatusChip.vue";
 import { vTip } from "../tooltip";
 import { replaceRoute } from "../router";
@@ -133,7 +135,17 @@ onBeforeUnmount(() => live?.close());
     </div>
     <p v-if="loadError" class="error" role="alert">{{ loadError }}</p>
 
-    <p v-if="loading" class="muted">Loading…</p>
+    <ul v-if="loading" class="packs" aria-busy="true" aria-label="Loading packs">
+      <li v-for="i in 3" :key="i" class="card pk">
+        <SkeletonBlock width="45%" height="1.2em" />
+        <SkeletonBlock :lines="2" />
+        <SkeletonBlock width="70%" />
+        <div class="acts">
+          <SkeletonBlock shape="block" width="88px" height="32px" />
+          <SkeletonBlock shape="block" width="72px" height="32px" />
+        </div>
+      </li>
+    </ul>
     <ul v-else-if="packs.length" class="packs">
       <li v-for="p in packs" :key="p.id" class="card pk" :class="{ gone: p.missing }">
         <div class="top">
@@ -161,9 +173,15 @@ onBeforeUnmount(() => live?.close());
         </div>
       </li>
     </ul>
-    <div v-else class="card empty">
-      <p>No packs yet. A pack is a folder with a pack file (<code>pack.ts</code> or <code>pack.yaml</code>) and its tests, usually in the repository of the site it tests.</p>
-    </div>
+    <section v-else-if="!loadError" class="card">
+      <EmptyState :icon="Package" heading="No packs yet">
+        <p>A pack is a folder with a pack file (<code>pack.ts</code> or <code>pack.yaml</code>) and its tests, usually in the repository of the site it tests. Add one you have, or pick a folder and choose <strong>New pack here</strong> for a small starter pack.</p>
+        <template #actions>
+          <button type="button" class="btn primary" @click="browse('add')"><FolderOpen :size="15" /> Add a pack…</button>
+          <button type="button" class="btn" @click="browse('find')"><FolderSearch :size="15" /> Find packs in a folder…</button>
+        </template>
+      </EmptyState>
+    </section>
 
     <section class="card" aria-labelledby="add-title">
       <h2 id="add-title" class="display">Add a pack</h2>
@@ -271,9 +289,6 @@ onBeforeUnmount(() => live?.close());
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-}
-.empty p {
-  margin: 0;
 }
 .add {
   display: flex;
