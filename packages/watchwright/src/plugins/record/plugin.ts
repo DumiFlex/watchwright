@@ -153,7 +153,7 @@ export const recordPlugin = definePlugin({
       }),
       defineAction<{ id: string } & Record<string, unknown>>({
         name: "record.input",
-        title: "Send a click, key, text or navigation from the live view to the recording's active page (x and y in page pixels)",
+        title: "Send a click, key, text or navigation from the live view to the recording's active page (x and y in page pixels); a move, up or wheel answers with the element now under the pointer (`hover`: its box, tag and best target)",
         method: "POST",
         path: "/record/:id/input",
         input: {
@@ -183,8 +183,8 @@ export const recordPlugin = definePlugin({
           if (i.type === "key") need(["key"]);
           if (i.type === "text") need(["text"]);
           if (i.type === "goto") need(["url"]);
-          await guard(() => recordings.get(id).input(i));
-          return { ok: true };
+          const hover = await guard(() => recordings.get(id).input(i));
+          return { ok: true, hover };
         },
       }),
       defineAction<{ id: string; x: number; y: number }>({

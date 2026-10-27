@@ -162,9 +162,6 @@ const LIST_LABELS: Record<string, string> = { steps: "Steps", then: "Then", else
 .grow {
   flex: 1;
 }
-.btn.icon {
-  padding: 6px;
-}
 .add,
 .add-after {
   justify-self: start;

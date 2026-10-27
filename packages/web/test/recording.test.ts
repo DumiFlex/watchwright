@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { keyOf, pagePoint } from "../src/liveinput";
+import { keyOf, pagePoint, screenRect } from "../src/liveinput";
 import { recordingTestTemplate } from "../src/editfiles";
 import { codeTestAt, insertCodeSteps, insertYamlSteps, targetLabel, yamlSpot } from "../src/recording";
 
@@ -75,6 +75,14 @@ describe("live view input", () => {
     expect(pagePoint(box, { width: 1280, height: 800 }, { width: 1280, height: 800 }, 500, 60)).toBeNull();
     // A smaller screencast of a bigger page.
     expect(pagePoint(box, { width: 640, height: 400 }, { width: 1280, height: 800 }, 500, 350)).toEqual({ x: 640, y: 400 });
+  });
+
+  it("places a page box on the picture, cut to the page", () => {
+    const size = { width: 800, height: 600 };
+    // Scale 0.625 with 50 px bars above and below (as above), from a half-size screencast.
+    expect(screenRect(size, { width: 640, height: 400 }, { width: 1280, height: 800 }, { x: 640, y: 400, width: 160, height: 80 })).toEqual({ left: 400, top: 300, width: 100, height: 50 });
+    expect(screenRect(size, { width: 1280, height: 800 }, { width: 1280, height: 800 }, { x: -100, y: 0, width: 200, height: 800 })).toEqual({ left: 0, top: 50, width: 62.5, height: 500 });
+    expect(screenRect(size, { width: 1280, height: 800 }, { width: 1280, height: 800 }, { x: 0, y: 900, width: 10, height: 10 })).toBeNull();
   });
 
   it("names keys the way Playwright does", () => {

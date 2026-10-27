@@ -36,6 +36,25 @@ export function pagePoint(box: Rect, frame: Size, page: Size, clientX: number, c
   return { x: round((fx * page.width) / frame.width), y: round((fy * page.height) / frame.height) };
 }
 
+/**
+ * Where a box in page pixels shows on that canvas, in pixels from the canvas's top-left corner
+ * (the inverse of `pagePoint`), cut to the picture.
+ */
+export function screenRect(box: Size, frame: Size, page: Size, r: { x: number; y: number; width: number; height: number }): Rect | null {
+  if (box.width <= 0 || box.height <= 0 || frame.width <= 0 || frame.height <= 0 || page.width <= 0 || page.height <= 0) return null;
+  const scale = Math.min(box.width / frame.width, box.height / frame.height);
+  const ox = (box.width - frame.width * scale) / 2;
+  const oy = (box.height - frame.height * scale) / 2;
+  const sx = (frame.width * scale) / page.width;
+  const sy = (frame.height * scale) / page.height;
+  const left = Math.max(0, r.x);
+  const top = Math.max(0, r.y);
+  const right = Math.min(page.width, r.x + r.width);
+  const bottom = Math.min(page.height, r.y + r.height);
+  if (right <= left || bottom <= top) return null;
+  return { left: ox + left * sx, top: oy + top * sy, width: (right - left) * sx, height: (bottom - top) * sy };
+}
+
 const MODIFIER_KEYS = new Set(["Control", "Alt", "Shift", "Meta", "CapsLock", "Dead", "Unidentified", "Process"]);
 
 /**
