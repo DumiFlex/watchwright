@@ -3,11 +3,15 @@
 // from when a feature needs one. The page is not linked from the app.
 import { computed, ref } from "vue";
 import CheckBox from "../components/CheckBox.vue";
+import CheckTree from "../components/CheckTree.vue";
+import CodeView from "../components/CodeView.vue";
 import DataTable from "../components/DataTable.vue";
 import DatePicker from "../components/DatePicker.vue";
 import DateRangePicker, { type DateRange } from "../components/DateRangePicker.vue";
+import DiffView from "../components/DiffView.vue";
 import FilePicker from "../components/FilePicker.vue";
 import ImageViewer from "../components/ImageViewer.vue";
+import JsonTree from "../components/JsonTree.vue";
 import MenuButton from "../components/MenuButton.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import MultiSelect from "../components/MultiSelect.vue";
@@ -27,6 +31,7 @@ import ToggleSwitch from "../components/ToggleSwitch.vue";
 import VideoPlayer from "../components/VideoPlayer.vue";
 import type { Sort } from "../table";
 import type { TimelineStep } from "../timeline";
+import type { TreeNode } from "../tree";
 import * as icons from "../icons";
 import { toast } from "../toasts";
 import { vTip } from "../tooltip";
@@ -75,6 +80,49 @@ const runColumns = [
 const took = (s: number) => (s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`);
 const lastRow = ref("");
 const iconList = Object.entries(icons);
+const testCode = `import { test, expect } from "watchwright";
+
+// Guest checkout: add boots to the cart and pay as a guest.
+test("C1 Guest checkout", { needs: ["S1"] }, async ({ page, h }) => {
+  await page.goto("/products/boots");
+  await page.getByRole("button", { name: "Add to cart" }).click();
+  await h.step("Checkout", async () => {
+    await page.getByRole("link", { name: "Checkout" }).click();
+    await expect(page.getByTestId("total")).toHaveText("59.90");
+  });
+  const shots = 3; /* one per page */
+  await h.screenshot("checkout", { fullPage: true, count: shots });
+});`;
+const expectedText = ["Order summary", "Trail boots, size 42", "Qty 1", "Subtotal 59.90", "Shipping free", "Total 59.90", "", "Pay as a guest", "Email", "Card number", "Pay now"].join("\n");
+const actualText = ["Order summary", "Trail boots, size 42", "Qty 1", "Subtotal 59.90", "Shipping 5.00", "Total 64.90", "", "Pay as a guest", "Email", "Card number", "Pay now", "Have a coupon?"].join("\n");
+const diffMode = ref<"unified" | "split">("split");
+const sampleJson = {
+  id: "0a1b2c3d",
+  pack: "shop-smoke",
+  status: "failed",
+  startedAt: "2026-10-27T00:12:04Z",
+  counts: { planned: 6, passed: 4, failed: 1, broken: 0, skipped: 1 },
+  browsers: ["chromium", "firefox"],
+  options: { trace: "problems", headless: true, pauseLimit: 20, baseUrl: "https://shop.example.test" },
+  attempts: [
+    { test: "H1", browser: "chromium", status: "passed", ms: 4210 },
+    { test: "C1", browser: "chromium", status: "failed", ms: 41_380, error: { message: "Expected 59.90, got 64.90", line: 10 } },
+  ],
+  note: null,
+};
+const packTree: TreeNode[] = [
+  {
+    id: "shop-smoke",
+    label: "shop-smoke",
+    children: [
+      { id: "home", label: "Home", children: [{ id: "H1", label: "H1 Home page loads" }, { id: "H2", label: "H2 Banner rotates" }] },
+      { id: "search", label: "Search", children: [{ id: "S1", label: "S1 Search finds products" }, { id: "S2", label: "S2 Filters narrow results" }, { id: "S3", label: "S3 Typo still finds boots" }] },
+      { id: "checkout", label: "Checkout", children: [{ id: "C1", label: "C1 Guest checkout" }, { id: "C2", label: "C2 Checkout with an account" }] },
+    ],
+  },
+  { id: "account-flows", label: "account-flows", children: [{ id: "A1", label: "A1 Sign in" }, { id: "A2", label: "A2 Reset password" }] },
+];
+const pickedTests = ref<string[]>(["S1", "S2", "S3", "C1"]);
 const split = ref(58);
 const logLines = ["0:00 open https://shop.example.test/", "0:04 fill search: boots", "0:09 click Add to cart", "0:12 wait for cart badge", "0:21 click Checkout", "0:33 expect total 59.90", "0:41 screenshot checkout"];
 const playhead = ref(12_400);
@@ -359,6 +407,29 @@ const traces = [
               </div>
             </template>
           </SortableList>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2 class="display">Inspecting</h2>
+      <div class="grid">
+        <div class="item wide">
+          <span class="lbl">Code</span>
+          <CodeView :code="testCode" lang="ts" label="Test file" name="tests/checkout.test.ts" :marked="[9]" max-height="320px" />
+        </div>
+        <div class="item wide">
+          <span class="lbl">Diff</span>
+          <DiffView v-model:mode="diffMode" :before="expectedText" :after="actualText" label="Page text, checkout" before-label="Expected" after-label="Got" :context="2" />
+        </div>
+        <div class="item wide">
+          <span class="lbl">JSON</span>
+          <JsonTree :value="sampleJson" label="run" :open-depth="1" max-height="360px" />
+        </div>
+        <div class="item wide">
+          <span class="lbl">Tree with checkboxes</span>
+          <p class="muted note">{{ pickedTests.length }} tests picked: {{ pickedTests.join(", ") || "none" }}</p>
+          <CheckTree v-model="pickedTests" :nodes="packTree" label="Tests to run" />
         </div>
       </div>
     </section>
