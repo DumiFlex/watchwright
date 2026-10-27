@@ -24,5 +24,7 @@ describe("controls", () => {
     expect(text).not.toMatch(/<(progress|meter|datalist|textarea)\b/);
     // Tooltips use v-tip, not the browser's title popup.
     expect(text).not.toMatch(/\s:?title="/);
+    // A directive works only where it is imported; without it Vue warns and shows no tip.
+    if (/\sv-tip\b/.test(text)) expect(sfc).toMatch(/import \{ vTip \} from "\.\.?\/tooltip"/);
   });
 });

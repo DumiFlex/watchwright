@@ -4,8 +4,12 @@ import { getJson, sendJson, type ResultDocument, type RunDetail, type WwEvent } 
 import { LiveConnection, type LiveState } from "../live";
 import LiveViewer from "../components/LiveViewer.vue";
 import ModalDialog from "../components/ModalDialog.vue";
+import SelectMenu from "../components/SelectMenu.vue";
 import StatusChip from "../components/StatusChip.vue";
+import TextArea from "../components/TextArea.vue";
 import { countsText, duration } from "../format";
+import { canMove as canMoveRow, movable as movableRow } from "../queue";
+import { vTip } from "../tooltip";
 
 const props = defineProps<{ id: string }>();
 
@@ -68,13 +72,16 @@ function scheduleLoad() {
 }
 
 const titles = computed(() => new Map((run.value?.plan ?? []).map((p) => [p.testId, p.title])));
+// Which test an attempt belongs to, so log lines can be filtered by test.
+const attemptTests = new Map<string, string>();
+watch(run, (r) => r?.attempts.forEach((a) => attemptTests.set(a.id, a.testId)));
 function onEvent(e: WwEvent) {
   if (e.runId !== props.id) return;
   const d = e.data;
   switch (e.type) {
     case "attempt.log":
     case "run.log":
-      log.value.push({ seq: e.seq, time: String(d.time ?? e.time), level: String(d.level ?? "info"), message: String(d.message ?? ""), test: null });
+      log.value.push({ seq: e.seq, time: String(d.time ?? e.time), level: String(d.level ?? "info"), message: String(d.message ?? ""), test: (e.attemptId && attemptTests.get(e.attemptId)) || null });
       if (log.value.length > 500) log.value.splice(0, log.value.length - 500);
       break;
     case "attempt.step":
@@ -96,6 +103,7 @@ function onEvent(e: WwEvent) {
       break;
     case "attempt.started":
       step.value = null;
+      if (e.attemptId) attemptTests.set(e.attemptId, String(d.testId));
       log.value.push({ seq: e.seq, time: e.time, level: "info", message: `▶ ${d.testId} ${titles.value.get(String(d.testId)) ?? ""} (attempt ${d.number} of ${d.of}${Number(d.try) > 1 ? `, try ${d.try}` : ""})`, test: String(d.testId) });
       scheduleLoad();
       break;
@@ -128,11 +136,57 @@ async function openAttempt(attemptId: string | null) {
   if (res.ok && selected.value === attemptId) result.value = res.data;
 }
 
+// Queue edits: attempts that haven't started can be skipped, tests that haven't started moved.
+type PlanRow = RunDetail["plan"][number];
+const editable = (p: PlanRow) => active.value && p.status === "pending";
+const movable = (i: number) => movableRow(run.value?.plan ?? [], i);
+const canMove = (i: number, direction: -1 | 1) => canMoveRow(run.value?.plan ?? [], i, direction);
+const queueAct = (path: "skip" | "move", body: Record<string, unknown>) => act(`queue/${path}`, body);
+
+/** How long an attempt took, or has taken so far. */
+function elapsed(p: PlanRow): string | null {
+  const a = p.attemptId ? run.value?.attempts.find((x) => x.id === p.attemptId) : undefined;
+  if (!a) return null;
+  if (a.durationMs !== null) return duration(a.durationMs);
+  return a.status === "running" ? duration(now.value - Date.parse(a.startedAt)) : null;
+}
+
+// Mark: saves the live view's newest frame to the running attempt, with a note.
+const markOpen = ref(false);
+const markNote = ref("");
+const markSaved = ref<string | null>(null);
+async function saveMark() {
+  actionError.value = null;
+  busy.value = true;
+  const res = await sendJson<{ attemptId: string; artifact: { name: string; path: string } }>(`/api/v1/runs/${props.id}/mark`, { note: markNote.value.trim() });
+  busy.value = false;
+  markOpen.value = false;
+  if (!res.ok) {
+    actionError.value = res.error.message;
+    return;
+  }
+  markSaved.value = `Marked ${res.data.artifact.path.split("/").pop()}${markNote.value.trim() ? `: ${markNote.value.trim()}` : ""}`;
+  markNote.value = "";
+}
+
+// Log filters.
+const logLevel = ref<"all" | "problems">("all");
+const logTest = ref("");
+const levelOptions = [
+  { value: "all" as const, label: "Every line" },
+  { value: "problems" as const, label: "Warnings and errors" },
+];
+const testOptions = computed(() => [{ value: "", label: "All tests" }, ...[...titles.value].map(([id, t]) => ({ value: id, label: t && t !== id ? `${id} · ${t}` : id }))]);
+const shownLog = computed(() =>
+  log.value.filter((l) => (logLevel.value === "all" || l.level !== "info") && (!logTest.value || l.test === logTest.value)).reverse(),
+);
+
 let conn: LiveConnection | null = null;
 let clock: ReturnType<typeof setInterval> | null = null;
 function connect() {
   conn?.close();
   log.value = [];
+  markSaved.value = null;
   conn = new LiveConnection(
     { runId: props.id, frames: true, after: 0 },
     { onState: (s) => (liveState.value = s), onEvent, onFrame: (h, jpeg) => void viewer.value?.push(h, jpeg) },
@@ -175,7 +229,7 @@ function time(iso: string) {
 </script>
 
 <template>
-  <main class="page">
+  <main class="page" :class="{ wide: active }">
     <p class="crumb"><a href="#/">← Runs</a></p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <template v-if="run">
@@ -195,6 +249,7 @@ function time(iso: string) {
             <button v-if="live?.state === 'pausing' || pausedManual" class="btn primary" :disabled="busy" @click="act('resume')">Resume</button>
             <button v-if="pausedBroken" class="btn primary" :disabled="busy" @click="act('retry')">Retry</button>
             <button v-if="pausedBroken" class="btn" :disabled="busy" @click="act('skip')">Skip</button>
+            <button v-tip="'Save the live view to this attempt, with a note'" class="btn" :disabled="busy || !live?.attemptId" @click="markOpen = true">Mark</button>
             <button class="btn" :disabled="busy || !!live?.stopping" @click="act('stop', { when: 'after' })">Stop after this test</button>
             <button class="btn danger" :disabled="busy || live?.stopping === 'now'" @click="act('stop', { when: 'now' })">Stop now</button>
           </template>
@@ -207,6 +262,7 @@ function time(iso: string) {
       </header>
       <p v-if="actionError" class="error" role="alert">{{ actionError }}</p>
       <p v-if="run.error" class="error">{{ run.error }}</p>
+      <p v-if="markSaved" class="muted small" role="status">{{ markSaved }}</p>
 
       <div v-if="live" class="banner" :class="{ warn: live.state !== 'running' }" role="status">
         <template v-if="pausedBroken">
@@ -228,14 +284,42 @@ function time(iso: string) {
         </section>
 
         <section class="card" aria-labelledby="queue-title">
-          <h2 id="queue-title" class="display">Tests <span class="muted small">{{ run.counts.passed }} passed · {{ run.counts.failed }} failed · {{ run.counts.broken }} broken · {{ run.counts.planned }} planned</span></h2>
+          <h2 id="queue-title" class="display">Queue <span class="muted small">{{ run.counts.passed }} passed · {{ run.counts.failed }} failed · {{ run.counts.broken }} broken · {{ run.counts.planned }} planned</span></h2>
           <ol class="queue">
-            <li v-for="p in run.plan" :key="`${p.testId}#${p.number}`" :class="{ cur: live?.testId === p.testId && p.status === 'running', sel: selected === p.attemptId && !!p.attemptId }">
-              <button class="qrow" :disabled="!p.attemptId" @click="openAttempt(p.attemptId)">
-                <code>{{ p.testId }}</code>
-                <span class="qt">{{ p.title !== p.testId ? p.title : "" }}<span v-if="p.of > 1" class="muted n">{{ p.number }}/{{ p.of }}</span></span>
-                <StatusChip :status="p.status" />
-              </button>
+            <li
+              v-for="(p, i) in run.plan"
+              :key="`${p.testId}#${p.number}`"
+              :class="{ cur: live?.testId === p.testId && p.status === 'running', sel: selected === p.attemptId && !!p.attemptId, skip: p.skip && p.status === 'pending' }"
+            >
+              <div class="qline">
+                <button class="qrow" :disabled="!p.attemptId" @click="openAttempt(p.attemptId)">
+                  <code>{{ p.testId }}</code>
+                  <span class="qt">{{ p.title !== p.testId ? p.title : "" }}<span v-if="p.of > 1" class="muted n">{{ p.number }}/{{ p.of }}</span></span>
+                  <span v-if="elapsed(p)" class="muted small num">{{ elapsed(p) }}</span>
+                  <StatusChip :status="p.skip && p.status === 'pending' ? 'skipped' : p.status" />
+                </button>
+                <span v-if="editable(p)" class="qedit">
+                  <template v-if="movable(i)">
+                    <button v-tip="'Move up'" class="ibtn" :aria-label="`Move ${p.testId} up`" :disabled="busy || !canMove(i, -1)" @click="queueAct('move', { testId: p.testId, direction: 'up' })">
+                      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M8 13V3M4 7l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                    </button>
+                    <button v-tip="'Move down'" class="ibtn" :aria-label="`Move ${p.testId} down`" :disabled="busy || !canMove(i, 1)" @click="queueAct('move', { testId: p.testId, direction: 'down' })">
+                      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M8 3v10M4 9l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                    </button>
+                  </template>
+                  <button
+                    v-tip="p.skip ? 'Run this attempt after all' : 'Skip this attempt'"
+                    class="ibtn"
+                    :aria-label="`${p.skip ? 'Run' : 'Skip'} attempt ${p.number} of ${p.testId}`"
+                    :aria-pressed="!!p.skip"
+                    :disabled="busy"
+                    @click="queueAct('skip', { testId: p.testId, number: p.number, undo: !!p.skip })"
+                  >
+                    <svg v-if="p.skip" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3 6h7a3 3 0 0 1 0 6H6M3 6l3-3M3 6l3 3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                    <svg v-else viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="1.6" /><path d="M4.2 11.8l7.6-7.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
+                  </button>
+                </span>
+              </div>
               <ul v-if="p.children" class="kids">
                 <li v-for="a in run.attempts.filter((x) => x.parentId && x.parentId === p.attemptId)" :key="a.id">
                   <button class="qrow" @click="openAttempt(a.id)"><code>{{ a.testId }}</code><span class="qt">{{ a.title }}</span><StatusChip :status="a.status" /></button>
@@ -264,13 +348,13 @@ function time(iso: string) {
             <template v-for="(m, k) in result.metrics" :key="k"><dt>{{ k }}</dt><dd>{{ m.value }} {{ m.unit ?? "" }}</dd></template>
           </dl>
           <div class="shots">
-            <a v-for="a in result.artifacts.filter((x) => x.kind === 'shot')" :key="a.url" :href="a.url" target="_blank" rel="noopener">
+            <a v-for="a in result.artifacts.filter((x) => x.kind === 'shot' || x.kind === 'mark')" :key="a.url" :href="a.url" target="_blank" rel="noopener">
               <img :src="a.url" :alt="a.name" loading="lazy" />
               <span>{{ a.name }}</span>
             </a>
           </div>
           <ul class="plain files">
-            <li v-for="a in result.artifacts.filter((x) => x.kind !== 'shot')" :key="a.url">
+            <li v-for="a in result.artifacts.filter((x) => x.kind !== 'shot' && x.kind !== 'mark')" :key="a.url">
               <a :href="a.url" target="_blank" rel="noopener">{{ a.name }}</a> <span class="muted small">{{ a.kind }} · {{ Math.max(1, Math.round(a.size / 1024)) }} KB</span>
             </li>
           </ul>
@@ -278,16 +362,32 @@ function time(iso: string) {
       </section>
 
       <section class="card" aria-labelledby="log-title">
-        <h2 id="log-title" class="display">Log</h2>
-        <ol v-if="log.length" class="log">
-          <li v-for="l in log.slice().reverse()" :key="l.seq" :class="l.level"><time>{{ time(l.time) }}</time> {{ l.message }}</li>
+        <div class="loghead">
+          <h2 id="log-title" class="display">Log</h2>
+          <div class="logfilters">
+            <label for="log-level" class="sr-only">Which lines</label>
+            <SelectMenu id="log-level" v-model="logLevel" :options="levelOptions" />
+            <label for="log-test" class="sr-only">Which test</label>
+            <SelectMenu id="log-test" v-model="logTest" :options="testOptions" />
+          </div>
+        </div>
+        <ol v-if="shownLog.length" class="log">
+          <li v-for="l in shownLog" :key="l.seq" :class="l.level"><time>{{ time(l.time) }}</time> {{ l.message }}</li>
         </ol>
-        <p v-else class="muted">Nothing logged yet.</p>
+        <p v-else class="muted">{{ log.length ? "No lines match." : "Nothing logged yet." }}</p>
         <p v-if="run.attempts.length" class="muted small">
-          {{ run.attempts.filter((a) => !a.parentId).length }} attempts ·
+          {{ run.attempts.filter((a) => !a.parentId).length }} {{ run.attempts.filter((a) => !a.parentId).length === 1 ? "attempt" : "attempts" }} ·
           {{ duration(run.attempts.reduce((s, a) => s + (a.durationMs ?? 0), 0)) }} of test time
         </p>
       </section>
+      <ModalDialog v-model="markOpen" heading="Mark this moment">
+        <p class="muted small">Saves what the live view shows now to the running attempt{{ live?.testId ? ` (${live.testId})` : "" }}, with your note. It shows with the attempt's screenshots.</p>
+        <TextArea v-model="markNote" :rows="3" placeholder="What you saw (optional)" />
+        <template #actions>
+          <button class="btn" :disabled="busy" @click="markOpen = false">Cancel</button>
+          <button class="btn primary" :disabled="busy" @click="saveMark">{{ busy ? "Saving…" : "Save mark" }}</button>
+        </template>
+      </ModalDialog>
       <ModalDialog v-model="confirmDelete" heading="Delete this run?">
         <p><strong>{{ run.packName }}</strong> <span class="num">{{ run.id }}</span> ({{ countsText(run.counts) }}). Its results, screenshots, videos and traces are removed from the data folder. This can't be undone.</p>
         <template #actions>
@@ -344,9 +444,12 @@ function time(iso: string) {
   border-color: var(--warn);
   background: color-mix(in srgb, var(--warn) 10%, var(--surface));
 }
+.page.wide {
+  max-width: 1600px;
+}
 .grid {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
   gap: 14px;
   align-items: start;
 }
@@ -398,10 +501,53 @@ function time(iso: string) {
 .kids {
   margin-left: 18px;
 }
+.qline {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: var(--radius);
+}
+.qline:hover {
+  background: var(--hover);
+}
+.qedit {
+  display: flex;
+  gap: 2px;
+  padding-right: 4px;
+}
+.ibtn {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.ibtn:hover:not(:disabled) {
+  background: var(--raised);
+  color: var(--text);
+}
+.ibtn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.ibtn[aria-pressed="true"] {
+  color: var(--accent);
+}
+.skip .qt,
+.skip code {
+  text-decoration: line-through;
+  color: var(--muted);
+}
 .qrow {
   width: 100%;
+  min-width: 0;
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto 1fr auto auto;
   align-items: center;
   gap: 8px;
   padding: 5px 6px;
@@ -415,13 +561,16 @@ function time(iso: string) {
 .qrow:disabled {
   cursor: default;
 }
-.qrow:hover:not(:disabled) {
+.kids .qrow {
+  grid-template-columns: auto 1fr auto;
+}
+.kids .qrow:hover {
   background: var(--hover);
 }
-.cur > .qrow {
+.cur > .qline {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
-.sel > .qrow {
+.sel > .qline {
   outline: 1px solid var(--accent);
 }
 .qt {
@@ -470,6 +619,36 @@ function time(iso: string) {
   width: 100%;
   border: var(--border-width) solid var(--line);
   border-radius: var(--radius);
+}
+.loghead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.loghead h2 {
+  margin: 0;
+}
+.logfilters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.logfilters > :not(label) {
+  width: 200px;
+}
+@media (max-width: 640px) {
+  .logfilters {
+    width: 100%;
+    flex-wrap: nowrap;
+  }
+  .logfilters > :not(label) {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
+  }
 }
 .log {
   list-style: none;

@@ -38,6 +38,9 @@ Everything the web page does goes through this API, so scripts and AI agents can
 | `POST /runs/:id/resume` | Resumes a manual pause. For an `interrupted`, `stopped` or `failed_to_start` run, queues it to continue: passed, failed and skipped attempts are kept, the rest run. |
 | `POST /runs/:id/retry`, `/skip` | Answers a pause on a broken attempt. |
 | `POST /runs/:id/stop` `{ when: "after" \| "now" }` | `after` finishes the current test first; `now` ends at once and files the current attempt as `stopped`. A queued run is cancelled. |
+| `POST /runs/:id/queue/skip` `{ testId, number?, undo? }` | Skips attempt `number` (default 1) of a test that hasn't started yet; `undo: true` takes the skip back. A skipped attempt is filed as `skipped` when its turn comes. The plan marks it with `skip: true`. |
+| `POST /runs/:id/queue/move` `{ testId, direction: "up" \| "down" }` | Moves a test that hasn't started one place up or down, past the next test that hasn't started. Refused (400) when a test would run before a test it needs. Children move with their parent. |
+| `POST /runs/:id/mark` `{ note? }` | Saves the live view's newest frame to the running attempt as a `mark` artifact named by the note, and adds the note to the attempt. Returns `{ attemptId, artifact }` (201). 409 `no_frame` before the first frame arrives. |
 | `POST /runs/:id/redo-broken` | Runs only the broken attempts of a finished run again, with the tests they need. |
 | `GET /files/runs/…` | Artifact files (the `url` in result documents). Only files inside the data folder's `runs/`. |
 
