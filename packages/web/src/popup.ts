@@ -122,6 +122,21 @@ export function useOutside(inside: Ref<HTMLElement | null>[], open: Ref<boolean>
 /** Open modal dialogs, innermost last. ModalDialog keeps it; ToastHost follows the top one. */
 export const openModals = shallowReactive<HTMLDialogElement[]>([]);
 
+// The page behind an open modal doesn't scroll: a wheel over a dialog that has nothing left to
+// scroll would otherwise scroll the page. The scrollbar's width is kept as padding so nothing shifts.
+if (typeof document !== "undefined") {
+  watch(
+    () => openModals.length > 0,
+    (locked) => {
+      const root = document.documentElement;
+      if (locked) {
+        root.style.setProperty("--scrollbar-gap", `${window.innerWidth - root.clientWidth}px`);
+        root.classList.add("ww-modal-open");
+      } else root.classList.remove("ww-modal-open");
+    },
+  );
+}
+
 export function usePopupHost(root: Ref<HTMLElement | null>) {
   const host = ref<string | HTMLElement>("body");
   onMounted(() => {

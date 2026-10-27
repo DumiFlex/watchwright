@@ -70,10 +70,27 @@ function frame(dir: 1 | -1) {
   video.value?.pause();
   jump(dir * FRAME);
 }
+// Leaving full screen can leave the page scrolled somewhere else (Firefox resets it), so the
+// page's scroll is kept on the way in and put back, with the player in view, on the way out.
+let scrollBefore: { x: number; y: number } | null = null;
 function fullscreen() {
   if (document.fullscreenElement) void document.exitFullscreen();
-  else void box.value?.requestFullscreen?.();
+  else if (box.value?.requestFullscreen) {
+    scrollBefore = { x: window.scrollX, y: window.scrollY };
+    void box.value.requestFullscreen();
+  }
 }
+function onFullscreenChange() {
+  if (document.fullscreenElement || !scrollBefore) return;
+  const back = scrollBefore;
+  scrollBefore = null;
+  // After the browser's own layout pass for leaving full screen.
+  requestAnimationFrame(() => {
+    window.scrollTo(back.x, back.y);
+    box.value?.scrollIntoView({ block: "nearest" });
+  });
+}
+document.addEventListener("fullscreenchange", onFullscreenChange);
 function setSpeed(v: string) {
   speed.value = Number(v);
 }
@@ -103,7 +120,10 @@ function onKey(e: KeyboardEvent) {
   else return;
   e.preventDefault();
 }
-onBeforeUnmount(() => video.value?.pause());
+onBeforeUnmount(() => {
+  video.value?.pause();
+  document.removeEventListener("fullscreenchange", onFullscreenChange);
+});
 </script>
 
 <template>
