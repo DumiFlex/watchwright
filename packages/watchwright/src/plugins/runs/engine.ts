@@ -21,6 +21,7 @@ import {
   runSummary,
   type AttemptStatus,
   type AttemptSummary,
+  type HistoryEntry,
   type PlanEntry,
   type RunMode,
   type RunOptions,
@@ -162,6 +163,10 @@ export class Engine {
   /** On boot: runs a crash left running become interrupted, ready for resume. */
   recover(): void {
     for (const id of this.o.repo.interruptLeftovers()) this.o.events.append("run.interrupted", { reason: "server_stopped" }, { runId: id });
+  }
+
+  testHistory(packId: string, limit: number): Record<string, HistoryEntry[]> {
+    return this.o.repo.history(packId, limit);
   }
 
   list(filter: RunFilter = {}): RunSummary[] {
