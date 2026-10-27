@@ -1,6 +1,6 @@
 # Step 4 plan: YAML tests, an editor and Record
 
-Status: proposed (2026-10-27). [docs/plan.md](../plan.md) holds the base design, [step-2.md](step-2.md) the web app, [step-qol.md](step-qol.md) the quality-of-life step. The research behind this plan is in [docs/research/step-4-authoring.md](../research/step-4-authoring.md).
+Status: agreed (2026-10-27), being built. [docs/plan.md](../plan.md) holds the base design, [step-2.md](step-2.md) the web app, [step-qol.md](step-qol.md) the quality-of-life step. The research behind this plan is in [docs/research/step-4-authoring.md](../research/step-4-authoring.md).
 
 Steps 1 to 3 made Watchwright run, show and review tests written in TypeScript. This step lets people write tests without code, edit a pack on the web page, and record steps by clicking through their site in the live view. A second pack, for a public demo app and written entirely in YAML, shows that none of it is tied to one site.
 
@@ -144,8 +144,10 @@ The `record` plugin owns record sessions, their actions (`record.start`, `record
 
 Each PR ships with tests and, where the page changes, screenshots.
 
-## 9. Questions for Dumi
+## 9. Answered questions
 
-1. **The Steps view** (section 3) is the biggest single piece of the editor. I'd build it: it is what makes YAML tests usable without reading YAML, and recorded steps land there. The alternative is source only, with hints and problems.
-2. **Where Record happens.** I'd record on the live view in the web page by default (works on any machine, testable in CI, no windows on the PC), with "Record in a window" as the option. The alternative is a window by default, like codegen.
-3. **The second pack.** The plan's answer was the Playwright TodoMVC demo, so that's what section 5 uses. Say if you'd rather it be one of your own sites.
+Dumi answered on 2026-10-27 by taking every recommendation:
+
+1. Build the Steps view (section 3) in this step.
+2. Record on the live view in the web page by default, with "Record in a window" as the option.
+3. The second pack is the Playwright TodoMVC demo.
