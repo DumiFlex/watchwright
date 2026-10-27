@@ -2,8 +2,9 @@
 // A themed replacement for <input type="date">: a button that opens a month calendar.
 // The value is "YYYY-MM-DD" (or "" for none). Keys in the calendar: arrows move a day or a
 // week, Page Up/Down a month, Home/End the start/end of the week, Enter picks, Escape closes.
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId } from "vue";
+import { computed, nextTick, ref, useId } from "vue";
 import { addDays, addMonths, compareDays, monthGrid, parseDay, toIso, today, weekday, type Day } from "../calendar";
+import { useOutside, usePopup } from "../popup";
 
 const props = withDefaults(defineProps<{ id?: string | undefined; min?: string | undefined; max?: string | undefined; placeholder?: string; disabled?: boolean; clearable?: boolean }>(), {
   id: undefined,
@@ -18,7 +19,10 @@ const focus = ref<Day>(today());
 const root = ref<HTMLElement | null>(null);
 const button = ref<HTMLButtonElement | null>(null);
 const grid = ref<HTMLElement | null>(null);
+const pop = ref<HTMLElement | null>(null);
 const titleId = useId();
+const { style } = usePopup(button, pop, open);
+useOutside([root, pop], open, () => hide(false));
 
 const picked = computed(() => parseDay(model.value));
 const minDay = computed(() => (props.min ? parseDay(props.min) : null));
@@ -38,10 +42,27 @@ const dayNames = Array.from({ length: 7 }, (_, i) => new Intl.DateTimeFormat(und
 const same = (a: Day | null, b: Day) => !!a && compareDays(a, b) === 0;
 const blocked = (d: Day) => (!!minDay.value && compareDays(d, minDay.value) < 0) || (!!maxDay.value && compareDays(d, maxDay.value) > 0);
 const cellId = (d: Day) => `${titleId}-${toIso(d)}`;
+/** Keeps keyboard focus on a day that can be picked. */
+function clamp(d: Day): Day {
+  if (minDay.value && compareDays(d, minDay.value) < 0) return minDay.value;
+  if (maxDay.value && compareDays(d, maxDay.value) > 0) return maxDay.value;
+  return d;
+}
+const firstOf = (d: Day): Day => ({ y: d.y, m: d.m, d: 1 });
+const lastOf = (d: Day): Day => addDays(addMonths(firstOf(d), 1), -1);
+const noPrev = computed(() => !!minDay.value && compareDays(lastOf(addMonths(focus.value, -1)), minDay.value) < 0);
+const noNext = computed(() => !!maxDay.value && compareDays(firstOf(addMonths(focus.value, 1)), maxDay.value) > 0);
+const range = computed(() => {
+  const lo = minDay.value && fmtLong.format(asDate(minDay.value));
+  const hi = maxDay.value && fmtLong.format(asDate(maxDay.value));
+  if (lo && hi) return `${lo} to ${hi}`;
+  if (lo) return `From ${lo}`;
+  return hi ? `Until ${hi}` : "";
+});
 
 async function show() {
   if (props.disabled) return;
-  focus.value = picked.value ?? today();
+  focus.value = clamp(picked.value ?? today());
   open.value = true;
   await nextTick();
   focusCell();
@@ -54,7 +75,7 @@ function focusCell() {
   void nextTick(() => grid.value?.querySelector<HTMLElement>(`#${CSS.escape(cellId(focus.value))}`)?.focus());
 }
 function moveTo(d: Day) {
-  focus.value = d;
+  focus.value = clamp(d);
   focusCell();
 }
 function pick(d: Day) {
@@ -82,17 +103,12 @@ function onKey(e: KeyboardEvent) {
   e.preventDefault();
   run();
 }
-function onDocPointer(e: PointerEvent) {
-  if (open.value && root.value && !root.value.contains(e.target as Node)) hide(false);
-}
 // Tabbing away closes the calendar. Focus going nowhere (a day cell re-rendered when the
-// month changes) does not; outside clicks are handled by onDocPointer.
+// month changes) does not; outside clicks are handled by useOutside.
 function onFocusOut(e: FocusEvent) {
   const to = e.relatedTarget as Node | null;
-  if (open.value && to && root.value && !root.value.contains(to)) hide(false);
+  if (open.value && to && !root.value?.contains(to) && !pop.value?.contains(to)) hide(false);
 }
-onMounted(() => document.addEventListener("pointerdown", onDocPointer));
-onBeforeUnmount(() => document.removeEventListener("pointerdown", onDocPointer));
 </script>
 
 <template>
@@ -120,42 +136,45 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onDocPointer))
         <svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
       </button>
     </div>
-    <div v-if="open" class="pop" role="dialog" aria-modal="false" :aria-labelledby="titleId">
-      <div class="head">
-        <button type="button" class="nav" aria-label="Previous month" @click="moveTo(addMonths(focus, -1))">
-          <svg viewBox="0 0 6 10" width="6" height="10" aria-hidden="true"><path d="M5 1L1 5l4 4" fill="none" stroke="currentColor" stroke-width="1.6" /></svg>
-        </button>
-        <span :id="titleId" class="title" aria-live="polite">{{ monthTitle }}</span>
-        <button type="button" class="nav" aria-label="Next month" @click="moveTo(addMonths(focus, 1))">
-          <svg viewBox="0 0 6 10" width="6" height="10" aria-hidden="true"><path d="M1 1l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" /></svg>
-        </button>
+    <Teleport to="body">
+      <div v-if="open" ref="pop" class="pop" :style="style" role="dialog" aria-modal="false" :aria-labelledby="titleId" @focusout="onFocusOut">
+        <div class="head">
+          <button type="button" class="nav" aria-label="Previous month" :disabled="noPrev" @click="moveTo(addMonths(focus, -1))">
+            <svg viewBox="0 0 6 10" width="6" height="10" aria-hidden="true"><path d="M5 1L1 5l4 4" fill="none" stroke="currentColor" stroke-width="1.6" /></svg>
+          </button>
+          <span :id="titleId" class="title" aria-live="polite">{{ monthTitle }}</span>
+          <button type="button" class="nav" aria-label="Next month" :disabled="noNext" @click="moveTo(addMonths(focus, 1))">
+            <svg viewBox="0 0 6 10" width="6" height="10" aria-hidden="true"><path d="M1 1l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" /></svg>
+          </button>
+        </div>
+        <table ref="grid" class="grid" role="grid" :aria-labelledby="titleId" @keydown="onKey">
+          <thead>
+            <tr>
+              <th v-for="n in dayNames" :key="n" scope="col">{{ n }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(w, wi) in weeks" :key="wi">
+              <td v-for="d in w" :key="toIso(d)" role="gridcell" :aria-selected="same(picked, d)">
+                <button
+                  :id="cellId(d)"
+                  type="button"
+                  class="day num"
+                  :class="{ other: d.m !== focus.m, today: same(today(), d), picked: same(picked, d) }"
+                  :tabindex="same(focus, d) ? 0 : -1"
+                  :disabled="blocked(d)"
+                  :aria-label="fmtFull.format(asDate(d))"
+                  @click="pick(d)"
+                >
+                  {{ d.d }}
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p v-if="range" class="range">{{ range }}</p>
       </div>
-      <table ref="grid" class="grid" role="grid" :aria-labelledby="titleId" @keydown="onKey">
-        <thead>
-          <tr>
-            <th v-for="n in dayNames" :key="n" scope="col">{{ n }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="(w, wi) in weeks" :key="wi">
-            <td v-for="d in w" :key="toIso(d)" role="gridcell" :aria-selected="same(picked, d)">
-              <button
-                :id="cellId(d)"
-                type="button"
-                class="day num"
-                :class="{ other: d.m !== focus.m, today: same(today(), d), picked: same(picked, d) }"
-                :tabindex="same(focus, d) ? 0 : -1"
-                :disabled="blocked(d)"
-                :aria-label="fmtFull.format(asDate(d))"
-                @click="pick(d)"
-              >
-                {{ d.d }}
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+    </Teleport>
   </div>
 </template>
 
@@ -218,10 +237,7 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onDocPointer))
   border-color: var(--line-strong);
 }
 .pop {
-  position: absolute;
   z-index: 30;
-  top: calc(100% + 4px);
-  left: 0;
   width: 280px;
   max-width: calc(100vw - 32px);
   padding: var(--space-3);
@@ -251,9 +267,19 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onDocPointer))
   color: var(--muted);
   cursor: pointer;
 }
-.nav:hover {
+.nav:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.nav:hover:not(:disabled) {
   background: var(--hover);
   color: var(--text);
+}
+.range {
+  margin: var(--space-2) 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
 }
 .grid {
   width: 100%;

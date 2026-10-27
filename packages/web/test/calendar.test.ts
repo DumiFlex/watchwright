@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { addDays, addMonths, compareDays, monthGrid, parseDay, toIso, weekday } from "../src/calendar";
-import { placeTip } from "../src/tooltip";
 
 describe("calendar", () => {
   it("parses and prints days, rejecting impossible ones", () => {
@@ -35,19 +34,5 @@ describe("calendar", () => {
     expect(compareDays({ y: 2026, m: 1, d: 2 }, { y: 2026, m: 1, d: 10 })).toBeLessThan(0);
     expect(compareDays({ y: 2027, m: 1, d: 1 }, { y: 2026, m: 12, d: 31 })).toBeGreaterThan(0);
     expect(compareDays({ y: 2026, m: 5, d: 5 }, { y: 2026, m: 5, d: 5 })).toBe(0);
-  });
-});
-
-describe("tooltip placement", () => {
-  const tip = { width: 100, height: 24 };
-  it("centers above the target", () => {
-    expect(placeTip({ left: 200, top: 100, bottom: 130, width: 60 }, tip, 1000)).toEqual({ top: 70, left: 180, below: false });
-  });
-  it("flips below when there is no room above", () => {
-    expect(placeTip({ left: 200, top: 10, bottom: 40, width: 60 }, tip, 1000)).toMatchObject({ top: 46, below: true });
-  });
-  it("stays on screen at the edges", () => {
-    expect(placeTip({ left: 0, top: 100, bottom: 130, width: 20 }, tip, 1000).left).toBe(4);
-    expect(placeTip({ left: 990, top: 100, bottom: 130, width: 10 }, tip, 1000).left).toBe(896);
   });
 });

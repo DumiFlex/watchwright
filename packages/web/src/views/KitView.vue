@@ -5,6 +5,7 @@ import { ref } from "vue";
 import CheckBox from "../components/CheckBox.vue";
 import DatePicker from "../components/DatePicker.vue";
 import FilePicker from "../components/FilePicker.vue";
+import MultiSelect from "../components/MultiSelect.vue";
 import NumberInput from "../components/NumberInput.vue";
 import ProgressBar from "../components/ProgressBar.vue";
 import RadioGroup from "../components/RadioGroup.vue";
@@ -21,6 +22,7 @@ const search = ref("checkout");
 const secret = ref("hunter2");
 const bad = ref("not a url");
 const notes = ref("Grows with its text.\nNo resize grip.");
+const note2 = ref("Drag the corner, or focus it and press the arrows. Double-click it to fit the text again.");
 const checked = ref(true);
 const unchecked = ref(false);
 const browser = ref<"chromium" | "firefox" | "webkit">("firefox");
@@ -32,6 +34,20 @@ const limit = ref(20);
 const day = ref("");
 const until = ref("2026-11-03");
 const files = ref<File[]>([]);
+const tests = ref<string[]>(["S1", "C1"]);
+const testOptions = [
+  ["H1", "Home page loads", "Home"],
+  ["H2", "Banner rotates", "Home"],
+  ["S1", "Search finds products", "Search"],
+  ["S2", "Filters narrow results", "Search"],
+  ["S3", "Typo still finds boots", "Search"],
+  ["S4", "Empty search shows tips", "Search"],
+  ["C1", "Guest checkout", "Checkout"],
+  ["C2", "Checkout with an account", "Checkout"],
+  ["C3", "Coupon applies once", "Checkout"],
+  ["A1", "Sign in", "Account"],
+  ["A2", "Reset password", "Account"],
+].map(([value, label, group]) => ({ value: value!, label: `${value} ${label}`, group: group!, note: value === "C1" ? "needs S1" : undefined }));
 const browsers = [
   { value: "chromium" as const, label: "Chromium" },
   { value: "firefox" as const, label: "Firefox" },
@@ -62,7 +78,8 @@ const traces = [
           <span class="err">Enter a full URL, like https://example.test/</span>
         </div>
         <div class="item"><label for="k-off">Disabled</label><TextField id="k-off" model-value="Can't change this" disabled /></div>
-        <div class="item wide"><label for="k-notes">Text area</label><TextArea id="k-notes" v-model="notes" :rows="2" /></div>
+        <div class="item"><label for="k-notes">Text area, grows with its text</label><TextArea id="k-notes" v-model="notes" :rows="2" /></div>
+        <div class="item"><label for="k-note2">Text area with a resize grip</label><TextArea id="k-note2" v-model="note2" :rows="3" resizable /></div>
       </div>
     </section>
 
@@ -91,6 +108,10 @@ const traces = [
           <span class="lbl">Radio group, inline</span>
           <RadioGroup v-model="browser" :options="browsers" label="Browser" inline />
         </div>
+        <div class="item wide">
+          <label for="k-tests">Multi-select, grouped</label>
+          <MultiSelect id="k-tests" v-model="tests" :options="testOptions" placeholder="Search tests" empty-label="All tests" />
+        </div>
       </div>
     </section>
 
@@ -100,7 +121,7 @@ const traces = [
         <div class="item"><label for="k-limit">Number</label><NumberInput id="k-limit" v-model="limit" label="Pause limit" :min="1" :max="120" /></div>
         <div class="item"><label for="k-quality">Slider</label><RangeSlider id="k-quality" v-model="quality" label="Frame quality" :min="10" :max="100" :step="5" :format="(v) => `${v}%`" /></div>
         <div class="item"><label for="k-day">Date</label><DatePicker id="k-day" v-model="day" /></div>
-        <div class="item"><label for="k-until">Date with limits</label><DatePicker id="k-until" v-model="until" min="2026-10-01" max="2026-12-31" clearable /></div>
+        <div class="item"><label for="k-until">Date between Oct 1 and Dec 31</label><DatePicker id="k-until" v-model="until" min="2026-10-01" max="2026-12-31" clearable /></div>
         <div class="item wide"><label for="k-files">Files</label><FilePicker id="k-files" v-model="files" accept=".ts,.json,image/*" multiple /></div>
       </div>
     </section>

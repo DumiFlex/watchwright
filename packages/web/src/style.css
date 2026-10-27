@@ -352,7 +352,7 @@ input::-ms-clear {
 
 /* v-tip (src/tooltip.ts) instead of the browser's title popup. */
 .ww-tip {
-  position: absolute;
+  position: fixed;
   z-index: 100;
   max-width: 280px;
   padding: 4px 8px;
