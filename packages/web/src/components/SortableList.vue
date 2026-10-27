@@ -5,6 +5,7 @@
 // true (an attempt already running) don't move and nothing passes them. v-model is the
 // array; `move` fires with { item, from, to } after a drop. The default slot draws a row
 // ({ item, index }).
+import { GripVertical, Lock } from "../icons";
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, useId } from "vue";
 import { dropIndex, moveItem } from "../reorder";
 
@@ -190,18 +191,8 @@ function key(e: KeyboardEvent, item: T) {
             @keydown="key($event, item)"
             @blur="leave"
           >
-            <svg v-if="!isLocked(item)" viewBox="0 0 8 14" width="8" height="14" aria-hidden="true">
-              <circle cx="2" cy="2" r="1.2" />
-              <circle cx="6" cy="2" r="1.2" />
-              <circle cx="2" cy="7" r="1.2" />
-              <circle cx="6" cy="7" r="1.2" />
-              <circle cx="2" cy="12" r="1.2" />
-              <circle cx="6" cy="12" r="1.2" />
-            </svg>
-            <svg v-else viewBox="0 0 12 12" width="11" height="11" aria-hidden="true">
-              <rect x="2" y="5.5" width="8" height="5.5" rx="1" fill="none" stroke="currentColor" stroke-width="1.3" />
-              <path d="M4 5.5V4a2 2 0 0 1 4 0v1.5" fill="none" stroke="currentColor" stroke-width="1.3" />
-            </svg>
+            <GripVertical v-if="!isLocked(item)" :size="16" />
+            <Lock v-else :size="13" />
           </button>
           <div class="body"><slot :item="item" :index="i" /></div>
         </li>
@@ -263,7 +254,6 @@ ol {
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--muted);
-  fill: currentColor;
   cursor: grab;
   touch-action: none;
 }

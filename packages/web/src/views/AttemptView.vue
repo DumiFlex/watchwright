@@ -2,6 +2,7 @@
 // Everything one attempt saved: error, flags, metrics and notes on top, then tabs for the
 // screenshots (gallery, scroll sets as strips, marks), kept texts, the log, collector records,
 // the video and the trace. J and K step to the next and previous attempt of the run.
+import { ArrowLeft, ChevronLeft, ChevronRight } from "../icons";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, type Artifact, type ResultDocument, type RunDetail } from "../api";
 import { attemptOrder, cellOf, plainText, recordColumns, shotGroups, traceViewerUrl } from "../attempt";
@@ -143,7 +144,7 @@ watch(
 <template>
   <main class="page">
     <p class="crumb">
-      <a :href="href({ name: 'run', id: runId })">← {{ run ? run.packName : "Run" }} <span class="num">{{ runId }}</span></a>
+      <a :href="href({ name: 'run', id: runId })"><ArrowLeft :size="15" />{{ run ? run.packName : "Run" }} <span class="num">{{ runId }}</span></a>
     </p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <template v-if="doc">
@@ -159,9 +160,9 @@ watch(
           </p>
         </div>
         <div class="stepper">
-          <a v-tip="'Previous attempt (K)'" class="btn" :class="{ off: !prevId }" :href="prevId ? linkTo(prevId) : undefined" :aria-disabled="!prevId">← Previous</a>
+          <a v-tip="'Previous attempt (K)'" class="btn" :class="{ off: !prevId }" :href="prevId ? linkTo(prevId) : undefined" :aria-disabled="!prevId"><ChevronLeft :size="16" />Previous</a>
           <span v-if="at >= 0" class="muted small num">{{ at + 1 }} / {{ order.length }}</span>
-          <a v-tip="'Next attempt (J)'" class="btn" :class="{ off: !nextId }" :href="nextId ? linkTo(nextId) : undefined" :aria-disabled="!nextId">Next →</a>
+          <a v-tip="'Next attempt (J)'" class="btn" :class="{ off: !nextId }" :href="nextId ? linkTo(nextId) : undefined" :aria-disabled="!nextId">Next<ChevronRight :size="16" /></a>
         </div>
       </header>
 

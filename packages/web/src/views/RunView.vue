@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ArrowDown, ArrowLeft, ArrowUp, Ban, Undo2 } from "../icons";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, sendJson, type RunDetail, type WwEvent } from "../api";
 import { LiveConnection, type LiveState } from "../live";
@@ -103,11 +104,11 @@ function onEvent(e: WwEvent) {
     case "attempt.started":
       step.value = null;
       if (e.attemptId) attemptTests.set(e.attemptId, String(d.testId));
-      log.value.push({ seq: e.seq, time: e.time, level: "info", message: `▶ ${d.testId} ${titles.value.get(String(d.testId)) ?? ""} (attempt ${d.number} of ${d.of}${Number(d.try) > 1 ? `, try ${d.try}` : ""})`, test: String(d.testId) });
+      log.value.push({ seq: e.seq, time: e.time, level: "info", message: `Started ${d.testId} ${titles.value.get(String(d.testId)) ?? ""} (attempt ${d.number} of ${d.of}${Number(d.try) > 1 ? `, try ${d.try}` : ""})`, test: String(d.testId) });
       scheduleLoad();
       break;
     case "attempt.finished":
-      log.value.push({ seq: e.seq, time: e.time, level: d.status === "passed" ? "info" : "warn", message: `■ ${d.testId} ${d.status}${d.error ? `: ${String(d.error).split("\n")[0]}` : ""}`, test: String(d.testId) });
+      log.value.push({ seq: e.seq, time: e.time, level: d.status === "passed" ? "info" : "warn", message: `${d.testId} ${d.status}${d.error ? `: ${String(d.error).split("\n")[0]}` : ""}`, test: String(d.testId) });
       scheduleLoad();
       break;
     case "video.unavailable":
@@ -225,7 +226,7 @@ function time(iso: string) {
 
 <template>
   <main class="page" :class="{ wide: active }">
-    <p class="crumb"><a href="#/">← Runs</a></p>
+    <p class="crumb"><a href="#/"><ArrowLeft :size="15" />Runs</a></p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <template v-if="run">
       <header class="head">
@@ -263,12 +264,12 @@ function time(iso: string) {
         <template v-if="pausedBroken">
           <strong>{{ live.testId }} broke.</strong> Fix the test file and it retries by itself, or press Retry or Skip. Skips by itself in {{ countdown }}.
         </template>
-        <template v-else-if="pausedManual"><strong>Paused</strong> during {{ live.testId ?? "the run" }}{{ step ? ` › ${step}` : "" }}.</template>
+        <template v-else-if="pausedManual"><strong>Paused</strong> during {{ live.testId ?? "the run" }}{{ step ? `, at ${step}` : "" }}.</template>
         <template v-else-if="live.state === 'pausing'"><strong>Pausing at the next step…</strong></template>
         <template v-else-if="live.stopping === 'after'"><strong>Stopping after this test.</strong> {{ testTitle }}</template>
         <template v-else>
           <strong>{{ live.testId ?? "Setting up" }}</strong> {{ testTitle && testTitle !== live.testId ? testTitle : "" }}
-          <span v-if="step" class="muted"> › {{ step }}</span>
+          <span v-if="step" class="muted"> · {{ step }}</span>
         </template>
       </div>
 
@@ -296,10 +297,10 @@ function time(iso: string) {
                 <span v-if="editable(p)" class="qedit">
                   <template v-if="movable(i)">
                     <button v-tip="'Move up'" class="ibtn" :aria-label="`Move ${p.testId} up`" :disabled="busy || !canMove(i, -1)" @click="queueAct('move', { testId: p.testId, direction: 'up' })">
-                      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M8 13V3M4 7l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                      <ArrowUp :size="15" />
                     </button>
                     <button v-tip="'Move down'" class="ibtn" :aria-label="`Move ${p.testId} down`" :disabled="busy || !canMove(i, 1)" @click="queueAct('move', { testId: p.testId, direction: 'down' })">
-                      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M8 3v10M4 9l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                      <ArrowDown :size="15" />
                     </button>
                   </template>
                   <button
@@ -310,8 +311,8 @@ function time(iso: string) {
                     :disabled="busy"
                     @click="queueAct('skip', { testId: p.testId, number: p.number, undo: !!p.skip })"
                   >
-                    <svg v-if="p.skip" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3 6h7a3 3 0 0 1 0 6H6M3 6l3-3M3 6l3 3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
-                    <svg v-else viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="1.6" /><path d="M4.2 11.8l7.6-7.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
+                    <Undo2 v-if="p.skip" :size="15" />
+                    <Ban v-else :size="15" />
                   </button>
                 </span>
               </div>

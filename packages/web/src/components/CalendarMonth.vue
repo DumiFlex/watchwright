@@ -3,6 +3,7 @@
 // Keys: arrows move a day or a week, Page Up/Down a month (with Shift a year), Home/End the
 // start or end of the week, Enter or Space picks, Escape asks the owner to close. Focus
 // never lands on a day outside min/max, and the month arrows stop at the limits.
+import { ChevronLeft, ChevronRight } from "../icons";
 import { computed, nextTick, ref, useId } from "vue";
 import { addDays, addMonths, compareDays, monthGrid, parseDay, toIso, today, weekday, type Day } from "../calendar";
 
@@ -96,11 +97,11 @@ defineExpose({ focusDay, moveTo, clamp });
   <div class="cal" role="group" :aria-labelledby="titleId">
     <div class="head">
       <button type="button" class="nav" aria-label="Previous month" :disabled="noPrev" @click="moveTo(addMonths(focus, -1))">
-        <svg viewBox="0 0 6 10" width="6" height="10" aria-hidden="true"><path d="M5 1L1 5l4 4" fill="none" stroke="currentColor" stroke-width="1.6" /></svg>
+        <ChevronLeft :size="16" />
       </button>
       <span :id="titleId" class="title" aria-live="polite">{{ monthTitle }}</span>
       <button type="button" class="nav" aria-label="Next month" :disabled="noNext" @click="moveTo(addMonths(focus, 1))">
-        <svg viewBox="0 0 6 10" width="6" height="10" aria-hidden="true"><path d="M1 1l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" /></svg>
+        <ChevronRight :size="16" />
       </button>
     </div>
     <table ref="grid" class="grid" role="grid" :aria-labelledby="titleId" @keydown="onKey" @pointerleave="emit('hover', null)">

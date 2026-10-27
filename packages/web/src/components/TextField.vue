@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // A themed one-line text input. Search fields get a clear button and password fields a
 // show/hide button of our own; the browser's versions are hidden in style.css.
+import { Eye, EyeOff, Search, X } from "../icons";
 import { computed, ref } from "vue";
 
 const props = withDefaults(
@@ -29,10 +30,7 @@ defineExpose({ focus: () => input.value?.focus() });
 
 <template>
   <div class="tf" :class="{ invalid, disabled }">
-    <svg v-if="type === 'search'" class="lead" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-      <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.6" />
-      <path d="M10.5 10.5l3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
-    </svg>
+    <Search v-if="type === 'search'" class="lead" :size="15" />
     <input
       :id="id"
       ref="input"
@@ -45,7 +43,7 @@ defineExpose({ focus: () => input.value?.focus() });
       spellcheck="false"
     />
     <button v-if="type === 'search' && model && !disabled" type="button" class="icon" aria-label="Clear" @click="clear">
-      <svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
+      <X :size="13" />
     </button>
     <button
       v-if="type === 'password' && !disabled"
@@ -55,11 +53,8 @@ defineExpose({ focus: () => input.value?.focus() });
       :aria-pressed="reveal"
       @click="reveal = !reveal"
     >
-      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-        <path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z" fill="none" stroke="currentColor" stroke-width="1.4" />
-        <circle cx="8" cy="8" r="2" fill="currentColor" />
-        <path v-if="reveal" d="M2.5 13.5l11-11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-      </svg>
+      <EyeOff v-if="reveal" :size="15" />
+      <Eye v-else :size="15" />
     </button>
   </div>
 </template>

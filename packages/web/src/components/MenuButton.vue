@@ -2,6 +2,7 @@
 // A button that opens a menu of links or commands (the ARIA menu button pattern): arrows,
 // Home/End and Enter inside, Escape or a click outside closes. Items with `href` are links;
 // the others emit `select` with their value.
+import { Menu } from "../icons";
 import { nextTick, ref, useId } from "vue";
 import { useOutside, usePopup, usePopupHost } from "../popup";
 
@@ -75,7 +76,7 @@ function onButtonKey(e: KeyboardEvent) {
       @keydown="onButtonKey"
     >
       <slot name="button">
-        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
+        <Menu :size="18" />
       </slot>
     </button>
     <Teleport :to="host">

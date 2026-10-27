@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // The home page: runs that are going (or waiting) first, then every earlier run with filters
 // by pack and status, a page at a time. Filters live in the address so a list can be linked.
+import { Ellipsis } from "../icons";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, sendJson, type Pack, type RunSummary } from "../api";
 import { ago, countsText, done, duration, runDuration, when } from "../format";
@@ -217,7 +218,7 @@ onBeforeUnmount(() => {
             <td class="c-took muted small num">{{ duration(runDuration(r)) || "–" }}</td>
             <td class="c-act">
               <MenuButton :items="rowMenu(r)" :label="`Actions for run ${r.id}`" @select="onRowMenu(r, $event)">
-                <template #button><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="3" cy="8" r="1.4" fill="currentColor" /><circle cx="8" cy="8" r="1.4" fill="currentColor" /><circle cx="13" cy="8" r="1.4" fill="currentColor" /></svg></template>
+                <template #button><Ellipsis :size="16" /></template>
               </MenuButton>
             </td>
           </tr>

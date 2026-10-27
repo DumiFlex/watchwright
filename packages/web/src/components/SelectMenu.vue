@@ -2,6 +2,7 @@
 // A themed replacement for <select>: a button that opens a listbox. Keyboard follows the
 // ARIA listbox pattern: arrows, Home/End, Enter/Space to pick, Escape to close, and typing
 // jumps to the next option starting with that letter.
+import { Check, ChevronDown } from "../icons";
 import { computed, nextTick, ref, useId } from "vue";
 import { useOutside, usePopup, usePopupHost } from "../popup";
 
@@ -96,7 +97,7 @@ function onButtonKey(e: KeyboardEvent) {
       @keydown="onButtonKey"
     >
       <span class="value">{{ current }}</span>
-      <svg class="chev" viewBox="0 0 10 6" width="10" height="6" aria-hidden="true"><path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" /></svg>
+      <ChevronDown class="chev" :size="15" />
     </button>
     <Teleport :to="host">
       <ul
@@ -124,7 +125,7 @@ function onButtonKey(e: KeyboardEvent) {
           @click="choose(i)"
         >
           <span>{{ o.label }}</span>
-          <svg v-if="i === selectedIndex" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M2.5 6.2l2.4 2.4 4.6-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          <Check v-if="i === selectedIndex" :size="14" />
         </li>
       </ul>
     </Teleport>
