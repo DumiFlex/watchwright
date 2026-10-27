@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import { Plus } from "./icons";
+import { FolderOpen, ListChecks, Moon, Palette, Plus, Search, Sun, SunMoon } from "./icons";
 import { getJson, type HealthData } from "./api";
 import BrandMark from "./components/BrandMark.vue";
+import CommandPalette, { type PaletteCommand } from "./components/CommandPalette.vue";
+import KeyHint from "./components/KeyHint.vue";
 import MenuButton from "./components/MenuButton.vue";
 import ThemePicker from "./components/ThemePicker.vue";
 import ToastHost from "./components/ToastHost.vue";
 import { sectionOf, useRoute } from "./router";
 import { vTip } from "./tooltip";
-import { applyTheme, browserStore, loadTheme, saveTheme, type Theme } from "./theme";
+import { useShortcut } from "./keys";
+import { applyTheme, browserStore, loadTheme, LOOKS, saveTheme, type Theme } from "./theme";
 import AttemptView from "./views/AttemptView.vue";
 import KitView from "./views/KitView.vue";
 import NewRunView from "./views/NewRunView.vue";
@@ -38,6 +41,20 @@ const nav = computed(() => [
   { value: "new", label: "New run", href: "#/new", current: route.value.name === "new" },
 ]);
 
+// Mod+K anywhere opens the command palette: go to a page or switch the look and mode.
+const palette = ref(false);
+useShortcut("Mod+K", () => (palette.value = !palette.value));
+const go = (hash: string) => () => (location.hash = hash);
+const commands = computed<PaletteCommand[]>(() => [
+  { id: "go-runs", label: "Runs", group: "Go to", words: "history list", icon: ListChecks, run: go("#/") },
+  { id: "go-packs", label: "Packs", group: "Go to", words: "tests suites", icon: FolderOpen, run: go("#/packs") },
+  { id: "go-new", label: "New run", group: "Go to", words: "start", icon: Plus, run: go("#/new") },
+  ...LOOKS.map((l) => ({ id: `look-${l.id}`, label: `Look: ${l.name}`, group: "Theme", words: l.note, icon: Palette, run: () => (theme.value = { ...theme.value, look: l.id }) })),
+  { id: "mode-light", label: "Mode: Light", group: "Theme", icon: Sun, run: () => (theme.value = { ...theme.value, mode: "light" }) },
+  { id: "mode-dark", label: "Mode: Dark", group: "Theme", icon: Moon, run: () => (theme.value = { ...theme.value, mode: "dark" }) },
+  { id: "mode-system", label: "Mode: System", group: "Theme", icon: SunMoon, run: () => (theme.value = { ...theme.value, mode: "system" }) },
+]);
+
 onMounted(async () => {
   const res = await getJson<HealthData>("/api/v1/health");
   if (res.ok) health.value = res.data;
@@ -61,6 +78,10 @@ onMounted(async () => {
         <Plus :size="15" />
         New run
       </a>
+      <button type="button" class="cmd" aria-label="Commands" aria-keyshortcuts="Control+K Meta+K" @click="palette = true">
+        <Search :size="15" />
+        <KeyHint keys="Mod+K" class="cmd-keys" />
+      </button>
       <ThemePicker v-model="theme" />
       <MenuButton class="navmenu" :items="nav" label="Menu" />
     </div>
@@ -72,6 +93,7 @@ onMounted(async () => {
   <PackView v-else-if="route.name === 'pack'" :id="route.id" />
   <KitView v-else-if="route.name === 'kit'" />
   <RunsView v-else :query="route.query" />
+  <CommandPalette v-model:open="palette" :commands="commands" />
   <ToastHost />
 </template>
 
@@ -155,6 +177,22 @@ onMounted(async () => {
 .navmenu {
   display: none;
 }
+.cmd {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 34px;
+  padding: 0 var(--space-2);
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+}
+.cmd:hover {
+  background: var(--hover);
+  color: var(--text);
+}
 @media (max-width: 640px) {
   .top {
     padding: 0 var(--space-4);
@@ -167,6 +205,9 @@ onMounted(async () => {
   }
   .navmenu {
     display: inline-block;
+  }
+  .cmd-keys {
+    display: none;
   }
 }
 </style>
