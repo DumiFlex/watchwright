@@ -277,6 +277,9 @@ function time(iso: string) {
             · started by {{ run.startedBy }}
             <template v-for="(v, k) in run.params" :key="k"> · {{ k }}={{ v }}</template>
           </p>
+          <p v-if="Object.keys(run.info ?? {}).length" class="facts small" aria-label="Run facts">
+            <span v-for="(v, k) in run.info" :key="k" class="fact"><span class="muted">{{ k }}</span> {{ v }}</span>
+          </p>
         </div>
         <div class="controls">
           <template v-if="active">
@@ -703,5 +706,17 @@ function time(iso: string) {
   .page {
     padding: 12px 16px 24px;
   }
+}
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  margin: var(--space-1) 0 0;
+}
+.fact {
+  padding: 1px 8px;
+  border-radius: var(--radius-chip);
+  background: var(--raised);
+  overflow-wrap: anywhere;
 }
 </style>

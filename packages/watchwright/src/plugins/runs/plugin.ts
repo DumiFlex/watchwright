@@ -12,7 +12,7 @@ import { FRAMES } from "../live/hub.js";
 import { PACKS } from "../packs/registry.js";
 import { testKind } from "../testing/kind.js";
 import { Engine, EngineError } from "./engine.js";
-import { RUNS_ARTIFACT_SET_SQL, RUNS_MIGRATION_SQL, RunsRepo, type RunOptions, type RunStatus } from "./repo.js";
+import { RUNS_ARTIFACT_SET_SQL, RUNS_INFO_SQL, RUNS_MIGRATION_SQL, RunsRepo, type RunOptions, type RunStatus } from "./repo.js";
 
 export const ENGINE = serviceKey<Engine>("runs.engine");
 /** The folder that holds `runs/` (the data folder, or a temp folder for an in-memory store). */
@@ -108,6 +108,7 @@ export const runsPlugin = definePlugin({
   migrations: [
     { id: 1, name: "init", sql: RUNS_MIGRATION_SQL },
     { id: 2, name: "artifact-set", sql: RUNS_ARTIFACT_SET_SQL },
+    { id: 3, name: "run-info", sql: RUNS_INFO_SQL },
   ],
   setup({ store, events, services }) {
     const dataDir = filesRoot(store.dataDir);

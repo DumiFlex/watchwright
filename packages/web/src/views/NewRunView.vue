@@ -41,7 +41,7 @@ const pack = computed(() => packs.value.find((p) => p.id === packId.value) ?? nu
 const packOptions = computed(() => packs.value.map((p) => ({ value: p.id, label: p.status === "error" ? `${p.name} (doesn't load)` : p.name })));
 const testOptions = computed(() =>
   (pack.value?.tests ?? []).map((t) => {
-    const bits = [t.inside ? `inside ${t.inside}` : "", t.needs.length ? `needs ${t.needs.join(", ")}` : "", ...t.tags.map((x) => `#${x}`)].filter(Boolean);
+    const bits = [t.inside.length ? `inside ${t.inside.join(" or ")}` : "", t.needs.length ? `needs ${t.needs.join(", ")}` : "", ...t.tags.map((x) => `#${x}`)].filter(Boolean);
     return { value: t.id, label: t.title !== t.id ? `${t.id} · ${t.title}` : t.id, group: t.section ?? "Tests", note: bits.join(" · ") || undefined };
   }),
 );
@@ -254,7 +254,7 @@ async function start() {
               <div class="params">
                 <div v-for="(d, key) in pack.params" :key="key" class="param">
                   <label class="name" :for="`p-${key}`">{{ key }}</label>
-                  <SelectMenu v-if="d.choices" :id="`p-${key}`" v-model="params[key]!" :options="d.choices.map((c) => ({ value: c, label: String(c) }))" />
+                  <SelectMenu v-if="d.choices" :id="`p-${key}`" v-model="params[key]!" :options="d.choices.map((c) => ({ value: c, label: d.labels?.[String(c)] ? `${c} · ${d.labels[String(c)]}` : String(c) }))" />
                   <NumberInput v-else-if="d.type === 'number'" :id="`p-${key}`" v-model="params[key] as number" :label="String(key)" />
                   <CheckBox v-else-if="d.type === 'boolean'" :id="`p-${key}`" v-model="params[key] as boolean">{{ d.description ?? "On" }}</CheckBox>
                   <TextField v-else :id="`p-${key}`" v-model="params[key] as string" />

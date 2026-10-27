@@ -22,6 +22,7 @@ export interface ParamDef {
   choices?: (string | number)[];
   default?: ParamValue;
   description?: string;
+  labels?: Record<string, string>;
 }
 
 /** A review criterion: a 1-to-N scale, named choices, or yes/no. */
@@ -55,7 +56,8 @@ export interface PackTest {
   section: string | null;
   tags: string[];
   needs: string[];
-  inside: string | null;
+  inside: string[];
+  description: string | null;
   runs: number | Record<string, unknown> | "computed";
   file: string;
   rubric: Criterion[];
@@ -123,6 +125,8 @@ export interface RunSummary {
   siteKey: string;
   tests: string[];
   params: Record<string, ParamValue>;
+  /** Facts the run saved while it ran (the app's version, the model it used). */
+  info: Record<string, ParamValue>;
   options: RunOptions;
   status: RunStatus;
   mode: "normal" | "resume" | "redo";
@@ -223,7 +227,7 @@ export interface CompareCell {
 export interface Comparison {
   packId: string;
   packName: string;
-  runs: Pick<RunSummary, "id" | "params" | "status" | "startedBy" | "createdAt" | "startedAt" | "counts">[];
+  runs: Pick<RunSummary, "id" | "params" | "info" | "status" | "startedBy" | "createdAt" | "startedAt" | "counts">[];
   criteria: Record<string, Criterion[]>;
   rows: { testId: string; title: string; number: number; cells: (CompareCell | null)[] }[];
   shotNames: string[];

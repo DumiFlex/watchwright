@@ -16,6 +16,8 @@ export interface ParamDef {
   choices?: readonly (string | number)[];
   default?: ParamValue;
   description?: string;
+  /** Display names for choices, shown next to the value: `{ q9: "Qwen3.5 9B" }`. */
+  labels?: Record<string, string>;
 }
 
 /**
@@ -28,11 +30,32 @@ export type FlagKind = "robot" | "finding" | "info";
 /** Something a collector saw, stored with the attempt. */
 export type CollectorRecord = Record<string, unknown>;
 
+/** What a collector gets around each attempt (children too). */
+export interface CollectorAttempt {
+  readonly attemptId: string;
+  readonly testId: string;
+  readonly number: number;
+  readonly page: Page;
+  readonly context: BrowserContext;
+  /** Adds a record to this attempt's `collectors/<name>.json`. */
+  record(entry: CollectorRecord): void;
+  /** Saves a file with this attempt, under `collectors/<collector name>/<name>`. */
+  file(name: string, data: string | Buffer, contentType?: string): void;
+  metric(name: string, value: number, unit?: string): void;
+}
+
 export interface Collector {
   /** File name for the collected records: `collectors/<name>.json`. */
   name: string;
-  /** Called once per run with the browser context. Listen to its events and call `record`. */
-  attach(context: BrowserContext, record: (entry: CollectorRecord) => void): void | Promise<void>;
+  /**
+   * Called with the browser context when the run starts (and again if the engine replaces a stuck
+   * context). Listen to its events and call `record`; records land in the attempt that is running.
+   */
+  attach?(context: BrowserContext, record: (entry: CollectorRecord) => void): void | Promise<void>;
+  /** Called as each attempt starts, before its body. */
+  beginAttempt?(attempt: CollectorAttempt): void | Promise<void>;
+  /** Called as each attempt ends, before its result is written. Errors are logged, not fatal. */
+  endAttempt?(attempt: CollectorAttempt): void | Promise<void>;
 }
 
 /** A selector string (Playwright syntax) or a locator. */
@@ -90,6 +113,41 @@ export interface Helpers {
   save(key: string, value: unknown): void;
   /** A value an earlier test saved, or undefined. */
   load<T = unknown>(key: string): T | undefined;
+  /** Saves a fact about the whole run (the app's version, the model it uses), shown on the run page. */
+  info(key: string, value: string | number | boolean): void;
+  /** Ends the attempt as skipped, with the reason. */
+  skip(reason: string): never;
+  /**
+   * Polls `check` until it returns true. With `progress` and `stallMs`, gives up early and returns
+   * "stalled" when `progress()` returns the same value for `stallMs` (a stuck spinner, a model
+   * that stopped producing output). Throws a StepError after `timeout`. Paused time doesn't count.
+   */
+  waitUntil(check: () => boolean | Promise<boolean>, options?: WaitOptions): Promise<"done" | "stalled">;
+}
+
+export interface WaitOptions {
+  /** Default 30 s. */
+  timeout?: number;
+  /** Poll interval in ms (default 250). */
+  interval?: number;
+  /** A value that changes while the app makes progress. */
+  progress?: () => unknown;
+  /** How long `progress` may stay the same before the wait ends as "stalled". */
+  stallMs?: number;
+  /** What the wait is for, used in the timeout message. */
+  what?: string;
+}
+
+/** What `beforeAttempt` and `afterAttempt` hooks get. */
+export interface AttemptHookContext {
+  page: Page;
+  h: Helpers;
+  params: ParamValues;
+  packDir: string;
+  test: { id: string; title: string; section: string | null; tags: readonly string[] };
+  attempt: number;
+  attempts: number;
+  last: boolean;
 }
 
 export interface SetupContext {
@@ -98,6 +156,10 @@ export interface SetupContext {
   browser: Browser;
   h: Helpers;
   params: ParamValues;
+  /** The pack's folder, for files that live next to it. */
+  packDir: string;
+  /** Saves a fact about the whole run (the app's version, the model it uses), shown on the run page. */
+  info(key: string, value: string | number | boolean): void;
 }
 
 export interface PackRunOptions {
@@ -141,6 +203,13 @@ export interface PackOptions {
   /** Runs once per run, before the first test. */
   setup?: (ctx: SetupContext) => void | Promise<void>;
   collectors?: readonly Collector[];
+  /**
+   * Runs before each attempt's body (children too). Use it for state a test needs set up or kept
+   * safe, picked by the test's id or tags. An error here makes the attempt broken.
+   */
+  beforeAttempt?: (ctx: AttemptHookContext) => void | Promise<void>;
+  /** Runs after each attempt (also when it failed or broke). An error here is logged, not fatal. */
+  afterAttempt?: (ctx: AttemptHookContext & { outcome: Outcome }) => void | Promise<void>;
   /** Extra helpers merged into `h`. */
   helpers?: (h: Helpers) => Record<string, unknown>;
   /** The app's own busy check for `h.idle()`: resolve true when the app is idle. */
@@ -155,13 +224,19 @@ export type RunsSpec = number | ((params: ParamValues) => number) | ({ by: strin
 export interface TestMeta {
   title?: string;
   section?: string;
+  /** What the test does and what a good result looks like, shown with its results and review. */
+  description?: string;
   tags?: readonly string[];
   /** How many attempts: a number, a function of the params, or `{ by: "model", q9: 3, default: 1 }`. */
   runs?: RunsSpec;
   /** Tests whose saved state this test uses. Choosing this test pulls them in, and runs them first. */
   needs?: readonly string[];
-  /** The parent test whose body calls `child(id)` for this one. */
-  inside?: string;
+  /**
+   * The parent test whose body calls `child(id)` for this one, or a list of parents that may: then
+   * each attempt number runs once, in whichever parent gets to it first. A child's own `runs`
+   * caps it: a parent attempt past that number doesn't run it.
+   */
+  inside?: string | readonly string[];
   /** Time limit per attempt in ms. */
   timeout?: number;
   /** Criteria this test adds to the pack's rubric, or drops from it. */
@@ -181,6 +256,8 @@ export interface TestContext {
   attempts: number;
   /** True on the test's final attempt. */
   last: boolean;
+  /** The pack's folder, for files that live next to it. */
+  packDir: string;
   /** Runs a child test (one that declares `inside: <this test>`) here, as its own attempt. */
   child(id: string): Promise<Outcome>;
 }
@@ -242,6 +319,11 @@ export function test(id: string, metaOrBody: TestMeta | TestBody, maybeBody?: Te
   if (!collecting) return; // imported outside a pack load (an editor's type check): nothing to do
   if (collecting.tests.some((t) => t.id === id)) throw new Error(`Two tests have the id "${id}".`);
   collecting.tests.push({ id, meta, body, file: collecting.file });
+}
+
+/** Thrown by `h.skip(reason)`: the attempt ends skipped. */
+export class SkipTest extends Error {
+  override name = "SkipTest";
 }
 
 /** Raised by helpers (and tests) when the harness can't do what it was asked: the attempt is broken, not failed. */

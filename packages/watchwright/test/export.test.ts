@@ -18,7 +18,7 @@ const criteria: Criterion[] = [
 const counts = { passed: 0, failed: 0, broken: 0, skipped: 0, stopped: 0, running: 0, interrupted: 0, planned: 0 };
 function runOf(id: string, params: Record<string, string>, plan: [string, number][]): RunDetail {
   return {
-    id, packId: "pack0001", packName: "Shop | checks", siteKey: "shop", kind: "test", tests: [], params, options: {}, status: "finished", mode: "normal",
+    id, packId: "pack0001", packName: "Shop | checks", siteKey: "shop", kind: "test", tests: [], params, info: {}, options: {}, status: "finished", mode: "normal",
     startedBy: "web", error: null, createdAt: "2026-10-27T10:00:00.000Z", startedAt: "2026-10-27T10:00:01.000Z", finishedAt: null, counts: { ...counts, passed: plan.length },
     plan: plan.map(([testId, number]) => ({ testId, title: `Test ${testId}`, number, of: 2, status: "passed", attemptId: null })),
     attempts: [], live: null,
