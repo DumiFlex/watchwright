@@ -10,6 +10,13 @@ export type RunStatus = "queued" | "running" | "pausing" | "paused" | "finished"
 export type RunMode = "normal" | "resume" | "redo";
 export type AttemptStatus = Outcome | "running" | "interrupted";
 
+export interface RunFilter {
+  limit?: number | undefined;
+  packId?: string | undefined;
+  statuses?: readonly RunStatus[] | undefined;
+  before?: string | undefined;
+}
+
 export const ACTIVE_STATUSES: readonly RunStatus[] = ["running", "pausing", "paused"];
 /** Outcomes a resume keeps; everything else runs again. */
 export const DECIDED: readonly AttemptStatus[] = ["passed", "failed", "skipped"];
@@ -192,12 +199,29 @@ export class RunsRepo {
     return (this.db.prepare("SELECT * FROM runs WHERE id = ?").get(id) as RunRow | undefined) ?? null;
   }
 
-  runs(limit = 100, status?: RunStatus): RunRow[] {
-    return (
-      status
-        ? this.db.prepare("SELECT * FROM runs WHERE status = ? ORDER BY created_at DESC, rowid DESC LIMIT ?").all(status, limit)
-        : this.db.prepare("SELECT * FROM runs ORDER BY created_at DESC, rowid DESC LIMIT ?").all(limit)
-    ) as RunRow[];
+  /** Runs newest first. `before` is a cursor: the `createdAt` of the last run of the previous page. */
+  runs(filter: RunFilter = {}): RunRow[] {
+    const where: string[] = [];
+    const args: unknown[] = [];
+    if (filter.packId) {
+      where.push("pack_id = ?");
+      args.push(filter.packId);
+    }
+    if (filter.statuses && filter.statuses.length > 0) {
+      where.push(`status IN (${filter.statuses.map(() => "?").join(", ")})`);
+      args.push(...filter.statuses);
+    }
+    if (filter.before) {
+      where.push("created_at < ?");
+      args.push(filter.before);
+    }
+    const sql = `SELECT * FROM runs ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY created_at DESC, rowid DESC LIMIT ?`;
+    return this.db.prepare(sql).all(...args, filter.limit ?? 100) as RunRow[];
+  }
+
+  /** Removes a run with its attempts and artifacts (the events stay in the log). */
+  deleteRun(id: string): boolean {
+    return this.db.prepare("DELETE FROM runs WHERE id = ?").run(id).changes > 0;
   }
 
   queued(): RunRow[] {

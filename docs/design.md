@@ -49,7 +49,7 @@ Helper classes: `.label` (small uppercase group label), `.display` (the look's d
 ## Rules
 
 - Numbers that change or line up (counts, timecodes, attempts) use `.num`.
-- No stock browser controls. Use the kit in `packages/web/src/components/`: `TextField` (text, search, password, email, url), `TextArea`, `CheckBox`, `ToggleSwitch`, `RadioGroup`, `SelectMenu`, `NumberInput` (custom up/down buttons), `RangeSlider`, `DatePicker`, `FilePicker` and `ProgressBar`, and `v-tip` (`src/tooltip.ts`) instead of `title`. The page at `#/kit` shows all of them; check a new or changed control there in every look and mode. `test/controls.test.ts` fails on native controls and `title` attributes in templates. Scrollbars, placeholders, autofill and `accent-color` are themed in `style.css`.
+- No stock browser controls. Use the kit in `packages/web/src/components/`: `TextField` (text, search, password, email, url), `TextArea`, `CheckBox`, `ToggleSwitch`, `RadioGroup`, `SelectMenu`, `NumberInput` (custom up/down buttons), `RangeSlider`, `DatePicker`, `FilePicker`, `ProgressBar`, `TabBar`, `MenuButton` (a menu of links or commands) and `ModalDialog` (confirm and form dialogs), and `v-tip` (`src/tooltip.ts`) instead of `title`. The page at `#/kit` shows all of them; check a new or changed control there in every look and mode. `test/controls.test.ts` fails on native controls and `title` attributes in templates. Scrollbars, placeholders, autofill and `accent-color` are themed in `style.css`.
 - Every page works at phone width (390px) and in every look and mode. Check them with the theme picker before taking screenshots.
 - Keep motion small and respect `prefers-reduced-motion`.
 
@@ -58,3 +58,5 @@ Helper classes: `.label` (small uppercase group label), `.display` (the look's d
 1. Add a `[data-look="<id>"]` block to `style.css` that overrides the color tokens (and fonts or radii if it changes them). Bundle any new font with a `@fontsource` package.
 2. Add `{ id, name, note }` to `LOOKS` in `packages/web/src/theme.ts`.
 3. Check contrast (text 4.5:1, control borders and focus rings 3:1) in light and dark, and add screenshots to `docs/screenshots/themes`.
+
+Pages share a few layout classes from `style.css`: `.page` (the centered column), `.card`, `.page-head`, `.crumb`, `.muted`, `.small`, `.error` and `.sr-only`. Routes are hash based and live in `src/router.ts`; shared text formats (durations, "5 min ago", run counts) in `src/format.ts`.

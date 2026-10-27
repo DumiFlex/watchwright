@@ -3,7 +3,9 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, sendJson, type ResultDocument, type RunDetail, type WwEvent } from "../api";
 import { LiveConnection, type LiveState } from "../live";
 import LiveViewer from "../components/LiveViewer.vue";
+import ModalDialog from "../components/ModalDialog.vue";
 import StatusChip from "../components/StatusChip.vue";
+import { countsText, duration } from "../format";
 
 const props = defineProps<{ id: string }>();
 
@@ -155,9 +157,17 @@ onBeforeUnmount(() => {
   if (refresh) clearTimeout(refresh);
 });
 
-function duration(ms: number | null) {
-  if (ms === null) return "";
-  return ms < 1000 ? `${ms} ms` : ms < 60_000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.floor(ms / 60_000)} min ${Math.round((ms % 60_000) / 1000)} s`;
+
+// Delete, behind a confirm dialog; afterwards back to the runs list.
+const confirmDelete = ref(false);
+async function remove() {
+  actionError.value = null;
+  busy.value = true;
+  const res = await sendJson(`/api/v1/runs/${props.id}`, {}, "DELETE");
+  busy.value = false;
+  confirmDelete.value = false;
+  if (!res.ok) actionError.value = res.error.message;
+  else window.location.hash = "#/";
 }
 function time(iso: string) {
   return new Date(iso).toLocaleTimeString();
@@ -166,7 +176,7 @@ function time(iso: string) {
 
 <template>
   <main class="page">
-    <p class="crumb"><a href="#/">← All runs</a></p>
+    <p class="crumb"><a href="#/">← Runs</a></p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <template v-if="run">
       <header class="head">
@@ -191,6 +201,8 @@ function time(iso: string) {
           <button v-if="run.status === 'queued'" class="btn danger" :disabled="busy" @click="act('stop', { when: 'now' })">Cancel</button>
           <button v-if="canResumeRun" class="btn primary" :disabled="busy" @click="act('resume')">Resume run</button>
           <button v-if="canRedo" class="btn" :disabled="busy" @click="act('redo-broken')">Redo broken</button>
+          <a v-if="!active" class="btn" :href="`#/new?pack=${run.packId}&from=${run.id}`">New run like this</a>
+          <button v-if="!active && run.status !== 'queued'" class="btn danger" :disabled="busy" @click="confirmDelete = true">Delete</button>
         </div>
       </header>
       <p v-if="actionError" class="error" role="alert">{{ actionError }}</p>
@@ -276,6 +288,13 @@ function time(iso: string) {
           {{ duration(run.attempts.reduce((s, a) => s + (a.durationMs ?? 0), 0)) }} of test time
         </p>
       </section>
+      <ModalDialog v-model="confirmDelete" heading="Delete this run?">
+        <p><strong>{{ run.packName }}</strong> <span class="num">{{ run.id }}</span> ({{ countsText(run.counts) }}). Its results, screenshots, videos and traces are removed from the data folder. This can't be undone.</p>
+        <template #actions>
+          <button class="btn" :disabled="busy" @click="confirmDelete = false">Cancel</button>
+          <button class="btn danger" :disabled="busy" @click="remove">{{ busy ? "Deleting…" : "Delete run" }}</button>
+        </template>
+      </ModalDialog>
     </template>
   </main>
 </template>
