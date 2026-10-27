@@ -24,6 +24,7 @@ describe("editor links", () => {
     expect(firstOwnFrame(stack)).toEqual({ file: "/home/sam/sites/shop/tests/b.ts", line: 4, column: 9 });
     const deps = ["Error: x", "    at f (/app/node_modules/playwright-core/lib/a.js:1:2)", "    at g (C:\\sites\\shop\\tests\\c.ts:7:3)"].join("\n");
     expect(firstOwnFrame(deps)).toEqual({ file: "C:\\sites\\shop\\tests\\c.ts", line: 7, column: 3 });
+    expect(firstOwnFrame("Error: boom\n    at Object.body (C:/Users/sam/shop/tests/a.ts:3:9)")).toEqual({ file: "C:\\Users\\sam\\shop\\tests\\a.ts", line: 3, column: 9 });
     expect(firstOwnFrame("Error: x\n    at node:internal/process:1:1")).toBeNull();
   });
 });

@@ -48,7 +48,8 @@ export function firstOwnFrame(stack: string): SourceSpot | null {
   for (const line of stack.split("\n")) {
     const m = /(?:\(|at )((?:[a-zA-Z]:[\\/]|\/)[^():]*?):(\d+):(\d+)\)?$/.exec(line.trim());
     if (!m) continue;
-    const file = m[1]!;
+    // Node writes Windows paths in stacks with forward slashes; show them the Windows way.
+    const file = /^[a-zA-Z]:\//.test(m[1]!) ? m[1]!.replaceAll("/", "\\") : m[1]!;
     if (/[\\/]node_modules[\\/]|[\\/]watchwright[\\/](dist|src)[\\/]/.test(file)) continue;
     return { file, line: Number(m[2]), column: Number(m[3]) };
   }
