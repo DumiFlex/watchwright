@@ -410,6 +410,8 @@ a {
   margin: 0 auto;
   padding: var(--space-6);
   display: grid;
+  /* minmax(0, …): a long unbreakable line (a path) can't widen the page past the screen. */
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-4);
 }
 .card {

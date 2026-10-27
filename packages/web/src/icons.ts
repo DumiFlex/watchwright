@@ -47,6 +47,7 @@ export {
   GripVertical,
   HardDrive,
   History,
+  ImageOff,
   Hourglass,
   House,
   Info,
