@@ -25,6 +25,9 @@ export const DECIDED: readonly AttemptStatus[] = ["passed", "failed", "skipped"]
 /** Migration 2: shots taken as a set (scroll shots) keep the set's name. */
 export const RUNS_ARTIFACT_SET_SQL = `ALTER TABLE runs_artifacts ADD COLUMN set_name TEXT;`;
 
+/** Migration 3: facts a run learns while it runs (`info(key, value)` in setup and tests). */
+export const RUNS_INFO_SQL = `ALTER TABLE runs ADD COLUMN info TEXT NOT NULL DEFAULT '{}';`;
+
 export const RUNS_MIGRATION_SQL = `
   CREATE TABLE runs (
     id          TEXT PRIMARY KEY,
@@ -100,6 +103,7 @@ export interface RunRow {
   mode: RunMode;
   plan: string;
   state: string;
+  info: string;
   started_by: string;
   error: string | null;
   created_at: string;
@@ -182,6 +186,8 @@ export interface RunSummary {
   kind: string;
   tests: string[];
   params: ParamValues;
+  /** Facts the run saved while it ran (`info(key, value)`), in the order first saved. */
+  info: Record<string, string | number | boolean>;
   options: RunOptions;
   status: RunStatus;
   mode: RunMode;
@@ -200,7 +206,7 @@ const EMPTY_COUNTS = (): RunSummary["counts"] => ({ passed: 0, failed: 0, broken
 export class RunsRepo {
   constructor(readonly db: Database.Database) {}
 
-  insertRun(r: Omit<RunRow, "plan" | "state" | "mode" | "error" | "started_at" | "finished_at" | "job_kind"> & { job_kind: string }): void {
+  insertRun(r: Omit<RunRow, "plan" | "state" | "info" | "mode" | "error" | "started_at" | "finished_at" | "job_kind"> & { job_kind: string }): void {
     this.db
       .prepare(
         `INSERT INTO runs (id, pack_id, pack_name, pack_path, site_key, job_kind, tests, params, options, status, started_by, created_at)
@@ -242,7 +248,7 @@ export class RunsRepo {
     return this.db.prepare("SELECT * FROM runs WHERE status = 'queued' ORDER BY created_at, rowid").all() as RunRow[];
   }
 
-  updateRun(id: string, fields: Partial<Pick<RunRow, "status" | "mode" | "plan" | "options" | "state" | "error" | "started_at" | "finished_at">>): void {
+  updateRun(id: string, fields: Partial<Pick<RunRow, "status" | "mode" | "plan" | "options" | "state" | "info" | "error" | "started_at" | "finished_at">>): void {
     const keys = Object.keys(fields);
     if (keys.length === 0) return;
     this.db.prepare(`UPDATE runs SET ${keys.map((k) => `${k} = @${k}`).join(", ")} WHERE id = @id`).run({ ...fields, id });
@@ -347,6 +353,7 @@ export function runSummary(r: RunRow, counts: RunSummary["counts"]): RunSummary 
     kind: r.job_kind,
     tests: JSON.parse(r.tests) as string[],
     params: JSON.parse(r.params) as ParamValues,
+    info: JSON.parse(r.info ?? "{}") as Record<string, string | number | boolean>,
     options: JSON.parse(r.options) as RunOptions,
     status: r.status,
     mode: r.mode,

@@ -169,6 +169,9 @@ const runTag = (i: number) => {
                 <span v-if="Object.keys(r.params).length" class="params">
                   <span v-for="(v, k) in r.params" :key="k" class="param" :class="{ differs: differing.includes(String(k)) }">{{ k }}={{ v }}</span>
                 </span>
+                <span v-if="Object.keys(r.info ?? {}).length" class="facts small">
+                  <span v-for="(v, k) in r.info" :key="k" class="fact"><span class="muted">{{ k }}</span> {{ v }}</span>
+                </span>
                 <span class="line"><StatusChip :status="r.status" /> <span class="muted small">{{ countsText(r.counts) }}</span></span>
                 <span class="small">Score <strong class="num">{{ scoreText(scores[i] ?? null) ?? "–" }}</strong></span>
               </th>
@@ -200,7 +203,7 @@ const runTag = (i: number) => {
                       <span v-if="cell.flags.length" v-tip="cell.flags.map((f) => f.name).join(', ')" class="flags num">{{ cell.flags.length }}</span>
                       <span v-if="cell.durationMs !== null" class="muted small dur">{{ duration(cell.durationMs) }}</span>
                     </a>
-                    <p v-if="cell.error" class="err small">{{ cell.error.split("\n")[0] }}</p>
+                    <p v-if="cell.error" class="err small" :class="{ calm: cell.status === 'skipped' }">{{ cell.error.split("\n")[0] }}</p>
                     <dl v-if="metrics(cell).length" class="metrics small">
                       <template v-for="[k, m] in metrics(cell)" :key="k">
                         <dt>{{ k }}</dt>
@@ -389,6 +392,9 @@ thead .corner {
   color: var(--bad);
   overflow-wrap: anywhere;
 }
+.err.calm {
+  color: var(--muted);
+}
 .metrics {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -489,5 +495,13 @@ thead .corner {
     margin-bottom: var(--space-1);
     color: var(--muted);
   }
+}
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+}
+.fact {
+  overflow-wrap: anywhere;
 }
 </style>

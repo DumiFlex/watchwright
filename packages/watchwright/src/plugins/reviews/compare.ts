@@ -10,6 +10,7 @@ import type { Review } from "./repo.js";
 export interface CompareRun {
   id: string;
   params: RunDetail["params"];
+  info: RunDetail["info"];
   status: RunDetail["status"];
   startedBy: string;
   createdAt: string;
@@ -146,6 +147,7 @@ export function compare(inputs: readonly CompareInput[]): Comparison {
     runs: inputs.map(({ run }) => ({
       id: run.id,
       params: run.params,
+      info: run.info ?? {},
       status: run.status,
       startedBy: run.startedBy,
       createdAt: run.createdAt,

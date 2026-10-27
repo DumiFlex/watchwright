@@ -23,6 +23,8 @@ export interface KindPlan {
   needs: Map<string, string[]>;
   /** Items a parent item runs from inside its own attempt. */
   children: Map<string, string[]>;
+  /** A child's own attempt count, when it caps the parent's (a parent attempt past it doesn't run the child). */
+  childAttempts?: Map<string, number>;
 }
 
 /** What the runner gives a kind for one attempt. */
@@ -49,6 +51,8 @@ export interface SetupEnv {
   page: Page;
   session: BrowserSession;
   helpers(): Helpers;
+  /** Saves a fact about the run. */
+  info(key: string, value: string | number | boolean): void;
 }
 
 /** Choices of a run that change its plan. */
@@ -66,4 +70,6 @@ export interface JobKind {
   setup(env: SetupEnv): Promise<void>;
   /** Runs one attempt's body. Throws when it went wrong; the runner classifies. */
   execute(env: AttemptEnv): Promise<void>;
+  /** After an attempt that wasn't stopped, with its outcome. Errors are logged, not raised. */
+  afterAttempt?(env: AttemptEnv, outcome: Outcome): Promise<void>;
 }

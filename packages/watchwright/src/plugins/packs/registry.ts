@@ -5,7 +5,7 @@ import { serviceKey } from "../../core/services.js";
 import type { EventLog } from "../../events/log.js";
 import type { FlagKind, ParamDef, TestDefinition } from "./api.js";
 import { currentStamp, findPackFile, loadPack, packChanged, PackLoadError, type LoadedPack } from "./loader.js";
-import { checkTests, paramType } from "./order.js";
+import { checkTests, paramType, parentsOf } from "./order.js";
 import { rubricFor, type Criterion, type RubricCriterion } from "./rubric.js";
 
 export interface PackTestSummary {
@@ -14,7 +14,9 @@ export interface PackTestSummary {
   section: string | null;
   tags: string[];
   needs: string[];
-  inside: string | null;
+  /** The tests this one may run inside (empty for a top-level test). */
+  inside: string[];
+  description: string | null;
   /** A number, `{ by, …counts }`, or "computed" when the pack gives a function. */
   runs: number | Record<string, unknown> | "computed";
   timeout: number | null;
@@ -90,7 +92,8 @@ function testSummary(t: TestDefinition, rubric: readonly RubricCriterion[] | und
     section: t.meta.section ?? null,
     tags: [...(t.meta.tags ?? [])],
     needs: [...(t.meta.needs ?? [])],
-    inside: t.meta.inside ?? null,
+    inside: parentsOf(t),
+    description: t.meta.description ?? null,
     runs: r === undefined ? 1 : typeof r === "function" ? "computed" : typeof r === "number" ? r : { ...r },
     timeout: t.meta.timeout ?? null,
     file: t.file,

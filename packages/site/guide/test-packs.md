@@ -47,11 +47,12 @@ export default pack({
 | `site.key` | Runs of packs with the same key wait for each other, so two runs never change the same app at once. |
 | `site.baseURL` | Relative URLs in `h.goto()` resolve against it. |
 | `browser` | `name` (`chromium`, `firefox`, `webkit`), `viewport`, `headless` (default `true`; you watch through the live view), and raw Playwright `launch` and `context` options. |
-| `params` | Values chosen per run. A param has a `default`, optional `choices`, and an optional `type` (`string`, `number`, `boolean`). Tests get them as `params`. |
+| `params` | Values chosen per run. A param has a `default`, optional `choices` (with optional display `labels`: `{ q9: "Qwen3.5 9B" }`), and an optional `type` (`string`, `number`, `boolean`). Tests get them as `params`. |
 | `flags` | Flags tests may raise, with their kind: `robot` (the harness or test went wrong: the attempt is **broken**), `finding` (the site did something wrong: the attempt **failed**), `info` (changes nothing). |
 | `rubric` | What reviewers score each attempt on (see [Reviewing results](./reviewing)). Default: one 1-to-5 `overall` criterion. |
 | `tests` | Glob(s) of test files relative to the pack file. Default `tests/**/*.{ts,mts,js,mjs}`. |
-| `setup` | Runs once each time a run starts (or resumes), before the first test. |
+| `setup` | Runs once each time a run starts (or resumes), before the first test. Gets `{ page, context, browser, h, params, packDir, info }`; `info(key, value)` saves a fact about the run (see below). |
+| `beforeAttempt`, `afterAttempt` | Run around every attempt, children too (see [Attempt hooks](#attempt-hooks)). |
 | `collectors` | Record what the browser does for every attempt (see below). |
 | `helpers` | Adds your own helpers to `h` (see below). |
 | `idle` | Your app's busy check for `h.idle()`: resolve `true` when the app is idle. |
@@ -80,13 +81,14 @@ test("S1", { title: "Search finds products", section: "Search", needs: ["H1"], r
 | Meta | What it does |
 |---|---|
 | `title`, `section`, `tags` | Shown on the web page. |
-| `runs` | How many attempts: a number, a function of the params, or a table: `{ by: "model", q9: 3, haiku: 1, default: 1 }`. |
+| `description` | What the test does and what a good result looks like. Shown in the pack's test list and above the review of every attempt. |
+| `runs` | How many attempts: a number, a function of the params, or a table: `{ by: "model", q9: 3, haiku: 1, default: 1 }`. 0 leaves the test out of the run for those params (an optional section, a subset for one model); a run's "attempts per test" never brings it back. |
 | `needs` | Tests whose saved state this one uses. Choosing this test pulls them in and runs them first. If one of them breaks, this test is skipped. |
-| `inside` | The parent test whose body runs this one with `child("id")`. |
+| `inside` | The parent test whose body runs this one with `child("id")`, or a list of parents (see [Children](#children)). |
 | `timeout` | Time limit per attempt in ms. Time spent paused doesn't count. |
 | `review` | Changes the pack's rubric for this test: `add` (criteria of its own) and `drop` (ids of pack criteria it isn't scored on). |
 
-The body gets `{ page, h, expect, params, attempt, attempts, last, child }`. `expect` is Playwright's, with its auto-retrying assertions. You can also import `expect` from `playwright/test`.
+The body gets `{ page, h, expect, params, attempt, attempts, last, packDir, child }`. `packDir` is the pack's folder, for files that live next to it. `expect` is Playwright's, with its auto-retrying assertions. You can also import `expect` from `playwright/test`.
 
 ### Outcomes
 
@@ -95,7 +97,7 @@ Every attempt ends as one of:
 - **passed**: the body returned and no finding was flagged.
 - **failed**: an `expect` didn't hold, or the test raised a `finding` flag.
 - **broken**: anything else went wrong: an exception, a `StepError`, a `robot` flag, the time limit. A broken attempt pauses the run (unless `pauseOnBroken` is off) until you press **Retry** or **Skip**. Save a fix to the test file and it retries by itself.
-- **skipped**: not run, because a test it needs broke or was skipped.
+- **skipped**: not run, because a test it needs broke or was skipped, its parent didn't run it, or the test called `h.skip(reason)`.
 - **stopped**: the run was stopped while it ran.
 
 Throw `StepError` (from `watchwright`) when your own helper can't do its job, so the attempt reads as broken, not failed.
@@ -113,6 +115,7 @@ Every `h` call is a pause point: Pause takes effect at the next one.
 | `h.step(title, fn)` | A named step: shown live, logged, a pause point. Steps nest. |
 | `h.idle({ timeout?, quietMs? })` | Waits for the network to go quiet and for the pack's `idle` check. |
 | `h.wait(ms)` | Waits; time paused doesn't count. |
+| `h.waitUntil(check, { timeout?, interval?, progress?, stallMs?, what? })` | Polls `check` until it returns true and resolves `"done"`. With `progress` (a function whose value changes while the app works) and `stallMs`, it gives up early and resolves `"stalled"` when the value stays the same that long, so a stuck spinner or a model that stopped producing output doesn't cost the whole time limit. After `timeout` (default 30 s) the attempt is broken. |
 | `h.shot(name, { fullPage?, target? })` | Saves a screenshot. |
 | `h.scrollShots(name, { target?, max? })` | Scrolls top to bottom, one screenshot per screen. The shots are kept as one set and show as a single strip on the attempt page. |
 | `h.keepText(name, target \| { text })` | Saves text: an element's inner text, or a string. |
@@ -120,6 +123,8 @@ Every `h` call is a pause point: Pause takes effect at the next one.
 | `h.flag(name, detail?)` | Raises a flag declared in the pack's `flags`. |
 | `h.metric(name, value, unit?)` | A number to keep with the result. |
 | `h.save(key, value)`, `h.load(key)` | State for later tests (see `needs`). A test's saves are kept from its last attempt, when it passed or failed. |
+| `h.info(key, value)` | Saves a fact about the whole run (the app's version, the model it runs on). Facts show on the run page, in Compare and in exports. |
+| `h.skip(reason)` | Ends the attempt as skipped, with the reason (a file it needs isn't there, the feature is off). |
 
 A target is a Playwright selector string (`"#add"`, `"text=Checkout"`, `"role=button[name=Save]"`) or a locator (`h.page.getByRole("button")`).
 
@@ -159,6 +164,30 @@ test("W4", { title: "Theme switch", inside: "W3" }, async ({ h }) => {
 
 Choosing W4 runs W3 with it. W4's result is its own (with W3 as its parent), and a broken W4 pauses for Retry right there, inside W3.
 
+A child's own `runs` caps it: with `runs: 2` inside a parent that makes 3 attempts, the third parent attempt's `child("W4")` does nothing and returns `"skipped"`.
+
+A child can also have several parents: `inside: ["P1", "P2", "P6"]`. Any of them may call `child("P12")`, for example only when the state it needs came about. Each attempt number of the child runs once, in whichever parent gets to it first; a later call for the same number returns the outcome it had. Chosen alone, the child brings its first parent.
+
+When a run ends, a planned child attempt that no parent ran is filed as skipped, so it doesn't look lost.
+
+## Attempt hooks
+
+`beforeAttempt` and `afterAttempt` run around every attempt, children too. They get `{ page, h, params, packDir, test: { id, title, section, tags }, attempt, attempts, last }`, and `afterAttempt` also gets the `outcome`. Use them for state some tests need set up or kept safe, picked by tag:
+
+```ts
+export default pack({
+  // ...
+  beforeAttempt: async ({ h, test }) => {
+    if (test.tags.includes("changes-data")) await h.page.request.post("/api/backup");
+  },
+  afterAttempt: async ({ h, test }) => {
+    if (test.tags.includes("changes-data")) await h.page.request.post("/api/restore");
+  },
+});
+```
+
+An error in `beforeAttempt` makes the attempt broken. An error in `afterAttempt` is logged on the attempt and the run goes on. Hooks don't run for an attempt that was stopped.
+
 ## Collectors
 
 | Collector | Records |
@@ -169,7 +198,30 @@ Choosing W4 runs W3 with it. W4's result is its own (with W3 as its parent), and
 
 Each attempt stores them as `collectors/<name>.json`. `Authorization`, `Cookie`, `Set-Cookie`, `Proxy-Authorization` and `X-Api-Key` headers are redacted.
 
-A collector of your own is an object with a `name` and `attach(context, record)`, where `context` is the Playwright `BrowserContext` and `record(entry)` stores one JSON entry.
+A collector of your own is an object with a `name` and any of:
+
+- `attach(context, record)`: called with the Playwright `BrowserContext` when the run starts (and again if Watchwright replaces a stuck context). `record(entry)` stores one JSON entry with the attempt that is running; a child attempt keeps the entries made while it ran.
+- `beginAttempt(a)` and `endAttempt(a)`: called around every attempt, children too. `a` has `attemptId`, `testId`, `number`, `page`, `context`, `record(entry)`, `metric(name, value, unit?)` and `file(name, data, contentType?)`, which saves a file under `collectors/<collector>/<name>` with the attempt. Errors are logged, not fatal.
+
+The hooks suit apps that keep their own log of what happened, like a debug log behind an API: note where the log stands in `beginAttempt`, and in `endAttempt` save what was added:
+
+```ts
+const appLog = (): Collector => {
+  const seen = new Map<string, number>();
+  return {
+    name: "app-log",
+    async beginAttempt(a) {
+      seen.set(a.attemptId, (await (await a.page.request.get("/api/log")).json()).length);
+    },
+    async endAttempt(a) {
+      const all = await (await a.page.request.get("/api/log")).json();
+      for (const [i, entry] of all.slice(seen.get(a.attemptId)).entries()) a.file(`entry-${i + 1}.json`, JSON.stringify(entry, null, 2), "application/json");
+    },
+  };
+};
+```
+
+Files show in the attempt's **Files** tab; text, Markdown and JSON open right there.
 
 ## Where results go
 

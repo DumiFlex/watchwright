@@ -39,6 +39,7 @@ const TYPES: Record<string, string> = {
   ".jpeg": "image/jpeg",
   ".txt": "text/plain; charset=utf-8",
   ".json": "application/json",
+  ".md": "text/markdown; charset=utf-8",
   ".webm": "video/webm",
   ".zip": "application/zip",
   ".html": "text/html; charset=utf-8",

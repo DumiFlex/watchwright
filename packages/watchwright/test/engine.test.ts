@@ -457,6 +457,120 @@ test("V1", async ({ h }) => {
     expect(errors.map((e) => e.text)).toContain("fixture console error");
   });
 
+  it("runs a child with several parents once per number, caps it by its own runs, and files unrun ones", async () => {
+    const { h, packId } = await setup({
+      "tests/p.ts": `
+import { test } from "watchwright";
+test("P1", { runs: 2 }, async ({ h, child, attempt }) => { await h.goto("/"); if (attempt === 2) h.note("P1#2 said " + (await child("P12"))); });
+test("P2", { runs: 2 }, async ({ h, child }) => { await h.goto("/"); h.note("P2 said " + (await child("P12"))); });
+test("P12", { inside: ["P1", "P2"], runs: 2 }, async ({ h }) => { await h.goto("/other"); });
+test("W20", { runs: 3 }, async ({ child, last }) => { if (last) await child("W21"); });
+test("W21", { inside: "W20", runs: 2 }, async () => {});`,
+    });
+    const runId = await startRun(h, { packId, tests: ["P1", "P2", "W21"] });
+    const detail = await finished(h, runId);
+    const p12 = detail.attempts.filter((a) => a.testId === "P12");
+    const parentOf = (id: string | null) => detail.attempts.find((a) => a.id === id)?.testId;
+    // #1: P1#1 doesn't call it, P2#1 runs it. #2: P1#2 runs it first, so P2#2 gets its outcome without running it again.
+    expect(p12.map((a) => [a.number, a.status, parentOf(a.parentId)]).sort()).toEqual([
+      [1, "passed", "P2"],
+      [2, "passed", "P1"],
+    ]);
+    const notes = async (testId: string, n: number) =>
+      (await h.api<ResultDocument>("GET", `/runs/${runId}/attempts/${detail.attempts.find((a) => a.testId === testId && a.number === n)!.id}`)).data.notes;
+    expect(await notes("P2", 2)).toEqual(["P2 said passed"]);
+    // W21 runs 2 of W20's 3 attempts at most; W20 calls it only on its last (3), past the cap: both numbers end up filed as skipped.
+    const w21 = detail.attempts.filter((a) => a.testId === "W21").map((a) => [a.number, a.status]);
+    expect(w21.sort()).toEqual([
+      [1, "skipped"],
+      [2, "skipped"],
+    ]);
+  });
+
+  it("gives attempt hooks, collector hooks, run info, packDir and h.skip to packs", async () => {
+    const packDir = tempDir("ww-pack-");
+    writeFiles(packDir, {
+      "pack.ts": packFiles(`
+  setup: async ({ info, packDir }) => { info("App version", "1.2.3"); info("has notes", packDir.length > 0); },
+  beforeAttempt: async ({ h, test }) => { if (test.tags.includes("risky")) h.log("backed up before " + test.id); },
+  afterAttempt: async ({ h, test, outcome }) => { h.log("after " + test.id + ": " + outcome); },
+  collectors: [{
+    name: "app-log",
+    beginAttempt: (a) => { a.record({ began: a.testId }); },
+    endAttempt: (a) => { a.file("calls/01-call.md", "# call of " + a.testId, "text/markdown; charset=utf-8"); a.metric("AI calls", 1); },
+  }],`).replace("collectors: [consoleErrors(), failedRequests()],", ""),
+      "notes.txt": "next to the pack",
+      "tests/a.ts": `
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { test } from "watchwright";
+test("A1", { tags: ["risky"], description: "Reads a file next to the pack." }, async ({ h, packDir }) => { h.keepText("notes", { text: readFileSync(join(packDir, "notes.txt"), "utf8") }); h.info("model", "fake-9b"); });
+test("A2", async ({ h }) => { h.skip("No image to attach."); });
+test("A3", { inside: "A1" }, async () => {});`,
+    });
+    const h = await startHarness(tempDir("ww-data-"));
+    harnesses.push(h);
+    const packId = (await h.api<{ id: string }>("POST", "/packs", { path: packDir })).data.id;
+    const pack = (await h.api<{ tests: { id: string; description: string | null; inside: string[] }[] }>("GET", `/packs/${packId}`)).data;
+    expect(pack.tests.find((t) => t.id === "A1")?.description).toBe("Reads a file next to the pack.");
+    expect(pack.tests.find((t) => t.id === "A3")?.inside).toEqual(["A1"]);
+
+    const runId = await startRun(h, { packId, tests: ["A1", "A2"] });
+    const detail = await finished(h, runId);
+    expect(detail.info).toEqual({ "App version": "1.2.3", "has notes": true, model: "fake-9b" });
+    expect(byTest(detail)).toEqual({ "A1#1": "passed", "A2#1": "skipped", "A3#1": "skipped" });
+    const a1 = (await h.api<ResultDocument>("GET", `/runs/${runId}/attempts/${detail.attempts.find((a) => a.testId === "A1")!.id}`)).data;
+    expect(a1.texts.notes).toBe("next to the pack");
+    expect(a1.log.map((l) => l.message)).toEqual(expect.arrayContaining(["backed up before A1", "after A1: passed"]));
+    expect(a1.metrics["AI calls"]).toEqual({ value: 1, unit: null });
+    const file = a1.artifacts.find((a) => a.kind === "file")!;
+    expect([file.name, file.contentType, file.path.endsWith("collectors/app-log/calls/01-call.md")]).toEqual(["app-log: calls/01-call.md", "text/markdown; charset=utf-8", true]);
+    const records = JSON.parse(readFileSync(path.join(h.app.watchwright.store.dataDir, a1.folder, "collectors", "app-log.json"), "utf8")) as unknown[];
+    expect(records).toEqual([{ began: "A1" }]);
+    const a2 = (await h.api<ResultDocument>("GET", `/runs/${runId}/attempts/${detail.attempts.find((a) => a.testId === "A2")!.id}`)).data;
+    expect(a2.error).toEqual({ kind: "skipped", message: "No image to attach.", stack: null });
+  });
+
+  it("files a child's context records under the child, and keeps 0-attempt tests out under an attempts override", async () => {
+    const { h, packId } = await setup({
+      "tests/c.ts": `
+import { test } from "watchwright";
+test("C1", async ({ h, child }) => { await h.goto("/"); await child("C2"); await h.goto("/"); });
+test("C2", { inside: "C1" }, async ({ h }) => { await h.goto("/noisy"); await h.idle(); });
+test("C3", { runs: (p) => (p.label === "hello" ? 0 : 1) }, async () => {});`,
+    });
+    const runId = await startRun(h, { packId, attempts: 2 });
+    const detail = await finished(h, runId);
+    expect(Object.keys(byTest(detail)).sort()).toEqual(["C1#1", "C1#2", "C2#1", "C2#2"]);
+    const docOf = async (id: string) => (await h.api<ResultDocument>("GET", `/runs/${runId}/attempts/${id}`)).data;
+    const parent = await docOf(detail.attempts.find((a) => a.testId === "C1")!.id);
+    const child = await docOf(detail.attempts.find((a) => a.testId === "C2")!.id);
+    expect(child.artifacts.filter((a) => a.kind === "collector").map((a) => a.name).sort()).toEqual(["console-errors", "failed-requests"]);
+    expect(parent.artifacts.filter((a) => a.kind === "collector")).toEqual([]);
+  });
+
+  it("waits until a check holds, gives up early when progress stalls, and breaks on a timeout", async () => {
+    const { h, packId } = await setup({
+      "tests/w.ts": `
+import { test } from "watchwright";
+test("W1", async ({ h }) => {
+  let n = 0;
+  h.note("done: " + (await h.waitUntil(() => ++n > 3, { interval: 50 })));
+  h.note("stuck: " + (await h.waitUntil(() => false, { progress: () => "same", stallMs: 300, interval: 50 })));
+  let tick = 0;
+  h.note("moving: " + (await h.waitUntil(() => tick > 12, { progress: () => ++tick, stallMs: 300, interval: 50 })));
+});
+test("W2", async ({ h }) => { await h.waitUntil(() => false, { timeout: 300, interval: 50, what: "the answer" }); });`,
+    });
+    const runId = await startRun(h, { packId, pauseOnBroken: false });
+    const detail = await finished(h, runId);
+    expect(byTest(detail)).toEqual({ "W1#1": "passed", "W2#1": "broken" });
+    const w1 = (await h.api<ResultDocument>("GET", `/runs/${runId}/attempts/${detail.attempts[0]!.id}`)).data;
+    expect(w1.notes).toEqual(["done: done", "stuck: stalled", "moving: done"]);
+    const w2 = (await h.api<ResultDocument>("GET", `/runs/${runId}/attempts/${detail.attempts[1]!.id}`)).data;
+    expect(w2.error?.message).toMatch(/for the answer/);
+  });
+
   it("refuses runs it can't start", async () => {
     const { h, packId } = await setup({ "tests/a.ts": `import { test } from "watchwright"; test("A1", async () => {});` });
     expect((await h.api("POST", "/runs", { packId, tests: ["nope"] })).error?.code).toBe("bad_input");

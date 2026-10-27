@@ -112,11 +112,12 @@ onBeforeUnmount(() => live?.close());
               <tr><th>Test</th><th>Section</th><th>Needs</th><th>Attempts</th><th>File</th></tr>
             </thead>
             <tbody>
-              <tr v-for="t in pack.tests" :key="t.id" :class="{ child: !!t.inside }">
+              <tr v-for="t in pack.tests" :key="t.id" :class="{ child: t.inside.length > 0 }">
                 <td class="c-test">
                   <code>{{ t.id }}</code> <span>{{ t.title !== t.id ? t.title : "" }}</span>
-                  <span v-if="t.inside" class="muted small">runs inside {{ t.inside }}</span>
+                  <span v-if="t.inside.length" class="muted small">runs inside {{ t.inside.join(" or ") }}</span>
                   <span v-for="tag in t.tags" :key="tag" class="tag small">{{ tag }}</span>
+                  <p v-if="t.description" class="desc muted small">{{ t.description }}</p>
                 </td>
                 <td class="muted" data-label="Section" :class="{ none: !t.section }">{{ t.section ?? "–" }}</td>
                 <td data-label="Needs" :class="{ none: !t.needs.length }"><code v-if="t.needs.length">{{ t.needs.join(", ") }}</code><span v-else class="muted">–</span></td>
@@ -134,7 +135,7 @@ onBeforeUnmount(() => live?.close());
               <dt><code>{{ k }}</code> <span class="muted small">{{ d.type }}</span></dt>
               <dd>
                 <span v-if="d.description">{{ d.description }}</span>
-                <span v-if="d.choices" class="muted small"> Choices: <code v-for="c in d.choices" :key="String(c)" class="choice">{{ c }}</code></span>
+                <span v-if="d.choices" class="muted small"> Choices: <span v-for="c in d.choices" :key="String(c)" class="choice"><code>{{ c }}</code><span v-if="d.labels?.[String(c)]" class="choice-label">{{ d.labels[String(c)] }}</span></span></span>
                 <span v-if="d.default !== undefined" class="muted small"> Default <code>{{ d.default }}</code>.</span>
               </dd>
             </template>
@@ -243,6 +244,12 @@ onBeforeUnmount(() => live?.close());
   align-items: baseline;
   gap: 2px 8px;
 }
+.desc {
+  flex-basis: 100%;
+  max-width: 72ch;
+  margin: 2px 0 0;
+  white-space: pre-line;
+}
 .tag {
   padding: 0 6px;
   border-radius: var(--radius-chip);
@@ -272,10 +279,14 @@ onBeforeUnmount(() => live?.close());
   color: var(--muted);
 }
 .choice {
+  white-space: nowrap;
   margin-left: 4px;
   padding: 0 4px;
   border-radius: var(--radius-sm);
   background: var(--raised);
+}
+.choice-label {
+  margin-left: 6px;
 }
 .kind {
   display: inline-block;

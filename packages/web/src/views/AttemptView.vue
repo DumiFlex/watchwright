@@ -5,12 +5,13 @@
 // to the next and previous attempt of the run.
 import { ArrowLeft, ChevronLeft, ChevronRight } from "../icons";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { getJson, type Artifact, type ResultDocument, type RunDetail } from "../api";
+import { getJson, type Artifact, type Pack, type ResultDocument, type RunDetail } from "../api";
 import { attemptOrder, cellOf, plainText, recordColumns, shotGroups, traceViewerUrl } from "../attempt";
 import { duration, fileSize, when } from "../format";
 import { href } from "../router";
 import { toast } from "../toasts";
 import { vTip } from "../tooltip";
+import CodeView from "../components/CodeView.vue";
 import DataTable from "../components/DataTable.vue";
 import ImageViewer from "../components/ImageViewer.vue";
 import ReviewPanel from "../components/ReviewPanel.vue";
@@ -20,6 +21,8 @@ import TabBar from "../components/TabBar.vue";
 import VideoPlayer from "../components/VideoPlayer.vue";
 
 const props = defineProps<{ runId: string; attemptId: string }>();
+/** Text files bigger than this open in a new tab instead of the code view. */
+const TEXT_LIMIT = 2 * 1024 * 1024;
 
 const doc = ref<ResultDocument | null>(null);
 const run = ref<RunDetail | null>(null);
@@ -34,7 +37,17 @@ async function load() {
     return;
   }
   doc.value = d.data;
-  if (r.ok) run.value = r.data;
+  if (r.ok) {
+    run.value = r.data;
+    void loadDescription(r.data.packId, d.data.test.id);
+  }
+}
+
+// What the test says it does and what a good result looks like, from the pack (as it is now).
+const description = ref<string | null>(null);
+async function loadDescription(packId: string, testId: string) {
+  const p = await getJson<Pack>(`/api/v1/packs/${packId}`);
+  description.value = p.ok ? (p.data.tests.find((t) => t.id === testId)?.description ?? null) : null;
 }
 
 // Next and previous attempt of the run.
@@ -59,7 +72,7 @@ const collectors = computed(() => artifacts.value.filter((a) => a.kind === "coll
 const files = computed(() => artifacts.value.filter((a) => !["shot", "mark", "video", "trace", "collector", "text"].includes(a.kind)));
 const texts = computed(() => Object.entries(doc.value?.texts ?? {}));
 
-type Tab = "shots" | "texts" | "log" | "collectors" | "video" | "trace";
+type Tab = "shots" | "texts" | "log" | "collectors" | "files" | "video" | "trace";
 const tab = ref<Tab>("shots");
 const tabs = computed(() => {
   const t: { value: Tab; label: string; count?: number }[] = [];
@@ -67,6 +80,7 @@ const tabs = computed(() => {
   if (texts.value.length) t.push({ value: "texts", label: "Texts", count: texts.value.length });
   t.push({ value: "log", label: "Log", count: doc.value?.log.length ?? 0 });
   if (collectors.value.length) t.push({ value: "collectors", label: "Collectors", count: collectors.value.length });
+  if (files.value.length) t.push({ value: "files", label: "Files", count: files.value.length });
   if (videos.value.length) t.push({ value: "video", label: "Video" });
   if (trace.value) t.push({ value: "trace", label: "Trace" });
   return t;
@@ -111,6 +125,33 @@ const recordRows = computed(() => (records.value ?? []).map((rec, i) => ({ i, re
 const recordCols = computed(() =>
   recordColumns(records.value ?? []).map((k) => ({ key: k, label: k, sortable: true, value: (r: { rec: Record<string, unknown> }) => cellOf(r.rec?.[k]) })),
 );
+
+// Files the test or its collectors saved: text ones open in the code view.
+const filePath = ref("");
+const fileText = ref<string | null>(null);
+const fileError = ref<string | null>(null);
+watch(files, (f) => (filePath.value = f.some((a) => a.url === filePath.value) ? filePath.value : (f[0]?.url ?? "")), { immediate: true });
+const shownFile = computed(() => files.value.find((a) => a.url === filePath.value) ?? null);
+const isText = (a: Artifact) => /^(text\/|application\/(json|xml|javascript))/.test(a.contentType);
+const fileLang = computed(() => (shownFile.value?.contentType.startsWith("application/json") ? "json" : "text"));
+watch([tab, filePath], async ([t, url]) => {
+  fileText.value = null;
+  fileError.value = null;
+  const a = shownFile.value;
+  if (t !== "files" || !url || !a || !isText(a)) return;
+  if (a.size > TEXT_LIMIT) {
+    fileError.value = `This file is ${fileSize(a.size)}, too big to show here.`;
+    return;
+  }
+  try {
+    const res = await fetch(url);
+    const text = await res.text();
+    if (filePath.value === url) fileText.value = text;
+  } catch {
+    fileError.value = "The file couldn't be read.";
+  }
+});
+const fileOptions = computed(() => files.value.map((a) => ({ value: a.url, label: a.name })));
 
 const traceHref = computed(() => (trace.value ? traceViewerUrl(window.location.origin, trace.value.url) : ""));
 
@@ -168,8 +209,13 @@ watch(
         </div>
       </header>
 
-      <section v-if="doc.error" class="card problem" aria-labelledby="err-title">
-        <h2 id="err-title">{{ doc.error.kind === "assertion" ? "A check failed" : doc.error.kind === "timeout" ? "Timed out" : doc.error.kind === "stopped" ? "Stopped" : "The harness couldn't go on" }}</h2>
+      <section v-if="description" class="card about" aria-labelledby="about-title">
+        <h2 id="about-title">About this test</h2>
+        <p class="about-text">{{ description }}</p>
+      </section>
+
+      <section v-if="doc.error" class="card problem" :class="{ calm: doc.error.kind === 'skipped' }" aria-labelledby="err-title">
+        <h2 id="err-title">{{ doc.error.kind === "assertion" ? "A check failed" : doc.error.kind === "timeout" ? "Timed out" : doc.error.kind === "stopped" ? "Stopped" : doc.error.kind === "skipped" ? "Skipped" : "The harness couldn't go on" }}</h2>
         <pre class="msg">{{ plainText(doc.error.message) }}</pre>
         <details v-if="doc.error.stack" class="stack">
           <summary>Stack</summary>
@@ -177,7 +223,7 @@ watch(
         </details>
       </section>
 
-      <section v-if="doc.flags.length || doc.notes.length || Object.keys(doc.metrics).length || files.length" class="card summary" aria-label="Summary">
+      <section v-if="doc.flags.length || doc.notes.length || Object.keys(doc.metrics).length" class="card summary" aria-label="Summary">
         <div v-if="robot.length" class="block">
           <h3>Robot problems</h3>
           <ul class="flags">
@@ -206,12 +252,6 @@ watch(
           <h3>Notes</h3>
           <ul class="notes">
             <li v-for="(n, i) in doc.notes" :key="i">{{ n }}</li>
-          </ul>
-        </div>
-        <div v-if="files.length" class="block">
-          <h3>Files</h3>
-          <ul class="notes">
-            <li v-for="a in files" :key="a.url"><a :href="a.url" target="_blank" rel="noopener">{{ a.name }}</a> <span class="muted small">{{ a.kind }} · {{ fileSize(a.size) }}</span></li>
           </ul>
         </div>
       </section>
@@ -281,6 +321,20 @@ watch(
             <p class="muted small"><a :href="collectorPath" target="_blank" rel="noopener">Open the JSON</a></p>
           </div>
 
+          <div v-else-if="tab === 'files'" id="att-panel-files" role="tabpanel" aria-labelledby="att-tab-files" class="panel">
+            <div class="file-bar">
+              <label for="att-file" class="sr-only">File</label>
+              <SelectMenu id="att-file" v-model="filePath" :options="fileOptions" />
+              <span v-if="shownFile" class="muted small">{{ fileSize(shownFile.size) }}</span>
+              <a v-if="shownFile" class="btn small-btn" :href="shownFile.url" target="_blank" rel="noopener">Open</a>
+              <button v-if="fileText" class="btn small-btn" type="button" @click="copy(fileText)">Copy</button>
+            </div>
+            <p v-if="fileError" class="muted">{{ fileError }}</p>
+            <CodeView v-else-if="fileText !== null && shownFile" :code="fileText" :lang="fileLang" :label="shownFile.name" max-height="560px" wrap />
+            <p v-else-if="shownFile && !isText(shownFile)" class="muted">This file isn't text. Open it to see it.</p>
+            <p v-else-if="shownFile" class="muted">Loading…</p>
+          </div>
+
           <div v-else-if="tab === 'video'" id="att-panel-video" role="tabpanel" aria-labelledby="att-tab-video" class="panel videos">
             <div v-for="v in videos" :key="v.url" class="video">
               <VideoPlayer :src="v.url" :label="v.name" />
@@ -343,6 +397,12 @@ watch(
 }
 .problem h2 {
   color: var(--bad);
+}
+.problem.calm {
+  border-color: var(--line);
+}
+.problem.calm h2 {
+  color: var(--muted);
 }
 .msg,
 .stack pre {
@@ -537,6 +597,26 @@ watch(
 }
 .filters > :not(label) {
   width: 220px;
+}
+.about h2 {
+  margin: 0 0 var(--space-2);
+  font-size: 13px;
+  color: var(--muted);
+}
+.about-text {
+  margin: 0;
+  max-width: 90ch;
+  white-space: pre-line;
+}
+.file-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.file-bar > :nth-child(2) {
+  width: min(420px, 100%);
 }
 .log {
   list-style: none;
