@@ -3,6 +3,7 @@ import type Database from "better-sqlite3";
 import type { ArtifactInfo, FlagRecord, LogLine, MetricRecord } from "../../jobs/recorder.js";
 import type { Outcome, ParamValues } from "../packs/api.js";
 import type { AttemptError } from "../testing/outcome.js";
+import type { QueueEdits } from "./queue.js";
 
 // Rows of the runs plugin: runs, their attempts (with retry history) and artifacts.
 
@@ -135,6 +136,8 @@ export interface RunOptions {
   trace?: "problems" | "always" | "never";
   /** Record video, instead of the pack's setting. */
   video?: boolean;
+  /** Queue edits made while the run went (order, skipped attempts). */
+  queue?: QueueEdits;
 }
 
 export interface PlanEntry {
@@ -144,6 +147,8 @@ export interface PlanEntry {
   of: number;
   /** Child tests the parent runs from its body. */
   children?: string[];
+  /** Skipped from the queue before it started. */
+  skip?: boolean;
 }
 
 export interface AttemptSummary {
@@ -234,7 +239,7 @@ export class RunsRepo {
     return this.db.prepare("SELECT * FROM runs WHERE status = 'queued' ORDER BY created_at, rowid").all() as RunRow[];
   }
 
-  updateRun(id: string, fields: Partial<Pick<RunRow, "status" | "mode" | "plan" | "state" | "error" | "started_at" | "finished_at">>): void {
+  updateRun(id: string, fields: Partial<Pick<RunRow, "status" | "mode" | "plan" | "options" | "state" | "error" | "started_at" | "finished_at">>): void {
     const keys = Object.keys(fields);
     if (keys.length === 0) return;
     this.db.prepare(`UPDATE runs SET ${keys.map((k) => `${k} = @${k}`).join(", ")} WHERE id = @id`).run({ ...fields, id });

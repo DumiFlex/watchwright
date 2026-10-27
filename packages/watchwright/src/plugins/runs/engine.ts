@@ -29,7 +29,8 @@ import {
   type RunsRepo,
   type RunSummary,
 } from "./repo.js";
-import { resultDocument, type ResultDocument } from "./results.js";
+import { QueueError, RunQueue } from "./queue.js";
+import { fileUrl, resultDocument, type ResultDocument } from "./results.js";
 
 // The job runner: queue and site locks, one browser session per run, attempts with pause, retry,
 // skip, stop and hot reload, resume after a crash, redo of broken attempts (docs/plan.md, section 6).
@@ -101,6 +102,10 @@ interface ActiveRun {
   shutdown: boolean;
   done: Promise<void>;
   videoWarned: boolean;
+  /** Set once the run is planned and set up. */
+  ctx: RunCtx | null;
+  /** The recorder of the top-level attempt that is running, for marks. */
+  recorder: AttemptRecorder | null;
 }
 
 interface RunCtx {
@@ -112,6 +117,7 @@ interface RunCtx {
   plan: KindPlan;
   mode: RunMode;
   options: RunOptions;
+  queue: RunQueue;
   pauseOnBroken: boolean;
   pauseLimitMs: number;
 }
@@ -142,6 +148,63 @@ export class Engine {
 
   list(filter: RunFilter = {}): RunSummary[] {
     return this.o.repo.runs(filter).map((r) => runSummary(r, this.o.repo.counts(r.id)));
+  }
+
+  private planEntries(kind: JobKind, pack: LoadedPack, plan: KindPlan, queue: RunQueue): PlanEntry[] {
+    return queue.items.map((i) => {
+      const children = plan.children.get(i.itemId);
+      return {
+        testId: i.itemId,
+        title: kind.describe(pack, i.itemId).title,
+        number: i.number,
+        of: i.of,
+        ...(children && children.length > 0 ? { children } : {}),
+        ...(queue.isSkipped(i) ? { skip: true } : {}),
+      };
+    });
+  }
+
+  /** Applies a queue edit to a run that is going, keeps it with the run and tells viewers. */
+  private editQueue(id: string, edit: (q: RunQueue) => void): RunDetail {
+    const run = this.requireActive(id);
+    const ctx = run.ctx;
+    if (!ctx) throw new EngineError("not_running", "The run is still setting up; try again in a moment.", 409);
+    try {
+      edit(ctx.queue);
+    } catch (err) {
+      if (err instanceof QueueError) throw new EngineError("bad_input", err.message);
+      throw err;
+    }
+    ctx.options = { ...ctx.options, queue: ctx.queue.edits() };
+    const entries = this.planEntries(ctx.kind, ctx.pack, ctx.plan, ctx.queue);
+    this.o.repo.updateRun(id, { plan: JSON.stringify(entries), options: JSON.stringify(ctx.options) });
+    this.emit("run.planned", { plan: entries }, id);
+    return this.get(id)!;
+  }
+
+  /** Skips an attempt that hasn't started (or takes the skip back with `on` false). */
+  queueSkip(id: string, testId: string, number: number, on: boolean): RunDetail {
+    return this.editQueue(id, (q) => q.skip(testId, number, on));
+  }
+
+  /** Moves a test that hasn't started one place up or down. */
+  queueMove(id: string, testId: string, direction: "up" | "down"): RunDetail {
+    return this.editQueue(id, (q) => q.move(testId, direction));
+  }
+
+  /** Saves what the live view shows now (the newest frame of the followed page) with a note, on the attempt that is running. */
+  mark(id: string, note: string): { attemptId: string; artifact: ArtifactInfo & { url: string } } {
+    const run = this.requireActive(id);
+    const recorder = run.recorder;
+    if (!recorder || !run.attemptId) throw new EngineError("not_running", "No test is running right now, so there is nothing to mark.", 409);
+    const frames = this.o.frames.latestFrames(id);
+    const frame = frames.find((f) => f.pageId === run.session?.activePage) ?? frames[frames.length - 1];
+    if (!frame) throw new EngineError("no_frame", "The live view has no picture yet.", 409);
+    const text = note.trim();
+    const artifact = recorder.write("mark", text || "Mark", recorder.numberedName("mark", ".jpg"), frame.data, "image/jpeg");
+    recorder.notes.push(text ? `Mark ${path.posix.basename(artifact.path)}: ${text}` : `Mark ${path.posix.basename(artifact.path)}`);
+    recorder.addLog("info", text ? `Marked: ${text}` : "Marked");
+    return { attemptId: run.attemptId, artifact: { ...artifact, url: fileUrl(artifact.path) } };
   }
 
   /** Deletes a run that isn't queued or going, with its rows and its folder. */
@@ -394,6 +457,8 @@ export class Engine {
       shutdown: false,
       done: Promise.resolve(),
       videoWarned: false,
+      ctx: null,
+      recorder: null,
     };
     this.active.set(row.id, run);
     run.done = this.execute(row, run)
@@ -440,10 +505,8 @@ export class Engine {
       failStart(err instanceof Error ? err.message : String(err));
       return;
     }
-    const entries: PlanEntry[] = plan.items.map((i) => {
-      const children = plan.children.get(i.itemId);
-      return { testId: i.itemId, title: kind.describe(pack, i.itemId).title, number: i.number, of: i.of, ...(children && children.length > 0 ? { children } : {}) };
-    });
+    const queue = new RunQueue(plan, options.queue);
+    const entries = this.planEntries(kind, pack, plan, queue);
     repo.updateRun(row.id, { plan: JSON.stringify(entries) });
     this.emit("run.planned", { plan: entries }, row.id);
 
@@ -513,15 +576,26 @@ export class Engine {
         plan,
         mode,
         options,
+        queue,
         pauseOnBroken: options.pauseOnBroken ?? o.run?.pauseOnBroken ?? true,
         pauseLimitMs: (options.pauseLimitMinutes ?? o.run?.pauseLimitMinutes ?? DEFAULT_PAUSE_LIMIT_MINUTES) * 60_000,
       };
+      run.ctx = ctx;
       const todo = this.select(ctx);
-      for (let i = 0; i < plan.items.length; i++) {
+      for (;;) {
         await run.control.checkpoint("boundary");
         if (run.control.stopMode) break;
-        const item = plan.items[i]!;
-        if (!todo.has(`${item.itemId}#${item.number}`)) continue;
+        const item = ctx.queue.next();
+        if (!item) break;
+        if (!todo.has(`${item.itemId}#${item.number}`)) {
+          ctx.queue.finish(item);
+          continue;
+        }
+        if (ctx.queue.isSkipped(item)) {
+          this.skipAttempt(ctx, item, null, "Skipped from the queue.");
+          ctx.queue.finish(item);
+          continue;
+        }
 
         const r = await packs.refresh(row.pack_id);
         if (r.reloaded) {
@@ -532,16 +606,19 @@ export class Engine {
         const brokenNeed = this.brokenNeed(ctx, item.itemId);
         if (brokenNeed) {
           this.skipAttempt(ctx, item, null, `Skipped: ${brokenNeed}`);
+          ctx.queue.finish(item);
           continue;
         }
+        ctx.queue.started(item);
         const { outcome, attemptId } = await this.runAttempt(ctx, item, null);
         if (run.control.stopMode || run.shutdown) break;
         if (outcome === "broken" && ctx.pauseOnBroken) {
           const d = await this.pauseOnBroken(ctx, item.itemId, attemptId);
           this.emit("run.decision", { decision: d, testId: item.itemId, number: item.number }, row.id);
-          if (d === "retry") i--;
-          else if (d === "stop") break;
+          if (d === "stop") break;
+          if (d === "retry") continue;
         }
+        ctx.queue.finish(item);
       }
     } finally {
       await session.stopCapture();
@@ -671,6 +748,7 @@ export class Engine {
     this.emit("attempt.started", { testId: item.itemId, title, number: item.number, of: item.of, try: tryNo, parentId }, row.id, id);
 
     const top = parentId === null;
+    if (top) run.recorder = recorder;
     const o = pack.options.run ?? {};
     const traceMode = ctx.options.trace ?? o.trace ?? "problems";
     const video = ctx.options.video ?? o.video ?? true;
@@ -735,6 +813,7 @@ export class Engine {
       if (top) run.control.abort = null;
     }
 
+    if (top) run.recorder = null;
     const { status, error: attemptError } = classify({
       error,
       flags: recorder.flags,

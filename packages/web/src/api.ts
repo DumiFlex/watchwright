@@ -136,7 +136,7 @@ export interface LiveSnapshot {
 }
 
 export interface RunDetail extends RunSummary {
-  plan: { testId: string; title: string; number: number; of: number; children?: string[]; status: AttemptStatus | "pending"; attemptId: string | null }[];
+  plan: { testId: string; title: string; number: number; of: number; children?: string[]; skip?: boolean; status: AttemptStatus | "pending"; attemptId: string | null }[];
   attempts: Attempt[];
   live: LiveSnapshot | null;
 }
