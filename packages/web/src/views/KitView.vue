@@ -19,6 +19,7 @@ import FilePicker from "../components/FilePicker.vue";
 import FolderBrowser from "../components/FolderBrowser.vue";
 import PathInput from "../components/PathInput.vue";
 import PathLine from "../components/PathLine.vue";
+import ImageDiff from "../components/ImageDiff.vue";
 import ImageViewer from "../components/ImageViewer.vue";
 import JsonTree from "../components/JsonTree.vue";
 import KeyHint from "../components/KeyHint.vue";
@@ -251,6 +252,9 @@ const shots = [
   { url: sampleShot("Cart", 20), name: "03 cart", note: "mark" },
 ];
 const shotOpen = ref<number | null>(null);
+// Two takes of one page for the image diff: the second has a different third card.
+const diffBefore = { url: sampleShot("Cart", 20), label: "Before", note: "run #41" };
+const diffAfter = { url: sampleShot("Cart", 20).replace(encodeURIComponent("hsl(100,35%,72%)"), encodeURIComponent("hsl(0,70%,60%)")), label: "After", note: "run #42" };
 
 // "At a glance": made-up numbers for the last 24 runs of a pack.
 const runIds = Array.from({ length: 24 }, (_, i) => `#${101 + i}`);
@@ -758,6 +762,10 @@ const traces = [
             </button>
           </div>
           <ImageViewer v-model="shotOpen" :images="shots" label="Sample shots" />
+        </div>
+        <div class="item wide">
+          <span class="lbl">Image diff (1, 2 and 3 switch the view; drag the line or use the slider in the wipe)</span>
+          <ImageDiff :before="diffBefore" :after="diffAfter" />
         </div>
         <div class="item wide">
           <span class="lbl">Video player (Space or K, arrows, comma and period, F)</span>
