@@ -172,11 +172,3 @@ export function decodeFrame(buf: ArrayBuffer): { header: FrameHeader; jpeg: Uint
   const header = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 4, len))) as FrameHeader;
   return { header, jpeg: new Uint8Array(buf, 4 + len) };
 }
-
-export type Route = { name: "home" } | { name: "run"; id: string } | { name: "kit" };
-
-export function parseRoute(hash: string): Route {
-  if (hash === "#/kit") return { name: "kit" };
-  const m = /^#\/runs\/([0-9a-f]{8})$/.exec(hash);
-  return m ? { name: "run", id: m[1]! } : { name: "home" };
-}

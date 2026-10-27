@@ -28,10 +28,11 @@ Everything the web page does goes through this API, so scripts and AI agents can
 
 | Method and path | Does |
 |---|---|
-| `GET /runs?limit=` | Runs, newest first, with counts. |
+| `GET /runs?limit=&pack=&status=&before=` | Runs, newest first, with counts. `pack` keeps one pack's runs, `status` a comma-separated list of statuses (`finished,stopped`). For the next page, pass the `createdAt` of the last run as `before`. |
 | `POST /runs` `{ packId, tests?, params?, pauseOnBroken?, pauseLimitMinutes? }` | Queues a run. `tests` defaults to all; tests they need, and parents and children, join by themselves. |
 | `GET /runs/:id?history=` | The run, its plan (every planned attempt with its status), current attempts, and `live` (state, current test and step, pages) while it runs. `history=true` adds earlier tries of retried attempts. |
 | `GET /runs/:id/attempts/:attemptId` | One attempt's result document (`schemaVersion: 1`): status, error, flags, metrics, notes, kept texts, log, artifacts with URLs. |
+| `DELETE /runs/:id` | Deletes a run that isn't queued or going, with its attempts and its folder in the data folder. Its events stay in the event log. |
 | `POST /runs/:id/pause` | Pauses at the next step. |
 | `POST /runs/:id/resume` | Resumes a manual pause. For an `interrupted`, `stopped` or `failed_to_start` run, queues it to continue: passed, failed and skipped attempts are kept, the rest run. |
 | `POST /runs/:id/retry`, `/skip` | Answers a pause on a broken attempt. |

@@ -1,0 +1,437 @@
+<script setup lang="ts">
+// The home page: runs that are going (or waiting) first, then every earlier run with filters
+// by pack and status, a page at a time. Filters live in the address so a list can be linked.
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { getJson, sendJson, type Pack, type RunSummary } from "../api";
+import { ago, countsText, done, duration, runDuration, when } from "../format";
+import { LiveConnection } from "../live";
+import { replaceRoute } from "../router";
+import MenuButton from "../components/MenuButton.vue";
+import ModalDialog from "../components/ModalDialog.vue";
+import ProgressBar from "../components/ProgressBar.vue";
+import SelectMenu from "../components/SelectMenu.vue";
+import StatusChip from "../components/StatusChip.vue";
+import { vTip } from "../tooltip";
+
+const props = defineProps<{ query: Record<string, string> }>();
+
+const PAGE = 50;
+const FINISHED = "finished,stopped,interrupted,failed_to_start";
+const statusOptions = [
+  { value: "", label: "Any status" },
+  { value: "finished", label: "Finished" },
+  { value: "stopped", label: "Stopped" },
+  { value: "interrupted", label: "Interrupted" },
+  { value: "failed_to_start", label: "Failed to start" },
+];
+
+const packs = ref<Pack[]>([]);
+const active = ref<RunSummary[]>([]);
+const runs = ref<RunSummary[]>([]);
+const more = ref(false);
+const loading = ref(true);
+const loadError = ref<string | null>(null);
+const packFilter = ref(props.query.pack ?? "");
+const statusFilter = ref(statusOptions.some((o) => o.value === props.query.status) ? (props.query.status ?? "") : "");
+const now = ref(Date.now());
+
+const packOptions = computed(() => [{ value: "", label: "All packs" }, ...packs.value.map((p) => ({ value: p.id, label: p.name }))]);
+const filtered = computed(() => packFilter.value !== "" || statusFilter.value !== "");
+
+function listUrl(before?: string) {
+  const q = new URLSearchParams({ limit: String(PAGE), status: statusFilter.value || FINISHED });
+  if (packFilter.value) q.set("pack", packFilter.value);
+  if (before) q.set("before", before);
+  return `/api/v1/runs?${q}`;
+}
+
+async function load() {
+  const [p, a, r] = await Promise.all([
+    getJson<Pack[]>("/api/v1/packs"),
+    getJson<RunSummary[]>("/api/v1/runs?status=queued,running,pausing,paused&limit=50"),
+    getJson<RunSummary[]>(listUrl()),
+  ]);
+  loading.value = false;
+  const failed = [p, a, r].find((x) => !x.ok);
+  loadError.value = failed && !failed.ok ? failed.error.message : null;
+  if (p.ok) packs.value = p.data;
+  if (a.ok) active.value = a.data.slice().reverse(); // oldest first: the order they run in
+  if (r.ok) {
+    runs.value = r.data;
+    more.value = r.data.length === PAGE;
+  }
+}
+
+async function loadMore() {
+  const last = runs.value[runs.value.length - 1];
+  if (!last) return;
+  const r = await getJson<RunSummary[]>(listUrl(last.createdAt));
+  if (!r.ok) return void (loadError.value = r.error.message);
+  runs.value = [...runs.value, ...r.data];
+  more.value = r.data.length === PAGE;
+}
+
+watch([packFilter, statusFilter], () => {
+  replaceRoute({ name: "runs", query: { pack: packFilter.value, status: statusFilter.value } });
+  void load();
+});
+
+// Delete, behind a confirm dialog.
+const deleting = ref<RunSummary | null>(null);
+const deleteOpen = computed({
+  get: () => deleting.value !== null,
+  set: (v) => {
+    if (!v) deleting.value = null;
+  },
+});
+const deleteError = ref<string | null>(null);
+const busy = ref(false);
+function onRowMenu(r: RunSummary, value: string) {
+  if (value === "delete") {
+    deleteError.value = null;
+    deleting.value = r;
+  }
+}
+async function confirmDelete() {
+  const r = deleting.value;
+  if (!r) return;
+  busy.value = true;
+  const res = await sendJson(`/api/v1/runs/${r.id}`, {}, "DELETE");
+  busy.value = false;
+  if (!res.ok) return void (deleteError.value = res.error.message);
+  deleting.value = null;
+  runs.value = runs.value.filter((x) => x.id !== r.id);
+}
+
+function rowMenu(r: RunSummary) {
+  return [
+    { value: "open", label: "Open", href: `#/runs/${r.id}` },
+    { value: "again", label: "New run like this", href: `#/new?pack=${r.packId}&from=${r.id}` },
+    { value: "delete", label: "Delete…", danger: true },
+  ];
+}
+
+/** Planned tests that didn't pass, fail or break (skipped, stopped or never run). */
+const rest = (r: RunSummary) => Math.max(0, r.counts.planned - r.counts.passed - r.counts.failed - r.counts.broken);
+const packName = (id: string) => packs.value.find((p) => p.id === id)?.name;
+
+let live: LiveConnection | null = null;
+let timer: ReturnType<typeof setTimeout> | null = null;
+let clock: ReturnType<typeof setInterval> | null = null;
+onMounted(() => {
+  void load();
+  // Run and pack events refresh the lists (debounced).
+  live = new LiveConnection(
+    {},
+    {
+      onEvent: (e) => {
+        if (!/^(run|pack)\./.test(e.type)) return;
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => void load(), 300);
+      },
+    },
+  );
+  clock = setInterval(() => (now.value = Date.now()), 1000);
+});
+onBeforeUnmount(() => {
+  live?.close();
+  if (timer) clearTimeout(timer);
+  if (clock) clearInterval(clock);
+});
+</script>
+
+<template>
+  <main class="page">
+    <div class="page-head">
+      <div>
+        <h1 class="display">Runs</h1>
+        <p class="muted">Start a run from a pack, watch it live, and come back to its results here.</p>
+      </div>
+    </div>
+    <p v-if="loadError" class="error" role="alert">{{ loadError }}</p>
+
+    <section v-if="active.length" class="card" aria-labelledby="active-title">
+      <h2 id="active-title" class="display">Going now</h2>
+      <ul class="active">
+        <li v-for="r in active" :key="r.id">
+          <a class="arun" :href="`#/runs/${r.id}`">
+            <span class="aname">{{ r.packName }} <span class="muted num small">{{ r.id }}</span></span>
+            <StatusChip :status="r.status" />
+            <ProgressBar class="aprog" :value="done(r.counts)" :max="Math.max(1, r.counts.planned)" :label="`${r.packName} progress`" :tone="r.counts.broken || r.counts.failed ? 'warn' : 'accent'" />
+            <span class="muted small">
+              {{ done(r.counts) }} of {{ r.counts.planned }} tests<template v-if="r.counts.failed"> · {{ r.counts.failed }} failed</template><template v-if="r.counts.broken"> · {{ r.counts.broken }} broken</template>
+              <template v-if="r.startedAt"> · {{ duration(runDuration(r, now)) }}</template>
+              <template v-else> · waiting for its site</template>
+            </span>
+            <span v-if="Object.keys(r.params).length" class="params small">
+              <code v-for="(v, k) in r.params" :key="k">{{ k }}={{ v }}</code>
+            </span>
+          </a>
+        </li>
+      </ul>
+    </section>
+
+    <section class="card" aria-labelledby="runs-title">
+      <div class="list-head">
+        <h2 id="runs-title" class="display">Earlier runs</h2>
+        <div class="filters">
+          <label class="sr-only" for="f-pack">Pack</label>
+          <SelectMenu id="f-pack" v-model="packFilter" :options="packOptions" />
+          <label class="sr-only" for="f-status">Status</label>
+          <SelectMenu id="f-status" v-model="statusFilter" :options="statusOptions" />
+        </div>
+      </div>
+
+      <p v-if="loading" class="muted">Loading…</p>
+      <table v-else-if="runs.length" class="runs">
+        <thead>
+          <tr>
+            <th>Run</th>
+            <th>Status</th>
+            <th>Results</th>
+            <th>Started</th>
+            <th>Took</th>
+            <th><span class="sr-only">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="r in runs" :key="r.id">
+            <td class="c-run">
+              <a :href="`#/runs/${r.id}`" class="rname">{{ r.packName }}</a>
+              <span class="muted num small">{{ r.id }}</span>
+              <span v-if="Object.keys(r.params).length" class="params small">
+                <code v-for="(v, k) in r.params" :key="k">{{ k }}={{ v }}</code>
+              </span>
+            </td>
+            <td class="c-status"><StatusChip :status="r.status" /></td>
+            <td class="c-res">
+              <span class="tally" aria-hidden="true">
+                <span v-if="r.counts.passed" class="seg ok" :style="{ flexGrow: r.counts.passed }" />
+                <span v-if="r.counts.failed" class="seg bad" :style="{ flexGrow: r.counts.failed }" />
+                <span v-if="r.counts.broken" class="seg warn" :style="{ flexGrow: r.counts.broken }" />
+                <span v-if="rest(r) > 0" class="seg rest" :style="{ flexGrow: rest(r) }" />
+              </span>
+              <span class="small">{{ countsText(r.counts) }}</span>
+            </td>
+            <td class="c-when muted small"><span v-tip="when(r.startedAt ?? r.createdAt)">{{ ago(r.startedAt ?? r.createdAt, now) }}</span> · {{ r.startedBy }}</td>
+            <td class="c-took muted small num">{{ duration(runDuration(r)) || "–" }}</td>
+            <td class="c-act">
+              <MenuButton :items="rowMenu(r)" :label="`Actions for run ${r.id}`" @select="onRowMenu(r, $event)">
+                <template #button><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="3" cy="8" r="1.4" fill="currentColor" /><circle cx="8" cy="8" r="1.4" fill="currentColor" /><circle cx="13" cy="8" r="1.4" fill="currentColor" /></svg></template>
+              </MenuButton>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <div v-else class="empty">
+        <template v-if="filtered">
+          <p class="muted">No runs match these filters.</p>
+          <button class="btn" @click="(packFilter = ''), (statusFilter = '')">Clear filters</button>
+        </template>
+        <template v-else-if="packs.length === 0">
+          <p class="muted">No runs yet. Add a test pack first: the folder with its <code>pack.ts</code>.</p>
+          <a class="btn primary" href="#/packs">Add a pack</a>
+        </template>
+        <template v-else>
+          <p class="muted">No finished runs yet.</p>
+          <a class="btn primary" href="#/new">Start a run</a>
+        </template>
+      </div>
+      <div v-if="more" class="more"><button class="btn" @click="loadMore">Show older runs</button></div>
+    </section>
+
+    <ModalDialog v-model="deleteOpen" heading="Delete this run?">
+      <p v-if="deleting">
+        <strong>{{ deleting.packName }}</strong> <span class="num">{{ deleting.id }}</span> ({{ countsText(deleting.counts) }}). Its results, screenshots, videos and traces are removed from the data folder. This can't be undone.
+      </p>
+      <p v-if="deleting && packName(deleting.packId) === undefined" class="muted small">Its pack is no longer added.</p>
+      <p v-if="deleteError" class="error" role="alert">{{ deleteError }}</p>
+      <template #actions>
+        <button class="btn" :disabled="busy" @click="deleting = null">Cancel</button>
+        <button class="btn danger" :disabled="busy" @click="confirmDelete">{{ busy ? "Deleting…" : "Delete run" }}</button>
+      </template>
+    </ModalDialog>
+  </main>
+</template>
+
+<style scoped>
+.active {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--space-3);
+}
+.arun {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius);
+  color: var(--text);
+  text-decoration: none;
+}
+.arun:hover {
+  border-color: var(--accent);
+}
+.arun > :nth-child(n + 3) {
+  grid-column: 1 / -1;
+}
+.aname {
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.params {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.params code {
+  padding: 0 5px;
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  color: var(--muted);
+}
+.list-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.list-head h2 {
+  margin: 0;
+  font-size: 15px;
+}
+.filters {
+  display: flex;
+  gap: var(--space-2);
+}
+.filters > :deep(*) {
+  min-width: 160px;
+}
+.runs {
+  width: 100%;
+  border-collapse: collapse;
+}
+.runs th {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 12px;
+  padding: 4px 12px 6px 0;
+}
+.runs td {
+  padding: 8px 12px 8px 0;
+  border-top: var(--border-width) solid var(--line);
+  vertical-align: middle;
+}
+.c-run {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+}
+.rname {
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+}
+.rname:hover {
+  color: var(--accent-text);
+  text-decoration: underline;
+}
+.c-res {
+  min-width: 180px;
+}
+.tally {
+  display: flex;
+  gap: 2px;
+  width: 140px;
+  height: 6px;
+  margin-bottom: 4px;
+}
+.seg {
+  border-radius: 2px;
+}
+.seg.ok {
+  background: var(--ok);
+}
+.seg.bad {
+  background: var(--bad);
+}
+.seg.warn {
+  background: var(--warn);
+}
+.seg.rest {
+  background: var(--line);
+}
+.c-act {
+  width: 1%;
+  text-align: right;
+  padding-right: 0;
+}
+.empty {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-2);
+}
+.empty p {
+  margin: 0;
+}
+.more {
+  margin-top: var(--space-3);
+  display: flex;
+  justify-content: center;
+}
+@media (max-width: 720px) {
+  .filters {
+    width: 100%;
+  }
+  .filters > :deep(*) {
+    flex: 1;
+    min-width: 0;
+  }
+  .runs thead {
+    display: none;
+  }
+  .runs tr {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 4px 8px;
+    padding: 10px 0;
+    border-top: var(--border-width) solid var(--line);
+  }
+  .runs td {
+    border: 0;
+    padding: 0;
+  }
+  .c-run {
+    grid-column: 1;
+  }
+  .c-status {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+  }
+  .c-res,
+  .c-when {
+    grid-column: 1;
+  }
+  .c-took {
+    display: none;
+  }
+  .c-act {
+    grid-column: 2;
+    grid-row: 2 / span 2;
+    align-self: center;
+  }
+}
+</style>

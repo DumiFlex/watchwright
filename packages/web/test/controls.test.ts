@@ -14,7 +14,7 @@ const files = (await readdir(src, { recursive: true }))
 
 describe("controls", () => {
   it("finds the components", () => {
-    expect(files).toContain("views/HomeView.vue");
+    expect(files).toContain("views/RunsView.vue");
   });
   it.each(files)("%s uses the themed controls", async (file) => {
     const sfc = await readFile(new URL(file, src), "utf8");
