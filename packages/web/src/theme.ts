@@ -27,7 +27,7 @@ export const DEFAULT_THEME: Theme = { look: "movement", mode: "system" };
 
 const STORAGE_KEY = "watchwright.theme";
 
-type Store = Pick<Storage, "getItem" | "setItem">;
+export type Store = Pick<Storage, "getItem" | "setItem">;
 
 function isLook(value: unknown): value is Look {
   return LOOKS.some((l) => l.id === value);
