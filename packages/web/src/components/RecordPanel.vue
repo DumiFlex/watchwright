@@ -122,14 +122,27 @@ onBeforeUnmount(() => {
 });
 
 // Input from the live view, sent one at a time in order (a press must land before its release).
+// A move, release or wheel answers with the element under the pointer, which the view outlines
+// until the pointer leaves (an answer that comes back after that is dropped).
 let queue: Promise<unknown> = Promise.resolve();
+const hover = ref<{ box: { x: number; y: number; width: number; height: number }; label: string } | null>(null);
+let left = 0;
 function send(input: ViewInput | { type: "goto"; url: string } | { type: "back" | "reload" }) {
   const s = state.value;
   if (!s || s.status !== "recording") return;
+  const at = left;
   queue = queue.then(async () => {
-    const res = await sendJson(`/api/v1/record/${s.id}/input`, input);
+    const res = await sendJson<{ hover: { box: { x: number; y: number; width: number; height: number }; tag: string; target: Target | null } | null }>(`/api/v1/record/${s.id}/input`, input);
     if (!res.ok && input.type !== "move") toast(res.error.message, { tone: "bad" });
+    if (res.ok && at === left && input.type !== "key" && input.type !== "text" && input.type !== "down") {
+      const h = res.data.hover;
+      hover.value = h ? { box: h.box, label: h.target ? targetLabel(h.target) : h.tag } : null;
+    }
   });
+}
+function onLeave() {
+  left++;
+  hover.value = null;
 }
 const address = ref("");
 function goAddress() {
@@ -296,7 +309,9 @@ const recording = computed(() => state.value?.status === "recording");
           :running="state.status !== 'ended'"
           interactive
           :picking="picking !== null"
+          :hover="hover"
           @input="send"
+          @leave="onLeave"
           @pick="onPick"
           @choose-page="choosePage"
         />
@@ -468,9 +483,6 @@ const recording = computed(() => state.value?.status === "recording");
   border-color: var(--accent);
   color: var(--accent-text);
   box-shadow: 0 0 0 1px var(--accent);
-}
-.btn.icon {
-  padding: 6px;
 }
 .btn.ghost {
   border-color: transparent;

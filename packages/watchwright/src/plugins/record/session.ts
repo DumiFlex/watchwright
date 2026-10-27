@@ -16,7 +16,7 @@ import type { Helpers, ParamValues, TestDefinition } from "../packs/api.js";
 import { createHelpers } from "../testing/helpers.js";
 import { stepOfAction, type RecorderAction } from "./actions.js";
 import { StopHere, stopBelow } from "./upto.js";
-import { sameTarget, snapshotAt, withAlternatives, type ElementInfo, type Snapshot } from "./candidates.js";
+import { hoverAt, sameTarget, snapshotAt, withAlternatives, type ElementInfo, type Hover, type Snapshot } from "./candidates.js";
 
 // One recording: a browser with the pack's options, its pages streamed to the live view, input
 // from the web page sent to the active page, and Playwright's recorder turning what happens into
@@ -202,6 +202,13 @@ export class RecordSession {
       if (url) await page.goto(new URL(url, o.site.baseURL ?? url).href).catch((err: unknown) => (this.message = `Couldn't open ${url}: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`));
     }
     await hideRecorderToolbar(page);
+    // On the live view the web app outlines the element under the pointer itself (it can clear
+    // the outline when the pointer leaves and show what Check will pick); in a window the
+    // recorder's own highlight is the one the person sees.
+    if (!this.opts.window) {
+      await this.session.context.addInitScript(HIDE_HIGHLIGHT);
+      for (const p of this.session.context.pages()) await p.evaluate(HIDE_HIGHLIGHT).catch(() => undefined);
+    }
     await (this.session.context as unknown as RecordingContext)._startRecording(
       { language: "jsonl" },
       {
@@ -367,8 +374,17 @@ export class RecordSession {
     return null;
   }
 
-  /** Sends one input from the live view to the active page. */
-  async input(i: RecordInput): Promise<void> {
+  /**
+   * Sends one input from the live view to the active page. A move, release or wheel answers with
+   * the element now under the pointer, for the live view's outline.
+   */
+  async input(i: RecordInput): Promise<Hover | null> {
+    await this.send(i);
+    if (i.type !== "move" && i.type !== "up" && i.type !== "wheel") return null;
+    return withTimeout(hoverAt(this.page(), i.x, i.y), 1000).catch(() => null);
+  }
+
+  private async send(i: RecordInput): Promise<void> {
     this.touched = Date.now();
     const page = this.page();
     const m = page.mouse;
@@ -391,7 +407,10 @@ export class RecordSession {
         return m.up({ button: i.button ?? "left", clickCount: i.clickCount ?? 1 });
       case "wheel":
         await m.move(i.x, i.y);
-        return m.wheel(i.deltaX, i.deltaY);
+        await m.wheel(i.deltaX, i.deltaY);
+        // The page scrolls after the wheel event; read the element under the pointer after that.
+        await page.evaluate("new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))").catch(() => undefined);
+        return;
       case "key":
         return page.keyboard.press(i.key);
       case "text":
@@ -480,6 +499,24 @@ async function hideRecorderToolbar(page: Page): Promise<void> {
     await Promise.race([pick, new Promise((r) => setTimeout(r, 50))]);
   }
 }
+
+/**
+ * Hides the recorder's highlight (its glass pane, added to the document element) on a page. Runs
+ * in the page before its scripts, so it watches for the pane rather than looking once.
+ */
+const HIDE_HIGHLIGHT = `(() => {
+  const hide = (n) => { if (n.nodeName === "X-PW-GLASS") n.style.setProperty("display", "none", "important"); };
+  const watch = (root) => {
+    root.childNodes.forEach(hide);
+    new MutationObserver((ms) => { for (const m of ms) m.addedNodes.forEach(hide); }).observe(root, { childList: true });
+  };
+  if (document.documentElement) return watch(document.documentElement);
+  new MutationObserver((_, o) => {
+    if (!document.documentElement) return;
+    o.disconnect();
+    watch(document.documentElement);
+  }).observe(document, { childList: true });
+})()`;
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   return new Promise((resolve, reject) => {

@@ -731,9 +731,6 @@ const problemSpot = (p: string) => buildErrorSpot(p);
   display: inline-flex;
   gap: 2px;
 }
-.btn.icon {
-  padding: 6px;
-}
 .tree-btn {
   display: none;
 }

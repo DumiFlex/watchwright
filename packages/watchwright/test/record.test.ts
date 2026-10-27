@@ -221,6 +221,11 @@ run("recording", { timeout: 90_000 }, () => {
     const picked = await h.api<{ targets: unknown[]; info: { text: string } }>("POST", `/record/${id}/pick`, heading);
     expect(picked.data.targets[0]).toEqual({ role: "heading", name: "Form" });
     expect(picked.data.info.text).toBe("Form");
+    // A move answers with the element now under the pointer, for the live view's outline.
+    const moved = await h.api<{ hover: { box: { width: number }; tag: string; target: unknown } | null }>("POST", `/record/${id}/input`, { type: "move", ...heading });
+    expect(moved.data.hover).toMatchObject({ tag: "h1", target: { role: "heading", name: "Form" } });
+    expect(moved.data.hover!.box.width).toBeGreaterThan(0);
+    expect((await h.api<{ hover: unknown }>("POST", `/record/${id}/input`, { type: "key", key: "Shift" })).data.hover).toBeNull();
     // A list item: its shared test id narrowed by its text, and the whole list for a count check.
     const green = await centerOf(new URL("/form", site.url).href, "li:nth-child(2)");
     const item = await h.api<{ targets: unknown[]; groups: { target: unknown; count: number }[] }>("POST", `/record/${id}/pick`, green);
