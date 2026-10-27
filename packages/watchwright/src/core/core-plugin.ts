@@ -1,4 +1,4 @@
-import { describeAction, defineAction } from "../actions/registry.js";
+import { ActionError, describeAction, defineAction } from "../actions/registry.js";
 import { EVENTS_MIGRATION_SQL } from "../events/log.js";
 import { ACTIONS } from "./keys.js";
 import { VERSION } from "../version.js";
@@ -31,13 +31,25 @@ export const corePlugin = definePlugin({
     },
     { id: 2, name: "events", sql: EVENTS_MIGRATION_SQL },
   ],
-  actions: ({ events, services }) => [
+  actions: ({ events, services, stop }) => [
     defineAction({
       name: "core.actions",
       title: "List every action with its input schema",
       method: "GET",
       path: "/actions",
       handler: () => services.get(ACTIONS).map(describeAction),
+    }),
+    defineAction({
+      name: "core.stop",
+      title: "Stop the server: runs going now become interrupted, ready to resume when it starts again",
+      method: "POST",
+      path: "/stop",
+      handler: () => {
+        if (!stop) throw new ActionError("cant_stop", "This server wasn't started by the watchwright command, so it can't stop itself.", 409);
+        // After the answer has gone out.
+        setTimeout(stop, 200);
+        return { stopping: true };
+      },
     }),
     defineAction<{ after?: number; wait?: number; runId?: string; types?: string; limit?: number }>({
       name: "core.events",

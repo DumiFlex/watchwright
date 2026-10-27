@@ -76,12 +76,16 @@ async function main(argv: string[]): Promise<number> {
   const plugins = BUILTIN_PLUGINS;
   const store = openStore(dataDir, migrationsOf(plugins));
   const webRoot = fileURLToPath(new URL("../web/", import.meta.url));
-  const app = await buildServer({ store, port, webRoot, plugins });
+  let stopping = false;
   const shutdown = async () => {
+    if (stopping) return;
+    stopping = true;
+    console.log("Stopping Watchwright…");
     await app.close();
     store.close();
     process.exit(0);
   };
+  const app = await buildServer({ store, port, webRoot, plugins, stop: () => void shutdown() });
   process.once("SIGINT", () => void shutdown());
   process.once("SIGTERM", () => void shutdown());
 

@@ -18,6 +18,8 @@ export interface PluginContext {
   events: EventLog;
   /** Typed services plugins provide to each other (see `serviceKey`). */
   services: Services;
+  /** Shuts the server process down (runs become interrupted, ready to resume); null when the server can't stop itself. */
+  stop: (() => void) | null;
 }
 
 export interface WatchwrightPlugin {
