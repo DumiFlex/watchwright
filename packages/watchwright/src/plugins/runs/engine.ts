@@ -67,6 +67,7 @@ export interface StartInput {
   params?: Record<string, unknown> | undefined;
   startedBy: string;
   options?: RunOptions | undefined;
+  label?: string | undefined;
 }
 
 export interface RunPreview {
@@ -332,12 +333,30 @@ export class Engine {
       tests: JSON.stringify(input.tests ?? []),
       params: JSON.stringify(params),
       options: JSON.stringify(input.options ?? {}),
+      label: (input.label ?? "").trim(),
       status: "queued",
       started_by: input.startedBy,
       created_at: new Date().toISOString(),
     });
     this.o.events.append("run.queued", { packId: input.packId, tests: input.tests ?? [], params, startedBy: input.startedBy }, { runId: id });
     this.schedule();
+    return runSummary(this.o.repo.run(id)!, this.o.repo.counts(id));
+  }
+
+  /** Starts a new run with another run's pack, tests, values, options and label. */
+  async again(id: string, startedBy: string): Promise<RunSummary> {
+    const r = this.requireRun(id);
+    // Queue edits belong to the run they were made in.
+    const options = JSON.parse(r.options) as RunOptions;
+    delete options.queue;
+    return this.start({ packId: r.pack_id, tests: JSON.parse(r.tests) as string[], params: JSON.parse(r.params) as Record<string, unknown>, options, label: r.label, startedBy });
+  }
+
+  /** Gives a run a label (empty takes it away). */
+  setLabel(id: string, label: string): RunSummary {
+    this.requireRun(id);
+    this.o.repo.updateRun(id, { label: label.trim() });
+    this.o.events.append("run.labeled", { label: label.trim() }, { runId: id });
     return runSummary(this.o.repo.run(id)!, this.o.repo.counts(id));
   }
 

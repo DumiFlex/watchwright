@@ -138,6 +138,24 @@ export interface RunOptions {
   video?: boolean;
 }
 
+/** What a run starts with apart from its pack: what a preset keeps. */
+export interface RunChoices extends RunOptions {
+  tests?: string[];
+  params?: Record<string, ParamValue>;
+}
+
+export interface Preset {
+  id: string;
+  packId: string;
+  name: string;
+  choices: RunChoices;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A run's name for lists and titles: its label, else its id. */
+export const runName = (r: { id: string; label?: string }) => r.label || r.id;
+
 export interface PlanEntry {
   testId: string;
   title: string;
@@ -166,6 +184,8 @@ export interface RunSummary {
   /** Facts the run saved while it ran (the app's version, the model it used). */
   info: Record<string, ParamValue>;
   options: RunOptions;
+  /** A name the person gave the run; empty when none. */
+  label: string;
   status: RunStatus;
   mode: "normal" | "resume" | "redo";
   startedBy: string;
@@ -265,7 +285,7 @@ export interface CompareCell {
 export interface Comparison {
   packId: string;
   packName: string;
-  runs: Pick<RunSummary, "id" | "params" | "info" | "status" | "startedBy" | "createdAt" | "startedAt" | "counts">[];
+  runs: Pick<RunSummary, "id" | "label" | "params" | "info" | "status" | "startedBy" | "createdAt" | "startedAt" | "counts">[];
   criteria: Record<string, Criterion[]>;
   rows: { testId: string; title: string; number: number; cells: (CompareCell | null)[] }[];
   shotNames: string[];

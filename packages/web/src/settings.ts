@@ -5,11 +5,12 @@ import type { Editor } from "./editor";
 
 export interface Settings {
   "settings.editor": Editor;
+  "runs.newRunFrom": "latest" | "defaults";
   [key: string]: unknown;
 }
 
 /** `home` is the server machine's home folder, for showing paths as ~/… */
-export const settings = reactive<{ values: Settings; loaded: boolean; home: string | null }>({ values: { "settings.editor": "vscode" }, loaded: false, home: null });
+export const settings = reactive<{ values: Settings; loaded: boolean; home: string | null }>({ values: { "settings.editor": "vscode", "runs.newRunFrom": "latest" }, loaded: false, home: null });
 
 let loading: Promise<void> | null = null;
 
