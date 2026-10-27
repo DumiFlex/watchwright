@@ -4,6 +4,7 @@ import { getJson, type HealthData } from "./api";
 import BrandMark from "./components/BrandMark.vue";
 import MenuButton from "./components/MenuButton.vue";
 import ThemePicker from "./components/ThemePicker.vue";
+import ToastHost from "./components/ToastHost.vue";
 import { sectionOf, useRoute } from "./router";
 import { vTip } from "./tooltip";
 import { applyTheme, browserStore, loadTheme, saveTheme, type Theme } from "./theme";
@@ -68,6 +69,7 @@ onMounted(async () => {
   <PackView v-else-if="route.name === 'pack'" :id="route.id" />
   <KitView v-else-if="route.name === 'kit'" />
   <RunsView v-else :query="route.query" />
+  <ToastHost />
 </template>
 
 <style scoped>

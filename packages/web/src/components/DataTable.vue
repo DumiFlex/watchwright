@@ -59,8 +59,8 @@ onMounted(() => {
   observer.observe(scroller.value);
 });
 onBeforeUnmount(() => observer?.disconnect());
-// A new sort or new rows start from the top again.
-watch([sort, () => props.rows], () => {
+// A new sort starts from the top again. New rows ("Load more") keep the place.
+watch(sort, () => {
   if (scroller.value) scroller.value.scrollTop = 0;
   scrollTop.value = 0;
 });
