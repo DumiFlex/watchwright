@@ -1,6 +1,6 @@
 # Quality-of-life step plan
 
-Status: planned (2026-10-27). It comes after step 3 and before step 4 in the build order ([docs/plan.md](../plan.md), section 1). [docs/plan.md](../plan.md) holds the base design, [step-2.md](step-2.md) the web app.
+Status: built (2026-10-27), in PRs #42 (this plan), #43, #45, #46 (fixes from trying it), #47 and #48; the check on the PC (section 5) is still to do. It comes after step 3 and before step 4 in the build order ([docs/plan.md](../plan.md), section 1). [docs/plan.md](../plan.md) holds the base design, [step-2.md](step-2.md) the web app.
 
 Steps 1 and 2 built what Watchwright can do. This step makes it pleasant to do it: fewer things to type, fewer things to remember, fewer pages to visit, and no layout that breaks. It started from Dumi's complaint that adding a pack means typing its folder path by hand (2026-10-27), so the pack-location work comes first.
 
@@ -109,5 +109,12 @@ Grouped by area, in the order they'd be built. Group A is the pack-location fix.
 4. **B1 to B5**: New run remembers, Run again, presets, run labels, Ctrl+Enter.
 5. **C1 to C4 and D1 to D3**: title and favicon, notifications, run shortcuts, `serve` start-up, palette search, run search, Compare defaults.
 6. Sign-off: the PC check, docs site pages, this plan marked done.
+
+What changed while building it:
+
+- C4 (`serve` start-up) was already done in A6, so PR 5 had nothing to add there.
+- Trying the app between PRs turned up four fixes, shipped as #46: tooltips inside dialogs were drawn under them, the image viewer's zoom only toggled fit and actual size (it now has steps, Ctrl+wheel, drag and click to zoom), the page scrolled behind a dialog, and leaving full screen lost the video's place.
+- Ctrl+K lists packs, runs and tests only for a search, so the empty palette stays a short list of commands and pages. A test opens New run with that test alone.
+- Notifications show as a toast while the tab is in front (except on that run's page), and as a desktop notification while it is in the background.
 
 Each PR updates the docs site (guide and API reference) for what it adds, and ships screenshots.
