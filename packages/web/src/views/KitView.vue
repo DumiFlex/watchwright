@@ -22,6 +22,7 @@ import NumberInput from "../components/NumberInput.vue";
 import ProgressBar from "../components/ProgressBar.vue";
 import RadioGroup from "../components/RadioGroup.vue";
 import RangeSlider from "../components/RangeSlider.vue";
+import ScoreInput from "../components/ScoreInput.vue";
 import SelectMenu from "../components/SelectMenu.vue";
 import SideDrawer from "../components/SideDrawer.vue";
 import SortableList from "../components/SortableList.vue";
@@ -33,6 +34,7 @@ import TextField from "../components/TextField.vue";
 import TimelineScrubber, { type TimelineMark } from "../components/TimelineScrubber.vue";
 import ToggleSwitch from "../components/ToggleSwitch.vue";
 import VideoPlayer from "../components/VideoPlayer.vue";
+import type { Criterion, Score } from "../api";
 import type { Sort } from "../table";
 import type { TimelineStep } from "../timeline";
 import type { TreeNode } from "../tree";
@@ -234,6 +236,14 @@ const shortcuts = [
   { keys: "ArrowUp", what: "Previous item" },
   { keys: "Shift+?", what: "Show the shortcuts" },
 ];
+
+const overall: Criterion = { id: "overall", title: "Overall", description: null, kind: "scale", scale: 5 };
+const tone: Criterion = { id: "tone", title: "Tone", description: null, kind: "choices", choices: ["Too formal", "Right", "Too casual"] };
+const found: Criterion = { id: "found", title: "Found the product", description: null, kind: "yesNo" };
+const overallScore = ref<Score | null>(4);
+const toneScore = ref<Score | null>(null);
+const foundScore = ref<Score | null>(true);
+
 const dialog = ref(false);
 const formDialog = ref(false);
 const picked = ref("");
@@ -583,6 +593,28 @@ const traces = [
         <div class="item wide">
           <span class="lbl">Video player (Space or K, arrows, comma and period, F)</span>
           <VideoPlayer class="video" src="kit/sample.webm" label="Sample video" />
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2 class="display">Review</h2>
+      <div class="grid">
+        <div class="item">
+          <span class="lbl">Score on a scale (digits pick, pick again to clear)</span>
+          <ScoreInput v-model="overallScore" :criterion="overall" />
+        </div>
+        <div class="item">
+          <span class="lbl">Named choices</span>
+          <ScoreInput v-model="toneScore" :criterion="tone" />
+        </div>
+        <div class="item">
+          <span class="lbl">Yes or no</span>
+          <ScoreInput v-model="foundScore" :criterion="found" />
+        </div>
+        <div class="item">
+          <span class="lbl">Disabled</span>
+          <ScoreInput :model-value="3" :criterion="overall" disabled />
         </div>
       </div>
     </section>

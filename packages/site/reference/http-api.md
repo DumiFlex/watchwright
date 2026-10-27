@@ -18,7 +18,7 @@ Everything the web page does goes through this API, so scripts and AI agents can
 
 | Method and path | Does |
 |---|---|
-| `GET /packs` | Every pack with its tests, params, flag kinds, run settings (`run`: `pauseOnBroken`, `pauseLimitMinutes`, `trace`, `video`, defaults filled in) and load errors. |
+| `GET /packs` | Every pack with its tests (each with the `rubric` it is scored on), params, flag kinds, the pack's own `rubric`, run settings (`run`: `pauseOnBroken`, `pauseLimitMinutes`, `trace`, `video`, defaults filled in) and load errors. |
 | `POST /packs` `{ path }` | Adds a pack by its absolute folder (or pack file) path and loads it. A pack that doesn't load is still added, with its error. |
 | `GET /packs/:id` | One pack. |
 | `POST /packs/:id/reload` | Builds it again now. |
@@ -45,6 +45,19 @@ Everything the web page does goes through this API, so scripts and AI agents can
 | `GET /files/runs/…` | Artifact files (the `url` in result documents). Only files inside the data folder's `runs/`. Answers `Range` requests (206), so videos can seek. |
 | `GET /trace-viewer/index.html?trace=<url>` | Playwright's trace viewer, served from the installed `playwright-core`. Pass the full URL of an attempt's `trace` artifact; the viewer opens it without uploading it anywhere. |
 
+## Reviews
+
+A review is one reviewer's scores and note for one attempt. The reviewer is the client's name (`x-watchwright-client`, default `api`; the web page is `web`), so a person and an agent can each review the same attempt. A criterion is `{ id, title, description, kind }` with `kind` `scale` (and `scale`, the top score), `choices` (and `choices`) or `yesNo`.
+
+| Method and path | Does |
+|---|---|
+| `GET /runs/:id/attempts/:attemptId/review` | `{ criteria, reviews }`: what the attempt's test is scored on, and every review of the attempt. |
+| `POST /runs/:id/attempts/:attemptId/review` `{ scores?, note? }` | Saves the caller's review. `scores` maps criterion ids to a whole number on a scale, a choice's name, or `true`/`false`; `null` clears one, and criteria left out keep their score. `note` replaces the note when given. 400 `bad_score` for an unknown criterion or a score that doesn't fit it. |
+| `GET /runs/:id/rubric` | The criteria for every test in the run, by test id. A run keeps the rubric its pack had when it started, so later changes to the pack don't change it. |
+| `GET /reviews?run=&pack=&test=&reviewer=` | Reviews matching every filter given. |
+
+Deleting a run deletes its reviews.
+
 Run statuses: `queued`, `running`, `pausing`, `paused`, `finished`, `stopped`, `interrupted` (the server stopped mid-run), `failed_to_start`. Attempt statuses: `passed`, `failed`, `broken`, `skipped`, `stopped`, plus `running` and `interrupted`.
 
 ## Events
@@ -53,7 +66,7 @@ Everything that happens is an event with a growing sequence number: `{ seq, time
 
 `GET /events?after=<seq>&wait=<seconds>&runId=&types=&limit=` returns `{ events, next, head }`. With `wait` (up to 110 seconds) it holds the request until a matching event arrives, so an agent can follow a run with one request at a time: call again with `after=next`.
 
-Event types (open set, more come with later plugins): `run.queued`, `run.started`, `run.planned`, `run.pausing`, `run.paused`, `run.resumed`, `run.decision`, `run.stopping`, `run.finished`, `run.interrupted`, `run.failed_to_start`, `run.log`, `attempt.started`, `attempt.step`, `attempt.log`, `attempt.flag`, `attempt.artifact`, `attempt.finished`, `page.opened`, `page.navigated`, `page.active`, `page.closed`, `video.unavailable`, `pack.added`, `pack.loaded`, `pack.reload_failed`, `pack.reloaded`, `pack.removed`.
+Event types (open set, more come with later plugins): `run.queued`, `run.started`, `run.planned`, `run.pausing`, `run.paused`, `run.resumed`, `run.decision`, `run.stopping`, `run.finished`, `run.interrupted`, `run.failed_to_start`, `run.log`, `attempt.started`, `attempt.step`, `attempt.log`, `attempt.flag`, `attempt.artifact`, `attempt.finished`, `page.opened`, `page.navigated`, `page.active`, `page.closed`, `video.unavailable`, `pack.added`, `pack.loaded`, `pack.reload_failed`, `pack.reloaded`, `pack.removed`, `review.saved`.
 
 ## Live WebSocket
 

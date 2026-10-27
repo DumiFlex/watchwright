@@ -27,6 +27,7 @@ export default defineConfig({
           { text: "Getting started", link: "/guide/getting-started" },
           { text: "How it works", link: "/guide/how-it-works" },
           { text: "Writing a test pack", link: "/guide/test-packs" },
+          { text: "Reviewing results", link: "/guide/reviewing" },
           { text: "Safety", link: "/guide/safety" },
         ],
       },

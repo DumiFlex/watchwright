@@ -1,5 +1,6 @@
 import type { Browser, BrowserContext, BrowserContextOptions, LaunchOptions, Page } from "playwright";
 import type { expect as playwrightExpect } from "playwright/test";
+import type { RubricCriterion, TestReview } from "./rubric.js";
 
 // The pack API: what a test pack's files import from "watchwright". A pack is a folder with a
 // `pack.ts` (or .js) that calls `pack({...})`, and test files that call `test(id, meta, body)`.
@@ -145,6 +146,8 @@ export interface PackOptions {
   /** The app's own busy check for `h.idle()`: resolve true when the app is idle. */
   idle?: (page: Page) => boolean | Promise<boolean>;
   run?: PackRunOptions;
+  /** What reviewers score each attempt on (default: one 1-to-5 "overall"). */
+  rubric?: readonly RubricCriterion[];
 }
 
 export type RunsSpec = number | ((params: ParamValues) => number) | ({ by: string; default?: number } & Record<string, number | string | undefined>);
@@ -161,6 +164,8 @@ export interface TestMeta {
   inside?: string;
   /** Time limit per attempt in ms. */
   timeout?: number;
+  /** Criteria this test adds to the pack's rubric, or drops from it. */
+  review?: TestReview;
 }
 
 export type Outcome = "passed" | "failed" | "broken" | "skipped" | "stopped";

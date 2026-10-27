@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ArrowDown, ArrowLeft, ArrowUp, Ban, Undo2 } from "../icons";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { getJson, sendJson, type RunDetail, type WwEvent } from "../api";
+import { getJson, sendJson, type Criterion, type Review, type RunDetail, type WwEvent } from "../api";
 import { LiveConnection, type LiveState } from "../live";
+import DataTable from "../components/DataTable.vue";
 import LiveViewer from "../components/LiveViewer.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import SelectMenu from "../components/SelectMenu.vue";
@@ -10,6 +11,7 @@ import StatusChip from "../components/StatusChip.vue";
 import TextArea from "../components/TextArea.vue";
 import { countsText, duration } from "../format";
 import { href } from "../router";
+import { resultRows, type ResultRow } from "../review";
 import { canMove as canMoveRow, movable as movableRow } from "../queue";
 import { vTip } from "../tooltip";
 
@@ -111,6 +113,9 @@ function onEvent(e: WwEvent) {
       log.value.push({ seq: e.seq, time: e.time, level: d.status === "passed" ? "info" : "warn", message: `${d.testId} ${d.status}${d.error ? `: ${String(d.error).split("\n")[0]}` : ""}`, test: String(d.testId) });
       scheduleLoad();
       break;
+    case "review.saved":
+      void loadReviews();
+      break;
     case "video.unavailable":
       log.value.push({ seq: e.seq, time: e.time, level: "warn", message: String(d.message), test: null });
       break;
@@ -176,6 +181,34 @@ const testOptions = computed(() => [{ value: "", label: "All tests" }, ...[...ti
 const shownLog = computed(() =>
   log.value.filter((l) => (logLevel.value === "all" || l.level !== "info") && (!logTest.value || l.test === logTest.value)).reverse(),
 );
+
+// Results with review scores, once the run is over.
+const showResults = computed(() => run.value !== null && !active.value && run.value.status !== "queued" && run.value.attempts.length > 0);
+const reviews = ref<Review[]>([]);
+const rubric = ref<Record<string, Criterion[]>>({});
+async function loadReviews() {
+  if (!showResults.value) return;
+  const [r, c] = await Promise.all([getJson<Review[]>(`/api/v1/reviews?run=${props.id}`), getJson<Record<string, Criterion[]>>(`/api/v1/runs/${props.id}/rubric`)]);
+  if (r.ok) reviews.value = r.data;
+  if (c.ok) rubric.value = c.data;
+}
+watch(showResults, () => void loadReviews(), { immediate: true });
+const results = computed(() => (run.value ? resultRows(run.value, reviews.value, rubric.value) : []));
+const maxAttempts = computed(() => Math.max(1, ...results.value.flatMap((r) => Object.keys(r.cells).map(Number))));
+const resultColumns = computed(() => [
+  { key: "test", label: "Test", sortable: true, value: (r: ResultRow) => r.testId },
+  ...Array.from({ length: maxAttempts.value }, (_, i) => ({
+    key: `a${i + 1}`,
+    label: maxAttempts.value > 1 ? `Attempt ${i + 1}` : "Attempt",
+    sortable: true,
+    value: (r: ResultRow) => r.cells[i + 1]?.score ?? null,
+  })),
+  { key: "score", label: "Score", sortable: true, align: "end" as const, value: (r: ResultRow) => r.score },
+]);
+function openRow(r: ResultRow) {
+  const first = Object.values(r.cells)[0];
+  if (first) openAttempt(first.attemptId);
+}
 
 let conn: LiveConnection | null = null;
 let clock: ReturnType<typeof setInterval> | null = null;
@@ -279,7 +312,7 @@ function time(iso: string) {
           <p v-if="liveState !== 'open'" class="muted small">Live connection: {{ liveState === "connecting" ? "connecting…" : "lost, retrying" }}</p>
         </section>
 
-        <section class="card" aria-labelledby="queue-title">
+        <section v-if="!showResults" class="card" aria-labelledby="queue-title">
           <h2 id="queue-title" class="display">Queue <span class="muted small">{{ run.counts.passed }} passed · {{ run.counts.failed }} failed · {{ run.counts.broken }} broken · {{ run.counts.planned }} planned</span></h2>
           <ol class="queue">
             <li
@@ -325,6 +358,29 @@ function time(iso: string) {
           </ol>
         </section>
       </div>
+
+      <section v-if="showResults" class="card" aria-labelledby="results-title">
+        <div class="reshead">
+          <h2 id="results-title" class="display">Results <span class="muted small">{{ countsText(run.counts) }}</span></h2>
+          <span class="muted small">Score: the mean of the scale scores, on 1 to 5. Click a cell to open the attempt and review it.</span>
+        </div>
+        <DataTable :columns="resultColumns" :rows="results" :row-key="(r) => r.testId" label="Results by test and attempt" clickable @row-click="openRow">
+          <template #cell-test="{ row }">
+            <span :class="{ child: row.parent }"><code>{{ row.testId }}</code> {{ row.title !== row.testId ? row.title : "" }}</span>
+          </template>
+          <template v-for="n in maxAttempts" :key="n" #[`cell-a${n}`]="{ row }">
+            <a v-if="row.cells[n]" class="cell" :href="href({ name: 'attempt', runId: run.id, attemptId: row.cells[n].attemptId })" @click.stop>
+              <StatusChip :status="row.cells[n].status" />
+              <span v-if="row.cells[n].score !== null" class="num">{{ row.cells[n].score.toFixed(1) }}</span>
+              <span v-else-if="!row.cells[n].reviewed" class="muted small">not reviewed</span>
+              <span v-if="row.cells[n].flags" v-tip="`${row.cells[n].flags} ${row.cells[n].flags === 1 ? 'flag' : 'flags'}`" class="flags num">{{ row.cells[n].flags }}</span>
+            </a>
+          </template>
+          <template #cell-score="{ row }">
+            <span class="num">{{ row.score === null ? "–" : row.score.toFixed(1) }}</span>
+          </template>
+        </DataTable>
+      </section>
 
       <section class="card" aria-labelledby="log-title">
         <div class="loghead">
@@ -543,6 +599,36 @@ function time(iso: string) {
 }
 .n {
   margin-left: 6px;
+}
+.reshead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin-bottom: 10px;
+}
+.reshead h2 {
+  margin: 0;
+}
+.child {
+  padding-left: 18px;
+}
+.cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: inherit;
+  text-decoration: none;
+}
+.cell:hover .num {
+  color: var(--accent);
+}
+.flags {
+  padding: 0 6px;
+  border-radius: var(--radius-chip);
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
+  font-size: 12px;
 }
 .loghead {
   display: flex;

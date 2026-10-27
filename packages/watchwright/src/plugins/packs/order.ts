@@ -1,13 +1,17 @@
+import { DEFAULT_RUBRIC, rubricProblems, type RubricCriterion } from "./rubric.js";
 import type { ParamDef, ParamValues, RunsSpec, TestDefinition } from "./api.js";
 
 // Which tests run, in which order, and how many attempts each gets. Same rules as the bench
 // robot's pickTests, from declarations instead of hand-kept tables (docs/plan.md, section 6).
 
 /** Problems with a pack's test graph: unknown ids in `needs`/`inside`, cycles. Empty when fine. */
-export function checkTests(tests: readonly TestDefinition[]): string[] {
+export function checkTests(tests: readonly TestDefinition[], rubric?: readonly RubricCriterion[]): string[] {
   const byId = new Map(tests.map((t) => [t.id, t]));
   const problems: string[] = [];
+  const criteria = new Set((rubric && rubric.length > 0 ? rubric : DEFAULT_RUBRIC).map((c) => c.id));
   for (const t of tests) {
+    problems.push(...rubricProblems(t.meta.review?.add, `test ${t.id} review.add`));
+    for (const d of t.meta.review?.drop ?? []) if (!criteria.has(d)) problems.push(`Test ${t.id} drops the criterion "${d}", which the pack's rubric doesn't have.`);
     for (const n of t.meta.needs ?? []) if (!byId.has(n)) problems.push(`Test ${t.id} needs "${n}", which doesn't exist.`);
     if (t.meta.inside !== undefined) {
       const parent = byId.get(t.meta.inside);

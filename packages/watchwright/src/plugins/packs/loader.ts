@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { build, type Plugin as EsbuildPlugin } from "esbuild";
 import { beginCollecting, endCollecting, type PackOptions, type TestDefinition } from "./api.js";
 import { glob } from "./glob.js";
+import { rubricProblems } from "./rubric.js";
 
 // Packs are ESM or TypeScript, so hot reload can't clear a require cache. Instead every load
 // bundles the pack (pack file + test files) with esbuild into one file in the data folder and
@@ -214,5 +215,6 @@ function checkOptions(o: PackOptions): void {
   }
   if (o.browser?.name !== undefined && !["chromium", "firefox", "webkit"].includes(o.browser.name)) problems.push("`browser.name` must be chromium, firefox or webkit.");
   for (const [name, kind] of Object.entries(o.flags ?? {})) if (!FLAG_KINDS.includes(kind)) problems.push(`Flag "${name}" must be robot, finding or info.`);
+  problems.push(...rubricProblems(o.rubric, "rubric"));
   if (problems.length > 0) throw new PackLoadError("The pack's options aren't valid.", problems);
 }
