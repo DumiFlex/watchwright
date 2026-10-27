@@ -27,7 +27,7 @@ import { ArrowLeft, ChevronDown, CircleAlert, CircleDot, Ellipsis, FileCode, Fil
 import { LiveConnection } from "../live";
 import { join, relativeTo } from "../paths";
 import { href } from "../router";
-import { resolveRelative } from "../markdown";
+import { packImageUrl, resolveRelative } from "../markdown";
 import { codeTestAt, insertCodeSteps, insertYamlSteps, yamlSpot, type YamlSpot } from "../recording";
 import { readTests } from "../stepsdoc";
 import { browserStore } from "../theme";
@@ -553,7 +553,14 @@ const problemSpot = (p: string) => buildErrorSpot(p);
             />
           </div>
           <div v-if="isMd && mdView !== 'source'" class="pane preview" tabindex="0">
-            <MarkdownView :source="text" :resolve-link="mdLink" :label="`Preview of ${open.path}`" />
+            <MarkdownView
+              :source="text"
+              :resolve-link="mdLink"
+              :resolve-image="(src) => packImageUrl(props.id, open?.path ?? '', src)"
+              :active-line="mdView === 'split' ? cursorLine : undefined"
+              :label="`Preview of ${open.path}`"
+              @line="(l) => (mdView === 'split' ? editor?.goto(l) : undefined)"
+            />
           </div>
           <div v-if="showSteps" id="edit-view-panel-steps" class="pane steps" role="tabpanel" aria-labelledby="edit-view-tab-steps">
             <StepsPanel v-model="text" :problems="problems" :line="cursorLine" @cursor="(l) => (cursorLine = l)" />
