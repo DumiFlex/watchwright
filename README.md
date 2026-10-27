@@ -73,4 +73,4 @@ Test packs are code that runs on your machine with your permissions. Only load p
 
 ## License
 
-[Apache-2.0](LICENSE)
+Copyright 2026 DumiFlex. Licensed under the [Apache License, Version 2.0](LICENSE); see [NOTICE](NOTICE).
