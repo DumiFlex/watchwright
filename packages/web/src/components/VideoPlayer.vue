@@ -4,6 +4,7 @@
 // and pause, arrows jump 5 s, comma and period step one frame, F full screen.
 // Videos written while recording (WebM) often report an endless duration until the end of the
 // file is read, so on load the player seeks far ahead once to make the browser find the end.
+import { Maximize, Pause, Play, StepBack, StepForward } from "../icons";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { clockTime } from "../format";
 import MenuButton from "./MenuButton.vue";
@@ -124,14 +125,14 @@ onBeforeUnmount(() => video.value?.pause());
     <p v-if="failed" class="failed">This video can't be played here. <a :href="src" download>Download it</a> instead.</p>
     <div class="controls">
       <button v-tip="playing ? 'Pause (K)' : 'Play (K)'" type="button" class="ib" :aria-label="playing ? 'Pause' : 'Play'" @click="toggle">
-        <svg v-if="playing" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M5 3v10M11 3v10" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" /></svg>
-        <svg v-else viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4.5 2.8v10.4L13 8z" fill="currentColor" /></svg>
+        <Pause v-if="playing" :size="17" />
+        <Play v-else :size="17" />
       </button>
       <button v-tip="'Back one frame (,)'" type="button" class="ib" aria-label="Back one frame" @click="frame(-1)">
-        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 3v10M12.5 3.5L6.5 8l6 4.5z" fill="currentColor" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" /></svg>
+        <StepBack :size="17" />
       </button>
       <button v-tip="'Forward one frame (.)'" type="button" class="ib" aria-label="Forward one frame" @click="frame(1)">
-        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M12 3v10M3.5 3.5L9.5 8l-6 4.5z" fill="currentColor" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" /></svg>
+        <StepForward :size="17" />
       </button>
       <div class="seek">
         <RangeSlider v-model="seek" :min="0" :max="duration || 1" :step="0.1" :label="`Position in ${label}`" :format="clockTime" :show-value="false" :disabled="!duration" />
@@ -141,7 +142,7 @@ onBeforeUnmount(() => video.value?.pause());
         <template #button><span class="num">{{ speed }}×</span></template>
       </MenuButton>
       <button v-tip="'Full screen (F)'" type="button" class="ib" aria-label="Full screen" @click="fullscreen">
-        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
+        <Maximize :size="17" />
       </button>
     </div>
   </div>

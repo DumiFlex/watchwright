@@ -9,6 +9,7 @@ export {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
+  Ban,
   Braces,
   Calendar,
   Check,

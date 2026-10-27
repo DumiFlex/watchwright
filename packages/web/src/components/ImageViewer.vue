@@ -2,6 +2,7 @@
 // A full-size image viewer over the page: one image at a time with its name and place in the
 // list, previous and next (buttons, arrow keys), zoom to the image's own size (a click on the
 // image or Z), and a download link. Built on <dialog>, so focus stays inside and Escape closes.
+import { ChevronLeft, ChevronRight, Download, X, ZoomIn, ZoomOut } from "../icons";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { openModals } from "../popup";
 import { vTip } from "../tooltip";
@@ -66,23 +67,24 @@ function onClick(e: MouseEvent) {
         <span class="name">{{ current.name }}<span v-if="current.note" class="note"> · {{ current.note }}</span></span>
         <span class="count num">{{ (index ?? 0) + 1 }} / {{ images.length }}</span>
         <button v-tip="zoom ? 'Fit to the screen (Z)' : 'Actual size (Z)'" type="button" class="ib" :aria-pressed="zoom" aria-label="Actual size" @click="zoom = !zoom">
-          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.5" /><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" /><path v-if="!zoom" d="M7 5v4M5 7h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" /><path v-else d="M5 7h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" /></svg>
+          <ZoomOut v-if="zoom" :size="17" />
+          <ZoomIn v-else :size="17" />
         </button>
         <a v-tip="'Download'" class="ib" :href="current.url" :download="current.name" aria-label="Download">
-          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 2v8M4.5 6.5L8 10l3.5-3.5M3 13h10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          <Download :size="17" />
         </a>
         <button v-tip="'Close (Esc)'" type="button" class="ib" aria-label="Close" @click="index = null">
-          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
+          <X :size="17" />
         </button>
       </div>
       <div class="stage" :class="{ zoom }">
         <img :src="current.url" :alt="current.name" @click="zoom = !zoom" />
       </div>
       <button v-if="images.length > 1" type="button" class="nav prev" aria-label="Previous image" @click="go(-1)">
-        <svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true"><path d="M10 3L5 8l5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
+        <ChevronLeft :size="22" />
       </button>
       <button v-if="images.length > 1" type="button" class="nav next" aria-label="Next image" @click="go(1)">
-        <svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true"><path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
+        <ChevronRight :size="22" />
       </button>
     </template>
   </dialog>

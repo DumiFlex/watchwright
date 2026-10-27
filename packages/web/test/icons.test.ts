@@ -3,11 +3,9 @@ import { describe, expect, it } from "vitest";
 
 // Icons come from src/icons.ts (Lucide), not hand-drawn <svg> in templates or arrows and
 // symbols typed as text. BrandMark is the logo and TextArea's corner grip is a drawing,
-// not an icon. RunView.vue still has its own icons and text arrows; the live run page
-// work moves it over and takes it off these lists.
+// not an icon.
 const src = new URL("../src/", import.meta.url);
-const drawn = new Set(["components/BrandMark.vue", "components/TextArea.vue", "views/RunView.vue"]);
-const glyphsLeft = new Set(["views/RunView.vue"]);
+const drawn = new Set(["components/BrandMark.vue", "components/TextArea.vue"]);
 const all = (await readdir(src, { recursive: true })).map((f) => f.replaceAll("\\", "/"));
 const vue = all.filter((f) => f.endsWith(".vue"));
 const code = all.filter((f) => /\.(vue|ts)$/.test(f) && f !== "icons.ts");
@@ -18,7 +16,7 @@ describe("icons", () => {
   it.each(vue.filter((f) => !drawn.has(f)))("%s draws no icons of its own", async (file) => {
     expect(template(await readFile(new URL(file, src), "utf8"))).not.toMatch(/<svg\b/);
   });
-  it.each(vue.filter((f) => !glyphsLeft.has(f)))("%s uses no text symbols as icons", async (file) => {
+  it.each(vue)("%s uses no text symbols as icons", async (file) => {
     expect(template(await readFile(new URL(file, src), "utf8"))).not.toMatch(/[←→↑↓▶◀■□▲▼►✓✔✕✖✗›‹»«☰⋮⋯]/);
   });
   it.each(code)("%s imports icons from src/icons.ts", async (file) => {
