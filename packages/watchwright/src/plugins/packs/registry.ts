@@ -35,8 +35,19 @@ export interface PackSummary {
   addedAt: string;
   params: Record<string, ParamDef & { type: "string" | "number" | "boolean" }>;
   flags: Record<string, FlagKind>;
+  /** The pack's run settings with defaults filled in; a run can override each. */
+  run: PackRunDefaults;
   tests: PackTestSummary[];
 }
+
+export interface PackRunDefaults {
+  pauseOnBroken: boolean;
+  pauseLimitMinutes: number;
+  trace: "problems" | "always" | "never";
+  video: boolean;
+}
+
+const RUN_DEFAULTS: PackRunDefaults = { pauseOnBroken: true, pauseLimitMinutes: 20, trace: "problems", video: true };
 
 interface Row {
   id: string;
@@ -187,6 +198,12 @@ export class PackRegistry {
       browser: o.browser?.name ?? "chromium",
       params: Object.fromEntries(Object.entries(o.params ?? {}).map(([k, d]) => [k, { ...d, type: paramType(d) }])),
       flags: { ...(o.flags ?? {}) },
+      run: {
+        pauseOnBroken: o.run?.pauseOnBroken ?? RUN_DEFAULTS.pauseOnBroken,
+        pauseLimitMinutes: o.run?.pauseLimitMinutes ?? RUN_DEFAULTS.pauseLimitMinutes,
+        trace: o.run?.trace ?? RUN_DEFAULTS.trace,
+        video: o.run?.video ?? RUN_DEFAULTS.video,
+      },
       tests: pack.tests.map(testSummary),
     };
     this.db
@@ -211,6 +228,7 @@ export class PackRegistry {
       addedAt: r.added_at,
       params: s.params ?? {},
       flags: s.flags ?? {},
+      run: { ...RUN_DEFAULTS, ...s.run },
       tests: s.tests ?? [],
     };
   }

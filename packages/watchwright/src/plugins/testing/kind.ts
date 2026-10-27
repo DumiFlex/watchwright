@@ -6,11 +6,11 @@ import { attemptsFor, planTests } from "../packs/order.js";
 export const testKind: JobKind = {
   name: "test",
 
-  plan(pack, params, chosen) {
+  plan(pack, params, chosen, options) {
     const { order, children } = planTests(pack.tests, chosen);
     const byId = new Map(pack.tests.map((t) => [t.id, t]));
     const items = order.flatMap((id) => {
-      const of = attemptsFor(byId.get(id)!.meta.runs, params);
+      const of = options?.attempts ?? attemptsFor(byId.get(id)!.meta.runs, params);
       return Array.from({ length: of }, (_, i) => ({ itemId: id, number: i + 1, of }));
     });
     const needs = new Map(pack.tests.map((t) => [t.id, [...(t.meta.needs ?? [])]]));

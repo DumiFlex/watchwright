@@ -129,6 +129,12 @@ export interface AttemptRow {
 export interface RunOptions {
   pauseOnBroken?: boolean;
   pauseLimitMinutes?: number;
+  /** Attempts for every test, instead of each test's `runs`. */
+  attempts?: number;
+  /** Which attempts keep a trace, instead of the pack's setting. */
+  trace?: "problems" | "always" | "never";
+  /** Record video, instead of the pack's setting. */
+  video?: boolean;
 }
 
 export interface PlanEntry {

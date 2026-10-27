@@ -75,6 +75,23 @@ function rewrite(file: string, content: string) {
 }
 
 run("engine", { timeout: 60_000 }, () => {
+  it("takes attempts, trace and video from the run's options over the pack's", async () => {
+    const { h, packId } = await setup({
+      "tests/one.ts": `
+import { test } from "watchwright";
+test("O1", { title: "Once by the pack" }, async ({ h }) => { await h.goto("/"); });`,
+    });
+    const runId = await startRun(h, { packId, attempts: 2, trace: "always", video: false });
+    const detail = await finished(h, runId);
+    expect(byTest(detail)).toEqual({ "O1#1": "passed", "O1#2": "passed" });
+    expect(detail.options).toMatchObject({ attempts: 2, trace: "always", video: false });
+    for (const a of detail.attempts) {
+      const doc = (await h.api<ResultDocument>("GET", `/runs/${runId}/attempts/${a.id}`)).data;
+      expect(doc.artifacts.some((x) => x.kind === "trace")).toBe(true);
+      expect(doc.artifacts.some((x) => x.kind === "video")).toBe(false);
+    }
+  });
+
   it("runs a pack and keeps every result", async () => {
     const { h, packId } = await setup({
       "tests/home.ts": `

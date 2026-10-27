@@ -49,7 +49,41 @@ export interface Pack {
   loadedAt: string | null;
   params: Record<string, ParamDef>;
   flags: Record<string, "robot" | "finding" | "info">;
+  run: PackRunDefaults;
   tests: PackTest[];
+}
+
+export type TraceMode = "problems" | "always" | "never";
+
+export interface PackRunDefaults {
+  pauseOnBroken: boolean;
+  pauseLimitMinutes: number;
+  trace: TraceMode;
+  video: boolean;
+}
+
+/** What a run sets for itself; anything left out comes from the pack. */
+export interface RunOptions {
+  pauseOnBroken?: boolean;
+  pauseLimitMinutes?: number;
+  attempts?: number;
+  trace?: TraceMode;
+  video?: boolean;
+}
+
+export interface PlanEntry {
+  testId: string;
+  title: string;
+  number: number;
+  of: number;
+  children?: string[];
+}
+
+export interface RunPreview {
+  params: Record<string, ParamValue>;
+  attempts: number;
+  plan: PlanEntry[];
+  joined: { testId: string; reason: "needed" | "parent" | "inside"; of: string[] }[];
 }
 
 export type RunStatus = "queued" | "running" | "pausing" | "paused" | "finished" | "stopped" | "interrupted" | "failed_to_start";
@@ -62,6 +96,7 @@ export interface RunSummary {
   siteKey: string;
   tests: string[];
   params: Record<string, ParamValue>;
+  options: RunOptions;
   status: RunStatus;
   mode: "normal" | "resume" | "redo";
   startedBy: string;
