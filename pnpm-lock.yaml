@@ -82,7 +82,7 @@ importers:
         specifier: ^8.18.2
         version: 8.18.2
       ajv:
-        specifier: 8.20.0
+        specifier: ^8.20.0
         version: 8.20.0
       tsx:
         specifier: ^4.23.15
