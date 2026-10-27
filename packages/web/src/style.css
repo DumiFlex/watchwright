@@ -229,6 +229,15 @@ body {
   background: var(--accent-soft);
 }
 
+/* No stock browser chrome: themed scrollbars, and the accent on anything native that is
+   left (the hidden inputs inside CheckBox, for example). Use CheckBox, SelectMenu and
+   NumberInput instead of native checkboxes, selects and number inputs. */
+:root {
+  accent-color: var(--accent);
+  scrollbar-color: var(--line-strong) transparent;
+  scrollbar-width: thin;
+}
+
 :focus-visible {
   outline: calc(var(--border-width) + 1px) solid var(--accent);
   outline-offset: 2px;
@@ -330,6 +339,18 @@ textarea {
 .field:focus {
   outline: none;
   border-color: var(--accent);
+}
+.field::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+/* Browser autofill paints its own yellow or blue; keep the field's surface and text. */
+.field:-webkit-autofill,
+.field:-webkit-autofill:hover,
+.field:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--text);
+  box-shadow: 0 0 0 100px var(--surface) inset;
+  caret-color: var(--text);
 }
 
 a {
