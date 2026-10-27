@@ -11,6 +11,8 @@ export default defineConfig({
   build: {
     outDir: fileURLToPath(new URL("../watchwright/dist/web", import.meta.url)),
     emptyOutDir: true,
+    // The code editor's chunk (CodeMirror with its languages) is about 600 kB; it loads only on the editor page.
+    chunkSizeWarningLimit: 700,
   },
   server: {
     port: 5173,

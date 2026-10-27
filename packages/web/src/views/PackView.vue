@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // One pack: whether it loads, its tests with their metadata, parameters and flag kinds, and
 // its recent runs.
-import { ArrowLeft, Ellipsis, TriangleAlert } from "../icons";
+import { ArrowLeft, Ellipsis, Pencil, TriangleAlert } from "../icons";
+import { href } from "../router";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, sendJson, type Criterion, type FolderPlaces, type Pack, type PackTest, type RunSummary } from "../api";
 import { ago, countsText, when } from "../format";
@@ -121,6 +122,7 @@ onBeforeUnmount(() => live?.close());
           <button v-if="pack.missing" class="btn primary" @click="moveOpen = true">Locate…</button>
           <template v-else>
             <button class="btn" :disabled="reloading" @click="reload">{{ reloading ? "Reloading…" : "Reload" }}</button>
+            <a class="btn" :href="href({ name: 'edit', id: pack.id, file: null, line: null })"><Pencil :size="15" /> Edit</a>
             <a v-if="pack.status === 'ok'" class="btn primary" :href="`#/new?pack=${pack.id}`">New run</a>
           </template>
           <MenuButton :items="menu" label="More for this pack" @select="onMenu">
@@ -165,7 +167,10 @@ onBeforeUnmount(() => live?.close());
                 <td class="muted" data-label="Section" :class="{ none: !t.section }">{{ t.section ?? "–" }}</td>
                 <td data-label="Needs" :class="{ none: !t.needs.length }"><code v-if="t.needs.length">{{ t.needs.join(", ") }}</code><span v-else class="muted">–</span></td>
                 <td class="num" data-label="Attempts">{{ runsText(t) || "1" }}</td>
-                <td class="muted small file"><FileLink :file="join(pack.dir, t.file)" :label="t.file" /></td>
+                <td class="muted small file">
+                  <a v-tip="'Edit this test'" class="edit" :href="href({ name: 'edit', id: pack.id, file: t.file, line: t.line })" :aria-label="`Edit ${t.id}`"><Pencil :size="14" /></a>
+                  <FileLink :file="join(pack.dir, t.file)" :label="t.file" />
+                </td>
               </tr>
             </tbody>
           </table>
@@ -312,6 +317,21 @@ onBeforeUnmount(() => live?.close());
   border-radius: var(--radius-chip);
   background: var(--accent-soft);
   color: var(--accent-text);
+}
+.file {
+  white-space: nowrap;
+}
+.edit {
+  display: inline-flex;
+  vertical-align: middle;
+  margin-right: var(--space-1);
+  padding: 3px;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+}
+.edit:hover {
+  background: var(--hover);
+  color: var(--text);
 }
 .file code {
   display: inline-block;

@@ -24,10 +24,26 @@ Everything the web page does goes through this API, so scripts and AI agents can
 | `POST /packs/create` `{ path, name, baseURL, format? }` | Writes a starter pack into a folder, made when missing, and adds it: `pack.ts`, `tests/home.ts` and `README.md`, or with `format: "yaml"`, `pack.yaml`, `tests/home.yaml` and `README.md`. 201 with the pack. 400 `bad_starter` when the folder already has a pack or one of those files, or the address isn't `http(s)://`. |
 | `POST /packs/:id/reload` | Builds it again now. |
 | `GET /packs/yaml-schema?kind=test\|pack` | The JSON Schema of [YAML test files](../guide/yaml-tests) (`test`, the default) or of `pack.yaml` (`pack`). |
+| `POST /packs/check-yaml` `{ text, kind? }` | Checks YAML text without saving it: a test file (`kind: "test"`, the default) or `pack.yaml` (`"pack"`). Returns `{ problems }`, each with `message`, `line`, `col` and the `from` and `to` offsets of the part it is about, and for a test file `tests: [{ id, line, steps }]`. |
 | `POST /packs/:id/convert` `{ file }` | Writes the YAML test file `file` (relative to the pack folder) as a TypeScript file beside it, and removes the YAML file once the pack loads with the new one. Returns `{ file, pack }`. 400 `bad_pack` when the YAML has problems, the `.ts` file exists, or the new file doesn't load (the YAML file is put back). |
 | `POST /packs/:id/move` `{ path }` | Points a pack whose folder moved at its new folder. It keeps its id and runs. 400 `bad_pack` when the folder has no pack file or another pack already uses it. |
 | `POST /packs/discover` `{ path, depth? }` | Finds pack files in a folder and up to `depth` (default 4, at most 8) levels below it, skipping `node_modules`, `dist`, `build` and hidden folders, and not looking inside a pack. Returns `{ root, found: [{ dir, packFile, packId }], truncated }`; `packId` is set for packs already added. |
 | `DELETE /packs/:id` | Forgets the pack (its files and past runs stay). |
+
+## Editing files
+
+The files of a pack's folder, as the [editor](../guide/editing) uses them. `path` is relative to the pack folder, with `/` between folders. A path outside the folder (`..`, an absolute path, a link that leads out) or inside `node_modules`, `.git`, `dist` and other build or tool folders is 400 `bad_path`. Only text files up to 1 MB are read or written: 400 `not_text` for others, 413 `too_big` over the size.
+
+Every change returns the pack's state after it loads again, `pack: { status, error, problems }`, and adds an `editor.file_changed` event `{ packId, action, path }` (`action` is `save`, `create`, `rename` with `from`, or `delete`).
+
+| Method and path | Does |
+|---|---|
+| `GET /packs/:id/files` | The pack's files: `{ files: [{ path, kind, size, big }], truncated }`, folders first. `kind` is `code`, `yaml`, `json`, `markdown` or `text`; `big` means too big to open. At most 2000 files. |
+| `GET /packs/:id/file?path=` | One file: `{ path, kind, text, stamp }`. `stamp` names this version of the file. |
+| `POST /packs/:id/file` `{ path, text, stamp? }` | Saves a file, written whole or not at all. With `stamp`, 409 `stale` when the file changed since that version, with the file on disk in `detail: { text, stamp }`; leave `stamp` out to overwrite. Returns `{ file: { path, stamp }, pack }`. |
+| `POST /packs/:id/files` `{ path, text? }` | Makes a new file and its folders. 201 with `{ file, pack }`, 409 `exists` when it's already there. |
+| `POST /packs/:id/file/rename` `{ from, to }` | Renames or moves a file inside the pack folder. Returns `{ from, to, pack }`; 409 `exists` when `to` is taken. |
+| `DELETE /packs/:id/file?path=` | Deletes a file. Returns `{ deleted, pack }`. |
 
 ## Settings
 
@@ -120,7 +136,7 @@ Everything that happens is an event with a growing sequence number: `{ seq, time
 
 `GET /events?after=<seq>&wait=<seconds>&runId=&types=&limit=` returns `{ events, next, head }`. With `wait` (up to 110 seconds) it holds the request until a matching event arrives, so an agent can follow a run with one request at a time: call again with `after=next`.
 
-Event types (open set, more come with later plugins): `run.queued`, `run.started`, `run.planned`, `run.pausing`, `run.paused`, `run.resumed`, `run.decision`, `run.stopping`, `run.labeled`, `run.finished`, `run.interrupted`, `run.failed_to_start`, `run.log`, `run.info`, `run.tests-added`, `attempt.started`, `attempt.step`, `attempt.log`, `attempt.flag`, `attempt.artifact`, `attempt.finished`, `page.opened`, `page.navigated`, `page.active`, `page.closed`, `video.unavailable`, `pack.added`, `pack.loaded`, `pack.reload_failed`, `pack.reloaded`, `pack.removed`, `review.saved`.
+Event types (open set, more come with later plugins): `run.queued`, `run.started`, `run.planned`, `run.pausing`, `run.paused`, `run.resumed`, `run.decision`, `run.stopping`, `run.labeled`, `run.finished`, `run.interrupted`, `run.failed_to_start`, `run.log`, `run.info`, `run.tests-added`, `attempt.started`, `attempt.step`, `attempt.log`, `attempt.flag`, `attempt.artifact`, `attempt.finished`, `page.opened`, `page.navigated`, `page.active`, `page.closed`, `video.unavailable`, `pack.added`, `pack.loaded`, `pack.reload_failed`, `pack.reloaded`, `pack.removed`, `editor.file_changed`, `review.saved`.
 
 ## Live WebSocket
 

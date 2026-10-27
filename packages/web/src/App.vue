@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
 import { Columns2, FolderOpen, ListChecks, Moon, Palette, Plus, Search, Settings, Sun, SunMoon } from "./icons";
 import { getJson, sendJson, type HealthData, type Pack, type RunSummary } from "./api";
 import { finderCommands } from "./finder";
@@ -24,6 +24,8 @@ import PackView from "./views/PackView.vue";
 import RunsView from "./views/RunsView.vue";
 import RunView from "./views/RunView.vue";
 import SettingsView from "./views/SettingsView.vue";
+// The editor (CodeMirror, the YAML checker) loads only when a pack is opened for editing.
+const EditView = defineAsyncComponent(() => import("./views/EditView.vue"));
 
 const theme = ref<Theme>(loadTheme(browserStore()));
 watch(
@@ -120,6 +122,7 @@ onMounted(async () => {
   <NewRunView v-else-if="route.name === 'new'" :query="route.query" />
   <PacksView v-else-if="route.name === 'packs'" :query="route.query" />
   <PackView v-else-if="route.name === 'pack'" :id="route.id" />
+  <EditView v-else-if="route.name === 'edit'" :id="route.id" :file="route.file" :line="route.line" />
   <CompareView v-else-if="route.name === 'compare'" :query="route.query" />
   <KitView v-else-if="route.name === 'kit'" />
   <SettingsView v-else-if="route.name === 'settings'" />

@@ -3,14 +3,14 @@
 // screenshots (gallery, scroll sets as strips, marks), kept texts, the log, collector records,
 // the video and the trace, with the review beside them (below on narrow screens). J and K step
 // to the next and previous attempt of the run.
-import { ArrowLeft, ChevronLeft, ChevronRight, MessageSquarePlus } from "../icons";
+import { ArrowLeft, ChevronLeft, ChevronRight, MessageSquarePlus, Pencil } from "../icons";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, type Artifact, type Pack, type ResultDocument, type RunDetail } from "../api";
 import { attemptOrder, attemptSteps, cellOf, logMarks, plainText, recordColumns, shotGroups, traceViewerUrl } from "../attempt";
 import { clock, type TimelineStep } from "../timeline";
 import { duration, fileSize, when } from "../format";
 import { firstOwnFrame } from "../editor";
-import { tildify } from "../paths";
+import { relativeTo, tildify } from "../paths";
 import { href } from "../router";
 import { loadSettings, settings } from "../settings";
 import { toast } from "../toasts";
@@ -51,10 +51,24 @@ async function load() {
 
 // What the test says it does and what a good result looks like, from the pack (as it is now).
 const description = ref<string | null>(null);
+const testPack = ref<Pack | null>(null);
 async function loadDescription(packId: string, testId: string) {
   const p = await getJson<Pack>(`/api/v1/packs/${packId}`);
+  testPack.value = p.ok ? p.data : null;
   description.value = p.ok ? (p.data.tests.find((t) => t.id === testId)?.description ?? null) : null;
 }
+
+// "Edit this test" opens the pack's editor at the line the attempt went wrong on, else at the test.
+const editLink = computed(() => {
+  const p = testPack.value;
+  const d = doc.value;
+  if (!p || !d) return null;
+  const frame = d.error?.stack ? firstOwnFrame(d.error.stack) : null;
+  const rel = frame ? relativeTo(p.dir, frame.file) : null;
+  if (frame && rel) return href({ name: "edit", id: p.id, file: rel, line: frame.line });
+  const t = p.tests.find((x) => x.id === d.test.id);
+  return t ? href({ name: "edit", id: p.id, file: t.file, line: t.line }) : null;
+});
 
 // Next and previous attempt of the run.
 const order = computed(() => (run.value ? attemptOrder(run.value) : []));
@@ -267,6 +281,7 @@ watch(
         <p v-if="doc.error.stack && firstOwnFrame(doc.error.stack)" class="where small">
           In your code:
           <FileLink :file="firstOwnFrame(doc.error.stack)!.file" :label="tildify(firstOwnFrame(doc.error.stack)!.file, settings.home)" :line="firstOwnFrame(doc.error.stack)!.line" :column="firstOwnFrame(doc.error.stack)!.column" />
+          <a v-if="editLink" class="editlink" :href="editLink"><Pencil :size="14" /> Edit this test</a>
         </p>
         <details v-if="doc.error.stack" class="stack">
           <summary>Stack</summary>
@@ -452,6 +467,12 @@ watch(
 </template>
 
 <style scoped>
+.editlink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: var(--space-3);
+}
 .page {
   max-width: 1440px;
 }

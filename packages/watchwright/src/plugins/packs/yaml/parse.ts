@@ -11,6 +11,9 @@ export interface Problem {
   line: number;
   col: number;
   message: string;
+  /** The text the problem is about, as offsets into the file (for underlining it in an editor). */
+  from?: number;
+  to?: number;
 }
 
 export interface YamlTest {
@@ -39,7 +42,9 @@ class Checker {
   }
 
   problem(node: Node | Pair | null | undefined, message: string): void {
-    this.problems.push({ ...this.at(node), message });
+    const n = node && "range" in node ? node : node && "key" in node ? (node.key as Node | null) : null;
+    const range = n?.range ? { from: n.range[0], to: n.range[1] } : {};
+    this.problems.push({ ...this.at(node), message, ...range });
   }
 
   /** Checks a node against a shape and returns its plain value (best effort when it doesn't fit). */
@@ -278,7 +283,7 @@ export function parseText(text: string): { doc: Document; lc: LineCounter; probl
   const doc = parseDocument(text, { lineCounter: lc, prettyErrors: false, uniqueKeys: false });
   const problems: Problem[] = [...doc.errors, ...doc.warnings].map((e) => {
     const p = lc.linePos(e.pos[0]);
-    return { line: p.line, col: p.col, message: e.message.split("\n")[0]! };
+    return { line: p.line, col: p.col, message: e.message.split("\n")[0]!, from: e.pos[0], to: e.pos[1] };
   });
   return { doc, lc, problems };
 }

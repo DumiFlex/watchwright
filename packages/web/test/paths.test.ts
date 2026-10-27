@@ -59,3 +59,14 @@ describe("paths", () => {
     expect(join("/home/sam", "sites")).toBe("/home/sam/sites");
   });
 });
+
+describe("relativeTo", () => {
+  it("gives a file's path inside a folder", async () => {
+    const { relativeTo } = await import("../src/paths");
+    expect(relativeTo("/home/sam/shop", "/home/sam/shop/tests/a.yaml")).toBe("tests/a.yaml");
+    expect(relativeTo("/home/sam/shop/", "/home/sam/shop/pack.ts")).toBe("pack.ts");
+    expect(relativeTo("C:\\Users\\sam\\shop", "c:\\users\\sam\\shop\\tests\\a.ts")).toBe("tests/a.ts");
+    expect(relativeTo("/home/sam/shop", "/home/sam/shopping/a.ts")).toBeNull();
+    expect(relativeTo("/home/sam/shop", "/home/sam/shop")).toBeNull();
+  });
+});
