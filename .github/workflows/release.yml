@@ -59,6 +59,19 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
           TAG: ${{ steps.release.outputs.tag_name }}
         run: |
+          # Merging the dev→main PR can auto-delete dev (it was that PR's head
+          # branch). Put it back at the release commit; nothing is lost, since
+          # main holds all of dev's history.
+          if ! gh api "repos/$GITHUB_REPOSITORY/branches/dev" --silent 2>/dev/null; then
+            echo "dev is missing; recreating it from main."
+            gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref=refs/heads/dev -f sha="$GITHUB_SHA" --silent
+            exit 0
+          fi
+          ahead=$(gh api "repos/$GITHUB_REPOSITORY/compare/dev...main" --jq '.ahead_by')
+          if [ "$ahead" = "0" ]; then
+            echo "dev already has everything on main."
+            exit 0
+          fi
           existing=$(gh pr list --repo "$GITHUB_REPOSITORY" --base dev --head main --state open --json number --jq '.[0].number')
           if [ -z "$existing" ]; then
             existing=$(gh pr create --repo "$GITHUB_REPOSITORY" --base dev --head main \
