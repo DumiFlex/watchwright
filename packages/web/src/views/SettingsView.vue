@@ -106,11 +106,15 @@ onMounted(() => {
 }
 .card {
   display: grid;
-  gap: var(--space-2);
+  gap: var(--space-3);
 }
-.card h2,
+.card > h2:first-child,
 .card p {
   margin: 0;
+}
+/* the line under a card's heading belongs to it */
+.card > h2:first-child + p {
+  margin-top: calc(-1 * var(--space-2));
 }
 .two {
   display: grid;
@@ -118,7 +122,7 @@ onMounted(() => {
   gap: var(--space-4);
 }
 .sub {
-  margin: var(--space-2) 0;
+  margin: 0 0 var(--space-2);
   font-size: 13px;
 }
 .row {
