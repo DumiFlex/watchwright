@@ -2,12 +2,15 @@
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { getJson, type FrameHeader } from "../api";
 import { History, Radio } from "../icons";
+import { keyOf, pagePoint, type ViewInput } from "../liveinput";
 import { rewindSteps, type RewindFrame } from "../rewind";
 import TimelineScrubber from "./TimelineScrubber.vue";
 
 // Draws the newest screencast frame of one page on a canvas. It follows the page the run last
 // acted on, unless the viewer picks a tab. Rewind shows the server's last 30 s of frames on a
 // scrubber (with the steps that ran then); live frames keep coming in underneath.
+// With `interactive` (Record), presses, drags, the wheel and keys on the picture are sent to the
+// page in its own pixels (`input`); with `picking`, a click names a point instead (`pick`).
 
 const props = withDefaults(
   defineProps<{
@@ -18,10 +21,17 @@ const props = withDefaults(
     runId?: string | undefined;
     /** Steps that ran, by start time (ms since the epoch), for the rewind scrubber. */
     steps?: readonly { at: number; label: string }[];
+    interactive?: boolean;
+    picking?: boolean;
   }>(),
-  { runId: undefined, steps: () => [] },
+  { runId: undefined, steps: () => [], interactive: false, picking: false },
 );
-const emit = defineEmits<{ rewound: [moment: { pageId: string; at: number } | null] }>();
+const emit = defineEmits<{
+  rewound: [moment: { pageId: string; at: number } | null];
+  input: [input: ViewInput];
+  pick: [point: { x: number; y: number }];
+  choosePage: [pageId: string];
+}>();
 
 const canvas = ref<HTMLCanvasElement | null>(null);
 const chosen = ref<string | null>(null);
@@ -175,6 +185,7 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
   if (tick) clearInterval(tick);
+  if (wheelTimer) clearTimeout(wheelTimer);
   for (const f of latest.values()) f.bitmap.close();
   past.value?.bitmap.close();
 });
@@ -197,6 +208,117 @@ function seconds(ms: number) {
   return ms < 1000 ? "the newest frame" : `${Math.round(ms / 1000)} s before the newest frame`;
 }
 
+// Input for Record: page pixels from the canvas, presses and releases as they happen (so drags
+// and double clicks are real), moves at most every 80 ms, and the wheel added up per 100 ms.
+function pointOf(e: MouseEvent): { x: number; y: number } | null {
+  const el = canvas.value;
+  const id = shownPage.value;
+  const frame = id ? latest.get(id) : undefined;
+  if (!el || !frame) return null;
+  const r = el.getBoundingClientRect();
+  return pagePoint({ left: r.left, top: r.top, width: r.width, height: r.height }, { width: frame.bitmap.width, height: frame.bitmap.height }, { width: frame.header.width, height: frame.header.height }, e.clientX, e.clientY);
+}
+const BUTTONS = ["left", "middle", "right"] as const;
+let lastMove = 0;
+let touch: { start: { x: number; y: number }; x: number; y: number; scrolled: boolean } | null = null;
+/** Page pixels per screen pixel of the picture. */
+function pageScale(): number {
+  const el = canvas.value;
+  const id = shownPage.value;
+  const frame = id ? latest.get(id) : undefined;
+  if (!el || !frame) return 1;
+  const r = el.getBoundingClientRect();
+  const fit = Math.min(r.width / frame.bitmap.width, r.height / frame.bitmap.height);
+  return fit > 0 ? frame.header.width / frame.bitmap.width / fit : 1;
+}
+let wheel: { x: number; y: number; dx: number; dy: number } | null = null;
+let wheelTimer: ReturnType<typeof setTimeout> | null = null;
+function onDown(e: PointerEvent) {
+  if (!props.interactive || rewinding.value) return;
+  const p = pointOf(e);
+  if (!p) return;
+  e.preventDefault();
+  canvas.value?.focus();
+  if (props.picking) return void emit("pick", p);
+  canvas.value?.setPointerCapture(e.pointerId);
+  // A finger may tap or scroll: wait to see which (a tap is sent on release).
+  if (e.pointerType === "touch") return void (touch = { start: p, x: e.clientX, y: e.clientY, scrolled: false });
+  emit("input", { type: "down", ...p, button: BUTTONS[e.button] ?? "left", clickCount: Math.min(3, Math.max(1, e.detail || 1)) });
+}
+function onUp(e: PointerEvent) {
+  if (!props.interactive || props.picking || rewinding.value) return;
+  if (e.pointerType === "touch") {
+    const t = touch;
+    touch = null;
+    if (t && !t.scrolled) {
+      emit("input", { type: "down", ...t.start, button: "left", clickCount: 1 });
+      emit("input", { type: "up", ...t.start, button: "left", clickCount: 1 });
+    }
+    return;
+  }
+  const p = pointOf(e);
+  if (!p) return;
+  emit("input", { type: "up", ...p, button: BUTTONS[e.button] ?? "left", clickCount: Math.min(3, Math.max(1, e.detail || 1)) });
+}
+function onMove(e: PointerEvent) {
+  if (!props.interactive || props.picking || rewinding.value) return;
+  if (e.pointerType === "touch") {
+    if (!touch) return;
+    const dx = touch.x - e.clientX;
+    const dy = touch.y - e.clientY;
+    if (!touch.scrolled && Math.hypot(dx, dy) < 8) return;
+    touch.scrolled = true;
+    touch.x = e.clientX;
+    touch.y = e.clientY;
+    const scale = pageScale();
+    addWheel(touch.start, dx * scale, dy * scale);
+    return;
+  }
+  const now = performance.now();
+  if (now - lastMove < 80) return;
+  lastMove = now;
+  const p = pointOf(e);
+  if (p) emit("input", { type: "move", ...p });
+}
+function onWheel(e: WheelEvent) {
+  if (!props.interactive || rewinding.value) return;
+  const p = pointOf(e);
+  if (!p) return;
+  e.preventDefault();
+  addWheel(p, e.deltaX, e.deltaY);
+}
+function addWheel(p: { x: number; y: number }, dx: number, dy: number) {
+  wheel = { x: p.x, y: p.y, dx: (wheel?.dx ?? 0) + dx, dy: (wheel?.dy ?? 0) + dy };
+  wheelTimer ??= setTimeout(() => {
+    wheelTimer = null;
+    if (wheel) emit("input", { type: "wheel", x: wheel.x, y: wheel.y, deltaX: Math.round(wheel.dx), deltaY: Math.round(wheel.dy) });
+    wheel = null;
+  }, 100);
+}
+function onKey(e: KeyboardEvent) {
+  if (!props.interactive || rewinding.value) return;
+  // Paste comes as text (the paste event); the page's own shortcuts go through as keys.
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") return;
+  const key = keyOf(e);
+  if (!key) return;
+  e.preventDefault();
+  e.stopPropagation();
+  emit("input", { type: "key", key });
+}
+function onPaste(e: ClipboardEvent) {
+  if (!props.interactive) return;
+  const t = e.clipboardData?.getData("text/plain");
+  if (!t) return;
+  e.preventDefault();
+  emit("input", { type: "text", text: t });
+}
+function onTab(id: string) {
+  if (props.interactive) {
+    chosen.value = null;
+    emit("choosePage", id);
+  } else chosen.value = id === props.activePageId ? null : id;
+}
+
 defineExpose({ push, backToLive });
 </script>
 
@@ -210,13 +332,25 @@ defineExpose({ push, backToLive });
         class="tab"
         :class="{ on: p.id === shownPage }"
         :aria-selected="p.id === shownPage"
-        @click="chosen = p.id === activePageId ? null : p.id"
+        @click="onTab(p.id)"
       >
         <span class="dot" :class="{ act: p.id === activePageId }" aria-hidden="true" />{{ label(p.url) }}
       </button>
     </div>
     <div class="screen">
-      <canvas ref="canvas" :class="{ hidden: !hasFrame }" aria-label="Live view of the browser" />
+      <canvas
+        ref="canvas"
+        :class="{ hidden: !hasFrame, interactive, picking }"
+        :tabindex="interactive ? 0 : undefined"
+        :aria-label="interactive ? 'The recording browser: click and type here' : 'Live view of the browser'"
+        @pointerdown="onDown"
+        @pointerup="onUp"
+        @pointermove="onMove"
+        @wheel="onWheel"
+        @keydown="onKey"
+        @paste="onPaste"
+        @contextmenu="interactive && $event.preventDefault()"
+      />
       <p v-if="!hasFrame" class="placeholder">{{ running ? "Waiting for the first frame…" : "No live picture: the run isn't running." }}</p>
     </div>
     <div v-if="rewinding" class="rewind">
@@ -296,6 +430,17 @@ canvas {
 }
 canvas.hidden {
   display: none;
+}
+canvas.interactive {
+  cursor: default;
+  touch-action: none;
+  outline: none;
+}
+canvas.interactive:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+canvas.picking {
+  cursor: crosshair;
 }
 .placeholder {
   color: #8d96a0;

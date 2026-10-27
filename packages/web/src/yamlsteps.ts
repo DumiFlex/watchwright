@@ -5,3 +5,4 @@ export { STEPS, STEP_BY_NAME, EXPECT_CHECKS, TEST_META, summarize, type StepDef,
 export { BASE_KINDS, TARGET_MAP, describeTarget, type BaseKind, type Target, type TargetMap, type TextMatch } from "../../watchwright/src/plugins/packs/yaml/targets.js";
 export { parseTestFile, type Problem } from "../../watchwright/src/plugins/packs/yaml/parse.js";
 export { closest, type Prop, type Shape } from "../../watchwright/src/plugins/packs/yaml/shape.js";
+export { stepsCode } from "../../watchwright/src/plugins/packs/yaml/to-code.js";

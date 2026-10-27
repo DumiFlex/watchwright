@@ -65,6 +65,8 @@ export type Target = string | ReturnType<Page["locator"]>;
 export interface ClickOptions {
   /** How to tell the click worked: an element that must appear, or a check that must turn true. */
   done?: Target | (() => boolean | Promise<boolean>);
+  /** A spot inside the element to click instead of its middle, in pixels from its top-left corner. */
+  position?: { x: number; y: number };
   timeout?: number;
 }
 

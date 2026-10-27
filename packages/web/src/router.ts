@@ -9,8 +9,8 @@ export type Route =
   | { name: "attempt"; runId: string; attemptId: string }
   | { name: "packs"; query: Record<string, string> }
   | { name: "pack"; id: string }
-  /** The editor: a pack's file (null for the first one), optionally at a line. */
-  | { name: "edit"; id: string; file: string | null; line: number | null }
+  /** The editor: a pack's file (null for the first one), optionally at a line; `record` starts Record there. */
+  | { name: "edit"; id: string; file: string | null; line: number | null; record?: boolean }
   | { name: "compare"; query: Record<string, string> }
   | { name: "kit" }
   | { name: "settings" };
@@ -46,7 +46,7 @@ export function parseRoute(hash: string): Route {
       file = null;
     }
     const line = Number(query.line);
-    return { name: "edit", id: m[1]!, file, line: Number.isInteger(line) && line > 0 ? line : null };
+    return { name: "edit", id: m[1]!, file, line: Number.isInteger(line) && line > 0 ? line : null, ...(query.record === "1" ? { record: true } : {}) };
   }
   return { name: "runs", query: path === "/" ? query : {} };
 }
@@ -71,7 +71,7 @@ export function href(route: Route): string {
     case "pack":
       return `#/packs/${route.id}`;
     case "edit":
-      return `#/packs/${route.id}/edit${route.file ? `/${route.file.split("/").map(encodeURIComponent).join("/")}` : ""}${route.line ? `?line=${route.line}` : ""}`;
+      return `#/packs/${route.id}/edit${route.file ? `/${route.file.split("/").map(encodeURIComponent).join("/")}` : ""}${qs({ ...(route.line ? { line: String(route.line) } : {}), ...(route.record ? { record: "1" } : {}) })}`;
     case "compare":
       return `#/compare${qs(route.query)}`;
     case "kit":

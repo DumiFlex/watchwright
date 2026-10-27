@@ -38,6 +38,7 @@ export async function startSite(): Promise<{ url: string; close(): Promise<void>
     "/other": `<!doctype html><title>Other</title><h1>Other page</h1><p id="msg">Hello from the other page</p>`,
     "/noisy": `<!doctype html><title>Noisy</title><h1>Noisy</h1><script>console.error("fixture console error"); fetch("/missing")</script>`,
     "/form": `<!doctype html><title>Form</title><h1>Form</h1>
+      <ul><li data-testid="color">Red</li><li data-testid="color">Green</li><li data-testid="color">Blue</li></ul>
       <label>Email <input id="email" type="email"></label>
       <label><input id="agree" type="checkbox"> I agree</label>
       <label>Size <select id="size"><option value="s">Small</option><option value="m">Medium</option><option value="l">Large</option></select></label>

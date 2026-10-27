@@ -1,4 +1,4 @@
-import { bool, int, list, obj, oneOrMore, req, str, type Prop, type Shape } from "./shape.js";
+import { bool, int, list, num, obj, oneOrMore, req, str, type Prop, type Shape } from "./shape.js";
 import { describeTarget, type Target, type TextMatch } from "./targets.js";
 
 // Every step a YAML test can use. Each is one verb with its fields, and runs as one `h` step, so a
@@ -39,6 +39,8 @@ const target = (doc = "The element."): Shape => ({ t: "target", doc });
 const match = (doc: string): Shape => ({ t: "match", doc });
 const steps = (doc = "The steps."): Shape => ({ t: "steps", doc });
 const timeout = int("Time limit in ms (default 15000).", { min: 0 });
+const position = obj({ x: req(num("Pixels from the element's left edge.")), y: req(num("Pixels from the element's top edge.")) }, "A spot inside the element, `{ x, y }` in pixels from its top-left corner, to use instead of its middle (for canvases, maps and image pickers).");
+const at = (v: unknown) => (v && typeof v === "object" ? ` at ${(v as { x: number }).x}, ${(v as { y: number }).y}` : "");
 const t = (v: unknown) => describeTarget(v as Target);
 const m = (v: unknown) => (typeof v === "string" ? `"${v}"` : `/${(v as { regex: string }).regex}/`);
 const s = (v: unknown) => (typeof v === "string" ? v : JSON.stringify(v));
@@ -77,11 +79,12 @@ export const STEPS: readonly StepDef[] = [
       target: req(target()),
       done: target("An element that shows once the click worked."),
       button: str("Which mouse button (default left).", { enum: ["left", "right", "middle"] }),
+      position,
       timeout,
     },
-    summary: (a) => `Click ${t(a.target)}`,
+    summary: (a) => `Click ${t(a.target)}${at(a.position)}`,
   },
-  { name: "dblclick", group: "act", doc: "Double-clicks an element.", short: "target", fields: { target: req(target()), timeout }, summary: (a) => `Double-click ${t(a.target)}` },
+  { name: "dblclick", group: "act", doc: "Double-clicks an element.", short: "target", fields: { target: req(target()), position, timeout }, summary: (a) => `Double-click ${t(a.target)}${at(a.position)}` },
   {
     name: "fill",
     group: "act",
@@ -113,7 +116,7 @@ export const STEPS: readonly StepDef[] = [
     fields: { target: req(target("The select element.")), option: req(oneOrMore(str(), "The option, or a list of them.")) },
     summary: (a) => `Pick ${Array.isArray(a.option) ? a.option.map((o) => `"${s(o)}"`).join(", ") : `"${s(a.option)}"`} in ${t(a.target)}`,
   },
-  { name: "hover", group: "act", doc: "Moves the mouse over an element.", short: "target", fields: { target: req(target()) }, summary: (a) => `Hover over ${t(a.target)}` },
+  { name: "hover", group: "act", doc: "Moves the mouse over an element.", short: "target", fields: { target: req(target()), position }, summary: (a) => `Hover over ${t(a.target)}${at(a.position)}` },
   {
     name: "upload",
     group: "act",

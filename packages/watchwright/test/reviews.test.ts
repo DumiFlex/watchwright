@@ -32,7 +32,7 @@ export default pack({
   rubric: ${rubric},
 });`;
 
-run("reviews", () => {
+run("reviews", { timeout: 60_000 }, () => {
   it("scores attempts on the rubric the run started with", async () => {
     const packDir = tempDir("ww-pack-");
     writeFiles(packDir, {

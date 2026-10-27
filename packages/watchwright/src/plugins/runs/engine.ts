@@ -487,10 +487,35 @@ export class Engine {
     this.schedule();
   }
 
+  /** Sites something other than a run is using (a recording), with how many hold each. */
+  private readonly holds = new Map<string, number>();
+
+  /** True while a run of this site is going. */
+  siteBusy(siteKey: string): boolean {
+    return [...this.active.values()].some((r) => r.siteKey === siteKey);
+  }
+
+  /**
+   * Keeps runs of a site queued while something else uses the site, as a run of it would (a
+   * recording changes the same app). Returns the release; runs that waited start after it.
+   */
+  holdSite(siteKey: string): () => void {
+    this.holds.set(siteKey, (this.holds.get(siteKey) ?? 0) + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const n = (this.holds.get(siteKey) ?? 1) - 1;
+      if (n > 0) this.holds.set(siteKey, n);
+      else this.holds.delete(siteKey);
+      this.schedule();
+    };
+  }
+
   /** Starts every queued run whose site is free. */
   schedule(): void {
     if (this.closing) return;
-    const busy = new Set([...this.active.values()].map((r) => r.siteKey));
+    const busy = new Set([...[...this.active.values()].map((r) => r.siteKey), ...this.holds.keys()]);
     for (const row of this.o.repo.queued()) {
       if (busy.has(row.site_key) || this.active.has(row.id)) continue;
       busy.add(row.site_key);

@@ -77,7 +77,7 @@ export function createHelpers(rt: HelperRuntime, extend?: (h: Helpers) => Record
       const done = options.done;
       const isDone = done === undefined ? null : typeof done === "function" ? done : () => loc(done).isVisible();
       try {
-        await loc(target).click({ timeout });
+        await loc(target).click({ timeout, ...(options.position ? { position: options.position } : {}) });
       } catch (err) {
         // Firefox sometimes reports a click as timed out although it landed. When the test says how
         // to tell the click worked, trust that check over the timeout.

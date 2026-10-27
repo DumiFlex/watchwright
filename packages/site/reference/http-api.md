@@ -45,6 +45,27 @@ Every change returns the pack's state after it loads again, `pack: { status, err
 | `POST /packs/:id/file/rename` `{ from, to }` | Renames or moves a file inside the pack folder. Returns `{ from, to, pack }`; 409 `exists` when `to` is taken. |
 | `DELETE /packs/:id/file?path=` | Deletes a file. Returns `{ deleted, pack }`. |
 
+## Recording
+
+[Recording](../guide/recording) opens a browser for a pack and turns what is done on its page into YAML steps. A recording has an 8-character id. Its events carry that id as `runId`, and its screencast goes through the [live WebSocket](#live-websocket) the same way, so a viewer subscribes to a recording as to a run. A recording holds its pack's site: runs of the site wait for it, and it waits (status `waiting`) for a run of the site to end. It ends by itself after 30 minutes without input.
+
+A recording's state is `{ id, packId, testId, status, message, window, viewport, pages, activePage, steps }`. `status` is `waiting`, `starting`, `replaying` (running the steps before the cursor), `recording` or `ended`. Each step is `{ id, name, args, targets, spot }`: `args` are the YAML step's fields, `targets` every target that picks out the same element (the one in use first), and `spot` where a click landed inside the element, for `position`.
+
+| Method and path | Does |
+|---|---|
+| `GET /record` | `{ canWindow, recordings }`. `canWindow` says whether this machine has a screen for `window: true`. |
+| `POST /record` `{ packId, testId?, replay?, line?, url?, params?, window? }` | Starts a recording (201, its state). With `testId`, the pack's `beforeEach` runs first; with `replay`, also that YAML test's first `replay` steps; with `line`, also that code test's code up to that line (it stops at the first Playwright call below it). `url` is where to open (the site's base URL by default), `params` the parameter values for those steps. 400 `bad_test`, `bad_params`, `no_window`. |
+| `GET /record/:id` | The recording's state. |
+| `POST /record/:id/input` `{ type, … }` | Input for the active page, in page pixels: `click`, `dblclick`, `down`, `up` (`x`, `y`, `button?`, `clickCount?`), `move` (`x`, `y`), `wheel` (`x`, `y`, `deltaX`, `deltaY`), `key` (`key` in Playwright's form, `Shift+Tab`), `text` (`text`, typed into the focused field), `goto` (`url`), `back`, `reload`. 409 `not_recording` before recording starts or after it ends. |
+| `POST /record/:id/pick` `{ x, y }` | The element at a point: `{ info, targets, groups }`. `info` has its `tag`, `text`, `value` and `checked`; `targets` pick out only it, best first; `groups` are targets it shares with elements like it, with their `count`. 404 `nothing_there`. |
+| `POST /record/:id/page` `{ pageId }` | Makes one of `pages` the active page. |
+| `POST /record/:id/steps` `{ name, args?, targets?, index? }` | Adds a step (201), at the end or at `index`. `targets` are other targets to offer for it. 400 `bad_step`. |
+| `POST /record/:id/steps/:step` `{ name?, args? }` | Changes a step. A new `args.target` is added to its `targets`. |
+| `DELETE /record/:id/steps/:step` | Removes a step. |
+| `POST /record/:id/stop` | Ends the recording and closes its browser. Returns the state with the steps. |
+
+Events: `record.started`, `record.status` `{ status, message }`, `record.replay-step` `{ title }`, `record.step` `{ step, index }`, `record.step-updated` `{ step }`, `record.step-removed` `{ id }`, `record.ended` `{ message, steps }` (`steps` is how many), and the `page.*` events of its pages.
+
 ## Settings
 
 Preferences for the whole machine, the same for every browser and agent. Plugins declare them; the web app's Settings page edits them. The look and mode stay in each browser.
@@ -136,7 +157,7 @@ Everything that happens is an event with a growing sequence number: `{ seq, time
 
 `GET /events?after=<seq>&wait=<seconds>&runId=&types=&limit=` returns `{ events, next, head }`. With `wait` (up to 110 seconds) it holds the request until a matching event arrives, so an agent can follow a run with one request at a time: call again with `after=next`.
 
-Event types (open set, more come with later plugins): `run.queued`, `run.started`, `run.planned`, `run.pausing`, `run.paused`, `run.resumed`, `run.decision`, `run.stopping`, `run.labeled`, `run.finished`, `run.interrupted`, `run.failed_to_start`, `run.log`, `run.info`, `run.tests-added`, `attempt.started`, `attempt.step`, `attempt.log`, `attempt.flag`, `attempt.artifact`, `attempt.finished`, `page.opened`, `page.navigated`, `page.active`, `page.closed`, `video.unavailable`, `pack.added`, `pack.loaded`, `pack.reload_failed`, `pack.reloaded`, `pack.removed`, `editor.file_changed`, `review.saved`.
+Event types (open set, more come with later plugins): `run.queued`, `run.started`, `run.planned`, `run.pausing`, `run.paused`, `run.resumed`, `run.decision`, `run.stopping`, `run.labeled`, `run.finished`, `run.interrupted`, `run.failed_to_start`, `run.log`, `run.info`, `run.tests-added`, `attempt.started`, `attempt.step`, `attempt.log`, `attempt.flag`, `attempt.artifact`, `attempt.finished`, `page.opened`, `page.navigated`, `page.active`, `page.closed`, `video.unavailable`, `pack.added`, `pack.loaded`, `pack.reload_failed`, `pack.reloaded`, `pack.removed`, `editor.file_changed`, `review.saved`, `record.started`, `record.status`, `record.replay-step`, `record.step`, `record.step-updated`, `record.step-removed`, `record.ended`.
 
 ## Live WebSocket
 
