@@ -36,7 +36,9 @@ describe("pack loader", () => {
     writeFiles(dir, { "pack.ts": PACK, "tests/a.ts": `import { test } from "watchwright";\ntest("A1", async () => {\n  throw new Error("boom");\n});` });
     const pack = await loadPack(dir, tempDir());
     const err = await (pack.tests[0]!.body as unknown as () => Promise<void>)().catch((e: Error) => e);
-    expect((err as Error).stack).toContain(`${path.join(dir, "tests", "a.ts")}:3:9`);
+    // Windows stacks name the file with forward slashes.
+    const slashes = (s: string) => s.replaceAll("\\", "/");
+    expect(slashes((err as Error).stack ?? "")).toContain(`${slashes(path.join(dir, "tests", "a.ts"))}:3:9`);
   });
 
   it("notices changed, added and imported files", async () => {
