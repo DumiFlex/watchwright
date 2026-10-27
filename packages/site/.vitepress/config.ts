@@ -14,7 +14,8 @@ export default defineConfig({
   lastUpdated: false,
   head: [["link", { rel: "icon", type: "image/svg+xml", href: `${base}logo.svg` }]],
   themeConfig: {
-    logo: "/logo.svg",
+    // Light and dark marks follow the site's own theme switch; the favicon follows the OS.
+    logo: { light: "/logo-light.svg", dark: "/logo-dark.svg" },
     nav: [
       { text: "Guide", link: "/guide/getting-started", activeMatch: "/guide/" },
       { text: "Reference", link: "/reference/http-api", activeMatch: "/reference/" },

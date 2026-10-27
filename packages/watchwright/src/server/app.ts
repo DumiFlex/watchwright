@@ -3,8 +3,12 @@ import path from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import fastifyStatic from "@fastify/static";
 import fastifyWebsocket from "@fastify/websocket";
-import { BUILTIN_PLUGINS } from "../core/core-plugin.js";
-import { checkPlugins, type WatchwrightPlugin } from "../core/plugin.js";
+import { checkActions, mountActions, type Action } from "../actions/registry.js";
+import { BUILTIN_PLUGINS } from "../core/builtin.js";
+import { checkPlugins, type PluginContext, type WatchwrightPlugin } from "../core/plugin.js";
+import { ACTIONS } from "../core/keys.js";
+import { Services } from "../core/services.js";
+import { EventLog } from "../events/log.js";
 import type { Store } from "../store/db.js";
 import { errorBody, type ErrorBody } from "./errors.js";
 import { isAllowedHost, isAllowedOrigin, needsOriginCheck } from "./guard.js";
@@ -20,9 +24,18 @@ export interface ServerOptions {
   /** Plugins to mount, in order (default: the built-in ones). The store must hold their migrations. */
   plugins?: readonly WatchwrightPlugin[];
   logger?: boolean;
+  /** Called with the plugin context before plugins are set up (tests use it to provide services). */
+  prepare?: (ctx: PluginContext) => void;
 }
 
-export async function buildServer({ store, port, webRoot, plugins = BUILTIN_PLUGINS, logger = false }: ServerOptions): Promise<FastifyInstance> {
+declare module "fastify" {
+  interface FastifyInstance {
+    /** The plugin context: store, event log and services. */
+    watchwright: PluginContext;
+  }
+}
+
+export async function buildServer({ store, port, webRoot, plugins = BUILTIN_PLUGINS, logger = false, prepare }: ServerOptions): Promise<FastifyInstance> {
   checkPlugins(plugins);
   const app = Fastify({ logger });
 
@@ -46,21 +59,35 @@ export async function buildServer({ store, port, webRoot, plugins = BUILTIN_PLUG
     return reply;
   });
 
-  app.setErrorHandler((err: { statusCode?: number; code?: string; message: string }, _req, reply) => {
+  app.setErrorHandler((err: { statusCode?: number; code?: string; message: string; validation?: unknown }, _req, reply) => {
     const status = err.statusCode && err.statusCode >= 400 ? err.statusCode : 500;
-    reply.code(status).send(errorBody(err.code ?? (status === 500 ? "internal" : "bad_request"), err.message));
+    if (err.validation) return reply.code(400).send(errorBody("invalid_input", err.message));
+    const code = err.code && /^[a-z_]+$/.test(err.code) ? err.code : status === 500 ? "internal" : "bad_request";
+    return reply.code(status).send(errorBody(code, err.message));
   });
 
   await app.register(fastifyWebsocket);
 
-  const names = plugins.map((p) => p.name);
+  const ctx: PluginContext = { store, plugins: plugins.map((p) => p.name), events: new EventLog(store.db), services: new Services() };
+  prepare?.(ctx);
+  app.decorate("watchwright", ctx);
+  for (const plugin of plugins) await plugin.setup?.(ctx);
+  app.addHook("onClose", async () => {
+    for (const plugin of [...plugins].reverse()) await plugin.close?.(ctx);
+  });
+
+  const actions: Action[] = plugins.flatMap((p) => p.actions?.(ctx) ?? []);
+  checkActions(actions);
+  ctx.services.provide(ACTIONS, actions);
+  await app.register(async (scope) => mountActions(scope, actions), { prefix: API_PREFIX });
   for (const plugin of plugins) {
     const { routes } = plugin;
-    if (routes) await app.register(async (scope) => routes(scope, { store, plugins: names }), { prefix: API_PREFIX });
+    if (routes) await app.register(async (scope) => routes(scope, ctx), { prefix: API_PREFIX });
   }
 
   const hasWeb = webRoot !== undefined && existsSync(path.join(webRoot, "index.html"));
-  if (hasWeb) await app.register(fastifyStatic, { root: webRoot, wildcard: false });
+  // wildcard: files are looked up per request, so a rebuilt web app is served without a restart.
+  if (hasWeb) await app.register(fastifyStatic, { root: webRoot, wildcard: true });
 
   // Registered after every API route: unknown API paths get a JSON error, anything else is the web app.
   app.setNotFoundHandler((req, reply) => {

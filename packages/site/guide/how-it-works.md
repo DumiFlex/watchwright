@@ -2,10 +2,6 @@
 
 Watchwright is a server, not a command you run per test. It keeps its own run engine on the Playwright library, so it can pause a run, show it live and pick it up again after a restart.
 
-::: info Planned
-The run engine is being built now. This page describes the design in [the step 1 plan](https://github.com/DumiFlex/watchwright/blob/main/docs/plan.md); details can still change.
-:::
-
 ## Runs and attempts
 
 A **run** is a test pack, the tests you chose from it and the parameter values you gave. An **attempt** is one execution of one test inside a run: a test with `runs: 3` makes three attempts. Retrying an attempt replaces its result and keeps the old one in its history.

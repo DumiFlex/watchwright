@@ -2,6 +2,8 @@
   "name": "watchwright-workspace",
   "version": "0.1.0",
   "private": true,
+  "license": "Apache-2.0",
+  "author": "DumiFlex",
   "type": "module",
   "packageManager": "pnpm@9.12.0",
   "engines": {

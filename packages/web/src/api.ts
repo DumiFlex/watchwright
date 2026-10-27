@@ -1,4 +1,4 @@
-// Talks to the Watchwright server. Shapes mirror packages/watchwright/src/server (docs/plan.md, section 8).
+// Talks to the Watchwright server. Shapes mirror packages/watchwright/src (plugins/packs, plugins/runs).
 
 export interface HealthData {
   name: "watchwright";
@@ -10,13 +10,127 @@ export interface HealthData {
 export interface ApiError {
   code: string;
   message: string;
+  detail?: unknown;
 }
 
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: ApiError };
 
-export async function getJson<T>(url: string, fetcher: typeof fetch = fetch): Promise<ApiResult<T>> {
+export type ParamValue = string | number | boolean;
+
+export interface ParamDef {
+  type: "string" | "number" | "boolean";
+  choices?: (string | number)[];
+  default?: ParamValue;
+  description?: string;
+}
+
+export interface PackTest {
+  id: string;
+  title: string;
+  section: string | null;
+  tags: string[];
+  needs: string[];
+  inside: string | null;
+  runs: number | Record<string, unknown> | "computed";
+  file: string;
+}
+
+export interface Pack {
+  id: string;
+  path: string;
+  name: string;
+  description: string | null;
+  siteKey: string | null;
+  baseURL: string | null;
+  browser: string;
+  status: "ok" | "error";
+  error: string | null;
+  problems: string[];
+  loadedAt: string | null;
+  params: Record<string, ParamDef>;
+  flags: Record<string, "robot" | "finding" | "info">;
+  tests: PackTest[];
+}
+
+export type RunStatus = "queued" | "running" | "pausing" | "paused" | "finished" | "stopped" | "interrupted" | "failed_to_start";
+export type AttemptStatus = "passed" | "failed" | "broken" | "skipped" | "stopped" | "running" | "interrupted";
+
+export interface RunSummary {
+  id: string;
+  packId: string;
+  packName: string;
+  siteKey: string;
+  tests: string[];
+  params: Record<string, ParamValue>;
+  status: RunStatus;
+  mode: "normal" | "resume" | "redo";
+  startedBy: string;
+  error: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  counts: Record<AttemptStatus, number> & { planned: number };
+}
+
+export interface Attempt {
+  id: string;
+  testId: string;
+  title: string;
+  number: number;
+  of: number;
+  try: number;
+  parentId: string | null;
+  status: AttemptStatus;
+  flags: { name: string; kind: string; detail: string | null }[];
+  error: { kind: string; message: string } | null;
+  startedAt: string;
+  finishedAt: string | null;
+  durationMs: number | null;
+}
+
+export interface LiveSnapshot {
+  state: "running" | "pausing" | "paused";
+  pauseReason: "manual" | "broken" | null;
+  deadline: string | null;
+  stopping: "after" | "now" | null;
+  attemptId: string | null;
+  testId: string | null;
+  step: string | null;
+  pages: { id: string; url: string }[];
+  activePageId: string | null;
+}
+
+export interface RunDetail extends RunSummary {
+  plan: { testId: string; title: string; number: number; of: number; children?: string[]; status: AttemptStatus | "pending"; attemptId: string | null }[];
+  attempts: Attempt[];
+  live: LiveSnapshot | null;
+}
+
+export interface ResultDocument {
+  schemaVersion: 1;
+  attemptId: string;
+  test: { id: string; title: string };
+  status: AttemptStatus;
+  error: { kind: string; message: string } | null;
+  notes: string[];
+  texts: Record<string, string>;
+  metrics: Record<string, { value: number; unit: string | null }>;
+  flags: { name: string; kind: string; detail: string | null }[];
+  artifacts: { kind: string; name: string; contentType: string; url: string; size: number }[];
+}
+
+export interface WwEvent {
+  seq: number;
+  time: string;
+  type: string;
+  runId?: string;
+  attemptId?: string;
+  data: Record<string, unknown>;
+}
+
+async function call<T>(url: string, init: RequestInit, fetcher: typeof fetch): Promise<ApiResult<T>> {
   try {
-    const res = await fetcher(url, { headers: { accept: "application/json" } });
+    const res = await fetcher(url, init);
     const body = (await res.json().catch(() => null)) as { data?: T; error?: ApiError } | null;
     if (res.ok && body && "data" in body) return { ok: true, data: body.data as T };
     return { ok: false, error: body?.error ?? { code: `http_${res.status}`, message: `The server answered ${res.status}.` } };
@@ -25,8 +139,44 @@ export async function getJson<T>(url: string, fetcher: typeof fetch = fetch): Pr
   }
 }
 
+export function getJson<T>(url: string, fetcher: typeof fetch = fetch): Promise<ApiResult<T>> {
+  return call<T>(url, { headers: { accept: "application/json" } }, fetcher);
+}
+
+/** POST (or DELETE) with a JSON body. The web app names itself, so runs show "started by web". */
+export function sendJson<T>(url: string, body: unknown = {}, method: "POST" | "DELETE" = "POST", fetcher: typeof fetch = fetch): Promise<ApiResult<T>> {
+  const init: RequestInit =
+    method === "DELETE"
+      ? { method, headers: { accept: "application/json", "x-watchwright-client": "web" } }
+      : { method, headers: { accept: "application/json", "content-type": "application/json", "x-watchwright-client": "web" }, body: JSON.stringify(body) };
+  return call<T>(url, init, fetcher);
+}
+
 /** The live WebSocket address for the page's own origin (http → ws, https → wss). */
 export function liveUrl(location: Pick<Location, "protocol" | "host">): string {
   const scheme = location.protocol === "https:" ? "wss:" : "ws:";
   return `${scheme}//${location.host}/api/v1/live`;
+}
+
+export interface FrameHeader {
+  runId: string;
+  pageId: string;
+  timestamp: number;
+  width: number;
+  height: number;
+}
+
+/** Splits a binary frame message: 4-byte big-endian header length, JSON header, JPEG bytes. */
+export function decodeFrame(buf: ArrayBuffer): { header: FrameHeader; jpeg: Uint8Array } {
+  const len = new DataView(buf).getUint32(0, false);
+  const header = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 4, len))) as FrameHeader;
+  return { header, jpeg: new Uint8Array(buf, 4 + len) };
+}
+
+export type Route = { name: "home" } | { name: "run"; id: string } | { name: "kit" };
+
+export function parseRoute(hash: string): Route {
+  if (hash === "#/kit") return { name: "kit" };
+  const m = /^#\/runs\/([0-9a-f]{8})$/.exec(hash);
+  return m ? { name: "run", id: m[1]! } : { name: "home" };
 }

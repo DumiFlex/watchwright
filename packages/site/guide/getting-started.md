@@ -14,10 +14,11 @@ Watchwright isn't published to npm yet, so you run it from a clone of the reposi
 
 ```bash
 pnpm install
-pnpm serve            # builds, then starts the server at http://127.0.0.1:7420/
+pnpm --filter watchwright exec playwright install chromium firefox
+pnpm serve            # builds, starts the server at http://127.0.0.1:7420/ and opens it
 ```
 
-Open `http://127.0.0.1:7420/` to see the web page. It shows whether the server is up, whether the live connection is open, the data folder and the loaded plugins.
+The second line downloads the browsers Playwright drives. On the web page, add a test pack by its folder path, choose tests and parameter values, and start a run. The run page shows the browser live with the current test and step, and has the controls to pause, retry, skip and stop.
 
 ## Options
 
@@ -28,6 +29,7 @@ Open `http://127.0.0.1:7420/` to see the web page. It shows whether the server i
 | `--port` | `7420` | Port for the web page and the API. |
 | `--host` | `127.0.0.1` | Address to bind. Only loopback addresses are allowed until token auth is built. |
 | `--data` | see below | Folder for the database and everything runs save. |
+| `--no-open` | off | Don't open the web page in your browser on start. |
 
 ## Data folder
 
@@ -40,5 +42,5 @@ Watchwright keeps its SQLite database and everything runs save in one folder. It
 ## Next steps
 
 - [How it works](./how-it-works) explains runs, attempts and plugins.
-- [Writing a test pack](./test-packs) shows what a pack will look like.
-- [HTTP and WebSocket API](../reference/http-api) lists what you can call today.
+- [Writing a test pack](./test-packs) shows how to write a pack.
+- [HTTP and WebSocket API](../reference/http-api) lists every route, event and the live WebSocket.

@@ -4,6 +4,7 @@
   "private": true,
   "description": "A browser test harness on Playwright that you watch work live, control from its own website, and drive from your own AI agents.",
   "license": "Apache-2.0",
+  "author": "DumiFlex",
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -29,7 +30,9 @@
     "@fastify/static": "^10.1.7",
     "@fastify/websocket": "^11.3.4",
     "better-sqlite3": "^13.0.3",
-    "fastify": "^5.12.7"
+    "esbuild": "^0.28.2",
+    "fastify": "^5.12.7",
+    "playwright": "^1.64.1"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",

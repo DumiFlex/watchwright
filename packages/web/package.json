@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "license": "Apache-2.0",
+  "author": "DumiFlex",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,6 +11,14 @@
     "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
+    "@fontsource-variable/archivo": "5.3.0",
+    "@fontsource-variable/geist": "5.3.0",
+    "@fontsource-variable/geist-mono": "5.3.0",
+    "@fontsource-variable/ibm-plex-sans": "5.3.0",
+    "@fontsource/barlow": "5.3.0",
+    "@fontsource/barlow-condensed": "5.3.0",
+    "@fontsource/dm-mono": "5.3.0",
+    "@fontsource/ibm-plex-mono": "5.3.0",
     "vue": "^3.5.44"
   },
   "devDependencies": {
