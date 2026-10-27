@@ -361,7 +361,7 @@ useShortcut("Mod+Enter", () => !namingOpen.value && void start());
       </section>
     </div>
 
-    <section v-else-if="packs.length === 0" class="card">
+    <section v-else-if="packs.length === 0 && !loadError" class="card">
       <EmptyState :icon="Package" heading="No packs yet">
         <p>A run starts from a test pack: a folder with a pack file and its tests. Add one first.</p>
         <template #actions>
