@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { getJson, type FrameHeader } from "../api";
 import { History, Radio } from "../icons";
-import { keyOf, pagePoint, type ViewInput } from "../liveinput";
+import { keyOf, pagePoint, screenRect, type ViewInput } from "../liveinput";
 import { rewindSteps, type RewindFrame } from "../rewind";
 import TimelineScrubber from "./TimelineScrubber.vue";
 
@@ -11,6 +11,7 @@ import TimelineScrubber from "./TimelineScrubber.vue";
 // scrubber (with the steps that ran then); live frames keep coming in underneath.
 // With `interactive` (Record), presses, drags, the wheel and keys on the picture are sent to the
 // page in its own pixels (`input`); with `picking`, a click names a point instead (`pick`).
+// `hover` outlines an element (a box in page pixels) until the pointer leaves the picture (`leave`).
 
 const props = withDefaults(
   defineProps<{
@@ -23,13 +24,15 @@ const props = withDefaults(
     steps?: readonly { at: number; label: string }[];
     interactive?: boolean;
     picking?: boolean;
+    hover?: { box: { x: number; y: number; width: number; height: number }; label: string } | null;
   }>(),
-  { runId: undefined, steps: () => [], interactive: false, picking: false },
+  { runId: undefined, steps: () => [], interactive: false, picking: false, hover: null },
 );
 const emit = defineEmits<{
   rewound: [moment: { pageId: string; at: number } | null];
   input: [input: ViewInput];
   pick: [point: { x: number; y: number }];
+  leave: [];
   choosePage: [pageId: string];
 }>();
 
@@ -186,6 +189,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (tick) clearInterval(tick);
   if (wheelTimer) clearTimeout(wheelTimer);
+  if (moveTimer) clearTimeout(moveTimer);
   for (const f of latest.values()) f.bitmap.close();
   past.value?.bitmap.close();
 });
@@ -209,7 +213,8 @@ function seconds(ms: number) {
 }
 
 // Input for Record: page pixels from the canvas, presses and releases as they happen (so drags
-// and double clicks are real), moves at most every 80 ms, and the wheel added up per 100 ms.
+// and double clicks are real), moves at most every 80 ms (the last one always), and the wheel
+// added up per 100 ms. Moves go while picking too, so the outline shows what a click picks.
 function pointOf(e: MouseEvent): { x: number; y: number } | null {
   const el = canvas.value;
   const id = shownPage.value;
@@ -220,6 +225,8 @@ function pointOf(e: MouseEvent): { x: number; y: number } | null {
 }
 const BUTTONS = ["left", "middle", "right"] as const;
 let lastMove = 0;
+let moveTimer: ReturnType<typeof setTimeout> | null = null;
+let nextMove: { x: number; y: number } | null = null;
 let touch: { start: { x: number; y: number }; x: number; y: number; scrolled: boolean } | null = null;
 /** Page pixels per screen pixel of the picture. */
 function pageScale(): number {
@@ -261,8 +268,9 @@ function onUp(e: PointerEvent) {
   emit("input", { type: "up", ...p, button: BUTTONS[e.button] ?? "left", clickCount: Math.min(3, Math.max(1, e.detail || 1)) });
 }
 function onMove(e: PointerEvent) {
-  if (!props.interactive || props.picking || rewinding.value) return;
+  if (!props.interactive || rewinding.value) return;
   if (e.pointerType === "touch") {
+    if (props.picking) return;
     if (!touch) return;
     const dx = touch.x - e.clientX;
     const dy = touch.y - e.clientY;
@@ -274,12 +282,40 @@ function onMove(e: PointerEvent) {
     addWheel(touch.start, dx * scale, dy * scale);
     return;
   }
-  const now = performance.now();
-  if (now - lastMove < 80) return;
-  lastMove = now;
   const p = pointOf(e);
-  if (p) emit("input", { type: "move", ...p });
+  if (!p) return onLeave();
+  nextMove = p;
+  const wait = 80 - (performance.now() - lastMove);
+  if (wait <= 0) sendMove();
+  else moveTimer ??= setTimeout(sendMove, wait);
 }
+function sendMove() {
+  if (moveTimer) clearTimeout(moveTimer);
+  moveTimer = null;
+  const p = nextMove;
+  nextMove = null;
+  if (!p) return;
+  lastMove = performance.now();
+  emit("input", { type: "move", ...p });
+}
+function onLeave() {
+  if (moveTimer) clearTimeout(moveTimer);
+  moveTimer = null;
+  nextMove = null;
+  emit("leave");
+}
+// The outline over the picture, in pixels from the screen's corner.
+const outline = computed(() => {
+  const h = props.hover;
+  const el = canvas.value;
+  const id = shownPage.value;
+  const frame = id ? latest.get(id) : undefined;
+  void size.value; // redraw when the picture's size changes
+  if (!h || !el || !frame || rewinding.value) return null;
+  const r = screenRect({ width: el.clientWidth, height: el.clientHeight }, { width: frame.bitmap.width, height: frame.bitmap.height }, { width: frame.header.width, height: frame.header.height }, h.box);
+  if (!r) return null;
+  return { left: `${el.offsetLeft + r.left}px`, top: `${el.offsetTop + r.top}px`, width: `${r.width}px`, height: `${r.height}px`, below: r.top < 24 };
+});
 function onWheel(e: WheelEvent) {
   if (!props.interactive || rewinding.value) return;
   const p = pointOf(e);
@@ -346,11 +382,15 @@ defineExpose({ push, backToLive });
         @pointerdown="onDown"
         @pointerup="onUp"
         @pointermove="onMove"
+        @pointerleave="onLeave"
         @wheel="onWheel"
         @keydown="onKey"
         @paste="onPaste"
         @contextmenu="interactive && $event.preventDefault()"
       />
+      <div v-if="outline && hasFrame" class="outline" :class="{ picking }" :style="{ left: outline.left, top: outline.top, width: outline.width, height: outline.height }" aria-hidden="true">
+        <span class="tag" :class="{ below: outline.below }">{{ hover?.label }}</span>
+      </div>
       <p v-if="!hasFrame" class="placeholder">{{ running ? "Waiting for the first frame…" : "No live picture: the run isn't running." }}</p>
     </div>
     <div v-if="rewinding" class="rewind">
@@ -441,6 +481,37 @@ canvas.interactive:focus-visible {
 }
 canvas.picking {
   cursor: crosshair;
+}
+.outline {
+  position: absolute;
+  pointer-events: none;
+  border: 2px solid var(--accent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.outline.picking {
+  border-color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+}
+.tag {
+  position: absolute;
+  left: -2px;
+  bottom: calc(100% + 4px);
+  max-width: 320px;
+  padding: 2px 6px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  border: var(--border-width) solid var(--line);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 18%);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tag.below {
+  top: calc(100% + 4px);
+  bottom: auto;
 }
 .placeholder {
   color: #8d96a0;

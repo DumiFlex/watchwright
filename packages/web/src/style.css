@@ -313,6 +313,13 @@ textarea {
 a.btn {
   text-decoration: none;
 }
+/* An icon alone: square, as tall as a button with text beside it. */
+.btn.icon {
+  justify-content: center;
+  min-width: calc(1lh + 12px + 2 * var(--border-width));
+  min-height: calc(1lh + 12px + 2 * var(--border-width));
+  padding: 6px;
+}
 .btn:hover:not(:disabled) {
   background: var(--hover);
 }
