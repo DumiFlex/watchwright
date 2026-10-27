@@ -2,7 +2,9 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { getJson, sendJson, type Pack, type ParamValue, type RunSummary } from "../api";
 import { LiveConnection } from "../live";
+import CheckBox from "../components/CheckBox.vue";
 import NumberInput from "../components/NumberInput.vue";
+import SelectMenu from "../components/SelectMenu.vue";
 import StatusChip from "../components/StatusChip.vue";
 
 const packs = ref<Pack[]>([]);
@@ -159,26 +161,23 @@ onBeforeUnmount(() => {
           <legend>Tests <span class="muted">({{ chosen.size ? `${chosen.size} chosen` : "all" }})</span></legend>
           <div v-for="[section, tests] in sections" :key="section" class="section">
             <p class="sec">{{ section }}</p>
-            <label v-for="t in tests" :key="t.id" class="test">
-              <input type="checkbox" :checked="chosen.has(t.id)" @change="toggle(t.id)" />
+            <CheckBox v-for="t in tests" :key="t.id" class="test" :model-value="chosen.has(t.id)" @update:model-value="toggle(t.id)">
               <code>{{ t.id }}</code> {{ t.title !== t.id ? t.title : "" }}
               <span v-if="t.needs.length" class="muted">needs {{ t.needs.join(", ") }}</span>
-            </label>
+            </CheckBox>
           </div>
         </fieldset>
         <fieldset>
           <legend>Settings</legend>
           <div v-for="(d, key) in pack.params" :key="key" class="param">
-            <label :for="`p-${key}`">{{ key }}</label>
-            <select v-if="d.choices" :id="`p-${key}`" v-model="params[key]" class="field">
-              <option v-for="c in d.choices" :key="String(c)" :value="c">{{ c }}</option>
-            </select>
+            <label class="name" :for="`p-${key}`">{{ key }}</label>
+            <SelectMenu v-if="d.choices" :id="`p-${key}`" v-model="params[key]!" :options="d.choices.map((c) => ({ value: c, label: String(c) }))" />
             <NumberInput v-else-if="d.type === 'number'" :id="`p-${key}`" v-model="params[key] as number" :label="String(key)" />
-            <input v-else-if="d.type === 'boolean'" :id="`p-${key}`" v-model="params[key]" type="checkbox" />
+            <CheckBox v-else-if="d.type === 'boolean'" :id="`p-${key}`" v-model="params[key] as boolean">{{ d.description ?? "On" }}</CheckBox>
             <input v-else :id="`p-${key}`" v-model="params[key]" class="field" />
-            <span v-if="d.description" class="muted small">{{ d.description }}</span>
+            <span v-if="d.description && d.type !== 'boolean'" class="muted small">{{ d.description }}</span>
           </div>
-          <label class="test"><input v-model="pauseOnBroken" type="checkbox" /> Pause when a test breaks, and wait for Retry or Skip</label>
+          <CheckBox v-model="pauseOnBroken" class="test">Pause when a test breaks, and wait for Retry or Skip</CheckBox>
         </fieldset>
       </div>
       <div class="go">
@@ -331,7 +330,7 @@ legend {
   gap: 4px;
   margin-bottom: 10px;
 }
-.param label {
+.param .name {
   font-weight: 600;
   font-size: 13px;
 }

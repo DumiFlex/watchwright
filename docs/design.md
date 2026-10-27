@@ -49,7 +49,7 @@ Helper classes: `.label` (small uppercase group label), `.display` (the look's d
 ## Rules
 
 - Numbers that change or line up (counts, timecodes, attempts) use `.num`.
-- Number inputs use custom up/down buttons, never the browser's native spinners.
+- No stock browser controls. Use `CheckBox`, `SelectMenu` and `NumberInput` (custom up/down buttons) instead of native checkboxes, selects and number spinners; `test/controls.test.ts` checks the views. Scrollbars, placeholders, autofill and `accent-color` are themed in `style.css`.
 - Every page works at phone width (390px) and in every look and mode. Check them with the theme picker before taking screenshots.
 - Keep motion small and respect `prefers-reduced-motion`.
 
