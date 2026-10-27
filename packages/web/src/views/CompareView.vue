@@ -6,10 +6,13 @@ import { computed, ref, watch } from "vue";
 import { getJson, type CompareCell, type Comparison, type Pack, type RunSummary } from "../api";
 import { MAX_COMPARE, differingParams, exportUrl, paramsText, runIdsOf, runScores, shotOf, showOptions } from "../compare";
 import { countsText, duration, when } from "../format";
+import { Columns2 } from "../icons";
 import { replaceRoute } from "../router";
+import EmptyState from "../components/EmptyState.vue";
 import ImageViewer from "../components/ImageViewer.vue";
 import MenuButton from "../components/MenuButton.vue";
 import MultiSelect from "../components/MultiSelect.vue";
+import SkeletonBlock from "../components/SkeletonBlock.vue";
 import SelectMenu from "../components/SelectMenu.vue";
 import StatusChip from "../components/StatusChip.vue";
 import { vTip } from "../tooltip";
@@ -165,9 +168,16 @@ const runTag = (i: number) => {
     </section>
 
     <p v-if="error" class="error" role="alert">{{ error }}</p>
-    <section v-else-if="!data" class="card empty">
-      <p v-if="loading" class="muted">Loading…</p>
-      <p v-else class="muted">Pick a pack, then the runs to put side by side.</p>
+    <section v-else-if="!data && loading" class="card skeleton-grid" aria-busy="true" aria-label="Loading the comparison">
+      <template v-for="r in 4" :key="r">
+        <SkeletonBlock :width="r === 1 ? '50%' : '80%'" />
+        <SkeletonBlock v-for="c in 3" :key="c" shape="block" height="44px" />
+      </template>
+    </section>
+    <section v-else-if="!data" class="card">
+      <EmptyState :icon="Columns2" heading="Nothing to compare yet" compact>
+        <p>Pick a pack, then up to {{ MAX_COMPARE }} of its runs. Each test gets a row and each run a column, so you can see what changed.</p>
+      </EmptyState>
     </section>
 
     <section v-else class="card grid-card" :aria-busy="loading">
@@ -278,8 +288,11 @@ const runTag = (i: number) => {
   padding: 0 var(--space-2);
   font-size: 14px;
 }
-.empty p {
-  margin: 0;
+.skeleton-grid {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) repeat(3, minmax(0, 2fr));
+  align-items: center;
+  gap: var(--space-3);
 }
 .grid-card {
   padding: 0;

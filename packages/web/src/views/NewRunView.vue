@@ -6,7 +6,7 @@
 // them it opens on the pack of the latest run with that run's choices (Settings can make it
 // start from the pack's defaults instead). Presets are named choices kept per pack.
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
-import { Ellipsis } from "../icons";
+import { Ellipsis, Package } from "../icons";
 import { getJson, sendJson, type Pack, type ParamValue, type Preset, type RunChoices, type RunPreview, type RunSummary, type TraceMode } from "../api";
 import { useShortcut } from "../keys";
 import { replaceRoute } from "../router";
@@ -16,8 +16,10 @@ import { toast } from "../toasts";
 import CheckBox from "../components/CheckBox.vue";
 import KeyHint from "../components/KeyHint.vue";
 import MenuButton from "../components/MenuButton.vue";
+import EmptyState from "../components/EmptyState.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import MultiSelect from "../components/MultiSelect.vue";
+import SkeletonBlock from "../components/SkeletonBlock.vue";
 import NumberInput from "../components/NumberInput.vue";
 import RadioGroup from "../components/RadioGroup.vue";
 import SelectMenu from "../components/SelectMenu.vue";
@@ -340,9 +342,32 @@ useShortcut("Mod+Enter", () => !namingOpen.value && void start());
     </div>
     <p v-if="loadError" class="error" role="alert">{{ loadError }}</p>
 
-    <section v-if="loaded && packs.length === 0" class="card empty">
-      <p class="muted">There are no packs yet. Add the folder of a test pack first.</p>
-      <a class="btn primary" href="#/packs">Add a pack</a>
+    <div v-if="!loaded" class="layout" aria-busy="true" aria-label="Loading">
+      <div class="form">
+        <section class="card skeleton-card">
+          <SkeletonBlock width="60px" />
+          <SkeletonBlock shape="block" height="36px" />
+          <SkeletonBlock width="55%" />
+        </section>
+        <section class="card skeleton-card">
+          <SkeletonBlock width="30%" height="1.1em" />
+          <SkeletonBlock :lines="3" />
+        </section>
+      </div>
+      <section class="card skeleton-card">
+        <SkeletonBlock width="40%" height="1.1em" />
+        <SkeletonBlock :lines="4" />
+        <SkeletonBlock shape="block" height="40px" />
+      </section>
+    </div>
+
+    <section v-else-if="packs.length === 0" class="card">
+      <EmptyState :icon="Package" heading="No packs yet">
+        <p>A run starts from a test pack: a folder with a pack file and its tests. Add one first.</p>
+        <template #actions>
+          <a class="btn primary" href="#/packs?browse=add">Add a pack</a>
+        </template>
+      </EmptyState>
     </section>
 
     <template v-else-if="pack">
@@ -494,13 +519,9 @@ useShortcut("Mod+Enter", () => !namingOpen.value && void start());
 </template>
 
 <style scoped>
-.empty {
+.skeleton-card {
   display: grid;
-  justify-items: start;
-  gap: var(--space-2);
-}
-.empty p {
-  margin: 0;
+  gap: var(--space-3);
 }
 .layout {
   display: grid;
