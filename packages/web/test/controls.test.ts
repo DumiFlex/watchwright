@@ -14,7 +14,7 @@ const files = (await readdir(src, { recursive: true }))
 
 describe("controls", () => {
   it("finds the components", () => {
-    expect(files).toContain("views/HomeView.vue");
+    expect(files).toContain("views/RunsView.vue");
   });
   it.each(files)("%s uses the themed controls", async (file) => {
     const sfc = await readFile(new URL(file, src), "utf8");
@@ -24,5 +24,7 @@ describe("controls", () => {
     expect(text).not.toMatch(/<(progress|meter|datalist|textarea)\b/);
     // Tooltips use v-tip, not the browser's title popup.
     expect(text).not.toMatch(/\s:?title="/);
+    // A directive works only where it is imported; without it Vue warns and shows no tip.
+    if (/\sv-tip\b/.test(text)) expect(sfc).toMatch(/import \{ vTip \} from "\.\.?\/tooltip"/);
   });
 });

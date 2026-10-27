@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decodeFrame, getJson, liveUrl, parseRoute, sendJson } from "../src/api";
+import { decodeFrame, getJson, liveUrl, sendJson } from "../src/api";
 
 const reply = (status: number, body: unknown): typeof fetch =>
   (async () => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })) as typeof fetch;
@@ -52,12 +52,5 @@ describe("api", () => {
     const { header: h, jpeg } = decodeFrame(buf.buffer);
     expect(h).toEqual({ runId: "r", pageId: "p1", timestamp: 5, width: 10, height: 20 });
     expect([...jpeg]).toEqual([0xff, 0xd8, 0xff]);
-  });
-
-  it("parses hash routes", () => {
-    expect(parseRoute("#/runs/0a1b2c3d")).toEqual({ name: "run", id: "0a1b2c3d" });
-    expect(parseRoute("")).toEqual({ name: "home" });
-    expect(parseRoute("#/kit")).toEqual({ name: "kit" });
-    expect(parseRoute("#/runs/nope")).toEqual({ name: "home" });
   });
 });

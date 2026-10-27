@@ -4,7 +4,7 @@ Guidance for AI coding agents (and people) working in this repository. Keep it s
 
 ## What this is
 
-Watchwright is a browser test harness on the Playwright library. A long-lived server runs test packs in its own run engine (not `npx playwright test`), streams a live screencast to its web page, and exposes every action through an HTTP API (later also a CLI and an MCP server). The plan for the current step is [docs/plan.md](docs/plan.md); read it before adding a feature.
+Watchwright is a browser test harness on the Playwright library. A long-lived server runs test packs in its own run engine (not `npx playwright test`), streams a live screencast to its web page, and exposes every action through an HTTP API (later also a CLI and an MCP server). The base design (plugins, engine, store, API) is [docs/plan.md](docs/plan.md); the plan for the current step is [docs/plans/step-2.md](docs/plans/step-2.md). Read both before adding a feature.
 
 ## Commands
 
@@ -28,7 +28,7 @@ Run `pnpm lint && pnpm typecheck && pnpm test` before every commit.
 - `packages/watchwright/src/events/` — the event log (cursor, bounded wait, subscribe).
 - `packages/watchwright/src/session/` — browser sessions (launch, contexts, screencast).
 - `packages/watchwright/src/jobs/` — job kinds, run control (pause, stop, broken waits) and the recorder for artifacts.
-- `packages/watchwright/src/plugins/` — `live` (frame hub, WebSocket), `packs` (esbuild loader, test ordering), `runs` (engine, results, files), `testing` (the `test` job kind, `h` helpers, outcomes).
+- `packages/watchwright/src/plugins/` — `live` (frame hub, WebSocket), `packs` (esbuild loader, test ordering), `runs` (engine, results, files), `reviews` (rubric snapshots, reviews, compare, Markdown and zip export), `testing` (the `test` job kind, `h` helpers, outcomes).
 - `packages/watchwright/src/server/` — Fastify app: mounts plugins under `/api/v1`, the request guard, the web app with SPA fallback.
 - `packages/watchwright/src/store/` — SQLite through better-sqlite3, migrations per plugin.
 - `packages/watchwright/src/cli/` — the `watchwright` command.
@@ -42,7 +42,7 @@ Run `pnpm lint && pnpm typecheck && pnpm test` before every commit.
 - **API shape.** Routes live under `/api/v1`. Success is `{ "data": … }`, failure is `{ "error": { "code", "message", "detail"? } }` with a snake_case `code`.
 - **Request guard.** Every request must carry a loopback `Host` with the server's port; state changes and WebSocket upgrades must come from the server's own origin (or carry no `Origin`). Don't weaken this to make a client work; make the client send the right headers (the Vite dev proxy does).
 - **TypeScript strict, ESM, Node 22+.** No `any`, no `@ts-ignore`. Imports inside `packages/watchwright` use `.js` extensions (NodeNext).
-- **Web app.** Vue 3 `<script setup>` with TypeScript. Colors, fonts, radii and spacing come from the tokens in `src/style.css`, never literals; every look (theme) and mode must work. See [docs/design.md](docs/design.md). No stock browser controls or `title` tooltips: use the control kit in `src/components/` and `v-tip` (all shown at `#/kit`, listed in docs/design.md). Pages must work at phone width.
+- **Web app.** Vue 3 `<script setup>` with TypeScript. Colors, fonts, radii and spacing come from the tokens in `src/style.css`, never literals; every look (theme) and mode must work. See [docs/design.md](docs/design.md). No stock browser controls or `title` tooltips: use the control kit in `src/components/` and `v-tip`, and icons from `src/icons.ts` (Lucide), never hand-drawn SVG or text arrows (all shown at `#/kit`, listed in docs/design.md). Pages must work at phone width.
 - **Docs site.** A change that users can see or call (a CLI option, an API route, a pack field) updates `packages/site` in the same PR. Pages for things not built yet carry a `::: info Planned` box; remove it when the feature lands. New pages go in the sidebar in `.vitepress/config.ts` (a test checks every link has a page).
 - **Screenshots.** Any visible change to the web app ships with screenshots in the PR (light, dark and phone width).
 - **Tests.** New code comes with Vitest tests in `packages/*/test/`. Server tests use `app.inject` or a real listener on a free port; never a fixed port that could clash. Engine tests need Playwright browsers (`pnpm --filter watchwright exec playwright install chromium firefox`); the Firefox test skips when Firefox is missing unless `WATCHWRIGHT_REQUIRE_BROWSERS=1`.

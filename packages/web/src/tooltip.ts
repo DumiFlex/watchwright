@@ -2,9 +2,9 @@
 // <body> shows the text above the element (below when there is no room) on hover or
 // keyboard focus, and links it with aria-describedby while it is open.
 import type { Directive } from "vue";
+import { placePopup, viewport } from "./popup";
 
 const DELAY_MS = 350;
-const GAP = 6;
 const tipId = "ww-tip";
 
 type Tipped = HTMLElement & { _tip?: { text: string; enter: () => void; leave: () => void; key: (e: KeyboardEvent) => void } };
@@ -25,24 +25,17 @@ function element(): HTMLDivElement {
   return tipEl;
 }
 
-/** Where the tip goes: centered over the target, flipped below and kept on screen. */
-export function placeTip(target: { left: number; top: number; bottom: number; width: number }, tip: { width: number; height: number }, viewportWidth: number) {
-  const above = target.top - tip.height - GAP;
-  const top = above >= 4 ? above : target.bottom + GAP;
-  const left = Math.min(Math.max(4, target.left + target.width / 2 - tip.width / 2), viewportWidth - tip.width - 4);
-  return { top, left, below: above < 4 };
-}
-
 function show(el: Tipped) {
   const text = el._tip?.text;
   if (!text) return;
   const t = element();
   t.textContent = text;
   t.hidden = false;
-  const r = el.getBoundingClientRect();
-  const p = placeTip(r, t.getBoundingClientRect(), document.documentElement.clientWidth);
-  t.style.top = `${p.top + window.scrollY}px`;
-  t.style.left = `${p.left + window.scrollX}px`;
+  // Centered above the element, below when there is no room, kept on screen.
+  const p = placePopup(el.getBoundingClientRect(), t.getBoundingClientRect(), viewport(), { side: "top", align: "center", gap: 6, margin: 4 });
+  t.style.top = `${p.top}px`;
+  t.style.left = `${p.left}px`;
+  window.addEventListener("scroll", hide, { capture: true, once: true });
   owner = el;
   el.setAttribute("aria-describedby", tipId);
 }

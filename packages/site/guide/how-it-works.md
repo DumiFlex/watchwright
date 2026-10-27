@@ -18,7 +18,7 @@ Every attempt ends with one outcome:
 
 ## Watching and controlling a run
 
-The web page shows the browser live, with the current test, step, log and queue. From the page or the API you can pause, resume, retry, skip, stop after the current test, or stop now.
+The web page shows the browser live, with the current test, step, log and queue. From the page or the API you can pause, resume, retry, skip, stop after the current test, or stop now; skip or reorder tests that haven't started; and mark a moment, which saves the live view to the attempt with a note.
 
 A pause takes effect at the next step boundary, because Playwright can't pause in the middle of an action. The page says "pausing at the next step" until it lands. A test that breaks pauses the run and waits for you to retry or skip it.
 

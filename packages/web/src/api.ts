@@ -24,6 +24,31 @@ export interface ParamDef {
   description?: string;
 }
 
+/** A review criterion: a 1-to-N scale, named choices, or yes/no. */
+export type Criterion = { id: string; title: string; description: string | null } & (
+  | { kind: "scale"; scale: number }
+  | { kind: "choices"; choices: string[] }
+  | { kind: "yesNo" }
+);
+export type Score = number | string | boolean;
+
+export interface Review {
+  runId: string;
+  packId: string;
+  attemptId: string;
+  testId: string;
+  reviewer: string;
+  scores: Record<string, Score>;
+  note: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AttemptReviews {
+  criteria: Criterion[];
+  reviews: Review[];
+}
+
 export interface PackTest {
   id: string;
   title: string;
@@ -33,6 +58,7 @@ export interface PackTest {
   inside: string | null;
   runs: number | Record<string, unknown> | "computed";
   file: string;
+  rubric: Criterion[];
 }
 
 export interface Pack {
@@ -49,7 +75,42 @@ export interface Pack {
   loadedAt: string | null;
   params: Record<string, ParamDef>;
   flags: Record<string, "robot" | "finding" | "info">;
+  run: PackRunDefaults;
+  rubric: Criterion[];
   tests: PackTest[];
+}
+
+export type TraceMode = "problems" | "always" | "never";
+
+export interface PackRunDefaults {
+  pauseOnBroken: boolean;
+  pauseLimitMinutes: number;
+  trace: TraceMode;
+  video: boolean;
+}
+
+/** What a run sets for itself; anything left out comes from the pack. */
+export interface RunOptions {
+  pauseOnBroken?: boolean;
+  pauseLimitMinutes?: number;
+  attempts?: number;
+  trace?: TraceMode;
+  video?: boolean;
+}
+
+export interface PlanEntry {
+  testId: string;
+  title: string;
+  number: number;
+  of: number;
+  children?: string[];
+}
+
+export interface RunPreview {
+  params: Record<string, ParamValue>;
+  attempts: number;
+  plan: PlanEntry[];
+  joined: { testId: string; reason: "needed" | "parent" | "inside"; of: string[] }[];
 }
 
 export type RunStatus = "queued" | "running" | "pausing" | "paused" | "finished" | "stopped" | "interrupted" | "failed_to_start";
@@ -62,6 +123,7 @@ export interface RunSummary {
   siteKey: string;
   tests: string[];
   params: Record<string, ParamValue>;
+  options: RunOptions;
   status: RunStatus;
   mode: "normal" | "resume" | "redo";
   startedBy: string;
@@ -101,22 +163,71 @@ export interface LiveSnapshot {
 }
 
 export interface RunDetail extends RunSummary {
-  plan: { testId: string; title: string; number: number; of: number; children?: string[]; status: AttemptStatus | "pending"; attemptId: string | null }[];
+  plan: { testId: string; title: string; number: number; of: number; children?: string[]; skip?: boolean; status: AttemptStatus | "pending"; attemptId: string | null }[];
   attempts: Attempt[];
   live: LiveSnapshot | null;
 }
 
+export interface Artifact {
+  kind: string;
+  name: string;
+  contentType: string;
+  url: string;
+  size: number;
+  /** Shots taken as one set (scroll shots) share the set's name. */
+  set?: string;
+}
+
 export interface ResultDocument {
   schemaVersion: 1;
+  runId: string;
   attemptId: string;
   test: { id: string; title: string };
+  attempt: { number: number; of: number; try: number; current: boolean; parentId: string | null };
   status: AttemptStatus;
-  error: { kind: string; message: string } | null;
+  error: { kind: string; message: string; stack?: string | null } | null;
   notes: string[];
   texts: Record<string, string>;
   metrics: Record<string, { value: number; unit: string | null }>;
   flags: { name: string; kind: string; detail: string | null }[];
-  artifacts: { kind: string; name: string; contentType: string; url: string; size: number }[];
+  log: { time: string; level: "info" | "warn" | "error"; message: string }[];
+  startedAt: string;
+  finishedAt: string | null;
+  durationMs: number | null;
+  artifacts: Artifact[];
+}
+
+export interface CompareShot {
+  name: string;
+  url: string;
+  path: string;
+  set?: string;
+}
+
+export interface CompareCell {
+  runId: string;
+  attemptId: string;
+  status: AttemptStatus;
+  durationMs: number | null;
+  error: string | null;
+  flags: { name: string; kind: string; detail: string | null }[];
+  metrics: Record<string, { value: number; unit: string | null }>;
+  notes: string[];
+  texts: Record<string, string>;
+  shots: CompareShot[];
+  reviews: Review[];
+  score: number | null;
+}
+
+/** Runs of one pack lined up by test and attempt number (GET /compare). */
+export interface Comparison {
+  packId: string;
+  packName: string;
+  runs: Pick<RunSummary, "id" | "params" | "status" | "startedBy" | "createdAt" | "startedAt" | "counts">[];
+  criteria: Record<string, Criterion[]>;
+  rows: { testId: string; title: string; number: number; cells: (CompareCell | null)[] }[];
+  shotNames: string[];
+  textNames: string[];
 }
 
 export interface WwEvent {
@@ -171,12 +282,4 @@ export function decodeFrame(buf: ArrayBuffer): { header: FrameHeader; jpeg: Uint
   const len = new DataView(buf).getUint32(0, false);
   const header = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 4, len))) as FrameHeader;
   return { header, jpeg: new Uint8Array(buf, 4 + len) };
-}
-
-export type Route = { name: "home" } | { name: "run"; id: string } | { name: "kit" };
-
-export function parseRoute(hash: string): Route {
-  if (hash === "#/kit") return { name: "kit" };
-  const m = /^#\/runs\/([0-9a-f]{8})$/.exec(hash);
-  return m ? { name: "run", id: m[1]! } : { name: "home" };
 }

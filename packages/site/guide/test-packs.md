@@ -49,6 +49,7 @@ export default pack({
 | `browser` | `name` (`chromium`, `firefox`, `webkit`), `viewport`, `headless` (default `true`; you watch through the live view), and raw Playwright `launch` and `context` options. |
 | `params` | Values chosen per run. A param has a `default`, optional `choices`, and an optional `type` (`string`, `number`, `boolean`). Tests get them as `params`. |
 | `flags` | Flags tests may raise, with their kind: `robot` (the harness or test went wrong: the attempt is **broken**), `finding` (the site did something wrong: the attempt **failed**), `info` (changes nothing). |
+| `rubric` | What reviewers score each attempt on (see [Reviewing results](./reviewing)). Default: one 1-to-5 `overall` criterion. |
 | `tests` | Glob(s) of test files relative to the pack file. Default `tests/**/*.{ts,mts,js,mjs}`. |
 | `setup` | Runs once each time a run starts (or resumes), before the first test. |
 | `collectors` | Record what the browser does for every attempt (see below). |
@@ -83,6 +84,7 @@ test("S1", { title: "Search finds products", section: "Search", needs: ["H1"], r
 | `needs` | Tests whose saved state this one uses. Choosing this test pulls them in and runs them first. If one of them breaks, this test is skipped. |
 | `inside` | The parent test whose body runs this one with `child("id")`. |
 | `timeout` | Time limit per attempt in ms. Time spent paused doesn't count. |
+| `review` | Changes the pack's rubric for this test: `add` (criteria of its own) and `drop` (ids of pack criteria it isn't scored on). |
 
 The body gets `{ page, h, expect, params, attempt, attempts, last, child }`. `expect` is Playwright's, with its auto-retrying assertions. You can also import `expect` from `playwright/test`.
 
@@ -112,7 +114,7 @@ Every `h` call is a pause point: Pause takes effect at the next one.
 | `h.idle({ timeout?, quietMs? })` | Waits for the network to go quiet and for the pack's `idle` check. |
 | `h.wait(ms)` | Waits; time paused doesn't count. |
 | `h.shot(name, { fullPage?, target? })` | Saves a screenshot. |
-| `h.scrollShots(name, { target?, max? })` | Scrolls top to bottom, one screenshot per screen. |
+| `h.scrollShots(name, { target?, max? })` | Scrolls top to bottom, one screenshot per screen. The shots are kept as one set and show as a single strip on the attempt page. |
 | `h.keepText(name, target \| { text })` | Saves text: an element's inner text, or a string. |
 | `h.log(msg)`, `h.note(msg)` | A log line; a note for whoever reviews the result. |
 | `h.flag(name, detail?)` | Raises a flag declared in the pack's `flags`. |

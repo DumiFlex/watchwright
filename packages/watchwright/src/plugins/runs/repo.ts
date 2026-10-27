@@ -3,6 +3,7 @@ import type Database from "better-sqlite3";
 import type { ArtifactInfo, FlagRecord, LogLine, MetricRecord } from "../../jobs/recorder.js";
 import type { Outcome, ParamValues } from "../packs/api.js";
 import type { AttemptError } from "../testing/outcome.js";
+import type { QueueEdits } from "./queue.js";
 
 // Rows of the runs plugin: runs, their attempts (with retry history) and artifacts.
 
@@ -10,9 +11,19 @@ export type RunStatus = "queued" | "running" | "pausing" | "paused" | "finished"
 export type RunMode = "normal" | "resume" | "redo";
 export type AttemptStatus = Outcome | "running" | "interrupted";
 
+export interface RunFilter {
+  limit?: number | undefined;
+  packId?: string | undefined;
+  statuses?: readonly RunStatus[] | undefined;
+  before?: string | undefined;
+}
+
 export const ACTIVE_STATUSES: readonly RunStatus[] = ["running", "pausing", "paused"];
 /** Outcomes a resume keeps; everything else runs again. */
 export const DECIDED: readonly AttemptStatus[] = ["passed", "failed", "skipped"];
+
+/** Migration 2: shots taken as a set (scroll shots) keep the set's name. */
+export const RUNS_ARTIFACT_SET_SQL = `ALTER TABLE runs_artifacts ADD COLUMN set_name TEXT;`;
 
 export const RUNS_MIGRATION_SQL = `
   CREATE TABLE runs (
@@ -122,6 +133,14 @@ export interface AttemptRow {
 export interface RunOptions {
   pauseOnBroken?: boolean;
   pauseLimitMinutes?: number;
+  /** Attempts for every test, instead of each test's `runs`. */
+  attempts?: number;
+  /** Which attempts keep a trace, instead of the pack's setting. */
+  trace?: "problems" | "always" | "never";
+  /** Record video, instead of the pack's setting. */
+  video?: boolean;
+  /** Queue edits made while the run went (order, skipped attempts). */
+  queue?: QueueEdits;
 }
 
 export interface PlanEntry {
@@ -131,6 +150,8 @@ export interface PlanEntry {
   of: number;
   /** Child tests the parent runs from its body. */
   children?: string[];
+  /** Skipped from the queue before it started. */
+  skip?: boolean;
 }
 
 export interface AttemptSummary {
@@ -192,19 +213,36 @@ export class RunsRepo {
     return (this.db.prepare("SELECT * FROM runs WHERE id = ?").get(id) as RunRow | undefined) ?? null;
   }
 
-  runs(limit = 100, status?: RunStatus): RunRow[] {
-    return (
-      status
-        ? this.db.prepare("SELECT * FROM runs WHERE status = ? ORDER BY created_at DESC, rowid DESC LIMIT ?").all(status, limit)
-        : this.db.prepare("SELECT * FROM runs ORDER BY created_at DESC, rowid DESC LIMIT ?").all(limit)
-    ) as RunRow[];
+  /** Runs newest first. `before` is a cursor: the `createdAt` of the last run of the previous page. */
+  runs(filter: RunFilter = {}): RunRow[] {
+    const where: string[] = [];
+    const args: unknown[] = [];
+    if (filter.packId) {
+      where.push("pack_id = ?");
+      args.push(filter.packId);
+    }
+    if (filter.statuses && filter.statuses.length > 0) {
+      where.push(`status IN (${filter.statuses.map(() => "?").join(", ")})`);
+      args.push(...filter.statuses);
+    }
+    if (filter.before) {
+      where.push("created_at < ?");
+      args.push(filter.before);
+    }
+    const sql = `SELECT * FROM runs ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY created_at DESC, rowid DESC LIMIT ?`;
+    return this.db.prepare(sql).all(...args, filter.limit ?? 100) as RunRow[];
+  }
+
+  /** Removes a run with its attempts and artifacts (the events stay in the log). */
+  deleteRun(id: string): boolean {
+    return this.db.prepare("DELETE FROM runs WHERE id = ?").run(id).changes > 0;
   }
 
   queued(): RunRow[] {
     return this.db.prepare("SELECT * FROM runs WHERE status = 'queued' ORDER BY created_at, rowid").all() as RunRow[];
   }
 
-  updateRun(id: string, fields: Partial<Pick<RunRow, "status" | "mode" | "plan" | "state" | "error" | "started_at" | "finished_at">>): void {
+  updateRun(id: string, fields: Partial<Pick<RunRow, "status" | "mode" | "plan" | "options" | "state" | "error" | "started_at" | "finished_at">>): void {
     const keys = Object.keys(fields);
     if (keys.length === 0) return;
     this.db.prepare(`UPDATE runs SET ${keys.map((k) => `${k} = @${k}`).join(", ")} WHERE id = @id`).run({ ...fields, id });
@@ -272,14 +310,15 @@ export class RunsRepo {
 
   addArtifact(attemptId: string, runId: string, a: ArtifactInfo): void {
     this.db
-      .prepare("INSERT INTO runs_artifacts (attempt_id, run_id, kind, name, content_type, path, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(attemptId, runId, a.kind, a.name, a.contentType, a.path, a.size, new Date().toISOString());
+      .prepare("INSERT INTO runs_artifacts (attempt_id, run_id, kind, name, content_type, path, size, set_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(attemptId, runId, a.kind, a.name, a.contentType, a.path, a.size, a.set ?? null, new Date().toISOString());
   }
 
   artifacts(attemptId: string): ArtifactInfo[] {
-    return this.db
-      .prepare("SELECT kind, name, content_type AS contentType, path, size FROM runs_artifacts WHERE attempt_id = ? ORDER BY id")
-      .all(attemptId) as ArtifactInfo[];
+    const rows = this.db
+      .prepare("SELECT kind, name, content_type AS contentType, path, size, set_name AS setName FROM runs_artifacts WHERE attempt_id = ? ORDER BY id")
+      .all(attemptId) as (Omit<ArtifactInfo, "set"> & { setName: string | null })[];
+    return rows.map(({ setName, ...a }) => (setName === null ? a : { ...a, set: setName }));
   }
 
   artifactByPath(rel: string): { contentType: string } | null {

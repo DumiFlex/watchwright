@@ -18,7 +18,32 @@ pnpm --filter watchwright exec playwright install chromium firefox
 pnpm serve            # builds, starts the server at http://127.0.0.1:7420/ and opens it
 ```
 
-The second line downloads the browsers Playwright drives. On the web page, add a test pack by its folder path, choose tests and parameter values, and start a run. The run page shows the browser live with the current test and step, and has the controls to pause, retry, skip and stop.
+The second line downloads the browsers Playwright drives.
+
+## A first run
+
+1. On the web page, open **Packs** and add a test pack by its folder path.
+2. Press **New run**. Search or pick tests by section and tag, set the parameter values and the options (attempts per test, trace, video, pausing on a broken test), and start it. The **Planned** panel shows every attempt in the order it will run, and which tests join because a chosen one needs them.
+3. The run page shows the browser live with the current test and step, and has the controls to pause, retry, skip and stop. While it runs you can skip attempts that haven't started or move tests up and down the queue. **Mark** saves what the live view shows to the current attempt with a note. The log filters by test and by warnings.
+
+## Looking at results
+
+Click an attempt in the queue to open its page. It shows the error, the flags (robot problems apart from findings), metrics and notes, then tabs for:
+
+- the screenshots, with a full-size viewer (scroll shots show as one strip),
+- kept texts,
+- the log,
+- collector records in a table,
+- the video,
+- the trace, which opens in Playwright's trace viewer served by Watchwright.
+
+J and K step to the next and previous attempt. Beside the results, the **Review** panel scores the attempt on the pack's rubric (see [Reviewing results](./reviewing)).
+
+A finished run's page shows every test's attempts and scores as a grid, with **Compare** and **Export** (Markdown, or a zip with the screenshots). **Compare** in the top bar lines up runs of one pack side by side.
+
+**Runs**, the home page, lists the runs that are going and every earlier one, with filters by pack and status. From there you can open a run again, start a new one with the same choices, or delete it.
+
+Press Ctrl+K (Cmd+K on a Mac) anywhere, or the search button at the top, to jump to a page or switch the look and mode from the keyboard.
 
 ## Options
 

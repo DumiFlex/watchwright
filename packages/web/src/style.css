@@ -60,6 +60,8 @@
   --radius: 6px;
   --radius-chip: 999px;
   --border-width: 1px;
+  /* Line weight of the icons (src/icons.ts), in units of their 24px grid. */
+  --icon-stroke: 2;
 
   --space-1: 4px;
   --space-2: 8px;
@@ -186,6 +188,7 @@
   --radius: 4px;
   --radius-chip: 4px;
   --border-width: 2px;
+  --icon-stroke: 2.5;
 }
 
 :root {
@@ -307,6 +310,9 @@ textarea {
   cursor: pointer;
   white-space: nowrap;
 }
+a.btn {
+  text-decoration: none;
+}
 .btn:hover:not(:disabled) {
   background: var(--hover);
 }
@@ -352,7 +358,7 @@ input::-ms-clear {
 
 /* v-tip (src/tooltip.ts) instead of the browser's title popup. */
 .ww-tip {
-  position: absolute;
+  position: fixed;
   z-index: 100;
   max-width: 280px;
   padding: 4px 8px;
@@ -383,4 +389,82 @@ input::-ms-clear {
 
 a {
   color: var(--accent);
+}
+
+/* Page layout the views share: a centered column of cards. Views add their own grids. */
+.page {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: var(--space-6);
+  display: grid;
+  gap: var(--space-4);
+}
+.card {
+  background: var(--surface);
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  min-width: 0;
+}
+.card > h2:first-child {
+  margin: 0 0 var(--space-3);
+  font-size: 15px;
+}
+.page-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.page-head h1 {
+  margin: 0;
+  font-size: 22px;
+}
+.page-head p {
+  margin: 2px 0 0;
+}
+.muted {
+  color: var(--muted);
+}
+.small {
+  font-size: 13px;
+}
+.error {
+  color: var(--bad);
+  margin: 0;
+}
+.crumb {
+  margin: 0;
+  font-size: 13px;
+}
+.crumb a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--muted);
+  text-decoration: none;
+}
+.crumb a:hover {
+  color: var(--text);
+}
+/* Visible only to screen readers. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+@media (max-width: 720px) {
+  .page {
+    padding: var(--space-4);
+  }
+}
+
+/* Icons from src/icons.ts (Lucide). Their size comes from the `size` prop. */
+.lucide {
+  flex: none;
+  stroke-width: var(--icon-stroke);
 }

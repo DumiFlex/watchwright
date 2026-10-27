@@ -6,6 +6,7 @@ import type { EventLog } from "../../events/log.js";
 import type { FlagKind, ParamDef, TestDefinition } from "./api.js";
 import { currentStamp, findPackFile, loadPack, packChanged, PackLoadError, type LoadedPack } from "./loader.js";
 import { checkTests, paramType } from "./order.js";
+import { rubricFor, type Criterion, type RubricCriterion } from "./rubric.js";
 
 export interface PackTestSummary {
   id: string;
@@ -18,6 +19,8 @@ export interface PackTestSummary {
   runs: number | Record<string, unknown> | "computed";
   timeout: number | null;
   file: string;
+  /** The criteria reviewers score this test's attempts on. */
+  rubric: Criterion[];
 }
 
 export interface PackSummary {
@@ -35,8 +38,21 @@ export interface PackSummary {
   addedAt: string;
   params: Record<string, ParamDef & { type: "string" | "number" | "boolean" }>;
   flags: Record<string, FlagKind>;
+  /** The pack's run settings with defaults filled in; a run can override each. */
+  run: PackRunDefaults;
+  /** The pack's review criteria (tests may add or drop some; see each test's `rubric`). */
+  rubric: Criterion[];
   tests: PackTestSummary[];
 }
+
+export interface PackRunDefaults {
+  pauseOnBroken: boolean;
+  pauseLimitMinutes: number;
+  trace: "problems" | "always" | "never";
+  video: boolean;
+}
+
+const RUN_DEFAULTS: PackRunDefaults = { pauseOnBroken: true, pauseLimitMinutes: 20, trace: "problems", video: true };
 
 interface Row {
   id: string;
@@ -66,7 +82,7 @@ export const PACKS_MIGRATION_SQL = `
   );
 `;
 
-function testSummary(t: TestDefinition): PackTestSummary {
+function testSummary(t: TestDefinition, rubric: readonly RubricCriterion[] | undefined): PackTestSummary {
   const r = t.meta.runs;
   return {
     id: t.id,
@@ -78,6 +94,7 @@ function testSummary(t: TestDefinition): PackTestSummary {
     runs: r === undefined ? 1 : typeof r === "function" ? "computed" : typeof r === "number" ? r : { ...r },
     timeout: t.meta.timeout ?? null,
     file: t.file,
+    rubric: rubricFor(rubric, t.meta.review),
   };
 }
 
@@ -132,7 +149,7 @@ export class PackRegistry {
     const job = (async () => {
       try {
         const pack = await loadPack(row.path, path.join(this.cacheRoot, id));
-        const problems = checkTests(pack.tests);
+        const problems = checkTests(pack.tests, pack.options.rubric);
         this.store(id, pack, problems);
         this.loaded.set(id, pack);
         this.events.append("pack.loaded", { packId: id, tests: pack.tests.length, problems });
@@ -187,7 +204,14 @@ export class PackRegistry {
       browser: o.browser?.name ?? "chromium",
       params: Object.fromEntries(Object.entries(o.params ?? {}).map(([k, d]) => [k, { ...d, type: paramType(d) }])),
       flags: { ...(o.flags ?? {}) },
-      tests: pack.tests.map(testSummary),
+      run: {
+        pauseOnBroken: o.run?.pauseOnBroken ?? RUN_DEFAULTS.pauseOnBroken,
+        pauseLimitMinutes: o.run?.pauseLimitMinutes ?? RUN_DEFAULTS.pauseLimitMinutes,
+        trace: o.run?.trace ?? RUN_DEFAULTS.trace,
+        video: o.run?.video ?? RUN_DEFAULTS.video,
+      },
+      rubric: rubricFor(o.rubric, undefined),
+      tests: pack.tests.map((t) => testSummary(t, o.rubric)),
     };
     this.db
       .prepare("UPDATE packs SET name = ?, site_key = ?, status = ?, error = ?, problems = ?, summary = ?, loaded_at = ? WHERE id = ?")
@@ -211,7 +235,9 @@ export class PackRegistry {
       addedAt: r.added_at,
       params: s.params ?? {},
       flags: s.flags ?? {},
-      tests: s.tests ?? [],
+      run: { ...RUN_DEFAULTS, ...s.run },
+      rubric: s.rubric ?? rubricFor(undefined, undefined),
+      tests: (s.tests ?? []).map((t) => ({ ...t, rubric: t.rubric ?? rubricFor(undefined, undefined) })),
     };
   }
 }

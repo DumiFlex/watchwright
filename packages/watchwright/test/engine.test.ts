@@ -75,6 +75,68 @@ function rewrite(file: string, content: string) {
 }
 
 run("engine", { timeout: 60_000 }, () => {
+  it("skips and moves tests in the queue while the run goes", async () => {
+    const { h, packId } = await setup({
+      "tests/q.ts": `
+import { test } from "watchwright";
+test("Q1", { title: "Slow first" }, async ({ h }) => { await h.goto("/"); await h.wait(1500); });
+test("Q2", { title: "Second" }, async ({ h }) => { await h.goto("/"); });
+test("Q3", { title: "Third" }, async ({ h }) => { await h.goto("/"); });
+test("Q4", { title: "Needs Q2", needs: ["Q2"] }, async ({ h }) => { await h.goto("/"); });`,
+    });
+    const runId = await startRun(h, { packId });
+    await h.waitFor((e) => e.runId === runId && e.type === "attempt.started");
+    const moved = await h.api<RunDetail>("POST", `/runs/${runId}/queue/move`, { testId: "Q3", direction: "up" });
+    expect(moved.status).toBe(200);
+    expect(moved.data.plan.map((p) => p.testId)).toEqual(["Q1", "Q3", "Q2", "Q4"]);
+    const blocked = await h.api("POST", `/runs/${runId}/queue/move`, { testId: "Q4", direction: "up" });
+    expect(blocked.status).toBe(400);
+    expect(blocked.error?.message).toMatch(/Q4 needs Q2/);
+    const started = await h.api("POST", `/runs/${runId}/queue/skip`, { testId: "Q1" });
+    expect(started.status).toBe(400);
+    // The first frame arrives once the page paints.
+    type Marked = { attemptId: string; artifact: { kind: string; name: string; url: string } };
+    let mark = await h.api<Marked>("POST", `/runs/${runId}/mark`, { note: "that looked wrong" });
+    for (let i = 0; i < 20 && mark.error?.code === "no_frame"; i++) {
+      await new Promise((r) => setTimeout(r, 50));
+      mark = await h.api<Marked>("POST", `/runs/${runId}/mark`, { note: "that looked wrong" });
+    }
+    expect(mark.error).toBeUndefined();
+    expect(mark.status).toBe(201);
+    expect(mark.data.artifact).toMatchObject({ kind: "mark", name: "that looked wrong" });
+    const skipped = await h.api<RunDetail>("POST", `/runs/${runId}/queue/skip`, { testId: "Q2" });
+    expect(skipped.data.plan.find((p) => p.testId === "Q2")?.skip).toBe(true);
+
+    const detail = await finished(h, runId);
+    expect(byTest(detail)).toEqual({ "Q1#1": "passed", "Q3#1": "passed", "Q2#1": "skipped", "Q4#1": "skipped" });
+    const order = detail.attempts.slice().sort((a, b) => a.startedAt.localeCompare(b.startedAt)).map((a) => a.testId);
+    expect(order.indexOf("Q3")).toBeLessThan(order.indexOf("Q2"));
+    expect(detail.options.queue).toEqual({ order: ["Q1", "Q3", "Q2", "Q4"], skip: ["Q2#1"] });
+    const q1 = (await h.api<ResultDocument>("GET", `/runs/${runId}/attempts/${mark.data.attemptId}`)).data;
+    expect(q1.test.id).toBe("Q1");
+    expect(q1.notes).toEqual([expect.stringMatching(/^Mark \d\d-mark\.jpg: that looked wrong$/)]);
+    const jpeg = await h.app.inject({ url: mark.data.artifact.url, headers: { host: h.host } });
+    expect(jpeg.headers["content-type"]).toBe("image/jpeg");
+    expect((await h.api("POST", `/runs/${runId}/mark`, {})).status).toBe(409);
+  });
+
+  it("takes attempts, trace and video from the run's options over the pack's", async () => {
+    const { h, packId } = await setup({
+      "tests/one.ts": `
+import { test } from "watchwright";
+test("O1", { title: "Once by the pack" }, async ({ h }) => { await h.goto("/"); });`,
+    });
+    const runId = await startRun(h, { packId, attempts: 2, trace: "always", video: false });
+    const detail = await finished(h, runId);
+    expect(byTest(detail)).toEqual({ "O1#1": "passed", "O1#2": "passed" });
+    expect(detail.options).toMatchObject({ attempts: 2, trace: "always", video: false });
+    for (const a of detail.attempts) {
+      const doc = (await h.api<ResultDocument>("GET", `/runs/${runId}/attempts/${a.id}`)).data;
+      expect(doc.artifacts.some((x) => x.kind === "trace")).toBe(true);
+      expect(doc.artifacts.some((x) => x.kind === "video")).toBe(false);
+    }
+  });
+
   it("runs a pack and keeps every result", async () => {
     const { h, packId } = await setup({
       "tests/home.ts": `
@@ -83,6 +145,7 @@ test("H1", { title: "Home loads", section: "H", runs: 2 }, async ({ h, expect, a
   await h.goto("/");
   await expect(h.page.getByRole("heading", { level: 1 })).toHaveText("Fixture home");
   await h.shot("home");
+  await h.scrollShots("page", { max: 2 });
   await h.keepText("heading", "h1");
   h.metric("attempt", attempt, "n");
   h.note("label is " + params.label);
@@ -122,6 +185,18 @@ test("H2", { title: "Counter", needs: ["H1"] }, async ({ h, expect }) => {
     expect(file.statusCode).toBe(200);
     expect(file.headers["content-type"]).toBe("image/png");
     expect(file.rawPayload.subarray(1, 4).toString()).toBe("PNG");
+    expect(file.headers["accept-ranges"]).toBe("bytes");
+    const part = await h.app.inject({ url: shot.url, headers: { host: h.host, range: "bytes=1-3" } });
+    expect(part.statusCode).toBe(206);
+    expect(part.headers["content-range"]).toBe(`bytes 1-3/${file.rawPayload.length}`);
+    expect(part.rawPayload.toString()).toBe("PNG");
+    const past = await h.app.inject({ url: shot.url, headers: { host: h.host, range: `bytes=${file.rawPayload.length}-` } });
+    expect(past.statusCode).toBe(416);
+    // Scroll shots carry their set's name; single shots carry none.
+    const set = doc1.artifacts.filter((a) => a.set === "page");
+    expect(set.length).toBeGreaterThan(0);
+    expect(set[0]!.name).toBe("page 1");
+    expect(shot.set).toBeUndefined();
     // The result document is on disk too, next to the files.
     const dataDir = h.app.watchwright.store.dataDir;
     const onDisk = JSON.parse(readFileSync(path.join(dataDir, doc1.folder, "result.json"), "utf8")) as ResultDocument;

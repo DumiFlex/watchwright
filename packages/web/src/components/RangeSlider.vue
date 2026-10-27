@@ -3,13 +3,17 @@
 // the usual keys (arrows, Page Up/Down for ten steps, Home/End).
 import { computed, ref } from "vue";
 
-const props = withDefaults(defineProps<{ min?: number; max?: number; step?: number; label: string; id?: string | undefined; disabled?: boolean; format?: ((v: number) => string) | undefined }>(), {
-  min: 0,
-  max: 100,
-  step: 1,
-  id: undefined,
-  format: undefined,
-});
+const props = withDefaults(
+  defineProps<{ min?: number; max?: number; step?: number; label: string; id?: string | undefined; disabled?: boolean; format?: ((v: number) => string) | undefined; showValue?: boolean }>(),
+  {
+    min: 0,
+    max: 100,
+    step: 1,
+    id: undefined,
+    format: undefined,
+    showValue: true,
+  },
+);
 const model = defineModel<number>({ required: true });
 const track = ref<HTMLElement | null>(null);
 
@@ -71,7 +75,7 @@ function key(e: KeyboardEvent) {
         @keydown="key"
       />
     </div>
-    <span class="value num">{{ shown }}</span>
+    <span v-if="showValue" class="value num">{{ shown }}</span>
   </div>
 </template>
 
