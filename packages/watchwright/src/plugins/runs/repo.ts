@@ -4,6 +4,7 @@ import type { ArtifactInfo, FlagRecord, LogLine, MetricRecord, StepRecord } from
 import type { Outcome, ParamValues } from "../packs/api.js";
 import type { AttemptError } from "../testing/outcome.js";
 import type { QueueEdits } from "./queue.js";
+import type { StatsRows } from "./stats.js";
 
 // Rows of the runs plugin: runs, their attempts (with retry history) and artifacts.
 
@@ -427,6 +428,21 @@ export class RunsRepo {
     const run = this.run(runId);
     c.planned = run ? (JSON.parse(run.plan) as PlanEntry[]).length : 0;
     return c;
+  }
+
+  /** Runs made and top-level attempts started from `from` on, for the runs page's numbers. */
+  statsRows(from: string, packId?: string): StatsRows {
+    const pack = packId ? " AND r.pack_id = ?" : "";
+    const args = packId ? [from, packId] : [from];
+    return {
+      runs: this.db.prepare(`SELECT r.created_at FROM runs r WHERE r.created_at >= ?${pack}`).all(...args) as StatsRows["runs"],
+      attempts: this.db
+        .prepare(
+          `SELECT a.status, a.started_at, a.finished_at FROM runs_attempts a JOIN runs r ON r.id = a.run_id
+           WHERE a.started_at >= ? AND a.current = 1 AND a.parent_id IS NULL${pack}`,
+        )
+        .all(...args) as StatsRows["attempts"],
+    };
   }
 
   presets(packId?: string): Preset[] {
