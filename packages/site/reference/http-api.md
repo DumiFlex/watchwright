@@ -36,7 +36,10 @@ Preferences for the whole machine, the same for every browser and agent. Plugins
 | `GET /settings` | `{ values, definitions }`: every setting's value (its default when never changed) and, for each, `key`, `title`, the JSON Schema of its value and its `default`. |
 | `POST /settings` `{ values }` | Changes several settings at once, all or none; `null` puts one back to its default. Returns `{ values }`. 400 `unknown_setting` or `invalid_setting`. |
 
-The settings so far: `settings.editor`, the editor that file links open in (`vscode`, `cursor`, `windsurf`, `idea`, `webstorm` or `none`; default `vscode`).
+The settings so far:
+
+- `settings.editor`: the editor that file links open in (`vscode`, `cursor`, `windsurf`, `idea`, `webstorm` or `none`; default `vscode`).
+- `runs.newRunFrom`: what the New run page fills in when it opens: `latest` (the pack's latest run, the default) or `defaults` (the pack's defaults).
 
 ## Folders
 
@@ -54,7 +57,9 @@ A web page can't learn a folder's path from the browser, so the server lists fol
 | Method and path | Does |
 |---|---|
 | `GET /runs?limit=&pack=&status=&before=` | Runs, newest first, with counts. `pack` keeps one pack's runs, `status` a comma-separated list of statuses (`finished,stopped`). For the next page, pass the `createdAt` of the last run as `before`. |
-| `POST /runs` `{ packId, tests?, params?, pauseOnBroken?, pauseLimitMinutes?, attempts?, trace?, video? }` | Queues a run. `tests` defaults to all; tests they need, and parents and children, join by themselves. `attempts` gives every test the same number of attempts instead of its own `runs`; `trace` (`problems`, `always`, `never`) and `video` override the pack's settings for this run. |
+| `POST /runs` `{ packId, tests?, params?, pauseOnBroken?, pauseLimitMinutes?, attempts?, trace?, video?, label?, preset? }` | Queues a run. `tests` defaults to all; tests they need, and parents and children, join by themselves. `attempts` gives every test the same number of attempts instead of its own `runs`; `trace` (`problems`, `always`, `never`) and `video` override the pack's settings for this run. `label` names the run (up to 120 characters). `preset` starts from the pack's preset with that name; the other fields given override it (404 when the pack has no such preset). |
+| `POST /runs/:id/again` | Queues a new run with the run's pack, tests, values, options and label (201). Queue edits made during the run aren't copied. |
+| `POST /runs/:id/label` `{ label }` | Names a run; an empty label takes the name away. Runs carry `label` (empty when none). |
 | `POST /runs/preview` (same body) | Plans the run without starting it: `plan` (every attempt in order), `attempts`, the resolved `params`, and `joined`: tests that run although they weren't chosen, with the reason (`needed`, `parent`, `inside`) and the tests that brought them in. |
 | `GET /runs/:id?history=` | The run, its plan (every planned attempt with its status), current attempts, and `live` (state, current test and step, pages) while it runs. `info` holds the facts the run saved with `info(key, value)`. `history=true` adds earlier tries of retried attempts. |
 | `GET /runs/:id/attempts/:attemptId` | One attempt's result document (`schemaVersion: 1`): status, error, flags, metrics, notes, kept texts, log, artifacts with URLs. Shots from one `h.scrollShots` call carry the call's name as `set`. |
@@ -69,6 +74,17 @@ A web page can't learn a folder's path from the browser, so the server lists fol
 | `POST /runs/:id/redo-broken` | Runs only the broken attempts of a finished run again, with the tests they need. |
 | `GET /files/runs/…` | Artifact files (the `url` in result documents). Only files inside the data folder's `runs/`. Answers `Range` requests (206), so videos can seek. |
 | `GET /trace-viewer/index.html?trace=<url>` | Playwright's trace viewer, served from the installed `playwright-core`. Pass the full URL of an attempt's `trace` artifact; the viewer opens it without uploading it anywhere. |
+
+## Presets
+
+Named run choices, kept per pack: tests, values and options, the same fields as `POST /runs` takes.
+
+| Method and path | Does |
+|---|---|
+| `GET /presets?pack=` | Presets, by pack and name: `{ id, packId, name, choices, createdAt, updatedAt }`. |
+| `POST /presets` `{ packId, name, tests?, params?, pauseOnBroken?, pauseLimitMinutes?, attempts?, trace?, video? }` | Saves choices under a name (201). Saving a name the pack already has replaces that preset's choices. |
+| `POST /presets/:id` `{ name }` | Renames a preset. 409 `conflict` when the pack has another preset with that name. |
+| `DELETE /presets/:id` | Deletes a preset. |
 
 ## Reviews
 
@@ -100,7 +116,7 @@ Everything that happens is an event with a growing sequence number: `{ seq, time
 
 `GET /events?after=<seq>&wait=<seconds>&runId=&types=&limit=` returns `{ events, next, head }`. With `wait` (up to 110 seconds) it holds the request until a matching event arrives, so an agent can follow a run with one request at a time: call again with `after=next`.
 
-Event types (open set, more come with later plugins): `run.queued`, `run.started`, `run.planned`, `run.pausing`, `run.paused`, `run.resumed`, `run.decision`, `run.stopping`, `run.finished`, `run.interrupted`, `run.failed_to_start`, `run.log`, `run.info`, `attempt.started`, `attempt.step`, `attempt.log`, `attempt.flag`, `attempt.artifact`, `attempt.finished`, `page.opened`, `page.navigated`, `page.active`, `page.closed`, `video.unavailable`, `pack.added`, `pack.loaded`, `pack.reload_failed`, `pack.reloaded`, `pack.removed`, `review.saved`.
+Event types (open set, more come with later plugins): `run.queued`, `run.started`, `run.planned`, `run.pausing`, `run.paused`, `run.resumed`, `run.decision`, `run.stopping`, `run.labeled`, `run.finished`, `run.interrupted`, `run.failed_to_start`, `run.log`, `run.info`, `attempt.started`, `attempt.step`, `attempt.log`, `attempt.flag`, `attempt.artifact`, `attempt.finished`, `page.opened`, `page.navigated`, `page.active`, `page.closed`, `video.unavailable`, `pack.added`, `pack.loaded`, `pack.reload_failed`, `pack.reloaded`, `pack.removed`, `review.saved`.
 
 ## Live WebSocket
 

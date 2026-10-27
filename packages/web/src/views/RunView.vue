@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowDown, ArrowLeft, ArrowUp, Ban, Undo2 } from "../icons";
+import { ArrowDown, ArrowLeft, ArrowUp, Ban, Pencil, Repeat, Undo2 } from "../icons";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, sendJson, type Criterion, type Review, type RunDetail, type WwEvent } from "../api";
 import { LiveConnection, type LiveState } from "../live";
@@ -10,6 +10,7 @@ import ModalDialog from "../components/ModalDialog.vue";
 import SelectMenu from "../components/SelectMenu.vue";
 import StatusChip from "../components/StatusChip.vue";
 import TextArea from "../components/TextArea.vue";
+import TextField from "../components/TextField.vue";
 import { exportUrl } from "../compare";
 import { countsText, duration } from "../format";
 import { href } from "../router";
@@ -124,6 +125,30 @@ function onEvent(e: WwEvent) {
     default:
       if (e.type.startsWith("run.") || e.type.startsWith("pack.")) scheduleLoad();
   }
+}
+
+// "Run again": the same pack, tests, values, options and label, started right away.
+async function again() {
+  actionError.value = null;
+  busy.value = true;
+  const res = await sendJson<RunDetail>(`/api/v1/runs/${props.id}/again`);
+  busy.value = false;
+  if (!res.ok) return void (actionError.value = res.error.message);
+  window.location.hash = href({ name: "run", id: res.data.id });
+}
+
+// The run's label, edited in place beside the title.
+const editingLabel = ref(false);
+const labelDraft = ref("");
+function editLabel() {
+  labelDraft.value = run.value?.label ?? "";
+  editingLabel.value = true;
+}
+async function saveLabel() {
+  const res = await sendJson<RunDetail>(`/api/v1/runs/${props.id}/label`, { label: labelDraft.value });
+  if (!res.ok) return void (actionError.value = res.error.message);
+  if (run.value) run.value = { ...run.value, label: res.data.label };
+  editingLabel.value = false;
 }
 
 async function act(path: string, body: unknown = {}) {
@@ -271,6 +296,18 @@ function time(iso: string) {
       <header class="head">
         <div class="title">
           <h1 class="display">{{ run.packName }} <span class="muted rid">{{ run.id }}</span></h1>
+          <form v-if="editingLabel" class="labelform" @submit.prevent="saveLabel" @keydown.esc.stop="editingLabel = false">
+            <label for="run-label" class="sr-only">Label</label>
+            <TextField id="run-label" v-model="labelDraft" class="labelfield" placeholder="A name for this run, e.g. nightly" />
+            <button class="btn primary" type="submit">Save</button>
+            <button class="btn" type="button" @click="editingLabel = false">Cancel</button>
+          </form>
+          <p v-else class="named">
+            <span v-if="run.label" class="lbltxt">{{ run.label }}</span>
+            <button v-tip="run.label ? 'Rename this run' : 'Give this run a name'" type="button" class="ib" :aria-label="run.label ? 'Rename this run' : 'Give this run a name'" @click="editLabel">
+              <Pencil :size="14" /><span v-if="!run.label" class="small">Name this run</span>
+            </button>
+          </p>
           <p class="muted">
             <StatusChip :status="run.status" />
             <span v-if="run.mode !== 'normal'">&nbsp;{{ run.mode === "redo" ? "redoing broken tests" : "resumed" }}</span>
@@ -294,7 +331,8 @@ function time(iso: string) {
           <button v-if="run.status === 'queued'" class="btn danger" :disabled="busy" @click="act('stop', { when: 'now' })">Cancel</button>
           <button v-if="canResumeRun" class="btn primary" :disabled="busy" @click="act('resume')">Resume run</button>
           <button v-if="canRedo" class="btn" :disabled="busy" @click="act('redo-broken')">Redo broken</button>
-          <a v-if="!active" class="btn" :href="`#/new?pack=${run.packId}&from=${run.id}`">New run like this</a>
+          <button v-if="!active && run.status !== 'queued'" v-tip="'Start the same pack, tests, values and options now'" class="btn" :disabled="busy" @click="again"><Repeat :size="15" /> Run again</button>
+          <a v-if="!active" class="btn" :href="`#/new?pack=${run.packId}&from=${run.id}`">New run like this…</a>
           <a v-if="showResults" class="btn" :href="`#/compare?runs=${run.id}`">Compare</a>
           <MenuButton v-if="showResults" :items="exports" label="Export" class="export">
             <template #button><span class="exportlabel">Export</span></template>
@@ -467,6 +505,48 @@ function time(iso: string) {
 .rid {
   font-size: 14px;
   font-weight: 400;
+}
+.head .named {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+}
+.lbltxt {
+  font-weight: 600;
+}
+.ib {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 26px;
+  padding: 0 var(--space-1);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.ib:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.labelform {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  max-width: 520px;
+}
+.labelfield {
+  flex: 1;
+  min-width: 200px;
+}
+.controls .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
 }
 .controls {
   display: flex;

@@ -10,11 +10,13 @@ import { contentTypeOf } from "../../jobs/recorder.js";
 import { errorBody } from "../../server/errors.js";
 import { FRAMES } from "../live/hub.js";
 import { PACKS } from "../packs/registry.js";
+import { SETTINGS } from "../settings/plugin.js";
 import { testKind } from "../testing/kind.js";
 import { Engine, EngineError } from "./engine.js";
-import { RUNS_ARTIFACT_SET_SQL, RUNS_INFO_SQL, RUNS_MIGRATION_SQL, RunsRepo, type RunOptions, type RunStatus } from "./repo.js";
+import { RUNS_ARTIFACT_SET_SQL, RUNS_INFO_SQL, RUNS_LABELS_PRESETS_SQL, RUNS_MIGRATION_SQL, RunsRepo, type RunChoices, type RunOptions, type RunStatus } from "./repo.js";
 
 export const ENGINE = serviceKey<Engine>("runs.engine");
+export const RUNS_REPO = serviceKey<RunsRepo>("runs.repo");
 /** The folder that holds `runs/` (the data folder, or a temp folder for an in-memory store). */
 export const FILES_ROOT = serviceKey<string>("runs.files-root");
 
@@ -51,34 +53,46 @@ export function byteRange(header: string | undefined, size: number): [number, nu
 const RUN_ID = { type: "string", pattern: "^[0-9a-f]{8}$", description: "Run id." } as const;
 const byId: ObjectSchema = { type: "object", properties: { id: RUN_ID }, required: ["id"] };
 
-interface StartBody {
+interface StartBody extends RunChoices {
   packId: string;
-  tests?: string[];
-  params?: Record<string, unknown>;
-  pauseOnBroken?: boolean;
-  pauseLimitMinutes?: number;
-  attempts?: number;
-  trace?: "problems" | "always" | "never";
-  video?: boolean;
+  label?: string;
+  preset?: string;
 }
+
+const CHOICE_PROPS = {
+  tests: { type: "array", items: { type: "string" }, description: "Test ids; what they need and their parents/children join by themselves." },
+  params: { type: "object", additionalProperties: { anyOf: [{ type: "string" }, { type: "number" }, { type: "boolean" }] } },
+  pauseOnBroken: { type: "boolean", description: "Pause on a broken attempt and wait for retry or skip (default: the pack's setting, else true)." },
+  pauseLimitMinutes: { type: "number", minimum: 0.05, maximum: 1440 },
+  attempts: { type: "integer", minimum: 1, maximum: 100, description: "Attempts for every test, instead of each test's own count." },
+  trace: { type: "string", enum: ["problems", "always", "never"], description: "Which attempts keep a Playwright trace (default: the pack's setting, else problems)." },
+  video: { type: "boolean", description: "Record a video per attempt (default: the pack's setting, else true)." },
+} as const;
+const CHOICE_KEYS = Object.keys(CHOICE_PROPS) as (keyof RunChoices)[];
+const PACK_ID = { type: "string", pattern: "^[0-9a-f]{8}$" } as const;
+const LABEL = { type: "string", maxLength: 120, description: "A name for the run, shown beside its id." } as const;
+const PRESET_NAME = { type: "string", minLength: 1, maxLength: 80 } as const;
 
 const START_INPUT: ObjectSchema = {
   type: "object",
   properties: {
-    packId: { type: "string", pattern: "^[0-9a-f]{8}$" },
-    tests: { type: "array", items: { type: "string" }, description: "Test ids; what they need and their parents/children join by themselves." },
-    params: { type: "object", additionalProperties: { anyOf: [{ type: "string" }, { type: "number" }, { type: "boolean" }] } },
-    pauseOnBroken: { type: "boolean", description: "Pause on a broken attempt and wait for retry or skip (default: the pack's setting, else true)." },
-    pauseLimitMinutes: { type: "number", minimum: 0.05, maximum: 1440 },
-    attempts: { type: "integer", minimum: 1, maximum: 100, description: "Attempts for every test, instead of each test's own count." },
-    trace: { type: "string", enum: ["problems", "always", "never"], description: "Which attempts keep a Playwright trace (default: the pack's setting, else problems)." },
-    video: { type: "boolean", description: "Record a video per attempt (default: the pack's setting, else true)." },
+    packId: PACK_ID,
+    ...CHOICE_PROPS,
+    label: LABEL,
+    preset: { ...PRESET_NAME, description: "Start from the pack's preset with this name; the other fields given override it." },
   },
   required: ["packId"],
 };
 
+/** The choices a request names, without the fields it leaves out. */
+function choicesOf(input: RunChoices): RunChoices {
+  const out: Record<string, unknown> = {};
+  for (const k of CHOICE_KEYS) if (input[k] !== undefined) out[k] = input[k];
+  return out as RunChoices;
+}
+
 /** The run options a start request sets; unset ones fall back to the pack. */
-function runOptions(input: StartBody): RunOptions {
+function runOptions(input: RunChoices): RunOptions {
   const o: RunOptions = {};
   if (input.pauseOnBroken !== undefined) o.pauseOnBroken = input.pauseOnBroken;
   if (input.pauseLimitMinutes !== undefined) o.pauseLimitMinutes = input.pauseLimitMinutes;
@@ -109,12 +123,21 @@ export const runsPlugin = definePlugin({
     { id: 1, name: "init", sql: RUNS_MIGRATION_SQL },
     { id: 2, name: "artifact-set", sql: RUNS_ARTIFACT_SET_SQL },
     { id: 3, name: "run-info", sql: RUNS_INFO_SQL },
+    { id: 4, name: "labels-presets", sql: RUNS_LABELS_PRESETS_SQL },
   ],
   setup({ store, events, services }) {
     const dataDir = filesRoot(store.dataDir);
     services.provide(FILES_ROOT, dataDir);
+    services.get(SETTINGS).define({
+      key: "runs.newRunFrom",
+      title: "What New run starts from: the pack's latest run, or the pack's defaults",
+      schema: { type: "string", enum: ["latest", "defaults"] },
+      default: "latest",
+    });
+    const repo = new RunsRepo(store.db);
+    services.provide(RUNS_REPO, repo);
     const engine = new Engine({
-      repo: new RunsRepo(store.db),
+      repo,
       events,
       packs: services.get(PACKS),
       frames: services.get(FRAMES),
@@ -130,8 +153,19 @@ export const runsPlugin = definePlugin({
   },
   actions: ({ services }) => {
     const engine = services.get(ENGINE);
+    const repo = services.get(RUNS_REPO);
     const notFound = (id: string): never => {
       throw new ActionError("not_found", `No run with id ${id}.`, 404);
+    };
+    const presetNotFound = (id: string): never => {
+      throw new ActionError("not_found", `No preset with id ${id}.`, 404);
+    };
+    /** A start request with its preset's choices filled in under the ones it gives. */
+    const withPreset = (input: StartBody): StartBody => {
+      if (!input.preset) return input;
+      const preset = repo.presetByName(input.packId, input.preset);
+      if (!preset) throw new ActionError("not_found", `The pack has no preset named "${input.preset}".`, 404);
+      return { ...preset.choices, ...choicesOf(input), packId: input.packId, ...(input.label !== undefined ? { label: input.label } : {}) };
     };
     const control = (name: string, verb: string, title: string, fn: (id: string) => unknown) =>
       defineAction<{ id: string }>({ name, title, method: "POST", path: `/runs/:id/${verb}`, input: byId, handler: ({ id }) => guard(() => fn(id)) });
@@ -168,7 +202,69 @@ export const runsPlugin = definePlugin({
         path: "/runs",
         status: 201,
         input: START_INPUT,
-        handler: (input, { client }) => guard(() => engine.start({ packId: input.packId, tests: input.tests, params: input.params, startedBy: client, options: runOptions(input) })),
+        handler: (body, { client }) => {
+          const input = withPreset(body);
+          return guard(() => engine.start({ packId: input.packId, tests: input.tests, params: input.params, startedBy: client, options: runOptions(input), label: input.label }));
+        },
+      }),
+      defineAction<{ id: string }>({
+        name: "runs.again",
+        title: "Start a new run with another run's pack, tests, values, options and label",
+        method: "POST",
+        path: "/runs/:id/again",
+        status: 201,
+        input: byId,
+        handler: ({ id }, { client }) => guard(() => engine.again(id, client)),
+      }),
+      defineAction<{ id: string; label: string }>({
+        name: "runs.label",
+        title: "Name a run (an empty label takes the name away)",
+        method: "POST",
+        path: "/runs/:id/label",
+        input: { type: "object", properties: { id: RUN_ID, label: LABEL }, required: ["id", "label"] },
+        handler: ({ id, label }) => guard(() => engine.setLabel(id, label)),
+      }),
+      defineAction<{ pack?: string }>({
+        name: "runs.presets.list",
+        title: "Saved run choices (presets), by pack and name",
+        method: "GET",
+        path: "/presets",
+        input: { type: "object", properties: { pack: { ...PACK_ID, description: "Only this pack's presets." } } },
+        handler: ({ pack }) => repo.presets(pack),
+      }),
+      defineAction<RunChoices & { packId: string; name: string }>({
+        name: "runs.presets.save",
+        title: "Save run choices under a name for a pack (replaces the pack's preset with that name)",
+        method: "POST",
+        path: "/presets",
+        status: 201,
+        input: { type: "object", properties: { packId: PACK_ID, name: PRESET_NAME, ...CHOICE_PROPS }, required: ["packId", "name"] },
+        handler: (input) => repo.savePreset(input.packId, input.name.trim(), choicesOf(input)),
+      }),
+      defineAction<{ id: string; name: string }>({
+        name: "runs.presets.rename",
+        title: "Rename a preset",
+        method: "POST",
+        path: "/presets/:id",
+        input: { type: "object", properties: { id: PACK_ID, name: PRESET_NAME }, required: ["id", "name"] },
+        handler: ({ id, name }) => {
+          const p = repo.preset(id) ?? presetNotFound(id);
+          const clash = repo.presetByName(p.packId, name.trim());
+          if (clash && clash.id !== id) throw new ActionError("conflict", `The pack already has a preset named "${name.trim()}".`, 409);
+          repo.renamePreset(id, name.trim());
+          return repo.preset(id);
+        },
+      }),
+      defineAction<{ id: string }>({
+        name: "runs.presets.delete",
+        title: "Delete a preset",
+        method: "DELETE",
+        path: "/presets/:id",
+        input: { type: "object", properties: { id: PACK_ID }, required: ["id"] },
+        handler: ({ id }) => {
+          if (!repo.deletePreset(id)) presetNotFound(id);
+          return { deleted: id };
+        },
       }),
       defineAction<StartBody>({
         name: "runs.preview",

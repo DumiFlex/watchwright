@@ -25,6 +25,14 @@ const editor = computed<Editor>({
   get: () => settings.values["settings.editor"],
   set: (v) => void save({ "settings.editor": v }),
 });
+const newRunFrom = computed<"latest" | "defaults">({
+  get: () => settings.values["runs.newRunFrom"],
+  set: (v) => void save({ "runs.newRunFrom": v }),
+});
+const newRunOptions = [
+  { value: "latest" as const, label: "The pack's latest run", note: "Its tests, values, options and label, ready to change" },
+  { value: "defaults" as const, label: "The pack's defaults", note: "All tests, each value's default and the pack's run settings" },
+];
 const sample = computed(() => editorUrl(editor.value, settings.home ? `${settings.home}/sites/shop/watchwright/tests/home.ts` : "/sites/shop/watchwright/tests/home.ts", 4));
 
 async function save(values: Record<string, unknown>) {
@@ -81,6 +89,12 @@ onMounted(() => {
         <SelectMenu id="s-editor-pick" v-model="editor" class="pick" :options="EDITOR_OPTIONS" />
       </div>
       <p v-if="sample" class="muted small">Links look like <code class="sample">{{ sample }}</code>. The editor must be installed on the computer you browse from.</p>
+    </section>
+
+    <section class="card" aria-labelledby="s-newrun">
+      <h2 id="s-newrun" class="display">New run</h2>
+      <p class="muted small">What the New run page fills in when it opens. A run's "New run like this" and presets always fill in their own choices.</p>
+      <RadioGroup v-model="newRunFrom" :options="newRunOptions" label="New run starts from" />
     </section>
 
     <section class="card" aria-labelledby="s-recent">

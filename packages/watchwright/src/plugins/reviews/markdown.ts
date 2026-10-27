@@ -69,7 +69,8 @@ function cellLines(cell: CompareCell, criteria: Criterion[], o: MarkdownOptions)
 export function toMarkdown(c: Comparison, o: MarkdownOptions): string {
   const many = c.runs.length > 1;
   const out: string[] = [];
-  out.push(many ? `# ${esc(c.packName)}: ${c.runs.length} runs compared` : `# ${esc(c.packName)}: run ${c.runs[0]!.id}`, "");
+  const only = c.runs[0]!;
+  out.push(many ? `# ${esc(c.packName)}: ${c.runs.length} runs compared` : `# ${esc(c.packName)}: run ${only.id}${only.label ? ` (${esc(only.label)})` : ""}`, "");
   out.push(`Exported ${o.now.slice(0, 16).replace("T", " ")} UTC from Watchwright.`, "");
   // Facts the runs saved while running (the app's version, the model it used) get a column when there are any.
   const facts = c.runs.some((r) => Object.keys(r.info ?? {}).length > 0);
@@ -81,7 +82,7 @@ export function toMarkdown(c: Comparison, o: MarkdownOptions): string {
     const score = mean(c.rows.map((row) => row.cells[i]?.score ?? null));
     const started = (r.startedAt ?? r.createdAt).slice(0, 16).replace("T", " ");
     const fact = facts ? ` ${cellText(Object.entries(r.info ?? {}).map(([k, v]) => `${k}: ${String(v)}`).join(", ") || "–")} |` : "";
-    out.push(`| ${r.id} | ${started} | ${cellText(params(r.params))} |${fact} ${r.status} | ${r.counts.passed} | ${r.counts.failed} | ${r.counts.broken} | ${fixed(score)} |`);
+    out.push(`| ${r.id}${r.label ? ` ${cellText(r.label)}` : ""} | ${started} | ${cellText(params(r.params))} |${fact} ${r.status} | ${r.counts.passed} | ${r.counts.failed} | ${r.counts.broken} | ${fixed(score)} |`);
   });
   out.push("", "Scores are the mean of the scale criteria on 1 to 5, over every reviewer.", "");
 

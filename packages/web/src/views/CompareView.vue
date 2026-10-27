@@ -30,7 +30,7 @@ const packOptions = computed(() => [{ value: "", label: "Pick a pack" }, ...pack
 const runOptions = computed(() =>
   packRuns.value.map((r) => ({
     value: r.id,
-    label: [r.id, paramsText(r.params)].filter(Boolean).join("  "),
+    label: [r.label, r.id, paramsText(r.params)].filter(Boolean).join("  "),
     note: `${when(r.createdAt)} · ${countsText(r.counts)}`,
   })),
 );
@@ -121,7 +121,7 @@ function openShots(cell: CompareCell, url: string) {
 }
 const runTag = (i: number) => {
   const r = data.value?.runs[i];
-  return r ? [r.id, paramsText(r.params, differing.value)].filter(Boolean).join(" · ") : "";
+  return r ? [r.label, r.id, paramsText(r.params, differing.value)].filter(Boolean).join(" · ") : "";
 };
 </script>
 
@@ -165,6 +165,7 @@ const runTag = (i: number) => {
             <tr>
               <th scope="col" class="corner"><span class="muted small">{{ data.rows.length }} rows · {{ data.packName }}</span></th>
               <th v-for="(r, i) in data.runs" :key="r.id" scope="col" class="runhead">
+                <span v-if="r.label" class="runlabel">{{ r.label }}</span>
                 <a :href="`#/runs/${r.id}`" class="mono runid">{{ r.id }}</a>
                 <span v-if="Object.keys(r.params).length" class="params">
                   <span v-for="(v, k) in r.params" :key="k" class="param" :class="{ differs: differing.includes(String(k)) }">{{ k }}={{ v }}</span>
@@ -323,6 +324,14 @@ thead .corner {
 }
 .runid {
   font-weight: 600;
+}
+.runlabel {
+  display: block;
+  font-weight: 600;
+}
+.runlabel + .runid {
+  font-weight: 400;
+  font-size: 12px;
 }
 .param {
   padding: 0 6px;
