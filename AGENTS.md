@@ -4,7 +4,7 @@ Guidance for AI coding agents (and people) working in this repository. Keep it s
 
 ## What this is
 
-Watchwright is a browser test harness on the Playwright library. A long-lived server runs test packs in its own run engine (not `npx playwright test`), streams a live screencast to its web page, and exposes every action through an HTTP API (later also a CLI and an MCP server). The base design (plugins, engine, store, API) is [docs/plan.md](docs/plan.md); the plan for the current step is [docs/plans/step-2.md](docs/plans/step-2.md). Read both before adding a feature.
+Watchwright is a browser test harness on the Playwright library. A long-lived server runs test packs in its own run engine (not `npx playwright test`), streams a live screencast to its web page, and exposes every action through an HTTP API (later also a CLI and an MCP server). The base design (plugins, engine, store, API) is [docs/plan.md](docs/plan.md); the plan for the current step is [docs/plans/step-3.md](docs/plans/step-3.md). Read both before adding a feature.
 
 ## Commands
 
@@ -37,6 +37,7 @@ Run `pnpm lint && pnpm typecheck && pnpm test` before every commit.
 
 ## Conventions
 
+- **General, not for one site.** Watchwright is a general tester; the Wildcard Pipeline bench is only its first pack. Nothing site-specific goes into Watchwright. When a pack needs something, build the general seam here and keep the site's details in the pack.
 - **Capabilities are plugins.** A new capability (runs, packs, later scraping) is a plugin with its own migrations, actions, routes and events. Plugins share code through services (`ctx.services`), not imports of each other's internals. Don't add feature code to `core/` or `server/`; extend the plugin contract instead when a plugin needs something new. See docs/plan.md, section 3.
 - **Migrations are append-only and per plugin.** Ids count from 1 within a plugin. Never edit a migration that has been merged; add a new one. A non-core plugin's main table may carry the plugin's name (`runs`); its other tables are named `<plugin>_…` (`runs_attempts`).
 - **API shape.** Routes live under `/api/v1`. Success is `{ "data": … }`, failure is `{ "error": { "code", "message", "detail"? } }` with a snake_case `code`.
