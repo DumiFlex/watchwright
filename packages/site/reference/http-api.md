@@ -21,10 +21,22 @@ Everything the web page does goes through this API, so scripts and AI agents can
 | `GET /packs` | Every pack with its tests (each with its `description`, `inside` (a list, empty for top-level tests) and the `rubric` it is scored on), params, flag kinds, the pack's own `rubric`, run settings (`run`: `pauseOnBroken`, `pauseLimitMinutes`, `trace`, `video`, defaults filled in) and load errors. |
 | `POST /packs` `{ path }` | Adds a pack by its absolute folder (or pack file) path and loads it. Quotes around the path (Windows' "Copy as path"), `file://` addresses, `~` and either slash are accepted. A pack that doesn't load is still added, with its error. Adding the same folder again returns the pack already added. |
 | `GET /packs/:id` | One pack. Every pack carries `path` (its pack file), `dir` (its folder) and `missing` (true when the pack file is gone). |
+| `POST /packs/create` `{ path, name, baseURL }` | Writes a starter pack (`pack.ts`, `tests/home.ts`, `README.md`) into a folder, made when missing, and adds it. 201 with the pack. 400 `bad_starter` when the folder already has a pack or one of those files, or the address isn't `http(s)://`. |
 | `POST /packs/:id/reload` | Builds it again now. |
 | `POST /packs/:id/move` `{ path }` | Points a pack whose folder moved at its new folder. It keeps its id and runs. 400 `bad_pack` when the folder has no pack file or another pack already uses it. |
 | `POST /packs/discover` `{ path, depth? }` | Finds pack files in a folder and up to `depth` (default 4, at most 8) levels below it, skipping `node_modules`, `dist`, `build` and hidden folders, and not looking inside a pack. Returns `{ root, found: [{ dir, packFile, packId }], truncated }`; `packId` is set for packs already added. |
 | `DELETE /packs/:id` | Forgets the pack (its files and past runs stay). |
+
+## Settings
+
+Preferences for the whole machine, the same for every browser and agent. Plugins declare them; the web app's Settings page edits them. The look and mode stay in each browser.
+
+| Method and path | Does |
+|---|---|
+| `GET /settings` | `{ values, definitions }`: every setting's value (its default when never changed) and, for each, `key`, `title`, the JSON Schema of its value and its `default`. |
+| `POST /settings` `{ values }` | Changes several settings at once, all or none; `null` puts one back to its default. Returns `{ values }`. 400 `unknown_setting` or `invalid_setting`. |
+
+The settings so far: `settings.editor`, the editor that file links open in (`vscode`, `cursor`, `windsurf`, `idea`, `webstorm` or `none`; default `vscode`).
 
 ## Folders
 

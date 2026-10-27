@@ -6,11 +6,14 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, sendJson, type Criterion, type FolderPlaces, type Pack, type PackTest, type RunSummary } from "../api";
 import { ago, countsText, when } from "../format";
 import { LiveConnection } from "../live";
+import FileLink from "../components/FileLink.vue";
 import MenuButton from "../components/MenuButton.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import PackFolderDialog from "../components/PackFolderDialog.vue";
 import PathLine from "../components/PathLine.vue";
 import StatusChip from "../components/StatusChip.vue";
+import { buildErrorSpot } from "../editor";
+import { join } from "../paths";
 import { toast } from "../toasts";
 import TabBar from "../components/TabBar.vue";
 import { vTip } from "../tooltip";
@@ -135,7 +138,10 @@ onBeforeUnmount(() => live?.close());
         <h2 class="display">The pack doesn't load</h2>
         <p v-if="pack.error" class="error">{{ pack.error }}</p>
         <ul v-if="pack.problems.length">
-          <li v-for="(x, i) in pack.problems" :key="i">{{ x }}</li>
+          <li v-for="(x, i) in pack.problems" :key="i">
+            <template v-if="buildErrorSpot(x)"><FileLink :file="join(pack.dir, buildErrorSpot(x)!.spot.file)" :label="buildErrorSpot(x)!.spot.file" :line="buildErrorSpot(x)!.spot.line" :column="buildErrorSpot(x)!.spot.column" /> {{ buildErrorSpot(x)!.rest }}</template>
+            <template v-else>{{ x }}</template>
+          </li>
         </ul>
         <p class="muted small">Fix the files and save: the server builds the pack again by itself.</p>
       </section>
@@ -159,7 +165,7 @@ onBeforeUnmount(() => live?.close());
                 <td class="muted" data-label="Section" :class="{ none: !t.section }">{{ t.section ?? "–" }}</td>
                 <td data-label="Needs" :class="{ none: !t.needs.length }"><code v-if="t.needs.length">{{ t.needs.join(", ") }}</code><span v-else class="muted">–</span></td>
                 <td class="num" data-label="Attempts">{{ runsText(t) || "1" }}</td>
-                <td class="muted small file"><code v-tip="t.file">{{ t.file }}</code></td>
+                <td class="muted small file"><FileLink :file="join(pack.dir, t.file)" :label="t.file" /></td>
               </tr>
             </tbody>
           </table>

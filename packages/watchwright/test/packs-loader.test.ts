@@ -30,6 +30,15 @@ describe("pack loader", () => {
     expect(packChanged(pack)).toBe(false);
   });
 
+  it("points stack traces at the pack's own files, not the build cache", async () => {
+    process.setSourceMapsEnabled(true); // as the CLI does
+    const dir = tempDir();
+    writeFiles(dir, { "pack.ts": PACK, "tests/a.ts": `import { test } from "watchwright";\ntest("A1", async () => {\n  throw new Error("boom");\n});` });
+    const pack = await loadPack(dir, tempDir());
+    const err = await (pack.tests[0]!.body as unknown as () => Promise<void>)().catch((e: Error) => e);
+    expect((err as Error).stack).toContain(`${path.join(dir, "tests", "a.ts")}:3:9`);
+  });
+
   it("notices changed, added and imported files", async () => {
     const dir = tempDir();
     writeFiles(dir, { "pack.ts": PACK, "tests/a.ts": `import { test } from "watchwright"; import "../lib/x"; test("A1", async () => {});`, "lib/x.ts": "export {};" });

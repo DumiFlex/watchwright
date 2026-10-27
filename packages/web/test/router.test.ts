@@ -13,6 +13,7 @@ describe("router", () => {
     expect(parseRoute("#/packs")).toEqual({ name: "packs" });
     expect(parseRoute("#/packs/0a1b2c3d")).toEqual({ name: "pack", id: "0a1b2c3d" });
     expect(parseRoute("#/kit")).toEqual({ name: "kit" });
+    expect(parseRoute("#/settings")).toEqual({ name: "settings" });
     expect(parseRoute("#/compare?runs=0a1b2c3d,1a1b2c3d")).toEqual({ name: "compare", query: { runs: "0a1b2c3d,1a1b2c3d" } });
   });
 
@@ -33,6 +34,7 @@ describe("router", () => {
       { name: "pack", id: "0a1b2c3d" },
       { name: "compare", query: { runs: "0a1b2c3d", show: "shot:home" } },
       { name: "kit" },
+      { name: "settings" },
     ];
     for (const r of routes) expect(parseRoute(href(r))).toEqual(r);
     expect(href({ name: "runs", query: { pack: "" } })).toBe("#/");
@@ -44,5 +46,6 @@ describe("router", () => {
     expect(sectionOf({ name: "pack", id: "0a1b2c3d" })).toBe("packs");
     expect(sectionOf({ name: "compare", query: {} })).toBe("compare");
     expect(sectionOf({ name: "kit" })).toBeNull();
+    expect(sectionOf({ name: "settings" })).toBeNull();
   });
 });

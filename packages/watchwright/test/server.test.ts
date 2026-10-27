@@ -54,6 +54,7 @@ describe("server", () => {
         dataDir: ":memory:",
         plugins: [
           { name: "core", schemaVersion: 2 },
+          { name: "settings", schemaVersion: 1 },
           { name: "live", schemaVersion: 0 },
           { name: "folders", schemaVersion: 1 },
           { name: "packs", schemaVersion: 1 },

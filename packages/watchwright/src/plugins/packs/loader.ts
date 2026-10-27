@@ -80,6 +80,9 @@ async function bundle(dir: string, entry: string, outFile: string): Promise<stri
     const result = await build({
       stdin: { contents: entry, resolveDir: dir, sourcefile: "watchwright-entry.ts", loader: "ts" },
       absWorkingDir: dir,
+      // The real output path, so the inline source map's paths lead back to the pack's own files
+      // (stack traces then name /my/pack/tests/home.ts, not a file in the build cache).
+      outfile: outFile,
       bundle: true,
       format: "esm",
       platform: "node",
