@@ -374,6 +374,12 @@ input::-ms-clear {
   display: none;
 }
 
+/* while a modal dialog is open (popup.ts) */
+html.ww-modal-open {
+  overflow: hidden;
+  padding-right: var(--scrollbar-gap, 0);
+}
+
 .field::placeholder {
   color: var(--muted);
   opacity: 1;

@@ -1,6 +1,8 @@
-// v-tip: a themed tooltip instead of the browser's `title` popup. One shared element on
-// <body> shows the text above the element (below when there is no room) on hover or
-// keyboard focus, and links it with aria-describedby while it is open.
+// v-tip: a themed tooltip instead of the browser's `title` popup. One shared element shows the
+// text above the element (below when there is no room) on hover or keyboard focus, and links it
+// with aria-describedby while it is open. It lives on <body>, and moves into an open modal
+// <dialog> around the element while it shows there: a modal sits in the top layer, so a tip
+// on <body> would be drawn under the dialog's backdrop.
 import type { Directive } from "vue";
 import { placePopup, viewport } from "./popup";
 
@@ -29,6 +31,9 @@ function show(el: Tipped) {
   const text = el._tip?.text;
   if (!text) return;
   const t = element();
+  const dialog = el.closest("dialog");
+  const host = dialog?.open ? (dialog.querySelector<HTMLElement>(":scope > .dlg-popups") ?? dialog) : document.body;
+  if (t.parentElement !== host) host.append(t);
   t.textContent = text;
   t.hidden = false;
   // Centered above the element, below when there is no room, kept on screen.
