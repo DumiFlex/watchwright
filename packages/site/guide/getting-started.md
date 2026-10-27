@@ -28,7 +28,7 @@ The second line downloads the browsers Playwright drives.
 
 ## Looking at results
 
-Click an attempt in the queue to open its page. It shows the error (with **In your code**, the line of your test it broke on), the flags (robot problems apart from findings), metrics and notes. When the test names its steps (`h.step`), a **Steps** timeline shows when each ran and how long it took, with warnings from the log as marks; picking a step jumps the video there. The same timeline sits under the video and follows it as it plays, and dragging either one moves the video. Attempts recorded before steps were kept read their steps from the log's `Step:` lines (without outcomes). Then come tabs for:
+Click an attempt in the queue to open its page. It shows the error (with **In your code**, the line of your test it broke on), the flags (robot problems apart from findings), metrics and notes. When the test names its steps (`h.step`), a **Steps** timeline shows when each ran and how long it took, with warnings from the log as marks; picking a step jumps the video there. The same timeline sits under the video and follows it as it plays, and dragging either one moves the video. When steps are too short for their names, the timeline opens zoomed in and scrolls sideways with the playhead; zoom with its buttons, + and -, or Ctrl (Cmd on a Mac) with the mouse wheel. Hovering shows the time, the step and any warning under the pointer above the timeline, and warnings too close together show as one mark with their count. Attempts recorded before steps were kept read their steps from the log's `Step:` lines (without outcomes). Then come tabs for:
 
 - the screenshots, with a full-size viewer (scroll shots show as one strip),
 - kept texts,
