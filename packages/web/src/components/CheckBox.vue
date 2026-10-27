@@ -1,15 +1,19 @@
 <script setup lang="ts">
 // A themed checkbox. The real <input> stays in the page (keyboard, forms, screen
 // readers) but is invisible; the box beside it is drawn from the theme tokens.
-defineProps<{ id?: string; disabled?: boolean }>();
+// `indeterminate` shows a dash, for a "select all" box when only some are chosen.
+defineProps<{ id?: string; disabled?: boolean; indeterminate?: boolean }>();
 const checked = defineModel<boolean>({ default: false });
 </script>
 
 <template>
   <label class="cb" :class="{ disabled }">
-    <input :id="id" v-model="checked" type="checkbox" class="native" :disabled="disabled" />
+    <input :id="id" v-model="checked" type="checkbox" class="native" :disabled="disabled" :indeterminate="indeterminate" />
     <span class="box" aria-hidden="true">
-      <svg viewBox="0 0 12 12" width="12" height="12"><path d="M2.5 6.2l2.4 2.4 4.6-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      <svg viewBox="0 0 12 12" width="12" height="12">
+        <path v-if="indeterminate" d="M3 6h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+        <path v-else d="M2.5 6.2l2.4 2.4 4.6-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
     </span>
     <span v-if="$slots.default" class="text"><slot /></span>
   </label>
@@ -58,7 +62,8 @@ const checked = defineModel<boolean>({ default: false });
 .cb:hover:not(.disabled) .box {
   border-color: var(--accent);
 }
-.native:checked + .box {
+.native:checked + .box,
+.native:indeterminate + .box {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--on-accent);
