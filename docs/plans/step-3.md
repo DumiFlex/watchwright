@@ -35,9 +35,24 @@ Read side by side, most of the robot maps onto what step 1 and 2 built: `Bot.got
 | `--model q9` with the model's display name in the live page | A param's choices are bare values | **Choice labels.** `params.model.labels = { q9: "Qwen3.5 9B", … }`, shown in the New run select. |
 | `debug-NN-*.md` files open in the live page | Other files are links in the summary | A **Files** tab on the attempt page shows text files (Markdown, JSON, text) in the code view. |
 
+Two more come from the robot's own suggestion list (`/mnt/project-files` note, 2026-10-27), as general seams the pack fills in:
+
+- **Attempt hooks.** `beforeAttempt` and `afterAttempt` in the pack, given the test's id and tags. The bench backs up the library before tests tagged `changes-library` and restores it after (suggestion 4).
+- **`h.waitUntil(check, { progress, stallMs })`.** A wait that ends as `stalled` when the app stops making progress. The bench's AI wait uses it to file a `model-loop` finding instead of waiting 30 minutes (suggestion 6).
+
 Also fixed while here: when the engine replaces a stuck browser context, collectors attach to the new context too (today they stay on the closed one).
 
-## 3. The pack
+## 3. Five general features from the robot's suggestions
+
+Dumi chose (2026-10-27) to build these in step 3 as well. None of them is about Wildcard Pipeline:
+
+1. **Add tests to a running run.** "Add tests" on the run page appends attempts to the queue (with what they need). Action `runs.queue-add`.
+2. **Scrub back the live view.** The server keeps the last 30 seconds of frames per run; a scrubber under the live view shows any of them, with "back to live".
+3. **Step timeline on the attempt page.** Each `h.step` and each helper call that took long (slow or forced clicks, long waits) with its start and length, as a timeline next to the video; a click seeks the video.
+4. **Add to review from a shot.** "Add to review" on a screenshot puts a link to it in the attempt's review note.
+5. **Compare with the last run.** On a run page, the tests whose status, flags, scores or metrics changed since the previous finished run of the same pack and params.
+
+## 3b. The pack
 
 ```
 bench/
@@ -74,9 +89,10 @@ bench/
 ## 5. Pull requests
 
 1. This plan (Watchwright).
-2. Watchwright: collector attempt hooks, child caps, multi-parent `inside`, unrun children, the override fix, `packDir`, `h.skip`, run info, `description`, choice labels, the Files tab, collectors after a context reset. Tests, docs site pages, screenshots.
-3. Wildcard Pipeline: the `bench/` pack, the dev server with the fake model, README; `bench/` left out of the app's lint, type check and release zip. The old `scripts/bench-robot/` stays on its branch; it isn't merged.
-4. Step 3 sign-off: the PC run, fixes it finds (in either repo), screenshots of a bench run in Watchwright, this plan marked done.
+2. Watchwright: attempt hooks, `waitUntil`, collector attempt hooks, child caps, multi-parent `inside`, unrun children, the override fix, `packDir`, `h.skip`, run info, `description`, choice labels, the Files tab, collectors after a context reset. Tests, docs site pages, screenshots.
+3. Watchwright: the five features of section 3, with screenshots.
+4. Wildcard Pipeline: the `bench/` pack, the dev server with the fake model, README; `bench/` left out of the app's lint, type check and release zip. The old `scripts/bench-robot/` stays on its branch; it isn't merged.
+5. Step 3 sign-off: the PC run, fixes it finds (in either repo), screenshots of a bench run in Watchwright, this plan marked done.
 
 ## 6. Choices made without asking
 
