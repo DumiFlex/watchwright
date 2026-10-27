@@ -679,7 +679,7 @@ const traces = [
       <h2 class="display">Media</h2>
       <div class="grid">
         <div class="item wide">
-          <span class="lbl">Image viewer (click a shot; arrows, Z to zoom, Esc to close)</span>
+          <span class="lbl">Image viewer (click a shot; arrows, + and - or Ctrl+wheel to zoom, drag to pan, Esc to close)</span>
           <div class="shots">
             <button v-for="(s, i) in shots" :key="s.name" type="button" class="shot" @click="shotOpen = i">
               <img :src="s.url" :alt="s.name" />
