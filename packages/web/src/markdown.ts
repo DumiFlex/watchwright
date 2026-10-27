@@ -501,3 +501,10 @@ export function resolveRelative(from: string, target: string): string | null {
   }
   return parts.length ? parts.join("/") : null;
 }
+
+/** The README at the top of a folder, from its file paths: README.md first, then other spellings. */
+export function findReadme(paths: readonly string[]): string | null {
+  const top = paths.filter((p) => !p.includes("/") && /^readme(\.(md|markdown|mdown|txt))?$/i.test(p));
+  const rank = (p: string) => (/\.(md|markdown|mdown)$/i.test(p) ? 0 : /\./.test(p) ? 2 : 1) * 2 + (p.startsWith("README") ? 0 : 1);
+  return top.sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))[0] ?? null;
+}

@@ -1,8 +1,10 @@
 <script setup lang="ts">
 // One pack: whether it loads, its tests with their metadata, parameters and flag kinds, and
-// its recent runs.
-import { ArrowLeft, CircleDot, Ellipsis, Pencil, TriangleAlert } from "../icons";
-import { nextTestId, recordingTestTemplate, slug } from "../editfiles";
+// its recent runs, then its README the way a code host shows one.
+import { ArrowLeft, CircleDot, Ellipsis, FileText, Pencil, TriangleAlert } from "../icons";
+import { nextTestId, recordingTestTemplate, slug, type PackFile } from "../editfiles";
+import { findReadme, resolveRelative } from "../markdown";
+import MarkdownView from "../components/MarkdownView.vue";
 import TextField from "../components/TextField.vue";
 import { href } from "../router";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
@@ -96,6 +98,22 @@ function runsText(t: PackTest): string {
   return `by ${by}`;
 }
 
+// The README at the top of the pack's folder, if there is one.
+const readme = ref<{ path: string; text: string } | null>(null);
+const files = ref<string[]>([]);
+async function loadReadme() {
+  const f = await getJson<{ files: PackFile[] }>(`/api/v1/packs/${props.id}/files`);
+  files.value = f.ok ? f.data.files.map((x) => x.path) : [];
+  const path = findReadme(files.value);
+  if (!path) return void (readme.value = null);
+  const res = await getJson<{ text: string }>(`/api/v1/packs/${props.id}/file?path=${encodeURIComponent(path)}`);
+  readme.value = res.ok ? { path, text: res.data.text } : null;
+}
+function readmeLink(target: string): string | null {
+  const to = readme.value ? resolveRelative(readme.value.path, target) : null;
+  return to && files.value.includes(to) ? href({ name: "edit", id: props.id, file: to, line: null }) : null;
+}
+
 async function load() {
   const [p, r] = await Promise.all([getJson<Pack>(`/api/v1/packs/${props.id}`), getJson<RunSummary[]>(`/api/v1/runs?pack=${props.id}&limit=10`)]);
   if (!p.ok) {
@@ -106,6 +124,8 @@ async function load() {
   error.value = null;
   pack.value = p.data;
   if (r.ok) runs.value = r.data;
+  if (!p.data.missing) void loadReadme();
+  else readme.value = null;
 }
 
 async function reload() {
@@ -121,7 +141,7 @@ onMounted(async () => {
   void load();
   const places = await getJson<FolderPlaces>("/api/v1/folders/places");
   if (places.ok) home.value = places.data.home;
-  live = new LiveConnection({}, { onEvent: (e) => /^(pack|run)\./.test(e.type) && void load() });
+  live = new LiveConnection({}, { onEvent: (e) => (/^(pack|run)\./.test(e.type) ? void load() : e.type === "editor.file_changed" && void loadReadme()) });
 });
 onBeforeUnmount(() => live?.close());
 </script>
@@ -263,6 +283,14 @@ onBeforeUnmount(() => live?.close());
         <p v-else class="muted">No runs of this pack yet.</p>
         <a v-if="runs.length" class="small" :href="`#/?pack=${pack.id}`">All runs of this pack</a>
       </section>
+
+      <section v-if="readme" class="card readme" aria-labelledby="pk-readme">
+        <header class="readme-head">
+          <h2 id="pk-readme" class="readme-name"><FileText :size="16" /><span class="mono">{{ readme.path }}</span></h2>
+          <a v-tip="'Edit'" class="edit" :href="href({ name: 'edit', id: pack.id, file: readme.path, line: null })" :aria-label="`Edit ${readme.path}`"><Pencil :size="15" /></a>
+        </header>
+        <MarkdownView :source="readme.text" :resolve-link="readmeLink" id-prefix="readme-" :label="readme.path" />
+      </section>
     </template>
     <PackFolderDialog v-if="pack" v-model="moveOpen" mode="move" :packs="[]" :moving="pack" :home="home" @moved="load(), toast('The pack now loads from its new folder', { tone: 'ok' })" />
     <ModalDialog v-model="recOpen" heading="New recording" width="480px">
@@ -384,6 +412,35 @@ onBeforeUnmount(() => live?.close());
 .edit:hover {
   background: var(--hover);
   color: var(--text);
+}
+.readme-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-5);
+  padding-bottom: var(--space-3);
+  border-bottom: var(--border-width) solid var(--line);
+}
+.readme-name {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 600;
+}
+.readme-name > svg {
+  flex: none;
+  color: var(--muted);
+}
+.readme-name .mono {
+  overflow-wrap: anywhere;
+}
+.readme .edit {
+  margin-right: 0;
 }
 .file code {
   display: inline-block;

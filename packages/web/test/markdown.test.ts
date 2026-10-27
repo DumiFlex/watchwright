@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { inlines, outline, parseMarkdown, resolveRelative, safeHref, slugify, type Block } from "../src/markdown";
+import { findReadme, inlines, outline, parseMarkdown, resolveRelative, safeHref, slugify, type Block } from "../src/markdown";
 
 const one = (md: string): Block => {
   const b = parseMarkdown(md);
@@ -180,5 +180,12 @@ describe("helpers", () => {
     expect(resolveRelative("README.md", "../outside.md")).toBeNull();
     expect(resolveRelative("README.md", "#anchor")).toBeNull();
     expect(resolveRelative("README.md", "https://a.dev")).toBeNull();
+  });
+
+  it("finds the README at the top of a folder", () => {
+    expect(findReadme(["pack.ts", "docs/README.md", "readme.txt", "README.md"])).toBe("README.md");
+    expect(findReadme(["Readme.markdown", "README"])).toBe("Readme.markdown");
+    expect(findReadme(["README", "readme.txt"])).toBe("README");
+    expect(findReadme(["docs/README.md", "pack.ts", "README.json"])).toBeNull();
   });
 });
