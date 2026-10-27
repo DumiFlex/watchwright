@@ -16,10 +16,10 @@ const HOST = `127.0.0.1:${PORT}`;
 const open: { app: FastifyInstance; store: Store }[] = [];
 const dirs: string[] = [];
 
-async function make(opts: { webRoot?: string; port?: number; plugins?: WatchwrightPlugin[] } = {}) {
+async function make(opts: { webRoot?: string; port?: number; plugins?: WatchwrightPlugin[]; stop?: () => void } = {}) {
   const plugins = opts.plugins ?? BUILTIN_PLUGINS;
   const store = openStore(":memory:", migrationsOf(plugins));
-  const app = await buildServer({ store, port: opts.port ?? PORT, webRoot: opts.webRoot, plugins });
+  const app = await buildServer({ store, port: opts.port ?? PORT, webRoot: opts.webRoot, plugins, ...(opts.stop ? { stop: opts.stop } : {}) });
   open.push({ app, store });
   return app;
 }
@@ -65,6 +65,21 @@ describe("server", () => {
         ],
       },
     });
+  });
+
+  it("stops itself on POST /stop from its own page, once the answer is out", async () => {
+    let stopped = 0;
+    const app = await make({ stop: () => stopped++ });
+    const foreign = await app.inject({ method: "POST", url: "/api/v1/stop", headers: { host: HOST, origin: "http://evil.example" } });
+    expect(foreign.statusCode).toBe(403);
+    const res = await app.inject({ method: "POST", url: "/api/v1/stop", headers: { host: HOST, origin: `http://${HOST}` } });
+    expect(res.json()).toEqual({ data: { stopping: true } });
+    expect(stopped).toBe(0);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(stopped).toBe(1);
+    // Without a way to stop (built without the CLI), it says so.
+    const other = await make();
+    expect((await other.inject({ method: "POST", url: "/api/v1/stop", headers: { host: HOST } })).json()).toMatchObject({ error: { code: "cant_stop" } });
   });
 
   it("refuses a foreign Host header", async () => {
