@@ -59,6 +59,16 @@ export interface StartInput {
   options?: RunOptions | undefined;
 }
 
+export interface RunPreview {
+  /** The parameter values with defaults filled in. */
+  params: ParamValues;
+  /** Number of attempts (children not counted). */
+  attempts: number;
+  plan: PlanEntry[];
+  /** Tests that run although they weren't chosen: needed by a chosen test, the parent of one, or run inside one. */
+  joined: { testId: string; reason: "needed" | "parent" | "inside"; of: string[] }[];
+}
+
 export interface LiveSnapshot {
   state: "running" | "pausing" | "paused";
   pauseReason: "manual" | "broken" | null;
@@ -101,6 +111,7 @@ interface RunCtx {
   params: ParamValues;
   plan: KindPlan;
   mode: RunMode;
+  options: RunOptions;
   pauseOnBroken: boolean;
   pauseLimitMs: number;
 }
@@ -181,7 +192,8 @@ export class Engine {
     };
   }
 
-  async start(input: StartInput): Promise<RunSummary> {
+  /** Checks a start request and plans it: the pack must load, the params and tests must fit. */
+  private async prepare(input: Omit<StartInput, "startedBy">): Promise<{ pack: LoadedPack; kind: JobKind; params: ParamValues; plan: KindPlan }> {
     const info = this.o.packs.get(input.packId);
     if (!info) throw new EngineError("not_found", `No pack with id ${input.packId}.`, 404);
     let pack: LoadedPack;
@@ -193,13 +205,46 @@ export class Engine {
     const fresh = this.o.packs.get(input.packId)!;
     if (fresh.problems.length > 0) throw new EngineError("bad_pack", `The pack has problems: ${fresh.problems.join(" ")}`, 409);
     const kind = this.kinds.get("test")!;
-    let params: ParamValues;
     try {
-      params = resolveParams(pack.options.params ?? {}, input.params);
-      kind.plan(pack, params, input.tests ?? []);
+      const params = resolveParams(pack.options.params ?? {}, input.params);
+      const plan = kind.plan(pack, params, input.tests ?? [], { attempts: input.options?.attempts });
+      return { pack, kind, params, plan };
     } catch (err) {
       throw new EngineError("bad_input", err instanceof Error ? err.message : String(err));
     }
+  }
+
+  /** What a start request would run, in order, without starting it: every attempt, and why tests that weren't chosen join. */
+  async preview(input: Omit<StartInput, "startedBy">): Promise<RunPreview> {
+    const { pack, kind, params, plan } = await this.prepare(input);
+    const chosen = new Set(input.tests ?? []);
+    const order = [...new Set(plan.items.map((i) => i.itemId))];
+    const joined: RunPreview["joined"] = [];
+    if (chosen.size > 0) {
+      const all = [...order, ...order.flatMap((id) => plan.children.get(id) ?? [])];
+      for (const id of all) {
+        if (chosen.has(id)) continue;
+        const neededBy = all.filter((t) => (plan.needs.get(t) ?? []).includes(id));
+        const parent = order.find((p) => (plan.children.get(p) ?? []).includes(id));
+        const kids = (plan.children.get(id) ?? []).filter((c) => chosen.has(c));
+        if (parent) joined.push({ testId: id, reason: "inside", of: [parent] });
+        else if (kids.length > 0) joined.push({ testId: id, reason: "parent", of: kids });
+        else joined.push({ testId: id, reason: "needed", of: neededBy });
+      }
+    }
+    return {
+      params,
+      attempts: plan.items.length,
+      plan: plan.items.map((i) => {
+        const children = plan.children.get(i.itemId);
+        return { testId: i.itemId, title: kind.describe(pack, i.itemId).title, number: i.number, of: i.of, ...(children && children.length > 0 ? { children } : {}) };
+      }),
+      joined,
+    };
+  }
+
+  async start(input: StartInput): Promise<RunSummary> {
+    const { pack, kind, params } = await this.prepare(input);
     const id = newId(4);
     this.o.repo.insertRun({
       id,
@@ -390,7 +435,7 @@ export class Engine {
     const options = JSON.parse(row.options) as RunOptions;
     let plan: KindPlan;
     try {
-      plan = kind.plan(pack, params, JSON.parse(row.tests) as string[]);
+      plan = kind.plan(pack, params, JSON.parse(row.tests) as string[], { attempts: options.attempts });
     } catch (err) {
       failStart(err instanceof Error ? err.message : String(err));
       return;
@@ -467,6 +512,7 @@ export class Engine {
         params,
         plan,
         mode,
+        options,
         pauseOnBroken: options.pauseOnBroken ?? o.run?.pauseOnBroken ?? true,
         pauseLimitMs: (options.pauseLimitMinutes ?? o.run?.pauseLimitMinutes ?? DEFAULT_PAUSE_LIMIT_MINUTES) * 60_000,
       };
@@ -626,9 +672,10 @@ export class Engine {
 
     const top = parentId === null;
     const o = pack.options.run ?? {};
-    const traceMode = o.trace ?? "problems";
+    const traceMode = ctx.options.trace ?? o.trace ?? "problems";
+    const video = ctx.options.video ?? o.video ?? true;
     if (top) {
-      await session.restartCapture(o.video === false ? null : dir);
+      await session.restartCapture(video ? dir : null);
       if (traceMode !== "never") await session.startTraceChunk();
     }
 

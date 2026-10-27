@@ -51,9 +51,15 @@ export interface SetupEnv {
   helpers(): Helpers;
 }
 
+/** Choices of a run that change its plan. */
+export interface PlanOptions {
+  /** Attempts for every item, instead of what the pack says. */
+  attempts?: number | undefined;
+}
+
 export interface JobKind {
   name: string;
-  plan(pack: LoadedPack, params: ParamValues, chosen: readonly string[]): KindPlan;
+  plan(pack: LoadedPack, params: ParamValues, chosen: readonly string[], options?: PlanOptions): KindPlan;
   /** Title and time limit (ms, null for the pack default) of an item. */
   describe(pack: LoadedPack, itemId: string): { title: string; timeout: number | null };
   /** Once per run (re)start, before the first attempt. */

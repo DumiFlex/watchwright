@@ -18,7 +18,7 @@ pnpm --filter watchwright exec playwright install chromium firefox
 pnpm serve            # builds, starts the server at http://127.0.0.1:7420/ and opens it
 ```
 
-The second line downloads the browsers Playwright drives. On the web page, open **Packs** and add a test pack by its folder path. Then press **New run**, choose tests and parameter values, and start it. The run page shows the browser live with the current test and step, and has the controls to pause, retry, skip and stop. **Runs**, the home page, lists the runs that are going and every earlier one, with filters by pack and status; from there you can open a run again, start a new one with the same choices, or delete it.
+The second line downloads the browsers Playwright drives. On the web page, open **Packs** and add a test pack by its folder path. Then press **New run**: search or pick tests by section and tag, set the parameter values and options (attempts per test, trace, video, pausing on a broken test), and start it. The **Planned** panel shows every attempt in the order it will run, and which tests join because a chosen one needs them. The run page shows the browser live with the current test and step, and has the controls to pause, retry, skip and stop. **Runs**, the home page, lists the runs that are going and every earlier one, with filters by pack and status; from there you can open a run again, start a new one with the same choices, or delete it.
 
 ## Options
 

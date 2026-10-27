@@ -10,7 +10,7 @@ import { FRAMES } from "../live/hub.js";
 import { PACKS } from "../packs/registry.js";
 import { testKind } from "../testing/kind.js";
 import { Engine, EngineError } from "./engine.js";
-import { RUNS_MIGRATION_SQL, RunsRepo, type RunStatus } from "./repo.js";
+import { RUNS_MIGRATION_SQL, RunsRepo, type RunOptions, type RunStatus } from "./repo.js";
 
 export const ENGINE = serviceKey<Engine>("runs.engine");
 /** The folder that holds `runs/` (the data folder, or a temp folder for an in-memory store). */
@@ -18,6 +18,43 @@ export const FILES_ROOT = serviceKey<string>("runs.files-root");
 
 const RUN_ID = { type: "string", pattern: "^[0-9a-f]{8}$", description: "Run id." } as const;
 const byId: ObjectSchema = { type: "object", properties: { id: RUN_ID }, required: ["id"] };
+
+interface StartBody {
+  packId: string;
+  tests?: string[];
+  params?: Record<string, unknown>;
+  pauseOnBroken?: boolean;
+  pauseLimitMinutes?: number;
+  attempts?: number;
+  trace?: "problems" | "always" | "never";
+  video?: boolean;
+}
+
+const START_INPUT: ObjectSchema = {
+  type: "object",
+  properties: {
+    packId: { type: "string", pattern: "^[0-9a-f]{8}$" },
+    tests: { type: "array", items: { type: "string" }, description: "Test ids; what they need and their parents/children join by themselves." },
+    params: { type: "object", additionalProperties: { anyOf: [{ type: "string" }, { type: "number" }, { type: "boolean" }] } },
+    pauseOnBroken: { type: "boolean", description: "Pause on a broken attempt and wait for retry or skip (default: the pack's setting, else true)." },
+    pauseLimitMinutes: { type: "number", minimum: 0.05, maximum: 1440 },
+    attempts: { type: "integer", minimum: 1, maximum: 100, description: "Attempts for every test, instead of each test's own count." },
+    trace: { type: "string", enum: ["problems", "always", "never"], description: "Which attempts keep a Playwright trace (default: the pack's setting, else problems)." },
+    video: { type: "boolean", description: "Record a video per attempt (default: the pack's setting, else true)." },
+  },
+  required: ["packId"],
+};
+
+/** The run options a start request sets; unset ones fall back to the pack. */
+function runOptions(input: StartBody): RunOptions {
+  const o: RunOptions = {};
+  if (input.pauseOnBroken !== undefined) o.pauseOnBroken = input.pauseOnBroken;
+  if (input.pauseLimitMinutes !== undefined) o.pauseLimitMinutes = input.pauseLimitMinutes;
+  if (input.attempts !== undefined) o.attempts = input.attempts;
+  if (input.trace !== undefined) o.trace = input.trace;
+  if (input.video !== undefined) o.video = input.video;
+  return o;
+}
 
 /** Turns engine errors into the API's error envelope. */
 async function guard<T>(fn: () => T | Promise<T>): Promise<T> {
@@ -88,29 +125,22 @@ export const runsPlugin = definePlugin({
         input: byId,
         handler: ({ id }) => guard(() => engine.delete(id)),
       }),
-      defineAction<{ packId: string; tests?: string[]; params?: Record<string, unknown>; pauseOnBroken?: boolean; pauseLimitMinutes?: number }>({
+      defineAction<StartBody>({
         name: "runs.start",
-        title: "Start a run: a pack, the tests to run (default all) and parameter values",
+        title: "Start a run: a pack, the tests to run (default all), parameter values and options",
         method: "POST",
         path: "/runs",
         status: 201,
-        input: {
-          type: "object",
-          properties: {
-            packId: { type: "string", pattern: "^[0-9a-f]{8}$" },
-            tests: { type: "array", items: { type: "string" }, description: "Test ids; what they need and their parents/children join by themselves." },
-            params: { type: "object", additionalProperties: { anyOf: [{ type: "string" }, { type: "number" }, { type: "boolean" }] } },
-            pauseOnBroken: { type: "boolean", description: "Pause on a broken attempt and wait for retry or skip (default: the pack's setting, else true)." },
-            pauseLimitMinutes: { type: "number", minimum: 0.05, maximum: 1440 },
-          },
-          required: ["packId"],
-        },
-        handler: (input, { client }) => {
-          const options: Record<string, unknown> = {};
-          if (input.pauseOnBroken !== undefined) options.pauseOnBroken = input.pauseOnBroken;
-          if (input.pauseLimitMinutes !== undefined) options.pauseLimitMinutes = input.pauseLimitMinutes;
-          return guard(() => engine.start({ packId: input.packId, tests: input.tests, params: input.params, startedBy: client, options }));
-        },
+        input: START_INPUT,
+        handler: (input, { client }) => guard(() => engine.start({ packId: input.packId, tests: input.tests, params: input.params, startedBy: client, options: runOptions(input) })),
+      }),
+      defineAction<StartBody>({
+        name: "runs.preview",
+        title: "Plan a run without starting it: every attempt in order, and the tests that join because they're needed",
+        method: "POST",
+        path: "/runs/preview",
+        input: START_INPUT,
+        handler: (input) => guard(() => engine.preview({ packId: input.packId, tests: input.tests, params: input.params, options: runOptions(input) })),
       }),
       defineAction<{ id: string; history?: boolean }>({
         name: "runs.get",
