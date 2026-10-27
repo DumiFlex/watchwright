@@ -44,6 +44,7 @@ Every change returns the pack's state after it loads again, `pack: { status, err
 | `POST /packs/:id/files` `{ path, text? }` | Makes a new file and its folders. 201 with `{ file, pack }`, 409 `exists` when it's already there. |
 | `POST /packs/:id/file/rename` `{ from, to }` | Renames or moves a file inside the pack folder. Returns `{ from, to, pack }`; 409 `exists` when `to` is taken. |
 | `DELETE /packs/:id/file?path=` | Deletes a file. Returns `{ deleted, pack }`. |
+| `GET /packs/:id/image?path=` | An image file from the pack folder (`.png`, `.jpg`, `.gif`, `.webp`, `.avif`, `.svg`, `.bmp`, `.ico`, up to 20 MB), sent as the image itself, not JSON, for Markdown previews. The same path rules apply; other files are 400 `not_text`. SVG is sent with a sandboxing `Content-Security-Policy`, so its scripts never run. |
 
 ## Recording
 

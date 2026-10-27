@@ -123,6 +123,36 @@ function readText(abs: string, rel: string): { text: string; stamp: string } {
   return { text: buf.toString("utf8"), stamp: stampOf(buf) };
 }
 
+/** Image types a pack may show in its Markdown, by extension. */
+export const IMAGE_TYPES: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".avif": "image/avif",
+  ".svg": "image/svg+xml",
+  ".bmp": "image/bmp",
+  ".ico": "image/x-icon",
+};
+export const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+
+/** An image file in the pack folder, for a README or notes to show: its absolute path, type and size. */
+export function packImage(dir: string, rel: string): { abs: string; type: string; size: number } {
+  const abs = resolveIn(dir, rel);
+  const type = IMAGE_TYPES[path.extname(abs).toLowerCase()];
+  if (!type) throw new FileError("not_text", `${rel} isn't an image (.png, .jpg, .gif, .webp, .avif, .svg, .bmp, .ico).`);
+  let st;
+  try {
+    st = statSync(abs);
+  } catch {
+    throw new FileError("not_found", `${rel} doesn't exist.`);
+  }
+  if (!st.isFile()) throw new FileError("not_found", `${rel} isn't a file.`);
+  if (st.size > MAX_IMAGE_BYTES) throw new FileError("too_big", `${rel} is over 20 MB.`);
+  return { abs, type, size: st.size };
+}
+
 export function readPackFile(dir: string, rel: string): FileContent {
   const abs = resolveIn(dir, rel);
   return { path: relOf(dir, abs), kind: kindOf(abs), ...readText(abs, rel) };

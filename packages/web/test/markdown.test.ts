@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findReadme, inlines, outline, parseMarkdown, resolveRelative, safeHref, slugify, type Block } from "../src/markdown";
+import { findReadme, inlines, outline, packImageUrl, parseMarkdown, resolveRelative, safeHref, slugify, type Block } from "../src/markdown";
 
 const one = (md: string): Block => {
   const b = parseMarkdown(md);
@@ -187,5 +187,10 @@ describe("helpers", () => {
     expect(findReadme(["Readme.markdown", "README"])).toBe("Readme.markdown");
     expect(findReadme(["README", "readme.txt"])).toBe("README");
     expect(findReadme(["docs/README.md", "pack.ts", "README.json"])).toBeNull();
+  });
+
+  it("builds the address of an image in a pack", () => {
+    expect(packImageUrl("a9ef9e79", "docs/guide.md", "../img/a b.png")).toBe("/api/v1/packs/a9ef9e79/image?path=img%2Fa%20b.png");
+    expect(packImageUrl("a9ef9e79", "README.md", "../x.png")).toBeNull();
   });
 });

@@ -3,7 +3,7 @@
 // its recent runs, then its README the way a code host shows one.
 import { ArrowLeft, CircleDot, Ellipsis, FileText, Pencil, TriangleAlert } from "../icons";
 import { nextTestId, recordingTestTemplate, slug, type PackFile } from "../editfiles";
-import { findReadme, resolveRelative } from "../markdown";
+import { findReadme, packImageUrl, resolveRelative } from "../markdown";
 import MarkdownView from "../components/MarkdownView.vue";
 import TextField from "../components/TextField.vue";
 import { href } from "../router";
@@ -109,6 +109,7 @@ async function loadReadme() {
   const res = await getJson<{ text: string }>(`/api/v1/packs/${props.id}/file?path=${encodeURIComponent(path)}`);
   readme.value = res.ok ? { path, text: res.data.text } : null;
 }
+const readmeImage = (src: string) => (readme.value ? packImageUrl(props.id, readme.value.path, src) : null);
 function readmeLink(target: string): string | null {
   const to = readme.value ? resolveRelative(readme.value.path, target) : null;
   return to && files.value.includes(to) ? href({ name: "edit", id: props.id, file: to, line: null }) : null;
@@ -289,7 +290,7 @@ onBeforeUnmount(() => live?.close());
           <h2 id="pk-readme" class="readme-name"><FileText :size="16" /><span class="mono">{{ readme.path }}</span></h2>
           <a v-tip="'Edit'" class="edit" :href="href({ name: 'edit', id: pack.id, file: readme.path, line: null })" :aria-label="`Edit ${readme.path}`"><Pencil :size="15" /></a>
         </header>
-        <MarkdownView :source="readme.text" :resolve-link="readmeLink" id-prefix="readme-" :label="readme.path" />
+        <MarkdownView :source="readme.text" :resolve-link="readmeLink" :resolve-image="readmeImage" id-prefix="readme-" :label="readme.path" />
       </section>
     </template>
     <PackFolderDialog v-if="pack" v-model="moveOpen" mode="move" :packs="[]" :moving="pack" :home="home" @moved="load(), toast('The pack now loads from its new folder', { tone: 'ok' })" />

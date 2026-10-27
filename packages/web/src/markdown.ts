@@ -508,3 +508,9 @@ export function findReadme(paths: readonly string[]): string | null {
   const rank = (p: string) => (/\.(md|markdown|mdown)$/i.test(p) ? 0 : /\./.test(p) ? 2 : 1) * 2 + (p.startsWith("README") ? 0 : 1);
   return top.sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))[0] ?? null;
 }
+
+/** The address of an image in a pack, for a relative image link in the pack file `from`. */
+export function packImageUrl(packId: string, from: string, src: string): string | null {
+  const to = resolveRelative(from, src);
+  return to ? `/api/v1/packs/${packId}/image?path=${encodeURIComponent(to)}` : null;
+}

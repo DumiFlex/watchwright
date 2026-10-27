@@ -35,7 +35,7 @@ The steps are written back into the file in place, so your comments, blank lines
 
 ## Markdown preview
 
-A Markdown file (a pack's `README.md`, notes) has three views above the editor: **Source**, **Preview** and **Side by side**, where the preview follows as you type. The preview shows headings, lists and task lists, tables, quotes, code blocks with colors and a copy button, and links. A link to another file in the pack opens it in the editor, a link to a heading scrolls to it, and a web link opens in a new tab. HTML in the file shows as text, and images from the web load, while images stored in the pack show their description in a frame. The editor remembers the view you picked.
+A Markdown file (a pack's `README.md`, notes) has three views above the editor: **Source**, **Preview** and **Side by side**, where the preview follows as you type. The preview shows headings, lists and task lists, tables, quotes, code blocks with colors and a copy button, and links. A link to another file in the pack opens it in the editor, a link to a heading scrolls to it, and a web link opens in a new tab. In **Side by side**, the preview follows the cursor: the part you're editing is marked and scrolled into view, and a click on the preview moves the cursor to that part of the source. Images stored in the pack (`![Checkout](docs/checkout.png)`) and images from the web both show; an image that can't load shows its description in a frame. HTML in the file shows as text. The editor remembers the view you picked.
 
 ## Run this test
 
