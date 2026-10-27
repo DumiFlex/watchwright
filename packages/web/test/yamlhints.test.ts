@@ -20,9 +20,9 @@ describe("YAML hints", () => {
   });
 
   it("offers a step's fields in a flow map and below the step, without the ones set", () => {
-    expect(at("steps:\n  - click: { target: a, |")?.labels).toEqual(["done", "button", "timeout", "role", "name", "exact", "checked", "disabled", "expanded", "pressed", "selected", "level", "includeHidden", "label", "placeholder", "text", "alt", "title", "testId", "css", "nth", "first", "last", "hasText", "hasNotText", "has", "within", "frame"]);
+    expect(at("steps:\n  - click: { target: a, |")?.labels).toEqual(["done", "button", "position", "timeout", "role", "name", "exact", "checked", "disabled", "expanded", "pressed", "selected", "level", "includeHidden", "label", "placeholder", "text", "alt", "title", "testId", "css", "nth", "first", "last", "hasText", "hasNotText", "has", "within", "frame"]);
     expect(at("steps:\n  - fill: { |")?.labels).toEqual(["target", "value"]);
-    expect(at("steps:\n  - click: \"#a\"\n    ti|")?.labels).toEqual(["done", "button", "timeout"]);
+    expect(at("steps:\n  - click: \"#a\"\n    ti|")?.labels).toEqual(["done", "button", "position", "timeout"]);
     expect(at("steps:\n  - fill:\n      target: a\n      |", true)?.labels).toEqual(["value"]);
   });
 

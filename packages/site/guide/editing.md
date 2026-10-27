@@ -37,6 +37,10 @@ The steps are written back into the file in place, so your comments, blank lines
 
 **Run** runs the test the cursor is in, with the parameters of the pack's last run. The menu beside it runs another test in the file. The run shows live under the editor, with pause, resume, retry, skip and stop. When it ends you see the result and the error, with **Go to line** for the line it broke on, and **See the attempt** opens the full attempt page.
 
+## Record
+
+**Record** writes steps for you while you click through the site on a live view, and puts them in the file at the cursor. See [Recording](./recording).
+
 ## When the file changes on disk
 
 When you save, the editor checks that the file on disk is still the one you opened. If it changed in the meantime, for example after a save in your own editor or a `git pull`, it doesn't overwrite it but says so. You can:

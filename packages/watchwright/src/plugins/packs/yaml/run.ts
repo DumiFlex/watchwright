@@ -179,6 +179,7 @@ async function runOne(step: Step, env: StepEnv, secrets: Secrets): Promise<void>
   const { h, page } = env;
   const at = (v: unknown) => locate(page, v as Target);
   const timeout = (fallback = ACTION_TIMEOUT) => (typeof a.timeout === "number" ? a.timeout : fallback);
+  const pos = () => (a.position && typeof a.position === "object" ? { position: a.position as { x: number; y: number } } : {});
   switch (step.name) {
     case "goto":
       return h.goto(str(a.url), a.waitUntil ? { waitUntil: a.waitUntil as "load" } : undefined);
@@ -205,12 +206,12 @@ async function runOne(step: Step, env: StepEnv, secrets: Secrets): Promise<void>
     }
     case "click":
       if (a.button && a.button !== "left") {
-        await act(`click ${summarize(step)}`, () => at(a.target).click({ button: a.button as "right", timeout: timeout() }));
+        await act(`click ${summarize(step)}`, () => at(a.target).click({ button: a.button as "right", ...pos(), timeout: timeout() }));
         return;
       }
-      return h.click(at(a.target), { ...(a.done !== undefined ? { done: at(a.done) } : {}), timeout: timeout() });
+      return h.click(at(a.target), { ...(a.done !== undefined ? { done: at(a.done) } : {}), ...pos(), timeout: timeout() });
     case "dblclick":
-      await act("double-click", () => at(a.target).dblclick({ timeout: timeout() }));
+      await act("double-click", () => at(a.target).dblclick({ ...pos(), timeout: timeout() }));
       return;
     case "fill":
       return h.fill(at(a.target), str(a.value));
@@ -231,7 +232,7 @@ async function runOne(step: Step, env: StepEnv, secrets: Secrets): Promise<void>
       return;
     }
     case "hover":
-      await act("hover", () => at(a.target).hover({ timeout: ACTION_TIMEOUT }));
+      await act("hover", () => at(a.target).hover({ ...pos(), timeout: ACTION_TIMEOUT }));
       return;
     case "upload": {
       const files = (Array.isArray(a.files) ? a.files : [a.files]).map((f) => path.resolve(env.packDir, str(f)));

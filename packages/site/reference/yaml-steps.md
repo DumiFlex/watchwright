@@ -54,6 +54,7 @@ Also written as `- click: <target>`.
 | `target` (required) | [target](#targets) | The element. |
 | `done` | [target](#targets) | An element that shows once the click worked. |
 | `button` | `left`, `right`, `middle` | Which mouse button (default left). |
+| `position` | map | A spot inside the element, `{ x, y }` in pixels from its top-left corner, to use instead of its middle (for canvases, maps and image pickers). |
 | `timeout` | whole number | Time limit in ms (default 15000). |
 
 ### dblclick
@@ -65,6 +66,7 @@ Also written as `- dblclick: <target>`.
 | Field | Type | |
 |---|---|---|
 | `target` (required) | [target](#targets) | The element. |
+| `position` | map | A spot inside the element, `{ x, y }` in pixels from its top-left corner, to use instead of its middle (for canvases, maps and image pickers). |
 | `timeout` | whole number | Time limit in ms (default 15000). |
 
 ### fill
@@ -135,6 +137,7 @@ Also written as `- hover: <target>`.
 | Field | Type | |
 |---|---|---|
 | `target` (required) | [target](#targets) | The element. |
+| `position` | map | A spot inside the element, `{ x, y }` in pixels from its top-left corner, to use instead of its middle (for canvases, maps and image pickers). |
 
 ### upload
 

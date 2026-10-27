@@ -124,7 +124,7 @@ Every `h` call is a pause point: Pause takes effect at the next one.
 | Helper | What it does |
 |---|---|
 | `h.goto(url)` | Opens a URL; relative ones resolve against `site.baseURL`. |
-| `h.click(target, { done?, timeout? })` | Clicks. `done` (a selector that must appear, or a function that must return true) says how to tell the click worked; without it a click that had no effect isn't noticed. |
+| `h.click(target, { done?, timeout?, position? })` | Clicks. `done` (a selector that must appear, or a function that must return true) says how to tell the click worked; without it a click that had no effect isn't noticed. `position` (`{ x, y }` in pixels from the element's top-left corner) clicks that spot instead of the middle, for canvases, maps and pickers. |
 | `h.fill(target, value)`, `h.press(key)`, `h.press(target, key)` | Typing. |
 | `h.has(target, timeout?)` | True when the target is visible. |
 | `h.step(title, fn)` | A named step: shown live, logged, a pause point, and kept with its start, end and outcome for the attempt's step timeline. Steps nest. |

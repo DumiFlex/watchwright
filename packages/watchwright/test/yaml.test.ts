@@ -10,7 +10,7 @@ import { firstNumber } from "../src/plugins/packs/yaml/run.js";
 import { packSchema, testFileSchema } from "../src/plugins/packs/yaml/schema.js";
 import { STEPS, summarize } from "../src/plugins/packs/yaml/steps.js";
 import { describeTarget } from "../src/plugins/packs/yaml/targets.js";
-import { lit, locatorCode, testsToCode } from "../src/plugins/packs/yaml/to-code.js";
+import { lit, locatorCode, stepCode, testsToCode } from "../src/plugins/packs/yaml/to-code.js";
 import { stepsReference } from "../src/plugins/packs/yaml/reference.js";
 import { cleanTempDirs, tempDir } from "./helpers/fixtures.js";
 import { startHarness } from "./helpers/harness.js";
@@ -132,6 +132,14 @@ describe("steps", () => {
     expect(summarize({ name: "expect", args: { target: "h1", not: true, visible: true } })).toBe("Check h1 is not visible");
     expect(summarize({ name: "expect", args: { url: { regex: "/x$" } } })).toBe("Check the URL is //x$/");
     expect(describeTarget({ role: "checkbox", name: "Toggle", within: { testId: "todo-item" }, first: true })).toBe('checkbox "Toggle" (first) in test id "todo-item"');
+    expect(summarize({ name: "click", args: { target: "#map", position: { x: 12, y: 40 } } })).toBe("Click #map at 12, 40");
+  });
+
+  it("write a spot inside the element as Playwright's position", () => {
+    expect(stepCode({ name: "click", args: { target: "#map", position: { x: 12, y: 40 } }, line: 1, col: 1 })).toEqual(['await h.click(page.locator("#map"), { position: { x: 12, y: 40 } });']);
+    expect(stepCode({ name: "click", args: { target: "#map", button: "right" }, line: 1, col: 1 })).toEqual(['await page.locator("#map").click({ button: "right" });']);
+    expect(stepCode({ name: "dblclick", args: { target: "#map" }, line: 1, col: 1 })).toEqual(['await page.locator("#map").dblclick();']);
+    expect(stepCode({ name: "hover", args: { target: "#map", position: { x: 1, y: 2 } }, line: 1, col: 1 })).toEqual(['await page.locator("#map").hover({ position: { x: 1, y: 2 } });']);
   });
 
   it("each has a doc line and fields with docs", () => {

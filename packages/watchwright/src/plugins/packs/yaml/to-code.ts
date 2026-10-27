@@ -139,6 +139,7 @@ export function stepCode(step: Step): string[] {
     const e = Object.entries(o).filter(([, v]) => v !== undefined);
     return e.length ? `, { ${e.map(([k, v]) => `${k}: ${v}`).join(", ")} }` : "";
   };
+  const pos = a.position === undefined ? undefined : lit(a.position);
   switch (step.name) {
     case "goto":
       return lines(`await h.goto(${lit(a.url)}${a.waitUntil ? `, { waitUntil: ${lit(a.waitUntil)} }` : ""});`);
@@ -154,10 +155,10 @@ export function stepCode(step: Step): string[] {
       ];
     }
     case "click":
-      if (a.button && a.button !== "left") return lines(`await ${loc(a.target)}.click({ button: ${lit(a.button)} });`);
-      return lines(`await h.click(${loc(a.target)}${named({ done: a.done === undefined ? undefined : loc(a.done), timeout: a.timeout })});`);
+      if (a.button && a.button !== "left") return lines(`await ${loc(a.target)}.click(${named({ button: lit(a.button), position: pos }).slice(2) || "{}"});`);
+      return lines(`await h.click(${loc(a.target)}${named({ done: a.done === undefined ? undefined : loc(a.done), position: pos, timeout: a.timeout })});`);
     case "dblclick":
-      return lines(`await ${loc(a.target)}.dblclick();`);
+      return lines(`await ${loc(a.target)}.dblclick(${named({ position: pos }).slice(2)});`);
     case "fill":
       return lines(`await h.fill(${loc(a.target)}, ${typeof a.value === "string" ? lit(a.value) : lit(String(a.value))});`);
     case "type":
@@ -171,7 +172,7 @@ export function stepCode(step: Step): string[] {
     case "select":
       return lines(`await ${loc(a.target)}.selectOption(${lit(a.option)});`);
     case "hover":
-      return lines(`await ${loc(a.target)}.hover();`);
+      return lines(`await ${loc(a.target)}.hover(${named({ position: pos }).slice(2)});`);
     case "upload": {
       const files = (Array.isArray(a.files) ? a.files : [a.files]).map((f) => `path.join(packDir, ${lit(f)})`);
       return lines(`await ${loc(a.target)}.setInputFiles([${files.join(", ")}]);`);

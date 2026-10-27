@@ -11,6 +11,7 @@ import DiffView from "../components/DiffView.vue";
 import FileLink from "../components/FileLink.vue";
 import MenuButton from "../components/MenuButton.vue";
 import ModalDialog from "../components/ModalDialog.vue";
+import RecordPanel from "../components/RecordPanel.vue";
 import RunDock from "../components/RunDock.vue";
 import SideDrawer from "../components/SideDrawer.vue";
 import StatusChip from "../components/StatusChip.vue";
@@ -21,10 +22,11 @@ import type { EditorProblem } from "../codemirror";
 import { dirtyPaths, dropDraft, getDraft, putDraft } from "../drafts";
 import { codeTestTemplate, defaultFile, fileTree, nextTestId, otherProblems, problemsIn, slug, testsInFile, yamlRole, yamlTestTemplate, type PackFile } from "../editfiles";
 import { buildErrorSpot, type SourceSpot } from "../editor";
-import { ArrowLeft, ChevronDown, CircleAlert, Ellipsis, FileCode, FilePlus, FileText, Folder, PanelLeft, Play, Save } from "../icons";
+import { ArrowLeft, ChevronDown, CircleAlert, CircleDot, Ellipsis, FileCode, FilePlus, FileText, Folder, PanelLeft, Play, Save } from "../icons";
 import { LiveConnection } from "../live";
 import { join, relativeTo } from "../paths";
 import { href } from "../router";
+import { insertCodeSteps, insertYamlSteps, yamlSpot, type YamlSpot } from "../recording";
 import { readTests } from "../stepsdoc";
 import { browserStore } from "../theme";
 import { toast } from "../toasts";
@@ -242,6 +244,50 @@ async function runTest(testId: string) {
   dockRun.value = res.data.id;
 }
 
+// Record: steps from clicking on a recording browser go in at the cursor. In a YAML test the
+// steps above the cursor run first; a code test's recording starts at the site.
+const canWindow = ref(false);
+const canRecord = computed(() => !!open.value && (role.value === "test" || (open.value.kind === "code" && fileTests.value.length > 0)) && pack.value?.status !== "error");
+const recordMenu = computed(() => [
+  { value: "here", label: role.value === "test" ? "Record from here" : "Record at the cursor" },
+  ...(canWindow.value ? [{ value: "window", label: "Record in a window" }] : []),
+]);
+interface Recording {
+  testId: string | null;
+  replay: number;
+  window: boolean;
+  params: Record<string, unknown>;
+  yaml: YamlSpot | null;
+  line: number;
+  path: string;
+}
+const recording = ref<Recording | null>(null);
+const recordOpen = computed({ get: () => recording.value !== null, set: (v: boolean) => !v && (recording.value = null) });
+async function startRecording(how: string) {
+  const o = open.value;
+  if (!o) return;
+  const yaml = role.value === "test" ? yamlSpot(text.value, cursorLine.value) : null;
+  if (role.value === "test" && !yaml) return void toast("Fix the YAML first: Record needs to know which test the cursor is in.", { tone: "bad" });
+  if (yaml && yaml.index > 0 && isDirty.value) await save();
+  const last = await getJson<RunSummary[]>(`/api/v1/runs?pack=${props.id}&limit=1`);
+  recording.value = {
+    testId: yaml?.testId ?? cursorTest.value?.id ?? null,
+    replay: yaml?.index ?? 0,
+    window: how === "window",
+    params: last.ok && last.data[0] ? last.data[0].params : {},
+    yaml,
+    line: cursorLine.value,
+    path: o.path,
+  };
+}
+function recorded(steps: { name: string; args: Record<string, unknown> }[]) {
+  const r = recording.value;
+  recording.value = null;
+  if (!r || steps.length === 0 || open.value?.path !== r.path) return;
+  text.value = r.yaml ? insertYamlSteps(text.value, r.yaml, steps) : insertCodeSteps(text.value, r.line, steps);
+  toast(`Added ${steps.length === 1 ? "a step" : `${steps.length} steps`}. Save to keep ${steps.length === 1 ? "it" : "them"}.`, { tone: "ok" });
+}
+
 function gotoSpot(spot: SourceSpot) {
   const rel = pack.value ? relativeTo(pack.value.dir, spot.file) : null;
   if (!rel) return;
@@ -360,6 +406,7 @@ watch(
   (l) => l && setTimeout(() => editor.value?.goto(l), 0),
 );
 onMounted(async () => {
+  void getJson<{ canWindow: boolean }>("/api/v1/record").then((r) => (canWindow.value = r.ok && r.data.canWindow));
   await loadPack();
   await openFile(path.value);
   live = new LiveConnection({}, {
@@ -414,6 +461,12 @@ const problemSpot = (p: string) => buildErrorSpot(p);
               <Play :size="15" /> Run {{ cursorTest?.id }}
             </button>
             <MenuButton v-if="fileTests.length > 1" :items="runMenu" label="Run another test in this file" @select="runTest">
+              <template #button><ChevronDown :size="15" /></template>
+            </MenuButton>
+          </div>
+          <div v-if="canRecord" class="runbtn">
+            <button v-tip="role === 'test' ? 'Record steps after the cursor; the steps above it run first' : 'Record steps into this test at the cursor'" type="button" class="btn" @click="startRecording('here')"><CircleDot :size="15" /> Record</button>
+            <MenuButton v-if="recordMenu.length > 1" :items="recordMenu" label="More ways to record" @select="startRecording">
               <template #button><ChevronDown :size="15" /></template>
             </MenuButton>
           </div>
@@ -540,6 +593,9 @@ const problemSpot = (p: string) => buildErrorSpot(p);
         <button type="button" class="btn" @click="convertOpen = false">Cancel</button>
         <button type="button" class="btn primary" @click="convert">Convert</button>
       </template>
+    </ModalDialog>
+    <ModalDialog v-model="recordOpen" :heading="recording?.window ? 'Recording in a window' : 'Recording'" width="min(1280px, 100%)" :dismissable="false">
+      <RecordPanel v-if="recording" :pack-id="id" :test-id="recording.testId" :replay="recording.replay" :window="recording.window" :params="recording.params" @done="recorded" @cancel="recording = null" />
     </ModalDialog>
     <ModalDialog v-model="diffOpen" heading="Changes on disk" width="860px">
       <DiffView v-if="conflict?.text != null && open" :before="conflict.text" :after="open.text" label="The file on disk and your version" before-label="On disk" after-label="Yours" />
