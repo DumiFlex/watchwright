@@ -30,7 +30,8 @@ export function matches(e: KeyLike, combo: string, mac = isMac()): boolean {
   const letter = /^[a-z]$/i.test(key);
   if (letter && e.shiftKey !== mods.has("Shift")) return false;
   if (!letter && mods.has("Shift") && !e.shiftKey) return false;
-  return e.key.toLowerCase() === key.toLowerCase();
+  // "Space" names the space bar, whose key is " ".
+  return e.key.toLowerCase() === (key === "Space" ? " " : key.toLowerCase());
 }
 
 /** Whether keys go into a text field (or similar) at `el`, where single-key shortcuts stay off. */

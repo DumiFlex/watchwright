@@ -1,13 +1,16 @@
 <script setup lang="ts">
-import { computed, onMounted, provide, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
 import { Columns2, FolderOpen, ListChecks, Moon, Palette, Plus, Search, Settings, Sun, SunMoon } from "./icons";
-import { getJson, type HealthData } from "./api";
+import { getJson, sendJson, type HealthData, type Pack, type RunSummary } from "./api";
+import { finderCommands } from "./finder";
 import BrandMark from "./components/BrandMark.vue";
 import CommandPalette, { type PaletteCommand } from "./components/CommandPalette.vue";
 import KeyHint from "./components/KeyHint.vue";
 import MenuButton from "./components/MenuButton.vue";
 import ThemePicker from "./components/ThemePicker.vue";
 import ToastHost from "./components/ToastHost.vue";
+import { offerNotify, startNotifier } from "./notify";
+import { toast } from "./toasts";
 import { sectionOf, useRoute } from "./router";
 import { vTip } from "./tooltip";
 import { useShortcut } from "./keys";
@@ -50,7 +53,21 @@ const nav = computed(() => [
 const palette = ref(false);
 useShortcut("Mod+K", () => (palette.value = !palette.value));
 const go = (hash: string) => () => (location.hash = hash);
+// Packs, runs and tests to find, fetched each time the palette opens so they're current.
+const found = ref<{ packs: Pack[]; runs: RunSummary[] }>({ packs: [], runs: [] });
+watch(palette, async (open) => {
+  if (!open) return;
+  const [packs, runs] = await Promise.all([getJson<Pack[]>("/api/v1/packs"), getJson<RunSummary[]>("/api/v1/runs?limit=200")]);
+  found.value = { packs: packs.ok ? packs.data : [], runs: runs.ok ? runs.data : [] };
+});
+async function runAgain(id: string) {
+  const res = await sendJson<RunSummary>(`/api/v1/runs/${id}/again`);
+  if (!res.ok) return void toast(res.error.message, { tone: "bad" });
+  offerNotify();
+  location.hash = `#/runs/${res.data.id}`;
+}
 const commands = computed<PaletteCommand[]>(() => [
+  ...finderCommands(found.value.packs, found.value.runs, { go: (hash) => (location.hash = hash), again: (id) => void runAgain(id) }),
   { id: "go-runs", label: "Runs", group: "Go to", words: "history list", icon: ListChecks, run: go("#/") },
   { id: "go-packs", label: "Packs", group: "Go to", words: "tests suites", icon: FolderOpen, run: go("#/packs") },
   { id: "go-new", label: "New run", group: "Go to", words: "start", icon: Plus, run: go("#/new") },
@@ -61,6 +78,10 @@ const commands = computed<PaletteCommand[]>(() => [
   { id: "mode-dark", label: "Mode: Dark", group: "Theme", icon: Moon, run: () => (theme.value = { ...theme.value, mode: "dark" }) },
   { id: "mode-system", label: "Mode: System", group: "Theme", icon: SunMoon, run: () => (theme.value = { ...theme.value, mode: "system" }) },
 ]);
+
+// Desktop notices for runs, when this browser has them on (Settings).
+const stopNotifier = startNotifier(() => (route.value.name === "run" ? route.value.id : null));
+onBeforeUnmount(stopNotifier);
 
 onMounted(async () => {
   const res = await getJson<HealthData>("/api/v1/health");
@@ -97,7 +118,7 @@ onMounted(async () => {
   <RunView v-if="route.name === 'run'" :id="route.id" />
   <AttemptView v-else-if="route.name === 'attempt'" :run-id="route.runId" :attempt-id="route.attemptId" />
   <NewRunView v-else-if="route.name === 'new'" :query="route.query" />
-  <PacksView v-else-if="route.name === 'packs'" />
+  <PacksView v-else-if="route.name === 'packs'" :query="route.query" />
   <PackView v-else-if="route.name === 'pack'" :id="route.id" />
   <CompareView v-else-if="route.name === 'compare'" :query="route.query" />
   <KitView v-else-if="route.name === 'kit'" />

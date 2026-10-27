@@ -16,6 +16,8 @@ export interface RunFilter {
   packId?: string | undefined;
   statuses?: readonly RunStatus[] | undefined;
   before?: string | undefined;
+  /** Words that must each appear in the run's id, label, pack name, values, facts or status. */
+  q?: string | undefined;
 }
 
 export const ACTIVE_STATUSES: readonly RunStatus[] = ["running", "pausing", "paused"];
@@ -284,6 +286,20 @@ export class RunsRepo {
     if (filter.before) {
       where.push("created_at < ?");
       args.push(filter.before);
+    }
+    for (const word of (filter.q ?? "").trim().split(/\s+/).filter(Boolean).slice(0, 8)) {
+      const esc = (t: string) => t.replace(/[\\%_]/g, (c) => `\\${c}`);
+      const kv = /^([^=]+)=(.+)$/.exec(word);
+      if (kv) {
+        // name=value matches the run's whole value, quoted (text) or not (numbers, true/false)
+        const key = `%${esc(JSON.stringify(kv[1]))}:`;
+        where.push(`(${[1, 2, 3].map(() => "params LIKE ? ESCAPE '\\'").join(" OR ")})`);
+        args.push(`${key}${esc(JSON.stringify(kv[2]))}%`, `${key}${esc(kv[2]!)},%`, `${key}${esc(kv[2]!)}}%`);
+        continue;
+      }
+      const like = `%${esc(word)}%`;
+      where.push(`(${["id", "label", "pack_name", "params", "info", "status"].map((c) => `${c} LIKE ? ESCAPE '\\'`).join(" OR ")})`);
+      args.push(like, like, like, like, like, like);
     }
     const sql = `SELECT * FROM runs ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY created_at DESC, rowid DESC LIMIT ?`;
     return this.db.prepare(sql).all(...args, filter.limit ?? 100) as RunRow[];

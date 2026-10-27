@@ -39,13 +39,27 @@ Click an attempt in the queue to open its page. It shows the error (with **In yo
 
 J and K step to the next and previous attempt. Beside the results, the **Review** panel scores the attempt on the pack's rubric (see [Reviewing results](./reviewing)).
 
-A finished run's page shows every test's attempts and scores as a grid, with **Compare** and **Export** (Markdown, or a zip with the screenshots). **Compare** in the top bar lines up runs of one pack side by side.
+A finished run's page shows every test's attempts and scores as a grid, with **Compare** and **Export** (Markdown, or a zip with the screenshots). **Compare** in the top bar lines up runs of one pack side by side; it opens on the latest finished run's pack with its two latest finished runs.
 
-**Runs**, the home page, lists the runs that are going and every earlier one, with filters by pack and status. From there you can open a run, **Run again** (the same pack, tests, values and options, started at once), start a new one from its choices with **New run like this…**, or delete it. A run's page has the same buttons, and the pencil beside its title gives it a name that shows in the lists, Compare and exports.
+**Runs**, the home page, lists the runs that are going and every earlier one, with a search (words in the label, id, pack name, values or status; `lang=de` finds a value) and filters by pack and status. From there you can open a run, **Run again** (the same pack, tests, values and options, started at once), start a new one from its choices with **New run like this…**, or delete it. A run's page has the same buttons, and the pencil beside its title gives it a name that shows in the lists, Compare and exports.
 
-Press Ctrl+K (Cmd+K on a Mac) anywhere, or the search button at the top, to jump to a page or switch the look and mode from the keyboard.
+Press Ctrl+K (Cmd+K on a Mac) anywhere, or the search button at the top, to find a pack, a run (by pack, label, id, values or status) or a test, or to run a command: run the latest run again, start a new run of a pack, add a pack, go to a page, or switch the look and mode.
 
-File names of your tests, build errors and the line a test broke on are links that open in your editor at that line. Pick the editor (VS Code, Cursor, Windsurf, IntelliJ IDEA, WebStorm, or none) on the **Settings** page (the gear at the top), which also has the look and mode and the list of recent folders.
+### Watching a run
+
+While a run goes, the browser tab's title says how it's going (`Running 4/12`, `Paused: S1 broke`, `Done 12/12`) and the tab's icon gets a dot in the state's color, so a tab in the background still tells you. On the run's page these keys work the run (press `?` for the list):
+
+| Key | What it does |
+| --- | --- |
+| Space | Pause, or resume a pause you made |
+| R | Retry the broken attempt the run paused on |
+| S | Skip it: keep its result and go on |
+| M | Mark: save the live view to the running attempt, with a note |
+| Shift+S | Stop after this test |
+
+Watchwright can also send a desktop notification when a run finishes, pauses on a broken test (with the minutes left before it skips the test by itself) or fails to start, while its tab is in the background; clicking one opens the run. Switch them on under **Notifications** in **Settings**, or answer the offer that shows the first time you start a run. The choice is kept by each browser. While the tab is in front, the same news shows as a short message in the corner, except on that run's own page.
+
+File names of your tests, build errors and the line a test broke on are links that open in your editor at that line. Pick the editor (VS Code, Cursor, Windsurf, IntelliJ IDEA, WebStorm, or none) on the **Settings** page (the gear at the top), which also has the look and mode, notifications, what a new run starts from, and the list of recent folders.
 
 ## Options
 

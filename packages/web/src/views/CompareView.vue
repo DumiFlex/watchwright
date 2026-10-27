@@ -81,8 +81,20 @@ async function loadComparison() {
   if (show.value && !showOptions(res.data).some((o) => o.value === show.value)) show.value = "";
 }
 
+/** With nothing picked, opens on the latest finished run's pack and its two latest finished runs, older on the left. */
+async function openLatest() {
+  const latest = await getJson<RunSummary[]>("/api/v1/runs?status=finished&limit=1");
+  const run = latest.ok ? latest.data[0] : undefined;
+  if (!run || chosen.value.length || packId.value) return;
+  const two = await getJson<RunSummary[]>(`/api/v1/runs?pack=${run.packId}&status=finished&limit=2`);
+  if (!two.ok || chosen.value.length || packId.value) return;
+  packId.value = run.packId;
+  chosen.value = two.data.map((r) => r.id).reverse();
+}
+
 void loadPacks();
-void loadComparison();
+if (chosen.value.length) void loadComparison();
+else void openLatest();
 watch(packId, (id, old) => {
   void loadRuns(id);
   // A new pack starts a new comparison; the first load only fills in the pack of the runs given.

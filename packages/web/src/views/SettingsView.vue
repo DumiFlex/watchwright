@@ -10,9 +10,11 @@ import { when } from "../format";
 import { tildify } from "../paths";
 import { loadSettings, saveSettings, settings } from "../settings";
 import { LOOKS, MODES, type Theme } from "../theme";
+import { notify, notifySupport, turnOffNotify, turnOnNotify, type NotifySupport } from "../notify";
 import { toast } from "../toasts";
 import RadioGroup from "../components/RadioGroup.vue";
 import SelectMenu from "../components/SelectMenu.vue";
+import ToggleSwitch from "../components/ToggleSwitch.vue";
 import { vTip } from "../tooltip";
 
 const theme = inject<Ref<Theme>>("theme");
@@ -41,6 +43,18 @@ async function save(values: Record<string, unknown>) {
   else toast("Saved", { tone: "ok", timeout: 1500 });
 }
 
+// Desktop notices are kept by this browser, like the look; the browser itself must allow them.
+const support = ref<NotifySupport>(notifySupport());
+const notices = computed({
+  get: () => notify.pref === "on" && support.value === "granted",
+  set: (on) => void setNotices(on),
+});
+async function setNotices(on: boolean) {
+  if (!on) return turnOffNotify();
+  support.value = await turnOnNotify();
+  if (support.value === "denied") toast("The browser blocks notifications for this page. Allow them in the site settings (the icon left of the address), then switch this on.", { tone: "warn", timeout: 10000 });
+}
+
 const recent = ref<FolderPlaces["recent"]>([]);
 async function loadRecent() {
   const res = await getJson<FolderPlaces>("/api/v1/folders/places");
@@ -62,7 +76,7 @@ onMounted(() => {
     <div class="page-head">
       <div>
         <h1 class="display">Settings</h1>
-        <p class="muted">The look is kept by this browser. Everything else is kept by the server, so every browser and agent on this machine sees the same.</p>
+        <p class="muted">The look and notifications are kept by this browser. Everything else is kept by the server, so every browser and agent on this machine sees the same.</p>
       </div>
     </div>
 
@@ -95,6 +109,14 @@ onMounted(() => {
       <h2 id="s-newrun" class="display">New run</h2>
       <p class="muted small">What the New run page fills in when it opens. A run's "New run like this" and presets always fill in their own choices.</p>
       <RadioGroup v-model="newRunFrom" :options="newRunOptions" label="New run starts from" />
+    </section>
+
+    <section class="card" aria-labelledby="s-notify">
+      <h2 id="s-notify" class="display">Notifications</h2>
+      <p class="muted small">Kept by this browser. A desktop notice when a run finishes, pauses on a broken test or fails to start, while this tab is in the background. Clicking it opens the run.</p>
+      <ToggleSwitch id="s-notify-on" v-model="notices" :disabled="support === 'unsupported'">Desktop notifications</ToggleSwitch>
+      <p v-if="support === 'unsupported'" class="muted small">This browser can't show notifications for this page.</p>
+      <p v-else-if="support === 'denied'" class="muted small">The browser blocks notifications for this page. Allow them in its site settings, then switch this on.</p>
     </section>
 
     <section class="card" aria-labelledby="s-recent">

@@ -10,7 +10,7 @@ describe("router", () => {
     expect(parseRoute("#/runs/0a1b2c3d")).toEqual({ name: "run", id: "0a1b2c3d" });
     expect(parseRoute("#/runs/0a1b2c3d/attempts/0a1b2c3d4e5f")).toEqual({ name: "attempt", runId: "0a1b2c3d", attemptId: "0a1b2c3d4e5f" });
     expect(parseRoute("#/runs/0a1b2c3d/attempts/xyz").name).toBe("runs");
-    expect(parseRoute("#/packs")).toEqual({ name: "packs" });
+    expect(parseRoute("#/packs")).toEqual({ name: "packs", query: {} });
     expect(parseRoute("#/packs/0a1b2c3d")).toEqual({ name: "pack", id: "0a1b2c3d" });
     expect(parseRoute("#/kit")).toEqual({ name: "kit" });
     expect(parseRoute("#/settings")).toEqual({ name: "settings" });
@@ -30,7 +30,8 @@ describe("router", () => {
       { name: "new", query: { pack: "0a1b2c3d" } },
       { name: "run", id: "0a1b2c3d" },
       { name: "attempt", runId: "0a1b2c3d", attemptId: "0a1b2c3d4e5f" },
-      { name: "packs" },
+      { name: "packs", query: {} },
+      { name: "packs", query: { browse: "find" } },
       { name: "pack", id: "0a1b2c3d" },
       { name: "compare", query: { runs: "0a1b2c3d", show: "shot:home" } },
       { name: "kit" },

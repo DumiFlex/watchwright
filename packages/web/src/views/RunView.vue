@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Ban, Pencil, Plus, Repeat, Undo2 } from "../icons";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Ban, Keyboard, Pencil, Plus, Repeat, Undo2 } from "../icons";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, sendJson, type ChangeSide, type Criterion, type Pack, type Review, type RunChanges, type RunDetail, type WwEvent } from "../api";
 import { LiveConnection, type LiveState } from "../live";
 import DataTable from "../components/DataTable.vue";
 import LiveViewer from "../components/LiveViewer.vue";
 import MenuButton from "../components/MenuButton.vue";
+import KeyHint from "../components/KeyHint.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import MultiSelect from "../components/MultiSelect.vue";
 import SelectMenu from "../components/SelectMenu.vue";
@@ -17,6 +18,11 @@ import { countsText, duration } from "../format";
 import { href } from "../router";
 import { resultRows, type ResultRow } from "../review";
 import { canMove as canMoveRow, movable as movableRow } from "../queue";
+import { useShortcut } from "../keys";
+import { offerNotify } from "../notify";
+import { resetHead, setIconDot, setTitle } from "../pagehead";
+import { openModals } from "../popup";
+import { runTitle, runTone } from "../runstate";
 import { vTip } from "../tooltip";
 
 const props = defineProps<{ id: string }>();
@@ -144,6 +150,7 @@ async function again() {
   const res = await sendJson<RunDetail>(`/api/v1/runs/${props.id}/again`);
   busy.value = false;
   if (!res.ok) return void (actionError.value = res.error.message);
+  offerNotify();
   window.location.hash = href({ name: "run", id: res.data.id });
 }
 
@@ -339,7 +346,37 @@ onBeforeUnmount(() => {
   conn?.close();
   if (clock) clearInterval(clock);
   if (refresh) clearTimeout(refresh);
+  resetHead();
 });
+
+// The tab says how the run is going, so a tab in the background still tells you.
+watch([run, live], ([r, l]) => {
+  if (!r) return;
+  setTitle(runTitle(r, l));
+  void setIconDot(runTone(r, l));
+});
+
+// Keyboard: the run's controls, each only when its button is there. Not while a dialog is open.
+const canPause = computed(() => active.value && (!live.value || live.value.state === "running") && !live.value?.stopping);
+const canResume = computed(() => live.value?.state === "pausing" || pausedManual.value);
+const keyed = (fn: () => void) => () => {
+  if (openModals.length === 0 && !busy.value) fn();
+};
+useShortcut("Space", keyed(() => (canPause.value ? void act("pause") : canResume.value ? void act("resume") : undefined)));
+useShortcut("R", keyed(() => pausedBroken.value && void act("retry")));
+useShortcut("S", keyed(() => pausedBroken.value && void act("skip")));
+useShortcut("M", keyed(() => active.value && live.value?.attemptId && (markOpen.value = true)));
+useShortcut("Shift+S", keyed(() => active.value && !live.value?.stopping && void act("stop", { when: "after" })));
+const keysOpen = ref(false);
+useShortcut("?", keyed(() => (keysOpen.value = true)));
+const KEYS = [
+  { keys: "Space", what: "Pause, or resume a pause you made" },
+  { keys: "R", what: "Retry the broken attempt the run paused on" },
+  { keys: "S", what: "Skip it: keep its result and go on" },
+  { keys: "M", what: "Mark: save the live view to the running attempt" },
+  { keys: "Shift+S", what: "Stop after this test" },
+  { keys: "?", what: "This list" },
+];
 
 
 // Delete, behind a confirm dialog; afterwards back to the runs list.
@@ -390,13 +427,14 @@ function time(iso: string) {
         </div>
         <div class="controls">
           <template v-if="active">
-            <button v-if="!live || live.state === 'running'" class="btn" :disabled="busy || !!live?.stopping" @click="act('pause')">Pause</button>
-            <button v-if="live?.state === 'pausing' || pausedManual" class="btn primary" :disabled="busy" @click="act('resume')">Resume</button>
-            <button v-if="pausedBroken" class="btn primary" :disabled="busy" @click="act('retry')">Retry</button>
-            <button v-if="pausedBroken" class="btn" :disabled="busy" @click="act('skip')">Skip</button>
-            <button v-tip="'Save the live view to this attempt, with a note'" class="btn" :disabled="busy || !live?.attemptId" @click="markOpen = true">Mark</button>
-            <button class="btn" :disabled="busy || !!live?.stopping" @click="act('stop', { when: 'after' })">Stop after this test</button>
+            <button v-if="!live || live.state === 'running'" v-tip="'Pause (Space)'" class="btn" aria-keyshortcuts="Space" :disabled="busy || !!live?.stopping" @click="act('pause')">Pause</button>
+            <button v-if="live?.state === 'pausing' || pausedManual" v-tip="'Resume (Space)'" class="btn primary" aria-keyshortcuts="Space" :disabled="busy" @click="act('resume')">Resume</button>
+            <button v-if="pausedBroken" v-tip="'Retry (R)'" class="btn primary" aria-keyshortcuts="R" :disabled="busy" @click="act('retry')">Retry</button>
+            <button v-if="pausedBroken" v-tip="'Skip (S)'" class="btn" aria-keyshortcuts="S" :disabled="busy" @click="act('skip')">Skip</button>
+            <button v-tip="'Save the live view to this attempt, with a note (M)'" class="btn" aria-keyshortcuts="M" :disabled="busy || !live?.attemptId" @click="markOpen = true">Mark</button>
+            <button v-tip="'Stop after this test (Shift+S)'" class="btn" aria-keyshortcuts="Shift+S" :disabled="busy || !!live?.stopping" @click="act('stop', { when: 'after' })">Stop after this test</button>
             <button class="btn danger" :disabled="busy || live?.stopping === 'now'" @click="act('stop', { when: 'now' })">Stop now</button>
+            <button v-tip="'Keyboard shortcuts (?)'" class="btn keysbtn" aria-label="Keyboard shortcuts" aria-keyshortcuts="?" @click="keysOpen = true"><Keyboard :size="15" /></button>
           </template>
           <button v-if="run.status === 'queued'" class="btn danger" :disabled="busy" @click="act('stop', { when: 'now' })">Cancel</button>
           <button v-if="canResumeRun" class="btn primary" :disabled="busy" @click="act('resume')">Resume run</button>
@@ -587,11 +625,39 @@ function time(iso: string) {
           <button class="btn danger" :disabled="busy" @click="remove">{{ busy ? "Deleting…" : "Delete run" }}</button>
         </template>
       </ModalDialog>
+      <ModalDialog v-model="keysOpen" heading="Keyboard shortcuts">
+        <dl class="shortcut-list">
+          <template v-for="k in KEYS" :key="k.keys">
+            <dt><KeyHint :keys="k.keys" /></dt>
+            <dd>{{ k.what }}</dd>
+          </template>
+        </dl>
+        <p class="muted small keysnote">Each works only when its button shows, and not while a dialog is open.</p>
+      </ModalDialog>
     </template>
   </main>
 </template>
 
 <style scoped>
+.shortcut-list {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-2) var(--space-4);
+  align-items: center;
+  margin: 0;
+}
+.shortcut-list dd {
+  margin: 0;
+}
+.shortcut-list + .keysnote {
+  margin: var(--space-4) 0 0;
+}
+/* no keyboard to speak of at phone width */
+@media (max-width: 720px) {
+  .keysbtn {
+    display: none;
+  }
+}
 .qhead {
   display: flex;
   flex-wrap: wrap;

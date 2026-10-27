@@ -11,6 +11,7 @@ import { getJson, sendJson, type Pack, type ParamValue, type Preset, type RunCho
 import { useShortcut } from "../keys";
 import { replaceRoute } from "../router";
 import { loadSettings, settings } from "../settings";
+import { offerNotify } from "../notify";
 import { toast } from "../toasts";
 import CheckBox from "../components/CheckBox.vue";
 import KeyHint from "../components/KeyHint.vue";
@@ -179,6 +180,13 @@ onMounted(async () => {
   await nextTick();
   applyPack(wanted);
   opening = false;
+  // #/new?pack=…&test=… (a test found with Ctrl+K): that test alone, on the pack's defaults.
+  const test = props.query.test;
+  if (test && wanted.tests.some((t) => t.id === test)) {
+    chosen.value = [test];
+    replaceRoute({ name: "new", query: { pack: wanted.id } });
+    return;
+  }
   const from = props.query.from;
   if (from && /^[0-9a-f]{8}$/.test(from)) {
     const run = await getJson<RunSummary>(`/api/v1/runs/${from}`);
@@ -315,6 +323,7 @@ async function start() {
   const res = await sendJson<RunSummary>("/api/v1/runs", body());
   starting.value = false;
   if (!res.ok) return void (startError.value = res.error.message);
+  offerNotify();
   window.location.hash = `#/runs/${res.data.id}`;
 }
 // Ctrl+Enter (Cmd+Enter on a Mac) starts the run from anywhere in the form; not while a dialog is open.

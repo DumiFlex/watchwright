@@ -7,7 +7,7 @@ export type Route =
   | { name: "new"; query: Record<string, string> }
   | { name: "run"; id: string }
   | { name: "attempt"; runId: string; attemptId: string }
-  | { name: "packs" }
+  | { name: "packs"; query: Record<string, string> }
   | { name: "pack"; id: string }
   | { name: "compare"; query: Record<string, string> }
   | { name: "kit" }
@@ -29,7 +29,7 @@ export function parseRoute(hash: string): Route {
   const query = queryOf(q === -1 ? "" : raw.slice(q + 1));
   let m: RegExpExecArray | null;
   if (path === "/new") return { name: "new", query };
-  if (path === "/packs") return { name: "packs" };
+  if (path === "/packs") return { name: "packs", query };
   if (path === "/kit") return { name: "kit" };
   if (path === "/settings") return { name: "settings" };
   if (path === "/compare") return { name: "compare", query };
@@ -55,7 +55,7 @@ export function href(route: Route): string {
     case "attempt":
       return `#/runs/${route.runId}/attempts/${route.attemptId}`;
     case "packs":
-      return "#/packs";
+      return `#/packs${qs(route.query)}`;
     case "pack":
       return `#/packs/${route.id}`;
     case "compare":
