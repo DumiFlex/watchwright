@@ -15,12 +15,16 @@ import ProgressBar from "../components/ProgressBar.vue";
 import RadioGroup from "../components/RadioGroup.vue";
 import RangeSlider from "../components/RangeSlider.vue";
 import SelectMenu from "../components/SelectMenu.vue";
+import SortableList from "../components/SortableList.vue";
+import SplitPane from "../components/SplitPane.vue";
 import StatusChip from "../components/StatusChip.vue";
 import TabBar from "../components/TabBar.vue";
 import TextArea from "../components/TextArea.vue";
 import TextField from "../components/TextField.vue";
+import TimelineScrubber, { type TimelineMark } from "../components/TimelineScrubber.vue";
 import ToggleSwitch from "../components/ToggleSwitch.vue";
 import type { Sort } from "../table";
+import type { TimelineStep } from "../timeline";
 import { toast } from "../toasts";
 import { vTip } from "../tooltip";
 
@@ -67,6 +71,33 @@ const runColumns = [
 ];
 const took = (s: number) => (s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`);
 const lastRow = ref("");
+const split = ref(58);
+const logLines = ["0:00 open https://shop.example.test/", "0:04 fill search: boots", "0:09 click Add to cart", "0:12 wait for cart badge", "0:21 click Checkout", "0:33 expect total 59.90", "0:41 screenshot checkout"];
+const playhead = ref(12_400);
+const picked2 = ref("");
+const steps: TimelineStep[] = [
+  { id: "1", label: "Open home page", start: 0, end: 4000, status: "passed" },
+  { id: "2", label: "Search for boots", start: 4000, end: 9000, status: "passed" },
+  { id: "3", label: "Wait for results", start: 5200, end: 8100, status: "passed" },
+  { id: "4", label: "Add to cart", start: 9000, end: 21_000, status: "passed" },
+  { id: "5", label: "Cart badge slow", start: 12_000, end: 19_500, status: "broken" },
+  { id: "6", label: "Checkout", start: 21_000, end: 41_000, status: "failed" },
+  { id: "7", label: "Screenshot", start: 41_000, end: 47_000 },
+];
+const marks: TimelineMark[] = [
+  { at: 19_500, label: "Retry", tone: "warn" },
+  { at: 33_000, label: "Total was 64.90", tone: "bad" },
+];
+type QueueItem = { id: string; name: string; state: "done" | "running" | "waiting" };
+const queue = ref<QueueItem[]>([
+  { id: "H1", name: "Home page loads", state: "done" },
+  { id: "S1", name: "Search finds products", state: "running" },
+  { id: "C1", name: "Guest checkout", state: "waiting" },
+  { id: "S3", name: "Typo still finds boots", state: "waiting" },
+  { id: "C3", name: "Coupon applies once", state: "waiting" },
+  { id: "A1", name: "Sign in", state: "waiting" },
+]);
+const lastMove = ref("");
 let toastCount = 0;
 function demoToast(tone: "info" | "ok" | "bad" | "warn") {
   toastCount++;
@@ -257,6 +288,53 @@ const traces = [
     </section>
 
     <section class="card">
+      <h2 class="display">Run page tools</h2>
+      <div class="grid">
+        <div class="item wide">
+          <span class="lbl">Split panes</span>
+          <p class="muted note">Drag the handle, or focus it and use the arrows. Double-click puts it back. The size is remembered; below 640px the panes stack.</p>
+          <div class="split-demo">
+            <SplitPane v-model="split" label="Resize screen and log" storage-key="kit" :min-first="200" :min-second="180">
+              <template #first>
+                <div class="screen"><span class="muted">Live screen</span></div>
+              </template>
+              <template #second>
+                <ol class="log num">
+                  <li v-for="l in logLines" :key="l">{{ l }}</li>
+                </ol>
+              </template>
+            </SplitPane>
+          </div>
+        </div>
+        <div class="item wide">
+          <span class="lbl">Timeline</span>
+          <p class="muted note">Click or drag to move the playhead. Page Up/Down jumps between steps. {{ picked2 }}</p>
+          <TimelineScrubber v-model="playhead" :steps="steps" :duration="48_000" :marks="marks" label="Attempt time" @pick="(s) => (picked2 = `Picked: ${s.label}.`)" />
+        </div>
+        <div class="item wide">
+          <span class="lbl">Reorder</span>
+          <p class="muted note">Drag a grip, or focus it, press Space, move with the arrows and press Space again. Done and running tests stay put. {{ lastMove }}</p>
+          <SortableList
+            v-model="queue"
+            :item-key="(q) => q.id"
+            :item-label="(q) => `${q.id} ${q.name}`"
+            :locked="(q) => q.state !== 'waiting'"
+            label="Run queue"
+            @move="(m) => (lastMove = `Moved ${m.item.id} from ${m.from + 1} to ${m.to + 1}.`)"
+          >
+            <template #default="{ item, index }">
+              <div class="qrow">
+                <span class="num muted">{{ index + 1 }}</span>
+                <span class="qname"><span class="num">{{ item.id }}</span> {{ item.name }}</span>
+                <StatusChip :status="item.state === 'done' ? 'passed' : item.state === 'running' ? 'running' : 'pending'" />
+              </div>
+            </template>
+          </SortableList>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
       <h2 class="display">Navigation and dialogs</h2>
       <div class="grid">
         <div class="item wide">
@@ -362,6 +440,39 @@ header p {
 .note {
   margin: 0 0 var(--space-3);
   font-size: 13px;
+}
+.split-demo {
+  display: grid;
+  min-height: 240px;
+}
+.screen {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  min-height: 160px;
+  border: var(--border-width) dashed var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--raised);
+}
+.log {
+  margin: 0;
+  padding: 0 0 0 var(--space-2);
+  list-style: none;
+  font-size: 12px;
+  line-height: 1.8;
+}
+.qrow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.qname {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .pair {
   display: grid;
