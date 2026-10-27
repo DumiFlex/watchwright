@@ -1,11 +1,27 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import type { FrameHeader } from "../api";
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
+import { getJson, type FrameHeader } from "../api";
+import { History, Radio } from "../icons";
+import { rewindSteps, type RewindFrame } from "../rewind";
+import TimelineScrubber from "./TimelineScrubber.vue";
 
 // Draws the newest screencast frame of one page on a canvas. It follows the page the run last
-// acted on, unless the viewer picks a tab.
+// acted on, unless the viewer picks a tab. Rewind shows the server's last 30 s of frames on a
+// scrubber (with the steps that ran then); live frames keep coming in underneath.
 
-const props = defineProps<{ pages: { id: string; url: string }[]; activePageId: string | null; running: boolean }>();
+const props = withDefaults(
+  defineProps<{
+    pages: { id: string; url: string }[];
+    activePageId: string | null;
+    running: boolean;
+    /** Set to offer Rewind. */
+    runId?: string | undefined;
+    /** Steps that ran, by start time (ms since the epoch), for the rewind scrubber. */
+    steps?: readonly { at: number; label: string }[];
+  }>(),
+  { runId: undefined, steps: () => [] },
+);
+const emit = defineEmits<{ rewound: [moment: { pageId: string; at: number } | null] }>();
 
 const canvas = ref<HTMLCanvasElement | null>(null);
 const chosen = ref<string | null>(null);
@@ -33,7 +49,7 @@ async function push(header: FrameHeader, jpeg: Uint8Array) {
   }
   prev?.bitmap.close();
   latest.set(header.pageId, { header, bitmap });
-  if (header.pageId === shownPage.value) {
+  if (header.pageId === shownPage.value && !rewinding.value) {
     stamps.push(performance.now());
     draw();
   }
@@ -47,7 +63,7 @@ function draw() {
     // Read the newest frame now: one that arrived since draw() was called has closed the older bitmap.
     const el = canvas.value;
     const id = shownPage.value;
-    const frame = id ? latest.get(id) : undefined;
+    const frame = rewinding.value ? past.value : id ? latest.get(id) : undefined;
     if (!el || !frame) return;
     const { bitmap, header } = frame;
     if (el.width !== bitmap.width || el.height !== bitmap.height) {
@@ -59,7 +75,82 @@ function draw() {
   });
 }
 
-watch(shownPage, draw);
+// Rewind: the server keeps the last 30 s of frames; the scrubber picks one.
+const rewinding = ref(false);
+const rewindError = ref<string | null>(null);
+const index = ref<RewindFrame[]>([]);
+const playhead = ref(0);
+const past = shallowRef<{ header: FrameHeader; bitmap: ImageBitmap } | null>(null);
+const pageFrames = computed(() => index.value.filter((f) => f.pageId === shownPage.value));
+const windowStart = computed(() => pageFrames.value[0]?.timestamp ?? 0);
+const windowLength = computed(() => Math.max(1, (pageFrames.value.at(-1)?.timestamp ?? 0) - windowStart.value));
+const scrubSteps = computed(() => rewindSteps(props.steps, windowStart.value, windowStart.value + windowLength.value));
+const behind = computed(() => (past.value ? Math.max(0, (pageFrames.value.at(-1)?.timestamp ?? 0) - past.value.header.timestamp) : 0));
+let loading = 0;
+
+async function startRewind() {
+  if (!props.runId) return;
+  rewindError.value = null;
+  const res = await getJson<{ windowMs: number; frames: RewindFrame[] }>(`/api/v1/live/${props.runId}/rewind`);
+  if (!res.ok) {
+    rewindError.value = res.error.message;
+    return;
+  }
+  index.value = res.data.frames;
+  if (pageFrames.value.length === 0) {
+    rewindError.value = "Nothing to rewind to yet.";
+    return;
+  }
+  rewinding.value = true;
+  playhead.value = windowLength.value;
+  void show();
+}
+function backToLive() {
+  rewinding.value = false;
+  rewindError.value = null;
+  past.value?.bitmap.close();
+  past.value = null;
+  emit("rewound", null);
+  draw();
+}
+async function show() {
+  const at = windowStart.value + playhead.value;
+  const f = pageFrames.value.findLast((x) => x.timestamp <= at) ?? pageFrames.value[0];
+  if (!f || f.timestamp === past.value?.header.timestamp) return;
+  const ticket = ++loading;
+  const res = await fetch(f.url).catch(() => null);
+  const blob = res?.ok ? await res.blob() : null;
+  if (ticket !== loading || !rewinding.value) return;
+  if (!blob) {
+    rewindError.value = "That moment has left the server's buffer. Go back to live and rewind again.";
+    return;
+  }
+  rewindError.value = null;
+  const bitmap = await createImageBitmap(blob).catch(() => null);
+  if (!bitmap) return;
+  if (ticket !== loading || !rewinding.value) {
+    bitmap.close();
+    return;
+  }
+  past.value?.bitmap.close();
+  past.value = { header: { runId: props.runId ?? "", pageId: f.pageId, timestamp: f.timestamp, width: f.width, height: f.height }, bitmap };
+  emit("rewound", { pageId: f.pageId, at: f.timestamp });
+  draw();
+}
+watch(playhead, () => {
+  if (rewinding.value) void show();
+});
+watch(
+  () => props.running,
+  (on) => {
+    if (!on && rewinding.value) backToLive();
+  },
+);
+
+watch(shownPage, () => {
+  if (rewinding.value) backToLive();
+  draw();
+});
 watch(
   () => props.pages.map((p) => p.id).join(","),
   () => {
@@ -85,6 +176,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (tick) clearInterval(tick);
   for (const f of latest.values()) f.bitmap.close();
+  past.value?.bitmap.close();
 });
 
 const hasFrame = computed(() => size.value !== null);
@@ -101,7 +193,11 @@ function age(ms: number | null) {
   return ms < 1500 ? "live" : `last frame ${Math.round(ms / 1000)} s ago`;
 }
 
-defineExpose({ push });
+function seconds(ms: number) {
+  return ms < 1000 ? "the newest frame" : `${Math.round(ms / 1000)} s before the newest frame`;
+}
+
+defineExpose({ push, backToLive });
 </script>
 
 <template>
@@ -123,10 +219,22 @@ defineExpose({ push });
       <canvas ref="canvas" :class="{ hidden: !hasFrame }" aria-label="Live view of the browser" />
       <p v-if="!hasFrame" class="placeholder">{{ running ? "Waiting for the first frame…" : "No live picture: the run isn't running." }}</p>
     </div>
+    <div v-if="rewinding" class="rewind">
+      <TimelineScrubber v-model="playhead" :steps="scrubSteps" :duration="windowLength" label="Rewind, the last 30 seconds" />
+    </div>
     <div class="meta">
-      <span>{{ running ? `${fps} fps` : "stopped" }}</span>
-      <span>{{ age(ageMs) }}</span>
-      <span v-if="size">{{ size.w }}×{{ size.h }}</span>
+      <template v-if="rewinding">
+        <span class="back">Rewound: {{ seconds(behind) }}</span>
+        <span v-if="rewindError" role="status">{{ rewindError }}</span>
+        <button type="button" class="mini" @click="backToLive"><Radio :size="13" /> Back to live</button>
+      </template>
+      <template v-else>
+        <span>{{ running ? `${fps} fps` : "stopped" }}</span>
+        <span>{{ age(ageMs) }}</span>
+        <span v-if="size">{{ size.w }}×{{ size.h }}</span>
+        <button v-if="runId && running && hasFrame" type="button" class="mini" @click="startRewind"><History :size="13" /> Rewind</button>
+        <span v-if="rewindError" role="status">{{ rewindError }}</span>
+      </template>
     </div>
   </div>
 </template>
@@ -197,9 +305,30 @@ canvas.hidden {
 }
 .meta {
   display: flex;
-  gap: 14px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) 14px;
   color: var(--muted);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+}
+.back {
+  color: var(--warn);
+}
+.mini {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 2px 8px;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.mini:hover {
+  border-color: var(--accent);
 }
 </style>

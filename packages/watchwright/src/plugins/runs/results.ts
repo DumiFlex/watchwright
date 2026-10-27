@@ -1,4 +1,4 @@
-import type { ArtifactInfo, FlagRecord, LogLine, MetricRecord } from "../../jobs/recorder.js";
+import type { ArtifactInfo, FlagRecord, LogLine, MetricRecord, StepRecord } from "../../jobs/recorder.js";
 import type { AttemptError } from "../testing/outcome.js";
 import type { AttemptRow, AttemptStatus } from "./repo.js";
 
@@ -20,6 +20,8 @@ export interface ResultDocument {
   notes: string[];
   texts: Record<string, string>;
   log: LogLine[];
+  /** Named steps (`h.step`) with their times, in the order they started. */
+  steps: StepRecord[];
   startedAt: string;
   finishedAt: string | null;
   durationMs: number | null;
@@ -47,6 +49,7 @@ export function resultDocument(a: AttemptRow, artifacts: ArtifactInfo[]): Result
     notes: JSON.parse(a.notes) as string[],
     texts: JSON.parse(a.texts) as Record<string, string>,
     log: JSON.parse(a.log) as LogLine[],
+    steps: JSON.parse(a.steps ?? "[]") as StepRecord[],
     startedAt: a.started_at,
     finishedAt: a.finished_at,
     durationMs: a.finished_at ? Date.parse(a.finished_at) - Date.parse(a.started_at) : null,

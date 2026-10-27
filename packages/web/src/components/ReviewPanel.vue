@@ -2,7 +2,7 @@
 // The review of one attempt: a ScoreInput per criterion and a note. It saves by itself a moment
 // after each change (as the "web" reviewer). Reviews by others (agents, other clients) show
 // below, read only.
-import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { getJson, sendJson, type AttemptReviews, type Criterion, type Review, type Score } from "../api";
 import { scoreText } from "../review";
 import ScoreInput from "./ScoreInput.vue";
@@ -77,6 +77,21 @@ const scored = computed(() => criteria.value.filter((c) => scores.value[c.id] !=
 const status = computed(() =>
   ({ loading: "Loading…", idle: scored.value ? "" : "Not reviewed yet", saving: "Saving…", saved: "Saved", error: error.value ?? "Not saved" })[state.value],
 );
+
+/** Adds a line to the note (a shot or a step to talk about), saves, and puts the cursor after it. */
+function addToNote(line: string) {
+  const text = note.value.trimEnd();
+  note.value = text ? `${text}\n${line}` : line;
+  later();
+  void nextTick(() => {
+    const el = document.getElementById("review-note");
+    if (el instanceof HTMLTextAreaElement) {
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    }
+  });
+}
+defineExpose({ addToNote });
 </script>
 
 <template>

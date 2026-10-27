@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type Database from "better-sqlite3";
-import type { ArtifactInfo, FlagRecord, LogLine, MetricRecord } from "../../jobs/recorder.js";
+import type { ArtifactInfo, FlagRecord, LogLine, MetricRecord, StepRecord } from "../../jobs/recorder.js";
 import type { Outcome, ParamValues } from "../packs/api.js";
 import type { AttemptError } from "../testing/outcome.js";
 import type { QueueEdits } from "./queue.js";
@@ -29,6 +29,7 @@ export const RUNS_ARTIFACT_SET_SQL = `ALTER TABLE runs_artifacts ADD COLUMN set_
 
 /** Migration 3: facts a run learns while it runs (`info(key, value)` in setup and tests). */
 export const RUNS_INFO_SQL = `ALTER TABLE runs ADD COLUMN info TEXT NOT NULL DEFAULT '{}';`;
+export const RUNS_STEPS_SQL = `ALTER TABLE runs_attempts ADD COLUMN steps TEXT NOT NULL DEFAULT '[]';`;
 
 /** Migration 4: a run's optional label, and presets (named run choices per pack). */
 export const RUNS_LABELS_PRESETS_SQL = `
@@ -145,6 +146,7 @@ export interface AttemptRow {
   notes: string;
   texts: string;
   log: string;
+  steps: string;
   error: string | null;
   folder: string;
   started_at: string;
@@ -312,7 +314,7 @@ export class RunsRepo {
     return this.db.prepare("SELECT * FROM runs WHERE status = 'queued' ORDER BY created_at, rowid").all() as RunRow[];
   }
 
-  updateRun(id: string, fields: Partial<Pick<RunRow, "status" | "mode" | "plan" | "options" | "state" | "info" | "label" | "error" | "started_at" | "finished_at">>): void {
+  updateRun(id: string, fields: Partial<Pick<RunRow, "status" | "mode" | "tests" | "plan" | "options" | "state" | "info" | "label" | "error" | "started_at" | "finished_at">>): void {
     const keys = Object.keys(fields);
     if (keys.length === 0) return;
     this.db.prepare(`UPDATE runs SET ${keys.map((k) => `${k} = @${k}`).join(", ")} WHERE id = @id`).run({ ...fields, id });
@@ -346,11 +348,31 @@ export class RunsRepo {
 
   finishAttempt(
     id: string,
-    f: { status: AttemptStatus; flags: FlagRecord[]; metrics: Record<string, MetricRecord>; notes: string[]; texts: Record<string, string>; log: LogLine[]; error: AttemptError | null },
+    f: {
+      status: AttemptStatus;
+      flags: FlagRecord[];
+      metrics: Record<string, MetricRecord>;
+      notes: string[];
+      texts: Record<string, string>;
+      log: LogLine[];
+      steps?: StepRecord[];
+      error: AttemptError | null;
+    },
   ): void {
     this.db
-      .prepare("UPDATE runs_attempts SET status = ?, flags = ?, metrics = ?, notes = ?, texts = ?, log = ?, error = ?, finished_at = ? WHERE id = ?")
-      .run(f.status, JSON.stringify(f.flags), JSON.stringify(f.metrics), JSON.stringify(f.notes), JSON.stringify(f.texts), JSON.stringify(f.log), f.error ? JSON.stringify(f.error) : null, new Date().toISOString(), id);
+      .prepare("UPDATE runs_attempts SET status = ?, flags = ?, metrics = ?, notes = ?, texts = ?, log = ?, steps = ?, error = ?, finished_at = ? WHERE id = ?")
+      .run(
+        f.status,
+        JSON.stringify(f.flags),
+        JSON.stringify(f.metrics),
+        JSON.stringify(f.notes),
+        JSON.stringify(f.texts),
+        JSON.stringify(f.log),
+        JSON.stringify(f.steps ?? []),
+        f.error ? JSON.stringify(f.error) : null,
+        new Date().toISOString(),
+        id,
+      );
   }
 
   /** A skipped attempt that never ran: a row so the result says why. */

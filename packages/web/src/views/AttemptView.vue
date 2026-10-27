@@ -3,10 +3,11 @@
 // screenshots (gallery, scroll sets as strips, marks), kept texts, the log, collector records,
 // the video and the trace, with the review beside them (below on narrow screens). J and K step
 // to the next and previous attempt of the run.
-import { ArrowLeft, ChevronLeft, ChevronRight } from "../icons";
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { ArrowLeft, ChevronLeft, ChevronRight, MessageSquarePlus } from "../icons";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, type Artifact, type Pack, type ResultDocument, type RunDetail } from "../api";
-import { attemptOrder, cellOf, plainText, recordColumns, shotGroups, traceViewerUrl } from "../attempt";
+import { attemptOrder, attemptSteps, cellOf, logMarks, plainText, recordColumns, shotGroups, traceViewerUrl } from "../attempt";
+import { clock, type TimelineStep } from "../timeline";
 import { duration, fileSize, when } from "../format";
 import { firstOwnFrame } from "../editor";
 import { tildify } from "../paths";
@@ -22,6 +23,7 @@ import ReviewPanel from "../components/ReviewPanel.vue";
 import SelectMenu from "../components/SelectMenu.vue";
 import StatusChip from "../components/StatusChip.vue";
 import TabBar from "../components/TabBar.vue";
+import TimelineScrubber from "../components/TimelineScrubber.vue";
 import VideoPlayer from "../components/VideoPlayer.vue";
 
 const props = defineProps<{ runId: string; attemptId: string }>();
@@ -92,6 +94,46 @@ const tabs = computed(() => {
 watch(tabs, (t) => {
   if (!t.some((x) => x.value === tab.value)) tab.value = t[0]?.value ?? "log";
 });
+
+// Steps on a timeline, in the Steps card and under each video. The playhead follows the video as
+// it plays; picking a step or moving the playhead seeks the video, which starts about when the
+// attempt does.
+const steps = computed(() => (doc.value ? attemptSteps(doc.value) : []));
+const marks = computed(() => (doc.value ? logMarks(doc.value) : []));
+const span = computed(() => {
+  const d = doc.value;
+  if (!d) return 0;
+  const end = d.durationMs ?? Math.max(0, ...steps.value.map((x) => x.end));
+  return Math.max(end, ...steps.value.map((x) => x.end), 1);
+});
+const playhead = ref(0);
+const players = ref<InstanceType<typeof VideoPlayer>[]>([]);
+function seekVideo(ms: number) {
+  if (!videos.value.length) return;
+  tab.value = "video";
+  void nextTick(() => players.value[0]?.seekTo(ms / 1000));
+}
+function pickStep(s: TimelineStep) {
+  playhead.value = s.start;
+  seekVideo(s.start);
+}
+/** The playhead moved by hand: the video follows when it is showing. */
+function scrub(ms: number) {
+  playhead.value = ms;
+  if (tab.value === "video") for (const p of players.value) p.seekTo(ms / 1000);
+}
+const stepLength = (s: TimelineStep) => duration(s.end - s.start);
+
+// "Add to review": a shot or a step goes into the review note, ready for a word about it.
+const review = ref<InstanceType<typeof ReviewPanel> | null>(null);
+function reviewShot(image: { name: string; url: string }) {
+  const file = decodeURIComponent(image.url.split("/").pop() ?? image.name);
+  open.value = null;
+  review.value?.addToNote(`Shot ${file}${image.name && !file.includes(image.name) ? ` (${image.name})` : ""}: `);
+}
+function reviewStep(s: TimelineStep) {
+  review.value?.addToNote(`Step ${s.label} at ${clock(s.start)}: `);
+}
 
 // Shots open in the image viewer; its list is every image in the order taken.
 const open = ref<number | null>(null);
@@ -265,6 +307,25 @@ watch(
         </div>
       </section>
 
+      <section v-if="steps.length" class="card steps" aria-labelledby="steps-title">
+        <h2 id="steps-title">Steps <span class="hint">{{ videos.length ? "Pick a step to see it in the video." : "" }}</span></h2>
+        <TimelineScrubber :model-value="playhead" :steps="steps" :duration="span" :marks="marks" label="Attempt time" @update:model-value="scrub" @pick="pickStep" />
+        <ol class="steplist">
+          <li v-for="s in steps" :key="s.id">
+            <button type="button" class="steprow" :class="{ on: playhead >= s.start && playhead < s.end }" @click="pickStep(s)">
+              <span class="num muted">{{ clock(s.start) }}</span>
+              <span class="st">{{ s.label }}</span>
+              <span class="num muted">{{ stepLength(s) }}</span>
+              <StatusChip v-if="s.status" :status="s.status" />
+              <span v-else aria-hidden="true" />
+            </button>
+            <button v-tip="'Add to review note'" type="button" class="ibtn" :aria-label="`Add step ${s.label} to the review note`" @click="reviewStep(s)">
+              <MessageSquarePlus :size="15" />
+            </button>
+          </li>
+        </ol>
+      </section>
+
       <div class="body">
         <section class="card tabs-card">
           <TabBar v-model="tab" :tabs="tabs" id-prefix="att" label="What the attempt saved" />
@@ -346,7 +407,19 @@ watch(
 
           <div v-else-if="tab === 'video'" id="att-panel-video" role="tabpanel" aria-labelledby="att-tab-video" class="panel videos">
             <div v-for="v in videos" :key="v.url" class="video">
-              <VideoPlayer :src="v.url" :label="v.name" />
+              <VideoPlayer ref="players" :src="v.url" :label="v.name" @time="(sec) => (playhead = sec * 1000)">
+                <TimelineScrubber
+                  v-if="steps.length"
+                  class="vtimeline"
+                  :model-value="playhead"
+                  :steps="steps"
+                  :duration="span"
+                  :marks="marks"
+                  :label="`Steps in ${v.name}`"
+                  @update:model-value="scrub"
+                  @pick="pickStep"
+                />
+              </VideoPlayer>
               <p class="muted small">{{ v.name }} · {{ fileSize(v.size) }} · <a :href="v.url" download>Download</a></p>
             </div>
           </div>
@@ -363,10 +436,16 @@ watch(
             </p>
           </div>
         </section>
-        <ReviewPanel :run-id="runId" :attempt-id="attemptId" />
+        <ReviewPanel ref="review" :run-id="runId" :attempt-id="attemptId" />
       </div>
 
-      <ImageViewer v-model="open" :images="viewerImages" :label="`Shots of ${doc.test.id}`" />
+      <ImageViewer v-model="open" :images="viewerImages" :label="`Shots of ${doc.test.id}`">
+        <template #actions="{ image }">
+          <button v-tip="'Add to review note'" type="button" class="ib" aria-label="Add to review note" @click="reviewShot(image)">
+            <MessageSquarePlus :size="17" />
+          </button>
+        </template>
+      </ImageViewer>
     </template>
     <p v-else-if="!error" class="muted">Loading…</p>
   </main>
@@ -487,6 +566,65 @@ watch(
   grid-template-columns: minmax(0, 1fr) 320px;
   gap: var(--space-4);
   align-items: start;
+}
+.steps {
+  display: grid;
+  gap: var(--space-3);
+}
+.steplist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.ibtn {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.ibtn:hover {
+  background: var(--raised);
+  color: var(--text);
+}
+.steplist li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.steprow {
+  display: grid;
+  grid-template-columns: 52px 1fr auto auto;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: 4px var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.steprow:hover,
+.steprow.on {
+  background: var(--raised);
+}
+.st {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .tabs-card {
   padding-top: var(--space-2);
@@ -610,6 +748,15 @@ watch(
 }
 .filters > :not(label) {
   width: 220px;
+}
+.steps h2 {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.steps .hint {
+  font-weight: normal;
+  margin-left: var(--space-2);
 }
 .about h2 {
   margin: 0 0 var(--space-2);

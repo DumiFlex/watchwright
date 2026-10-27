@@ -120,6 +120,53 @@ test("Q4", { title: "Needs Q2", needs: ["Q2"] }, async ({ h }) => { await h.goto
     expect((await h.api("POST", `/runs/${runId}/mark`, {})).status).toBe(409);
   });
 
+  it("adds tests to a run that is going, with what they need", async () => {
+    const { h, packId, packDir } = await setup({
+      "tests/q.ts": `
+import { test } from "watchwright";
+test("A1", { title: "Slow first" }, async ({ h }) => { await h.goto("/"); await h.wait(1500); });
+test("A2", { title: "Second" }, async ({ h }) => { await h.goto("/"); });
+test("A3", { title: "Needs A2", needs: ["A2"] }, async ({ h }) => { await h.goto("/"); });`,
+    });
+    const runId = await startRun(h, { packId, tests: ["A1"] });
+    await h.waitFor((e) => e.runId === runId && e.type === "attempt.started");
+    // A test written after the run started can be added too.
+    writeFiles(packDir, { "tests/late.ts": `import { test } from "watchwright";\ntest("L1", { title: "Late" }, async ({ h }) => { await h.goto("/"); });` });
+    const added = await h.api<RunDetail>("POST", `/runs/${runId}/queue/add`, { tests: ["A3", "L1"] });
+    expect(added.error).toBeUndefined();
+    // Added tests go after what was there, in the pack's planned order.
+    const planned = added.data.plan.map((p) => p.testId);
+    expect(planned[0]).toBe("A1");
+    expect(planned.slice(1).sort()).toEqual(["A2", "A3", "L1"]);
+    expect(planned.indexOf("A2")).toBeLessThan(planned.indexOf("A3"));
+    expect(added.data.tests).toEqual(["A1", "A3", "L1"]);
+    // The rewind buffer holds what the live view showed; a mark can take a frame from it.
+    type Rewind = { windowMs: number; frames: { pageId: string; timestamp: number; url: string }[] };
+    let rewind = await h.api<Rewind>("GET", `/live/${runId}/rewind`);
+    for (let i = 0; i < 20 && rewind.data.frames.length === 0; i++) {
+      await new Promise((r) => setTimeout(r, 50));
+      rewind = await h.api<Rewind>("GET", `/live/${runId}/rewind`);
+    }
+    expect(rewind.data.windowMs).toBe(30_000);
+    const first = rewind.data.frames[0]!;
+    const jpeg = await h.app.inject({ url: first.url, headers: { host: h.host } });
+    expect(jpeg.statusCode).toBe(200);
+    expect(jpeg.headers["content-type"]).toBe("image/jpeg");
+    expect((await h.app.inject({ url: `/api/v1/live/${runId}/rewind/${first.pageId}/1.jpg`, headers: { host: h.host } })).statusCode).toBe(404);
+    const back = await h.api<{ artifact: { kind: string } }>("POST", `/runs/${runId}/mark`, { note: "earlier", pageId: first.pageId, at: first.timestamp });
+    expect(back.status).toBe(201);
+    expect((await h.api("POST", `/runs/${runId}/mark`, { at: 1 })).error?.code).toBe("no_frame");
+    const again = await h.api("POST", `/runs/${runId}/queue/add`, { tests: ["A2"] });
+    expect(again.status).toBe(400);
+    expect(again.error?.message).toMatch(/A2 is already in the run/);
+    expect((await h.api("POST", `/runs/${runId}/queue/add`, { tests: ["Nope"] })).error?.message).toMatch(/no test "Nope"/);
+
+    const detail = await finished(h, runId);
+    expect(byTest(detail)).toEqual({ "A1#1": "passed", "A2#1": "passed", "A3#1": "passed", "L1#1": "passed" });
+    expect(detail.options.queue?.order).toEqual(planned);
+    expect((await h.api("POST", `/runs/${runId}/queue/add`, { tests: ["A2"] })).status).toBe(409);
+  });
+
   it("takes attempts, trace and video from the run's options over the pack's", async () => {
     const { h, packId } = await setup({
       "tests/one.ts": `
@@ -174,6 +221,8 @@ test("H2", { title: "Counter", needs: ["H1"] }, async ({ h, expect }) => {
     expect(doc.texts.saved).toBe("hi from H1 attempt 2");
     expect(doc.flags).toEqual([{ name: "fyi", kind: "info", detail: "just so you know", declared: true }]);
     expect(doc.log.map((l) => l.message)).toContain("Step: press the button");
+    expect(doc.steps).toEqual([{ title: "press the button", depth: 0, startedAt: expect.any(String), finishedAt: expect.any(String), status: "passed" }]);
+    expect(Date.parse(doc.steps[0]!.finishedAt!)).toBeGreaterThanOrEqual(Date.parse(doc.steps[0]!.startedAt));
 
     const h1 = detail.attempts.find((a) => a.testId === "H1" && a.number === 1)!;
     const doc1 = (await h.api<ResultDocument>("GET", `/runs/${runId}/attempts/${h1.id}`)).data;

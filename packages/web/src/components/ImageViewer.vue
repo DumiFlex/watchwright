@@ -66,6 +66,7 @@ function onClick(e: MouseEvent) {
       <div class="bar">
         <span class="name">{{ current.name }}<span v-if="current.note" class="note"> · {{ current.note }}</span></span>
         <span class="count num">{{ (index ?? 0) + 1 }} / {{ images.length }}</span>
+        <slot name="actions" :image="current" />
         <button v-tip="zoom ? 'Fit to the screen (Z)' : 'Actual size (Z)'" type="button" class="ib" :aria-pressed="zoom" aria-label="Actual size" @click="zoom = !zoom">
           <ZoomOut v-if="zoom" :size="17" />
           <ZoomIn v-else :size="17" />
@@ -133,7 +134,8 @@ function onClick(e: MouseEvent) {
   color: var(--muted);
   font-size: 13px;
 }
-.ib {
+.ib,
+.bar :slotted(.ib) {
   display: grid;
   place-items: center;
   width: 34px;
@@ -145,7 +147,8 @@ function onClick(e: MouseEvent) {
   cursor: pointer;
 }
 .ib:hover,
-.ib[aria-pressed="true"] {
+.ib[aria-pressed="true"],
+.bar :slotted(.ib:hover) {
   background: var(--hover);
   color: var(--text);
 }
