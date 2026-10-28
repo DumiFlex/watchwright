@@ -30,6 +30,7 @@ Watchwright still has no AI of its own. Where a capability would "use AI to find
 | Event log | `events/` | Records arriving live, cursors for agents (`wait`). |
 | Action registry, CLI, MCP, approvals | `actions/`, `cli/`, `plugins/agents/`, `plugins/approvals/` | Every new action is an HTTP route, a CLI command and (with `agent.tool`) an MCP tool; destructive ones wait for the person. |
 | Settings | `plugins/settings/` | Machine-wide preferences a plugin declares. |
+| Secrets in steps | `plugins/packs/yaml/run.ts` | `${env.NAME}` values, masked in logs and kept texts. |
 
 ## 3. Seams that are missing
 
@@ -42,7 +43,7 @@ Reading the code with a second job kind in mind, these are the gaps. They are sm
 5. **Nothing runs on its own.** There is no scheduler; every run is started by a person or an agent.
 6. **Alerts only reach an open browser tab.** Notifications today are the web page's (`notify.ts`). A job that runs at 3 a.m. needs server-side alerts: a webhook, ntfy, Discord or Slack webhook, email over SMTP, a desktop toast.
 7. **The web app's pages are a fixed list** (`router.ts`, `App.vue`). Plan section 3 wanted navigation built from what plugins add. A capability can still add its view by hand first; a plugin-driven nav can come when there are three or more.
-8. **Signed-in pages need a saved sign-in.** Tests log in with steps each run. Scraping, watching and automation want to sign in once (by hand, on the live view) and reuse it: a saved Playwright `storageState` per site key, plus named secrets that steps reference and logs never show.
+8. **Signed-in pages need a saved sign-in.** Tests log in with steps each run. Scraping, watching and automation want to sign in once (by hand, on the live view) and reuse it: a saved Playwright `storageState` per site key, kept between runs. Secrets are half there already: YAML steps read `${env.NAME}` from the machine's environment and mask those values in logs and kept texts (`packs/yaml/run.ts`). What is missing is a place to keep them that isn't the environment, such as named secrets in the data folder set from Settings.
 
 ## 4. Capabilities
 
