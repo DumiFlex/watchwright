@@ -24,14 +24,14 @@ Run `pnpm lint && pnpm typecheck && pnpm test` before every commit.
 ## Layout
 
 - `packages/watchwright/src/core/` — the plugin contract (`definePlugin`, typed services through `serviceKey`), the built-in plugin list and the `core` plugin (`/health`, `GET /actions`, `GET /events`, `POST /stop`).
-- `packages/watchwright/src/actions/` — the action registry: an action declares name, method, path and JSON Schema input; HTTP routes are generated from it (CLI and MCP later).
+- `packages/watchwright/src/actions/` — the action registry: an action declares name, method, path and JSON Schema input, and for agents `agent: { tool, say }` (an MCP tool) and `destructive`; HTTP routes and CLI commands are generated from it (MCP tools next).
 - `packages/watchwright/src/events/` — the event log (cursor, bounded wait, subscribe).
 - `packages/watchwright/src/session/` — browser sessions (launch, contexts, screencast).
 - `packages/watchwright/src/jobs/` — job kinds, run control (pause, stop, broken waits) and the recorder for artifacts.
 - `packages/watchwright/src/plugins/` — `settings` (machine-wide preferences other plugins declare, `GET`/`POST /settings`), `live` (frame hub, WebSocket), `folders` (folder listing for the web app's folder browser, recent folders, open in the file manager), `packs` (esbuild loader, test ordering, discover, move, starter pack), `runs` (engine, results, files), `reviews` (rubric snapshots, reviews, compare, Markdown and zip export), `editor` (a pack's files for the web app's editor: list, read, save with a stale check, create, rename, delete), `record` (recording sessions: a browser driven from the live view, Playwright's recorder turning its actions into YAML steps, other targets for each step), `testing` (the `test` job kind, `h` helpers, outcomes).
 - `packages/watchwright/src/server/` — Fastify app: mounts plugins under `/api/v1`, the request guard, the web app with SPA fallback.
 - `packages/watchwright/src/store/` — SQLite through better-sqlite3, migrations per plugin.
-- `packages/watchwright/src/cli/` — the `watchwright` command.
+- `packages/watchwright/src/cli/` — the `watchwright` command: `serve`, the commands for people and agents (`status`, `run`, `wait`, `results`), and one generated command per action, talking to the server over HTTP.
 - `packages/web/` — Vue 3 + Vite web app; `vite build` writes into `packages/watchwright/dist/web`.
 - `packages/site/` — the docs site (VitePress): landing page, `guide/`, `reference/`. Built on every PR by `.github/workflows/site.yml`.
 

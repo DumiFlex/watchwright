@@ -85,6 +85,8 @@ export interface RunPreview {
 export interface LiveSnapshot {
   state: "running" | "pausing" | "paused";
   pauseReason: "manual" | "broken" | null;
+  /** Who asked for a manual pause (`web`, an agent's name, …). */
+  pausedBy: string | null;
   /** When a broken pause skips by itself. */
   deadline: string | null;
   stopping: "after" | "now" | null;
@@ -109,6 +111,8 @@ interface ActiveRun {
   attemptId: string | null;
   testId: string | null;
   step: string | null;
+  /** Who asked for the manual pause going on now. */
+  pausedBy: string | null;
   state: Record<string, unknown>;
   /** Facts the run saved with `info(key, value)`. */
   info: Record<string, string | number | boolean>;
@@ -323,6 +327,7 @@ export class Engine {
     return {
       state: run.control.state,
       pauseReason: run.control.reason,
+      pausedBy: run.control.reason === "manual" ? run.pausedBy : null,
       deadline: run.control.deadline,
       stopping: run.control.stopMode,
       attemptId: run.attemptId,
@@ -437,9 +442,14 @@ export class Engine {
     return run;
   }
 
-  pause(id: string): RunDetail {
+  pause(id: string, by = "api"): RunDetail {
     const run = this.requireActive(id);
-    if (!run.control.requestPause()) throw new EngineError("conflict", "The run is already pausing, paused or stopping.", 409);
+    const before = run.pausedBy;
+    run.pausedBy = by;
+    if (!run.control.requestPause()) {
+      run.pausedBy = before;
+      throw new EngineError("conflict", "The run is already pausing, paused or stopping.", 409);
+    }
     return this.get(id)!;
   }
 
@@ -566,13 +576,16 @@ export class Engine {
           const status = state === "running" ? "running" : state;
           this.o.repo.updateRun(row.id, { status });
           const type = state === "running" ? "run.resumed" : state === "pausing" ? "run.pausing" : "run.paused";
-          this.emit(type, { reason: info.reason, deadline: info.deadline, attemptId: run.attemptId, testId: run.testId }, row.id);
+          const by = info.reason === "manual" ? run.pausedBy : null;
+          if (state === "running") run.pausedBy = null;
+          this.emit(type, { reason: info.reason, deadline: info.deadline, attemptId: run.attemptId, testId: run.testId, by }, row.id);
         },
       }),
       session: null,
       attemptId: null,
       testId: null,
       step: null,
+      pausedBy: null,
       state: JSON.parse(row.state) as Record<string, unknown>,
       info: JSON.parse(row.info ?? "{}") as Record<string, string | number | boolean>,
       collected: new Map(),

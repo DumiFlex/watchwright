@@ -34,7 +34,7 @@ features:
 
 <div class="ww-status">
 
-**Status: early.** The run engine, test packs, the live view and the HTTP API work. The CLI, MCP server and richer review pages come next.
+**Status: early.** The run engine, test packs (in code or YAML), the live view, reviews, the editor, recording, the HTTP API and the command line work. The MCP server and the agent skill come next.
 
 ![A run in progress on the Watchwright web page, with the live browser picture, the controls and the plan](/web-page.png)
 

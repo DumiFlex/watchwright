@@ -37,6 +37,7 @@ export default defineConfig({
       {
         text: "Reference",
         items: [
+          { text: "Command line", link: "/reference/cli" },
           { text: "HTTP and WebSocket API", link: "/reference/http-api" },
           { text: "YAML steps", link: "/reference/yaml-steps" },
         ],

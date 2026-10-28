@@ -46,6 +46,7 @@ export const editorPlugin = definePlugin({
     return [
       defineAction<{ id: string }>({
         name: "packs.files",
+        agent: { tool: "list_pack_files" },
         title: "List a pack's text files (leaving out node_modules, .git and build output)",
         method: "GET",
         path: "/packs/:id/files",
@@ -54,6 +55,7 @@ export const editorPlugin = definePlugin({
       }),
       defineAction<{ id: string; path: string }>({
         name: "packs.file",
+        agent: { tool: "read_pack_file" },
         title: "Read one of a pack's text files, with the stamp to save it back",
         method: "GET",
         path: "/packs/:id/file",
@@ -62,6 +64,7 @@ export const editorPlugin = definePlugin({
       }),
       defineAction<{ id: string; path: string; text: string; stamp?: string }>({
         name: "packs.file-save",
+        agent: { tool: "write_pack_file", say: "Creates the file when it is missing. Leave out `stamp` to overwrite. The answer says whether the pack still loads and lists its problems; fix them before running." },
         title: "Save one of a pack's text files and rebuild the pack",
         method: "POST",
         path: "/packs/:id/file",
@@ -108,6 +111,7 @@ export const editorPlugin = definePlugin({
       }),
       defineAction<{ id: string; path: string }>({
         name: "packs.file-delete",
+        destructive: true,
         title: "Delete a file from a pack",
         method: "DELETE",
         path: "/packs/:id/file",
