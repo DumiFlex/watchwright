@@ -1,6 +1,6 @@
 # Research: publishing Watchwright to npm
 
-Status: built in `ci/npm-publish`. The first publish waits for the maintainer's npm setup (below).
+Status: built in `ci/npm-publish`, switched to staged publishing in `ci/npm-stage`. The first publish waits for the maintainer's npm setup (below).
 
 ## The question
 
@@ -45,9 +45,17 @@ Points that shape the setup:
 - pnpm can't be relied on for the OIDC exchange yet; the job builds with pnpm and publishes with `npm publish` from `packages/watchwright` (the package has no `workspace:` dependencies, so npm publishes it as is).
 - A GitHub environment (with required reviewers) could gate each publish, but releases already wait for the dev→main merge, so it would only add a click. Left out; the trusted publisher's environment field stays empty.
 
+## Staged publishing
+
+Since May 2026 npm also has **staged publishing** (npm CLI 11.15.0+): `npm stage publish` uploads a version that stays hidden until a maintainer approves it with 2FA, in the Staged Packages tab on npmjs.com or with `npm stage approve <id>`. A trusted publisher can be limited to staging: its "Allow npm publish" box stays unticked, and then a plain `npm publish` from the workflow is refused. npm now suggests this setup.
+
+What it buys: a hijacked workflow, a leaked `RELEASE_TOKEN` or a poisoned dependency in the build can at most stage a version; nothing reaches users without a person holding the 2FA device. What it costs: one approval per release, and the release isn't on npm until then. Releases already wait for a hand-made dev→main merge, so one more click is small.
+
+Chosen: stage only. The job runs `npm stage publish --access public --json` and writes the version and the approve command to the run's summary. A version already staged makes a re-run fail (the registry refuses it), which is right: approve or reject the staged one first. The docs don't say whether a staged version's provenance shows once approved; check the first release's npm page.
+
 ## What was built
 
-- `release.yml` gets an `npm` job after `release`: on a new release (or a manual run on `main`) it checks out the release tag, skips if that version is already on npm, installs, builds, runs `check-package` and runs `npm publish --access public` with `id-token: write`. Nothing else in the workflow gets the OIDC permission.
+- `release.yml` gets an `npm` job after `release`: on a new release (or a manual run on `main`) it checks out the release tag, skips if that version is already on npm, installs, builds, runs `check-package` and stages it with `npm stage publish --access public` with `id-token: write`. Nothing else in the workflow gets the OIDC permission.
 - `ci.yml` runs `check-package` after the build.
 - `prepack` copies `LICENSE` and `NOTICE` in; `NOTICE` added to `files`.
 - The docs (README, Getting started, Command line) say to install from npm, with the clone as the way to work on Watchwright itself. They go live with the release that publishes, since the docs site is published per release.
@@ -55,10 +63,10 @@ Points that shape the setup:
 ## What only the maintainer can do
 
 1. Make an npm account with two-factor authentication (an organization isn't needed for an unscoped package).
-2. Publish the placeholder `watchwright@0.0.0` by hand from a folder holding only a `package.json` (name, version, description, license, repository) and a one-line README.
-3. On npmjs.com: package `watchwright` → Settings → Trusted publisher → GitHub Actions: `DumiFlex` / `watchwright` / `release.yml`, no environment.
-4. Within 2 days, merge dev into main; the release it makes publishes the first real version with provenance.
-5. Then deprecate `0.0.0` (`npm deprecate watchwright@0.0.0 "Placeholder; install the latest version."`) and set Publishing access to "Require two-factor authentication and disallow tokens".
+2. Publish a placeholder by hand from a folder holding only a `package.json` (name, version, description, license, repository): `npm publish` of version `0.0.0`, or `npm stage publish`, which creates the public placeholder `0.0.0-stage` for a new package.
+3. On npmjs.com: package `watchwright` → Settings → Trusted publisher → GitHub Actions: `DumiFlex` / `watchwright` / `release.yml`, no environment, "Allow npm publish" and "Allow npm dist-tag" unticked (stage only).
+4. Within 2 days, merge dev into main; the release it makes stages the first real version. Approve it on npmjs.com (Staged Packages) with 2FA.
+5. Then deprecate the placeholder (`npm deprecate watchwright@<placeholder version> "Placeholder; install the latest version."`) and set Publishing access to "Require two-factor authentication and disallow tokens".
 
 ## Sources
 
@@ -66,3 +74,5 @@ Points that shape the setup:
 - GitHub changelog, [npm trusted publishing with OIDC is generally available](https://github.blog/changelog/2025-07-31-npm-trusted-publishing-with-oidc-is-generally-available/) (2025-07-31)
 - GitHub community, [NPM publish using OIDC on GitHub Actions](https://github.com/orgs/community/discussions/176761) (404s from mismatched fields and a stale `NODE_AUTH_TOKEN`)
 - npm/cli#8544, first publish through OIDC (open)
+- npm docs, [Staged publishing for npm packages](https://docs.npmjs.com/staged-publishing/)
+- GitHub changelog, [Staged publishing and new install-time controls for npm](https://github.blog/changelog/2026-05-22-staged-publishing-and-new-install-time-controls-for-npm/) (2026-05-22)
