@@ -1,169 +1,129 @@
 import { describe, expect, it } from "vitest";
-import { findReadme, inlines, outline, packImageUrl, parseMarkdown, resolveRelative, safeHref, slugify, type Block } from "../src/markdown";
+import { findReadme, packImageUrl, resolveRelative, safeHref } from "../src/markdown";
+import { outline, parseMarkdown, textOf, type Element, type ElementContent, type Root } from "../src/markdown-parse";
 
-const one = (md: string): Block => {
-  const b = parseMarkdown(md);
-  expect(b).toHaveLength(1);
-  return b[0]!;
-};
+// A compact view of the tree: tag[.class][ attr=value…](children), text as "…".
+function show(n: Root | ElementContent): string {
+  if (n.type === "text") return JSON.stringify(n.value);
+  if (n.type !== "element" && n.type !== "root") return "";
+  const kids = n.children.map((c) => show(c as ElementContent)).filter((c) => c && !/^"(\\n)+"$/.test(c));
+  if (n.type === "root") return kids.join(" ");
+  const { className, ...rest } = n.properties;
+  const cls = Array.isArray(className) ? className.map((c) => `.${c}`).join("") : "";
+  const at = Object.entries(rest).map(([k, v]) => ` ${k}=${Array.isArray(v) ? v.join(",") : String(v)}`).join("");
+  return `${n.tagName}${cls}${at}(${kids.join(" ")})`;
+}
+const md = (s: string) => show(parseMarkdown(s));
+const first = (s: string) => parseMarkdown(s).children.find((c): c is Element => c.type === "element");
 
-describe("blocks", () => {
-  it("reads ATX and setext headings with unique ids and line numbers", () => {
-    const b = parseMarkdown("# Hello world\n\ntext\n\n## Hello world\n\nTitle\n=====\n");
-    expect(b.map((x) => x.t)).toEqual(["h", "p", "h", "h"]);
-    expect(b[0]).toMatchObject({ level: 1, id: "hello-world", line: 1 });
-    expect(b[2]).toMatchObject({ level: 2, id: "hello-world-1", line: 5 });
-    expect(b[3]).toMatchObject({ level: 1, id: "title", line: 7 });
+describe("raw HTML", () => {
+  it("reads <details> and <summary>, with Markdown inside", () => {
+    expect(md("<details><summary>Answer schema</summary>\n\n- **one**\n\n</details>")).toBe('details(summary("Answer schema") ul(li(strong("one"))))');
   });
 
-  it("drops closing hashes and needs a space after the marks", () => {
-    expect(one("## Setup ##")).toMatchObject({ t: "h", c: [{ t: "text", v: "Setup" }] });
-    expect(one("#nope")).toMatchObject({ t: "p" });
+  it("keeps safe inline tags", () => {
+    expect(md("Press <kbd>Ctrl</kbd>+<kbd>K</kbd>, H<sub>2</sub>O, x<sup>2</sup>, <mark>this</mark><br>next")).toBe(
+      'p("Press " kbd("Ctrl") "+" kbd("K") ", H" sub("2") "O, x" sup("2") ", " mark("this") br() "next")',
+    );
   });
 
-  it("joins paragraph lines and splits on blank lines", () => {
-    const b = parseMarkdown("one\ntwo\n\nthree");
-    expect(b).toHaveLength(2);
-    expect(b[0]).toMatchObject({ t: "p", c: [{ t: "text", v: "one two" }] });
+  it("keeps sizes and alignment on images and paragraphs", () => {
+    expect(md('<p align="center"><img src="logo.png" width="120" alt="Logo"></p>')).toBe("p align=center(img src=logo.png width=120 alt=Logo())");
   });
 
-  it("reads fenced code with its language and keeps the body verbatim", () => {
-    expect(one("```TS\nconst a = 1;\n# not a heading\n```")).toEqual({ t: "code", lang: "ts", v: "const a = 1;\n# not a heading", line: 1 });
-    expect(one("~~~\nx\n~~~")).toMatchObject({ t: "code", lang: "", v: "x" });
+  it("drops script, styles, frames, handlers and unsafe links", () => {
+    const out = md(
+      '<script>alert(1)</script><style>p{color:red}</style>\n\n<iframe src="https://x.dev"></iframe><img src="a.png" onerror="alert(1)" style="x"> <a href="javascript:alert(1)">go</a> <a href="https://a.dev" onclick="x">ok</a>',
+    );
+    expect(out).not.toMatch(/alert|color|iframe|onerror|onclick|style|javascript/);
+    expect(out).toContain("img src=a.png()");
+    expect(out).toContain('a("go")');
+    expect(out).toContain('a href=https://a.dev("ok")');
   });
 
-  it("runs an unclosed fence to the end", () => {
-    expect(one("```\na\nb")).toMatchObject({ t: "code", v: "a\nb" });
+  it("drops comments and keeps entities as characters", () => {
+    expect(md("a <!-- hidden --> &copy; &#8594;")).toBe('p("a " " © →")');
   });
 
-  it("reads indented code", () => {
-    expect(one("    npm i\n    pnpm i")).toMatchObject({ t: "code", v: "npm i\npnpm i" });
-  });
-
-  it("reads rules and quotes", () => {
-    const b = parseMarkdown("> quoted\nlazy\n\n---\n\n* * *");
-    expect(b.map((x) => x.t)).toEqual(["quote", "hr", "hr"]);
-    expect(b[0]).toMatchObject({ c: [{ t: "p", c: [{ t: "text", v: "quoted lazy" }] }] });
-  });
-
-  it("reads bullet and ordered lists, tight and loose", () => {
-    const tight = one("- a\n- b\n  - nested");
-    expect(tight).toMatchObject({ t: "list", ordered: false, tight: true });
-    if (tight.t !== "list") throw new Error();
-    expect(tight.items).toHaveLength(2);
-    expect(tight.items[1]!.c.map((c) => c.t)).toEqual(["p", "list"]);
-
-    expect(one("3. a\n\n4. b")).toMatchObject({ t: "list", ordered: true, start: 3, tight: false });
-  });
-
-  it("starts a new list when the marker changes", () => {
-    expect(parseMarkdown("- a\n+ b").map((b) => b.t)).toEqual(["list", "list"]);
-  });
-
-  it("reads task list items", () => {
-    const l = one("- [ ] todo\n- [x] done\n- plain");
-    if (l.t !== "list") throw new Error();
-    expect(l.items.map((i) => i.checked)).toEqual([false, true, null]);
-    expect(l.items[0]!.c[0]).toMatchObject({ c: [{ t: "text", v: "todo" }] });
-  });
-
-  it("reads tables with alignment, escaped pipes and pipes in code", () => {
-    const t = one("| Name | Size |  Note |\n|:-----|-----:|:----:|\n| a \\| b | 2 | `x|y` |\n| short |");
-    if (t.t !== "table") throw new Error();
-    expect(t.align).toEqual(["left", "right", "center"]);
-    expect(t.rows[0]![0]).toEqual([{ t: "text", v: "a | b" }]);
-    expect(t.rows[0]![2]).toEqual([{ t: "code", v: "x|y" }]);
-    expect(t.rows[1]).toHaveLength(3);
-  });
-
-  it("does not take a line with a pipe for a table without a rule row", () => {
-    expect(one("a | b\nc")).toMatchObject({ t: "p" });
-  });
-
-  it("keeps raw HTML as text", () => {
-    expect(one("<script>alert(1)</script>")).toMatchObject({ t: "p", c: [{ t: "text", v: "<script>alert(1)</script>" }] });
-  });
-
-  it("handles CRLF line ends", () => {
-    expect(parseMarkdown("# A\r\n\r\nb").map((b) => b.t)).toEqual(["h", "p"]);
+  it("leaves HTML in code as text", () => {
+    expect(md("`<b>x</b>`")).toBe('p(code("<b>x</b>"))');
   });
 });
 
-describe("inlines", () => {
-  it("reads emphasis, strong, both and strikethrough", () => {
-    expect(inlines("*a* **b** ***c*** ~~d~~")).toEqual([
-      { t: "em", c: [{ t: "text", v: "a" }] },
-      { t: "text", v: " " },
-      { t: "strong", c: [{ t: "text", v: "b" }] },
-      { t: "text", v: " " },
-      { t: "strong", c: [{ t: "em", c: [{ t: "text", v: "c" }] }] },
-      { t: "text", v: " " },
-      { t: "del", c: [{ t: "text", v: "d" }] },
+describe("GitHub Flavored Markdown", () => {
+  it("reads tables with alignment", () => {
+    expect(md("| a | b |\n|:-|-:|\n| 1 | `x\\|y` |")).toBe('table(thead(tr(th align=left("a") th align=right("b"))) tbody(tr(td align=left("1") td align=right(code("x|y")))))');
+  });
+
+  it("reads task lists", () => {
+    expect(md("- [x] done\n- [ ] todo")).toBe('ul.contains-task-list(li.task-list-item(input type=checkbox checked=true disabled=true() " done") li.task-list-item(input type=checkbox disabled=true() " todo"))');
+  });
+
+  it("reads strikethrough, autolinks and reference links", () => {
+    expect(md("~~old~~ www.a.dev and https://b.dev/x. [ref][r]\n\n[r]: https://c.dev")).toBe(
+      'p(del("old") " " a href=http://www.a.dev("www.a.dev") " and " a href=https://b.dev/x("https://b.dev/x") ". " a href=https://c.dev("ref"))',
+    );
+  });
+
+  it("reads footnotes with ids for both directions", () => {
+    const out = md("Text[^1].\n\n[^1]: The note.");
+    expect(out).toContain("a href=#fn-1 id=fnref-1");
+    expect(out).toContain("section.footnotes");
+    expect(out).toContain("li id=fn-1");
+    expect(out).toContain("a.data-footnote-backref href=#fnref-1");
+  });
+
+  it("reads nested lists", () => {
+    expect(md("1. one\n   - a\n     - b\n2. two")).toBe('ol(li("one\\n" ul(li("a\\n" ul(li("b"))))) li("two"))');
+  });
+
+  it("reads fenced code with its language", () => {
+    expect(md("```json\n{}\n```")).toBe('pre(code.language-json("{}\\n"))');
+  });
+});
+
+describe("alerts", () => {
+  it("turns a quote marked [!NOTE] and friends into an alert", () => {
+    expect(md("> [!WARNING]\n> Mind the gap.")).toBe('div.md-alert.md-alert-warning(p.md-alert-title("Warning") p("Mind the gap."))');
+    expect(md("> [!tip]\n>\n> - a")).toBe('div.md-alert.md-alert-tip(p.md-alert-title("Tip") ul(li("a")))');
+  });
+
+  it("leaves other quotes alone", () => {
+    expect(md("> [!NOTE] same line")).toBe('blockquote(p("[!NOTE] same line"))');
+    expect(md("> [!NOTE]")).toBe('blockquote(p("[!NOTE]"))');
+    expect(md("> [!OTHER]\n> x")).toBe('blockquote(p("[!OTHER]\\nx"))');
+  });
+});
+
+describe("headings", () => {
+  it("gets GitHub's ids, unique per document", () => {
+    expect(md("# Run the bench (fast!)\n\n## Run the bench (fast!)\n\n### Ünïcode  words")).toBe(
+      'h1 id=run-the-bench-fast("Run the bench (fast!)") h2 id=run-the-bench-fast-1("Run the bench (fast!)") h3 id=ünïcode--words("Ünïcode  words")',
+    );
+  });
+
+  it("lists headings for an outline, inside quotes, lists and details too", () => {
+    expect(outline(parseMarkdown("# A\n\n> ## B\n\n- ### C\n\n<details>\n\n#### D\n\n</details>\n\nx[^1]\n\n[^1]: y"))).toEqual([
+      { level: 1, text: "A", id: "a", line: 1 },
+      { level: 2, text: "B", id: "b", line: 3 },
+      { level: 3, text: "C", id: "c", line: 5 },
+      { level: 4, text: "D", id: "d", line: 9 },
     ]);
   });
 
-  it("leaves underscores inside words alone", () => {
-    expect(inlines("snake_case_name")).toEqual([{ t: "text", v: "snake_case_name" }]);
-    expect(inlines("_yes_")).toEqual([{ t: "em", c: [{ t: "text", v: "yes" }] }]);
-  });
-
-  it("does not open emphasis before a space", () => {
-    expect(inlines("2 * 3 * 4")).toEqual([{ t: "text", v: "2 * 3 * 4" }]);
-  });
-
-  it("reads code spans, which hide other marks", () => {
-    expect(inlines("run `a *b* c` now")).toEqual([
-      { t: "text", v: "run " },
-      { t: "code", v: "a *b* c" },
-      { t: "text", v: " now" },
+  it("keeps line positions for the editor's cursor", () => {
+    const tree = parseMarkdown("intro\n\n```ts\nx\n```\n\n<details><summary>S</summary>\n\nbody\n\n</details>");
+    const lines = tree.children.filter((c): c is Element => c.type === "element").map((c) => [c.tagName, c.position?.start.line]);
+    expect(lines).toEqual([
+      ["p", 1],
+      ["pre", 3],
+      ["details", 7],
     ]);
-    expect(inlines("`` a ` b ``")).toEqual([{ t: "code", v: "a ` b" }]);
-  });
-
-  it("reads links with titles, nested brackets and parentheses", () => {
-    expect(inlines('[the [docs]](https://x.dev/a_(b) "Docs")')).toEqual([
-      { t: "link", href: "https://x.dev/a_(b)", title: "Docs", c: [{ t: "text", v: "the [docs]" }] },
-    ]);
-  });
-
-  it("reads images", () => {
-    expect(inlines("![a cat](cat.png)")).toEqual([{ t: "img", src: "cat.png", alt: "a cat" }]);
-  });
-
-  it("drops unsafe link targets but keeps the text", () => {
-    expect(inlines("[click](javascript:alert(1))")).toEqual([{ t: "text", v: "click" }]);
-    expect(inlines("![x](data:image/png;base64,AAA)")).toEqual([{ t: "text", v: "x" }]);
-  });
-
-  it("reads autolinks and bare links without trailing punctuation", () => {
-    expect(inlines("<https://a.dev>")).toEqual([{ t: "link", href: "https://a.dev", c: [{ t: "text", v: "https://a.dev" }] }]);
-    expect(inlines("see www.a.dev/x.")).toEqual([
-      { t: "text", v: "see " },
-      { t: "link", href: "https://www.a.dev/x", c: [{ t: "text", v: "www.a.dev/x" }] },
-      { t: "text", v: "." },
-    ]);
-  });
-
-  it("reads escapes and hard breaks", () => {
-    expect(inlines("\\*not\\*")).toEqual([{ t: "text", v: "*not*" }]);
-    expect(inlines("a  \nb\\\nc")).toEqual([{ t: "text", v: "a" }, { t: "br" }, { t: "text", v: "b" }, { t: "br" }, { t: "text", v: "c" }]);
+    expect(textOf(first("Hi *there* ![pic](a.png)") as Element)).toBe("Hi there pic");
   });
 });
 
 describe("helpers", () => {
-  it("slugifies like GitHub", () => {
-    expect(slugify("Run the bench (fast!)")).toBe("run-the-bench-fast");
-    expect(slugify("Ünïcode  words")).toBe("ünïcode--words");
-  });
-
-  it("lists headings for an outline, inside quotes and lists too", () => {
-    expect(outline(parseMarkdown("# A\n\n> ## B\n\n- ### C"))).toEqual([
-      { level: 1, text: "A", id: "a", line: 1 },
-      { level: 2, text: "B", id: "b", line: 3 },
-      { level: 3, text: "C", id: "c", line: 5 },
-    ]);
-  });
-
   it("keeps only safe hrefs", () => {
     expect(safeHref("docs/a.md")).toBe("docs/a.md");
     expect(safeHref("#top")).toBe("#top");
