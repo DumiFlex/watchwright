@@ -105,7 +105,18 @@ test("B", { title: "Own rubric", review: { drop: ["ui"], add: [{ id: "usable", t
       "pack.ts": packFile(`[{ id: "overall", title: "Overall" }]`).replace("rubric:", `params: { size: { choices: ["s", "l"], default: "s" } },\n  rubric:`),
       "tests/t.ts": `
 import { test } from "watchwright";
-test("A", { title: "Home" }, async ({ h, params }) => { await h.goto("/"); await h.shot("home"); await h.keepText("size", { text: String(params.size) }); });`,
+test("A", { title: "Home" }, async ({ h, params, packDir }) => {
+  await h.goto("/");
+  await h.shot("home");
+  await h.keepText("size", { text: String(params.size) });
+  await h.file("notes/report.md", "# Report\\n");
+  const again = await h.file("notes/report.md", "# Again\\n");
+  const copied = await h.file("data.json", { path: packDir + "/data.json" });
+  const bytes = await h.file("raw.bin", new Uint8Array([1, 2, 3]));
+  const bad = await h.file("../out.txt", "x").then(() => "saved", (e: Error) => e.message);
+  await h.keepText("saved", { text: [again, copied, bytes, bad].join(" | ") });
+});`,
+      "data.json": '{"ok":true}',
     });
     const otherDir = tempDir("ww-pack-");
     writeFiles(otherDir, { "pack.ts": packFile("[]").replace('name: "Reviewed"', 'name: "Other"'), "tests/t.ts": `import { test } from "watchwright";\ntest("Z", { title: "Z" }, async () => {});` });
@@ -131,6 +142,15 @@ test("A", { title: "Home" }, async ({ h, params }) => { await h.goto("/"); await
     expect(c.data.rows[0]!.cells.map((x) => x?.texts.size)).toEqual(["s", "l"]);
     expect(c.data.rows[0]!.cells[0]!.score).toBe(4);
     expect(c.data.shotNames).toEqual(["home"]);
+    // h.file: saved under files/, a repeated name numbered, a copy from disk, bytes, a bad name refused.
+    const first = c.data.rows[0]!.cells[0]!;
+    expect(first.texts.saved).toBe(`notes/report-2.md | data.json | raw.bin | "../out.txt" isn't a usable file name.`);
+    expect(first.files.map((f) => f.at)).toEqual(["02-size.txt", "files/notes/report.md", "files/notes/report-2.md", "files/data.json", "files/raw.bin", "03-saved.txt"]);
+    const report = first.files.find((f) => f.at === "files/notes/report.md")!;
+    expect(report.name).toBe("notes/report.md");
+    const served = await h.app.inject({ method: "GET", url: report.url, headers: { host: h.host } });
+    expect(served.headers["content-type"]).toMatch(/text\/markdown/);
+    expect(served.body).toBe("# Report\n");
 
     const mixed = await h.api("GET", `/compare?runs=${r1},${r3}`);
     expect(mixed.status).toBe(400);
@@ -166,6 +186,8 @@ test("A", { title: "Home" }, async ({ h, params }) => { await h.goto("/"); await
     const names = body.toString("latin1");
     expect(names).toContain(`reviewed-${r1}.md`);
     expect(names).toContain(`shots/${r1}/${a1.id}/`);
+    expect(names).toContain(`files/${r1}/${a1.id}/files/notes/report-2.md`);
+    expect(names).toContain(`files/${r1}/${a1.id}/02-size.txt`);
     const badZip = await h.app.inject({ method: "GET", url: `/api/v1/export.zip?runs=${r1},${r3}`, headers: { host: h.host } });
     expect(badZip.statusCode).toBe(400);
     expect(badZip.json()).toMatchObject({ error: { code: "mixed_packs" } });

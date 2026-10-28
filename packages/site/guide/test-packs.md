@@ -136,6 +136,7 @@ Every `h` call is a pause point: Pause takes effect at the next one.
 | `h.shot(name, { fullPage?, target? })` | Saves a screenshot. |
 | `h.scrollShots(name, { target?, max? })` | Scrolls top to bottom, one screenshot per screen. The shots are kept as one set and show as a single strip on the attempt page. |
 | `h.keepText(name, target \| { text })` | Saves text: an element's inner text, or a string. |
+| `h.file(name, data, contentType?)` | Saves a file of your own with the attempt (see [Files of your own](#files-of-your-own)). |
 | `h.log(msg)`, `h.note(msg)` | A log line; a note for whoever reviews the result. |
 | `h.flag(name, detail?)` | Raises a flag declared in the pack's `flags`. |
 | `h.metric(name, value, unit?)` | A number to keep with the result. |
@@ -228,10 +229,10 @@ const appLog = (): Collector => {
   return {
     name: "app-log",
     async beginAttempt(a) {
-      seen.set(a.attemptId, (await (await a.page.request.get("/api/log")).json()).length);
+      seen.set(a.attemptId, (await (await a.page.request.get(new URL("/api/log", a.page.url()).href)).json()).length);
     },
     async endAttempt(a) {
-      const all = await (await a.page.request.get("/api/log")).json();
+      const all = await (await a.page.request.get(new URL("/api/log", a.page.url()).href)).json();
       for (const [i, entry] of all.slice(seen.get(a.attemptId)).entries()) a.file(`entry-${i + 1}.json`, JSON.stringify(entry, null, 2), "application/json");
     },
   };
@@ -240,13 +241,36 @@ const appLog = (): Collector => {
 
 Files show in the attempt's **Files** tab; text, Markdown and JSON open right there.
 
+## Files of your own
+
+A collector sees every attempt from the outside. When the test itself has something worth keeping, such as a file the page downloaded, an answer from the app's API or a report it put together, the test saves it with `h.file`:
+
+```ts
+test("E1", { title: "Export orders" }, async ({ h, page }) => {
+  await h.goto("/orders");
+  const [download] = await Promise.all([page.waitForEvent("download"), h.click("text=Export CSV")]);
+  await h.file("orders.csv", { path: await download.path() });
+
+  const stats = await (await page.request.get(new URL("/api/stats", page.url()).href)).json();
+  await h.file("stats.json", JSON.stringify(stats, null, 2));
+  await h.file("summary.md", `# Orders\n\n${stats.count} orders exported.\n`);
+});
+```
+
+- `data` is a string, bytes (a `Buffer` or `Uint8Array`), or `{ path }` to copy a file on disk.
+- The file is saved under `files/<name>` in the attempt's folder. `name` may have folders (`calls/01.md`) but can't leave the attempt's folder (`..`).
+- The content type comes from the extension (`.md`, `.json`, `.csv`, `.txt`, `.log`, `.yaml`, `.xml`, `.html`, `.pdf`, images) unless you pass one.
+- A name used twice in one attempt gets `-2`, `-3` before its extension, so nothing is overwritten. `h.file` returns the name it used.
+
+In the **Files** tab, Markdown files open rendered, with a **Source** view next to **Preview**. Relative links and images in them point at files next to them, so a report can link the files it describes. Files also go into the [zip export](./reviewing#exporting), and agents read them with the `get_file` tool.
+
 ## Where results go
 
 Each attempt has a folder in the data folder:
 
 ```
 <data>/runs/<run id>/<test id>/attempt-<n>[-try-<k>]/
-  01-home.png  02-result-count.txt  video-p1.webm  trace.zip  result.json  collectors/…
+  01-home.png  02-result-count.txt  video-p1.webm  trace.zip  result.json  collectors/…  files/…
 ```
 
 `result.json` is the same document `GET /api/v1/runs/<run id>/attempts/<attempt id>` returns, with `schemaVersion: 1`. Open a `trace.zip` with `npx playwright show-trace trace.zip`.

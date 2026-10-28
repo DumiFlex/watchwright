@@ -23,7 +23,7 @@ describe("run changes", () => {
   it("goes through a comparison of two runs", () => {
     const cell = (runId: string, status: string, flags: string[] = []): CompareCell => ({
       runId, attemptId: `${runId}-a`, status, durationMs: 1000, error: null, flags: flags.map((name) => ({ name, kind: "finding", detail: null, declared: true })),
-      metrics: {}, notes: [], texts: {}, shots: [], reviews: [], score: null,
+      metrics: {}, notes: [], texts: {}, shots: [], files: [], reviews: [], score: null,
     });
     const run = (id: string) => ({ id, label: "", params: {}, info: {}, status: "finished" as const, startedBy: "api", createdAt: "", startedAt: null, counts: { passed: 0, failed: 0, broken: 0, skipped: 0, stopped: 0, running: 0, interrupted: 0, planned: 0 } });
     const c: Comparison = {

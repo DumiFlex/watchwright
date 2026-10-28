@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { FlagRecord, MetricRecord } from "../../jobs/recorder.js";
 import type { Criterion } from "../packs/rubric.js";
 import type { RunDetail } from "../runs/engine.js";
@@ -29,6 +30,19 @@ export interface CompareShot {
   set?: string;
 }
 
+/** A file the attempt kept besides its screenshots: kept texts, collector records, test and collector files. */
+export interface CompareFile {
+  name: string;
+  url: string;
+  /** Path relative to the data folder. */
+  path: string;
+  /** Path inside the attempt's folder (for the zip export). */
+  at: string;
+}
+
+/** Artifact kinds an export carries as files (video and trace stay on the attempt page). */
+export const EXPORT_FILE_KINDS = new Set(["text", "collector", "file"]);
+
 export interface CompareCell {
   runId: string;
   attemptId: string;
@@ -41,6 +55,8 @@ export interface CompareCell {
   texts: Record<string, string>;
   /** Every screenshot, in the order taken (marks included). */
   shots: CompareShot[];
+  /** Kept texts, collector records and saved files, in the order saved. */
+  files: CompareFile[];
   reviews: Review[];
   /** Mean of the scale scores on 1 to 5 over every reviewer; null when none. */
   score: number | null;
@@ -124,6 +140,12 @@ export function compare(inputs: readonly CompareInput[]): Comparison {
         .filter((a) => a.kind === "shot" || a.kind === "mark")
         .map((a): CompareShot => ({ name: a.name, url: a.url, path: a.path, ...(a.set ? { set: a.set } : {}) }));
       for (const s of shots) shotNames.add(s.set ?? s.name);
+      const files = doc.artifacts
+        .filter((a) => EXPORT_FILE_KINDS.has(a.kind))
+        .map((a): CompareFile => {
+          const at = path.posix.relative(doc.folder, a.path);
+          return { name: a.name, url: a.url, path: a.path, at: at && !at.startsWith("..") ? at : path.posix.basename(a.path) };
+        });
       for (const t of Object.keys(doc.texts)) textNames.add(t);
       const own = byAttempt.get(doc.attemptId) ?? [];
       rowFor(testId, doc.test.title, doc.attempt.number).cells[i] = {
@@ -137,6 +159,7 @@ export function compare(inputs: readonly CompareInput[]): Comparison {
         notes: doc.notes,
         texts: doc.texts,
         shots,
+        files,
         reviews: own,
         score: attemptScore(criteria[testId], own),
       };
