@@ -21,6 +21,8 @@ export const EXIT = {
   runPaused: 5,
   /** The wait ran out while the run still goes. */
   runGoing: 6,
+  /** The action waits for the person's approval on the web page. */
+  approvalWaiting: 7,
 } as const;
 
 export interface Io {
@@ -121,8 +123,45 @@ export async function actionCommand(client: Client, io: Io, words: readonly stri
     confirmed = true;
   }
   const data = await client.call(action, merged, undefined, confirmed);
+  const held = approvalOf(data);
+  if (held) return approvalWait(client, io, held.id, held.message, 50);
   io.out(json(data));
   return EXIT.ok;
+}
+
+interface ApprovalInfo {
+  id: string;
+  summary: string;
+  status: "waiting" | "approved" | "refused" | "expired" | "failed";
+  result: unknown;
+  error: { code: string; message: string } | null;
+}
+
+/** The approval an action answered with instead of running (202), if any. */
+function approvalOf(data: unknown): { id: string; message: string } | null {
+  if (!data || typeof data !== "object" || !("approval" in data)) return null;
+  const a = (data as { approval: ApprovalInfo; message?: string }).approval;
+  return a?.status === "waiting" ? { id: a.id, message: (data as { message?: string }).message ?? a.summary } : null;
+}
+
+/** Waits on an approval for up to `seconds`, then says how it was answered. */
+export async function approvalWait(client: Client, io: Io, id: string, message: string | null, seconds: number): Promise<number> {
+  if (message) io.err(message);
+  const a = await client.callName<ApprovalInfo>("approvals.wait", { id, timeout: Math.min(110, seconds) });
+  switch (a.status) {
+    case "approved":
+      io.out(json(a.result));
+      return EXIT.ok;
+    case "waiting":
+      io.err(`Still waiting for the person's approval. Wait again with \`watchwright approvals wait ${id}\`, or ask them to answer it on the web page (${client.base}).`);
+      return EXIT.approvalWaiting;
+    case "failed":
+      io.err(`Approved, but it failed: ${a.error?.message ?? "no reason given"} (${a.error?.code ?? "failed"})`);
+      return EXIT.failed;
+    default:
+      io.err(a.status === "refused" ? `The person refused: ${a.summary}. Nothing was changed.` : `Nobody answered the approval in time. Nothing was changed.`);
+      return EXIT.failed;
+  }
 }
 
 async function readInput(file: string): Promise<Record<string, unknown>> {

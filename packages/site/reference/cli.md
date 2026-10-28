@@ -72,7 +72,7 @@ Each [action](./http-api) of every plugin is a command made from its name: `runs
 - `--help` after a command lists its options from the schema.
 - The answer's `data` is printed as JSON.
 
-Actions that delete data or stop the server (`runs delete`, `packs remove`, `packs file-delete`, `runs presets delete`, `core stop`) ask first when you run them at a terminal.
+Actions that delete data or stop the server (`runs delete`, `packs remove`, `packs file-delete`, `runs presets delete`, `core stop`) ask y/N first when you run them at a terminal. Without a terminal (an agent's shell, a script) they wait for the person to [approve them on the web page](../guide/safety#approvals): the command prints that it is waiting and waits up to 50 seconds. It exits 0 once approved and done, 1 when refused, and 7 when nobody has answered yet; then `watchwright approvals wait <id>` waits on.
 
 ## Everywhere
 
@@ -93,3 +93,4 @@ Actions that delete data or stop the server (`runs delete`, `packs remove`, `pac
 | 4 | The run ended with a failed, broken or stopped attempt, or was stopped. |
 | 5 | The run is paused: on a broken attempt (retry or skip it with `watchwright runs control <run> --do retry`), or by a person. |
 | 6 | The wait ran out while the run still goes. Wait again. |
+| 7 | An approval is still waiting for the person on the web page. Wait with `watchwright approvals wait <id>`. |

@@ -159,13 +159,25 @@ Deleting a run deletes its reviews.
 
 Run statuses: `queued`, `running`, `pausing`, `paused`, `finished`, `stopped`, `interrupted` (the server stopped mid-run), `failed_to_start`. Attempt statuses: `passed`, `failed`, `broken`, `skipped`, `stopped`, plus `running` and `interrupted`.
 
+## Approvals
+
+Actions marked `destructive` in `GET /actions` (deleting a run, a pack, a pack file or a preset, and `POST /stop`) run at once only when the request comes from the web page. From anything else they wait for the person to [approve them on the web page](../guide/safety#approvals). The request is held for up to 60 seconds: approved in that time, it answers as the action does; refused, it fails with 403 `refused`. Still waiting after that, it answers `202` with `{ approval, message }`; wait on the approval by its id.
+
+An approval is `{ id, action, input, client, summary, status, answeredBy, result, error, createdAt, answeredAt, expiresAt }`. `status` is `waiting`, `approved` (it ran; `result` is the action's data), `refused`, `expired` (nobody answered in 30 minutes) or `failed` (approved, but the action failed; `error` says why).
+
+| Method and path | Does |
+|---|---|
+| `GET /approvals?status=&limit=` | Approvals, newest first. |
+| `GET /approvals/:id/wait?timeout=` | Waits until the approval is answered or expires, at most `timeout` seconds (default 60, up to 110), and returns it. Call again while it is `waiting`. |
+| `POST /approvals/:id/answer` `{ approve }` | Approves (runs the action) or refuses. Only from the web page: 403 `not_allowed` otherwise. 409 `conflict` once it is answered. |
+
 ## Events
 
 Everything that happens is an event with a growing sequence number: `{ seq, time, type, runId?, attemptId?, data }`.
 
 `GET /events?after=<seq>&wait=<seconds>&runId=&types=&limit=` returns `{ events, next, head }`. With `wait` (up to 110 seconds) it holds the request until a matching event arrives, so an agent can follow a run with one request at a time: call again with `after=next`.
 
-Event types (open set, more come with later plugins): `run.queued`, `run.started`, `run.planned`, `run.pausing`, `run.paused`, `run.resumed`, `run.decision`, `run.stopping`, `run.labeled`, `run.finished`, `run.interrupted`, `run.failed_to_start`, `run.log`, `run.info`, `run.tests-added`, `attempt.started`, `attempt.step`, `attempt.log`, `attempt.flag`, `attempt.artifact`, `attempt.finished`, `page.opened`, `page.navigated`, `page.active`, `page.closed`, `video.unavailable`, `pack.added`, `pack.loaded`, `pack.reload_failed`, `pack.reloaded`, `pack.removed`, `editor.file_changed`, `review.saved`, `record.started`, `record.status`, `record.replay-step`, `record.step`, `record.step-updated`, `record.step-removed`, `record.ended`.
+Event types (open set, more come with later plugins): `run.queued`, `run.started`, `run.planned`, `run.pausing`, `run.paused`, `run.resumed`, `run.decision`, `run.stopping`, `run.labeled`, `run.finished`, `run.interrupted`, `run.failed_to_start`, `run.log`, `run.info`, `run.tests-added`, `attempt.started`, `attempt.step`, `attempt.log`, `attempt.flag`, `attempt.artifact`, `attempt.finished`, `page.opened`, `page.navigated`, `page.active`, `page.closed`, `video.unavailable`, `pack.added`, `pack.loaded`, `pack.reload_failed`, `pack.reloaded`, `pack.removed`, `editor.file_changed`, `review.saved`, `record.started`, `record.status`, `record.replay-step`, `record.step`, `record.step-updated`, `record.step-removed`, `record.ended`, `approval.requested`, `approval.answered`.
 
 ## Live WebSocket
 

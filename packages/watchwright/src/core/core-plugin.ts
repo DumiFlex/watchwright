@@ -43,6 +43,7 @@ export const corePlugin = definePlugin({
     defineAction({
       name: "core.stop",
       destructive: true,
+      explain: () => "Stop the Watchwright server. Runs going now become interrupted, ready to resume when it starts again.",
       title: "Stop the server: runs going now become interrupted, ready to resume when it starts again",
       method: "POST",
       path: "/stop",

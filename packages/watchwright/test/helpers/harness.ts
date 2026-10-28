@@ -30,6 +30,7 @@ export interface Harness {
   app: FastifyInstance;
   port: number;
   host: string;
+  /** Calls the API as the web page would. */
   api<T = unknown>(method: "GET" | "POST" | "DELETE", url: string, body?: unknown): Promise<{ status: number; data: T; error?: { code: string; message: string; detail?: unknown } }>;
   /** Waits for the first event after `after` (default: the start) that matches. */
   waitFor(match: (e: WwEvent) => boolean, timeoutMs?: number, after?: number): Promise<WwEvent>;
@@ -48,7 +49,9 @@ export async function startHarness(dataDir: string, opts: { listen?: boolean } =
     port,
     host,
     async api(method, url, body) {
-      const res = await app.inject({ method, url: `/api/v1${url}`, headers: { host }, ...(body === undefined ? {} : { payload: body as object }) });
+      // Deleting goes through the approvals gate unless the web page asks, as here.
+      const headers = method === "DELETE" ? { host, origin: `http://${host}` } : { host };
+      const res = await app.inject({ method, url: `/api/v1${url}`, headers, ...(body === undefined ? {} : { payload: body as object }) });
       const json = res.json() as { data?: never; error?: { code: string; message: string; detail?: unknown } };
       return { status: res.statusCode, data: json.data as never, ...(json.error ? { error: json.error } : {}) };
     },
