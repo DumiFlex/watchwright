@@ -73,6 +73,8 @@ export interface RecordHost {
   frames: FrameHub;
   siteBusy(siteKey: string): boolean;
   holdSite(siteKey: string): () => void;
+  /** A secret's value by name, for steps that use `${secret.…}`. */
+  secret(name: string): string | undefined;
 }
 
 /** Closes a recording nobody has touched for this long. */
@@ -291,6 +293,7 @@ export class RecordSession {
         info: () => undefined,
         onStep: (title) => title && this.emit(this.stepEvent, { title }),
         onFlag: () => undefined,
+        secret: (name) => this.host.secret(name),
       },
       o.helpers,
     );

@@ -13,6 +13,7 @@ import { FRAMES } from "../live/hub.js";
 import { PACKS } from "../packs/registry.js";
 import { SETTINGS } from "../settings/plugin.js";
 import { JobKinds } from "../../jobs/kinds.js";
+import { SECRETS } from "../secrets/plugin.js";
 import { digest, readRunFile, waitForRun } from "./digest.js";
 import { Engine, EngineError } from "./engine.js";
 import { RUNS_ARTIFACT_SET_SQL, RUNS_INFO_SQL, RUNS_LABELS_PRESETS_SQL, RUNS_MIGRATION_SQL, RUNS_STEPS_SQL, RunsRepo, type RunChoices, type RunOptions, type RunStatus } from "./repo.js";
@@ -156,6 +157,7 @@ export const runsPlugin = definePlugin({
       frames: services.get(FRAMES),
       dataDir,
       kinds,
+      secrets: services.has(SECRETS) ? services.get(SECRETS) : undefined,
     });
     engine.recover();
     services.provide(ENGINE, engine);

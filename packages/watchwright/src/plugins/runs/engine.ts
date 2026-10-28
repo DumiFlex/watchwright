@@ -164,6 +164,16 @@ export interface EngineOptions {
   /** Folder that holds `runs/`; artifact paths are relative to it. */
   dataDir: string;
   kinds: JobKinds;
+  /** Secrets for `h.secret` and `${secret.…}`; every value is masked in what runs record and announce. */
+  secrets?: { get(name: string): string | undefined; mask(text: string): string } | undefined;
+}
+
+/** A copy of `value` with `mask` applied to every string in it (event data, attempt results). */
+export function maskDeep<T>(value: T, mask: (s: string) => string): T {
+  if (typeof value === "string") return mask(value) as T;
+  if (Array.isArray(value)) return value.map((v: unknown) => maskDeep(v, mask)) as T;
+  if (value !== null && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, maskDeep(v, mask)])) as T;
+  return value;
 }
 
 export class Engine {
@@ -608,7 +618,13 @@ export class Engine {
   }
 
   private emit(type: string, data: Record<string, unknown>, runId: string, attemptId?: string | null) {
-    this.o.events.append(type, data, { runId, attemptId: attemptId ?? undefined });
+    this.o.events.append(type, this.mask(data), { runId, attemptId: attemptId ?? undefined });
+  }
+
+  /** `value` with every secret masked (unchanged when there is no secrets store). */
+  private mask<T>(value: T): T {
+    const secrets = this.o.secrets;
+    return secrets ? maskDeep(value, (s) => secrets.mask(s)) : value;
   }
 
   private launch(row: RunRow): void {
@@ -659,7 +675,7 @@ export class Engine {
     this.emit("run.started", { mode }, row.id);
 
     const failStart = (message: string) => {
-      repo.updateRun(row.id, { status: "failed_to_start", error: message, finished_at: new Date().toISOString() });
+      repo.updateRun(row.id, { status: "failed_to_start", error: this.mask(message), finished_at: new Date().toISOString() });
       this.emit("run.failed_to_start", { message }, row.id);
     };
 
@@ -889,6 +905,7 @@ export class Engine {
       save: (k, v) => saves.set(k, v),
       load: (k) => (saves.has(k) ? saves.get(k) : run.state[k]),
       info: (k, v) => this.setInfo(run, k, v),
+      secret: (name) => this.o.secrets?.get(name),
       onStep: (title) => {
         run.step = title;
         if (attemptId) this.emit("attempt.step", { title }, run.id, attemptId);
@@ -1065,16 +1082,21 @@ export class Engine {
       this.o.repo.updateRun(row.id, { state: JSON.stringify(run.state) });
     }
 
-    this.o.repo.finishAttempt(id, {
-      status: finalStatus,
-      flags: recorder.flags,
-      metrics: recorder.metrics,
-      notes: recorder.notes,
-      texts: recorder.texts,
-      log: recorder.log,
-      steps: recorder.steps,
-      error: attemptError,
-    });
+    this.o.repo.finishAttempt(
+      id,
+      {
+        status: finalStatus,
+        ...this.mask({
+          flags: recorder.flags,
+          metrics: recorder.metrics,
+          notes: recorder.notes,
+          texts: recorder.texts,
+          log: recorder.log,
+          steps: recorder.steps,
+          error: attemptError,
+        }),
+      },
+    );
     const doc = resultDocument(this.o.repo.attempt(id)!, this.o.repo.artifacts(id));
     try {
       writeFileSync(path.join(dir, "result.json"), JSON.stringify(doc, null, 2));
@@ -1137,7 +1159,7 @@ export class Engine {
     const k = String(key).trim();
     if (!k || k.length > 64) throw new StepError("info(key, value): the key must be 1 to 64 characters.");
     if (!["string", "number", "boolean"].includes(typeof value)) throw new StepError(`info("${k}", value): the value must be a string, number or boolean.`);
-    const v = typeof value === "string" && value.length > 500 ? `${value.slice(0, 500)}…` : value;
+    const v = this.mask(typeof value === "string" && value.length > 500 ? `${value.slice(0, 500)}…` : value);
     if (run.info[k] === v) return;
     run.info[k] = v;
     this.o.repo.updateRun(run.id, { info: JSON.stringify(run.info) });

@@ -13,6 +13,7 @@ import { LOOKS, MODES, type Theme } from "../theme";
 import { notify, notifySupport, turnOffNotify, turnOnNotify, type NotifySupport } from "../notify";
 import { toast } from "../toasts";
 import AgentsSettings from "../components/AgentsSettings.vue";
+import SecretsSettings from "../components/SecretsSettings.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import RadioGroup from "../components/RadioGroup.vue";
 import SelectMenu from "../components/SelectMenu.vue";
@@ -137,6 +138,8 @@ onMounted(() => {
       <p v-if="support === 'unsupported'" class="muted small">This browser can't show notifications for this page.</p>
       <p v-else-if="support === 'denied'" class="muted small">The browser blocks notifications for this page. Allow them in its site settings, then switch this on.</p>
     </section>
+
+    <SecretsSettings />
 
     <AgentsSettings />
 

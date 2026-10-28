@@ -255,6 +255,12 @@ export function createHelpers(rt: HelperRuntime, extend?: (h: Helpers) => Record
       rt.info(key, value);
     },
 
+    secret(name) {
+      const value = rt.secret(name);
+      if (value === undefined) throw new StepError(`No secret named "${name}". Add it on Settings > Secrets (or with: watchwright secrets set --name ${name} --value …).`);
+      return value;
+    },
+
     skip(reason): never {
       throw new SkipTest(reason);
     },

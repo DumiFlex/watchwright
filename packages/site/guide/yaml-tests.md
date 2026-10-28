@@ -89,12 +89,22 @@ Text in a step can use variables:
 |---|---|
 | `${params.lang}` | a value the run chose (the pack's `params`) |
 | `${saved.order}` | a value an earlier test kept with `save` (list that test in `needs`) |
+| `${secret.SHOP_PASSWORD}` | a secret set on Settings > Secrets (see [Secrets](#secrets)) |
 | `${env.SHOP_PASSWORD}` | an environment variable on the machine running Watchwright |
 | `${attempt}`, `${attempts}`, `${last}` | this attempt's number, how many the test gets, and whether this is the last |
 
 A value that is a single variable keeps its type, so `count: "${saved.items}"` is a number. Write `$${` for a literal `${`.
 
-Values read from `env` are replaced with `•••` in logs, notes and error messages, so a password can come from the environment without landing in a result file. The step titles show the variable, not its value.
+Values read from `secret` and `env` are replaced with `•••` in logs, notes and error messages, so a password doesn't land in a result file. The step titles show the variable, not its value.
+
+### Secrets
+
+Passwords and tokens a test needs go on **Settings > Secrets** (or `watchwright secrets set --name SHOP_PASSWORD --value …`), not in the pack. Tests read them as `${secret.SHOP_PASSWORD}` in YAML and `h.secret("SHOP_PASSWORD")` in code; a test that asks for a secret nobody set breaks with a message that says where to add it.
+
+- The web page and the API show a secret's name, length and when it was set, never its value. From an agent or a script, setting or deleting one waits for your approval on the web page.
+- Every secret value (four characters or more) is replaced with `•••` wherever a run records or announces text: logs, notes, kept texts, step titles, errors, run facts and live events.
+- Secrets are kept in Watchwright's database in its data folder, not encrypted. They stay out of packs, repos and results; they are not safe from someone who can read your data folder.
+- Screenshots and video show what the page shows. Type secrets into password fields so they appear as dots.
 
 ## Branches and loops
 
@@ -112,7 +122,7 @@ Values read from `env` are replaced with `•••` in logs, notes and error me
     title: Log in
     steps:
       - fill: { target: { label: Email }, value: "${env.SHOP_USER}" }
-      - fill: { target: { label: Password }, value: "${env.SHOP_PASSWORD}" }
+      - fill: { target: { label: Password }, value: "${secret.SHOP_PASSWORD}" }
       - click: { role: button, name: Log in }
 ```
 
