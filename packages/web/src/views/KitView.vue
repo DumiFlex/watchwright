@@ -14,6 +14,7 @@ import DataTable from "../components/DataTable.vue";
 import DatePicker from "../components/DatePicker.vue";
 import DateRangePicker, { type DateRange } from "../components/DateRangePicker.vue";
 import DiffView from "../components/DiffView.vue";
+import EmptyState from "../components/EmptyState.vue";
 import FilePicker from "../components/FilePicker.vue";
 import FolderBrowser from "../components/FolderBrowser.vue";
 import PathInput from "../components/PathInput.vue";
@@ -446,6 +447,22 @@ const traces = [
             <button class="btn" @click="demoToast('warn')">Stays</button>
           </div>
         </div>
+        <div class="item wide">
+          <span class="lbl">Empty states</span>
+          <div class="empty-demo">
+            <EmptyState :icon="icons.Package" heading="No packs yet" :level="3">
+              <p>A pack is a folder of tests for one site. Add one you have, or start a new one.</p>
+              <template #actions>
+                <button class="btn primary">Add a pack…</button>
+                <button class="btn">Find packs in a folder…</button>
+              </template>
+            </EmptyState>
+            <EmptyState :icon="icons.SearchX" heading="No runs match" compact :level="3">
+              <p>Nothing matches "checkout firefox" with these filters.</p>
+              <template #actions><button class="btn">Clear the filters</button></template>
+            </EmptyState>
+          </div>
+        </div>
         <div class="item">
           <span class="lbl">Status</span>
           <div class="row">
@@ -835,6 +852,15 @@ header p {
   border: var(--border-width) solid var(--line);
   border-radius: var(--radius);
   background: var(--surface);
+}
+.empty-demo {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
+  gap: var(--space-3);
+}
+.empty-demo > * {
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
 }
 .item.wide {
   grid-column: 1 / -1;

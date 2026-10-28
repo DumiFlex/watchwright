@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // One pack: whether it loads, its tests with their metadata, parameters and flag kinds, and
 // its recent runs, then its README the way a code host shows one.
-import { ArrowLeft, CircleDot, Ellipsis, FileText, Pencil, TriangleAlert } from "../icons";
+import { ArrowLeft, CircleDot, Ellipsis, FilePlus, FileText, Pencil, Play, TriangleAlert } from "../icons";
 import { nextTestId, recordingTestTemplate, slug, type PackFile } from "../editfiles";
 import { findReadme, packImageUrl, resolveRelative } from "../markdown";
 import MarkdownView from "../components/MarkdownView.vue";
@@ -11,10 +11,12 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, sendJson, type Criterion, type FolderPlaces, type Pack, type PackTest, type RunSummary } from "../api";
 import { ago, countsText, when } from "../format";
 import { LiveConnection } from "../live";
+import EmptyState from "../components/EmptyState.vue";
 import FileLink from "../components/FileLink.vue";
 import MenuButton from "../components/MenuButton.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import PackFolderDialog from "../components/PackFolderDialog.vue";
+import PageSkeleton from "../components/PageSkeleton.vue";
 import PathLine from "../components/PathLine.vue";
 import StatusChip from "../components/StatusChip.vue";
 import { buildErrorSpot } from "../editor";
@@ -219,7 +221,13 @@ onBeforeUnmount(() => live?.close());
               </tr>
             </tbody>
           </table>
-          <p v-else class="muted">No tests found.</p>
+          <EmptyState v-else :icon="FilePlus" heading="No tests yet" compact :level="3">
+            <p>Tests are files in the pack folder. Record one by clicking through the site, or write one in the editor.</p>
+            <template v-if="!pack.missing" #actions>
+              <button v-if="pack.status === 'ok'" type="button" class="btn primary" @click="startNewRecording"><CircleDot :size="15" /> New recording</button>
+              <a class="btn" :href="href({ name: 'edit', id: pack.id, file: null, line: null })"><Pencil :size="15" /> Open the editor</a>
+            </template>
+          </EmptyState>
         </div>
 
         <div v-show="tab === 'params'" id="pack-panel-params" role="tabpanel" aria-labelledby="pack-tab-params" class="panel">
@@ -281,7 +289,12 @@ onBeforeUnmount(() => live?.close());
             <span v-tip="when(r.startedAt ?? r.createdAt)" class="muted small">{{ ago(r.startedAt ?? r.createdAt) }}</span>
           </li>
         </ul>
-        <p v-else class="muted">No runs of this pack yet.</p>
+        <EmptyState v-else :icon="Play" heading="Nothing has run yet" compact :level="3">
+          <p>Runs of this pack show here with their results.</p>
+          <template v-if="pack.status === 'ok' && !pack.missing" #actions>
+            <a class="btn primary" :href="`#/new?pack=${pack.id}`">Start a run</a>
+          </template>
+        </EmptyState>
         <a v-if="runs.length" class="small" :href="`#/?pack=${pack.id}`">All runs of this pack</a>
       </section>
 
@@ -293,6 +306,7 @@ onBeforeUnmount(() => live?.close());
         <MarkdownView :source="readme.text" :resolve-link="readmeLink" :resolve-image="readmeImage" id-prefix="readme-" :label="readme.path" />
       </section>
     </template>
+    <PageSkeleton v-else-if="!error" label="Loading the pack" :cards="3" />
     <PackFolderDialog v-if="pack" v-model="moveOpen" mode="move" :packs="[]" :moving="pack" :home="home" @moved="load(), toast('The pack now loads from its new folder', { tone: 'ok' })" />
     <ModalDialog v-model="recOpen" heading="New recording" width="480px">
       <form class="form" @submit.prevent="createRecording">

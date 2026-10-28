@@ -94,3 +94,15 @@ export function fitTimelineZoom(steps: readonly TimelineStep[], duration: number
   if (px >= minPx) return 1;
   return TIMELINE_ZOOMS.find((z) => z <= max && px * z >= minPx) ?? TIMELINE_ZOOMS.filter((z) => z <= max).pop()!;
 }
+
+/**
+ * How far to scroll a view per frame while something is dragged at `x` (px, same frame as the
+ * view's `left` and `right` edges): nothing inside the view more than `edge` px from either
+ * side, faster the closer to (or further past) an edge, up to `max`. Negative scrolls back.
+ */
+export function edgeScroll(x: number, left: number, right: number, edge = 40, max = 28): number {
+  const speed = (into: number) => Math.min(max, Math.ceil((into / edge) * max));
+  if (x < left + edge) return -speed(left + edge - x);
+  if (x > right - edge) return speed(x - (right - edge));
+  return 0;
+}

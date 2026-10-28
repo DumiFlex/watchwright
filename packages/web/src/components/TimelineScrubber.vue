@@ -7,11 +7,12 @@
 // with the step clicked on. `marks` are points to flag (a failure, a pause) above the steps;
 // marks closer than a few pixels show as one with a count.
 // Many short steps don't fit side by side, so the axis zooms (the buttons, Ctrl or Cmd with the
-// wheel, + and -) and scrolls sideways, following the playhead while it moves. It opens zoomed
-// in far enough for most steps to show their label.
+// wheel, + and -) and scrolls sideways, following the playhead while it moves; dragging the
+// playhead against an edge scrolls on. It opens zoomed in far enough for most steps to show
+// their label.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { ZoomIn, ZoomOut } from "../icons";
-import { clock, clusterMarks, fitTimelineZoom, laneSteps, nextStart, stepAt, stepTimelineZoom, timeTicks, TIMELINE_ZOOMS, type TimelineStep } from "../timeline";
+import { clock, clusterMarks, edgeScroll, fitTimelineZoom, laneSteps, nextStart, stepAt, stepTimelineZoom, timeTicks, TIMELINE_ZOOMS, type TimelineStep } from "../timeline";
 import { vTip } from "../tooltip";
 
 export type TimelineMark = { at: number; label: string; tone?: "ok" | "bad" | "warn" | "accent" | undefined };
@@ -151,6 +152,8 @@ function down(e: PointerEvent) {
   e.preventDefault();
   (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   dragging.value = true;
+  dragX = e.clientX;
+  edgeLoop();
   const t = (xOf(e) / width.value) * props.duration;
   const step = stepAt(props.steps, t);
   seek(t);
@@ -159,11 +162,34 @@ function down(e: PointerEvent) {
 }
 function move(e: PointerEvent) {
   hoverX.value = xOf(e);
+  dragX = e.clientX;
   if (dragging.value && width.value) seek((hoverX.value / width.value) * props.duration);
 }
 function up() {
   dragging.value = false;
+  cancelAnimationFrame(edgeFrame);
 }
+// While dragging, a pointer near or past an edge of the view scrolls it and the playhead along.
+let edgeFrame = 0;
+let dragX = 0;
+function edgeLoop() {
+  cancelAnimationFrame(edgeFrame);
+  const tick = () => {
+    const v = view.value;
+    if (!dragging.value || !v) return;
+    const r = v.getBoundingClientRect();
+    const by = edgeScroll(dragX, r.left + PAD, r.right - PAD);
+    const before = v.scrollLeft;
+    if (by) v.scrollLeft = Math.max(0, before + by);
+    if (v.scrollLeft !== before && width.value) {
+      const t = track.value?.getBoundingClientRect();
+      if (t) seek((Math.min(t.width, Math.max(0, dragX - t.left)) / width.value) * props.duration);
+    }
+    edgeFrame = requestAnimationFrame(tick);
+  };
+  edgeFrame = requestAnimationFrame(tick);
+}
+onBeforeUnmount(() => cancelAnimationFrame(edgeFrame));
 function key(e: KeyboardEvent) {
   if (e.key === "+" || e.key === "=" || e.key === "-") {
     e.preventDefault();
