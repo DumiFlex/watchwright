@@ -3,7 +3,7 @@
 // screenshots (gallery, scroll sets as strips, marks), kept texts, the log, collector records,
 // the video and the trace, with the review beside them (below on narrow screens). J and K step
 // to the next and previous attempt of the run.
-import { ArrowLeft, ChevronLeft, ChevronRight, MessageSquarePlus, Pencil } from "../icons";
+import { ArrowLeft, ChevronLeft, ChevronRight, Columns2, MessageSquarePlus, Pencil } from "../icons";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, type Artifact, type Pack, type ResultDocument, type RunDetail } from "../api";
 import { attemptOrder, attemptSteps, cellOf, logMarks, plainText, recordColumns, shotGroups, traceViewerUrl } from "../attempt";
@@ -11,6 +11,7 @@ import { clock, type TimelineStep } from "../timeline";
 import { duration, fileSize, when } from "../format";
 import { firstOwnFrame } from "../editor";
 import { levelOf, type LogLine } from "../logview";
+import { aroundStep, openFrames } from "../frames";
 import { relativeTo, tildify } from "../paths";
 import { href } from "../router";
 import { loadSettings, settings } from "../settings";
@@ -19,11 +20,15 @@ import { vTip } from "../tooltip";
 import CodeView from "../components/CodeView.vue";
 import DataTable from "../components/DataTable.vue";
 import FileLink from "../components/FileLink.vue";
+import FilmStrip from "../components/FilmStrip.vue";
+import ImageDiff, { type DiffImage } from "../components/ImageDiff.vue";
 import ImageViewer from "../components/ImageViewer.vue";
 import LogViewer from "../components/LogViewer.vue";
+import ModalDialog from "../components/ModalDialog.vue";
 import PageSkeleton from "../components/PageSkeleton.vue";
 import ReviewPanel from "../components/ReviewPanel.vue";
 import SelectMenu from "../components/SelectMenu.vue";
+import SkeletonBlock from "../components/SkeletonBlock.vue";
 import StatusChip from "../components/StatusChip.vue";
 import TabBar from "../components/TabBar.vue";
 import TimelineScrubber from "../components/TimelineScrubber.vue";
@@ -144,6 +149,41 @@ function scrub(ms: number) {
   if (tab.value === "video") for (const p of players.value) p.seekTo(ms / 1000);
 }
 const stepLength = (s: TimelineStep) => duration(s.end - s.start);
+
+// A step's before and after: stills from the video just before it starts and a moment after it
+// ends, compared in the image diff.
+const around = ref<{ step: TimelineStep; before: DiffImage | null; after: DiffImage | null; failed: boolean } | null>(null);
+const aroundOpen = computed({
+  get: () => around.value !== null,
+  set: (v) => {
+    if (!v) around.value = null;
+  },
+});
+let aroundToken = 0;
+async function showAround(s: TimelineStep) {
+  const video = videos.value[0];
+  if (!video) return;
+  const mine = ++aroundToken;
+  const at = aroundStep(s, Math.max(videoSpan.value, s.end + 1000));
+  const state = { step: s, before: null, after: null, failed: false };
+  around.value = state;
+  try {
+    const frames = await openFrames(video.url);
+    try {
+      const [b, a] = await Promise.all([frames.grab(at.before, undefined, "image/png"), frames.grab(at.after, undefined, "image/png")]);
+      if (mine !== aroundToken || !around.value) return;
+      around.value = {
+        ...state,
+        before: { url: b, label: "Before", note: `at ${clock(at.before, true)}` },
+        after: { url: a, label: "After", note: `at ${clock(at.after, true)}` },
+      };
+    } finally {
+      frames.close();
+    }
+  } catch {
+    if (mine === aroundToken && around.value) around.value = { ...state, failed: true };
+  }
+}
 
 // "Add to review": a shot or a step goes into the review note, ready for a word about it.
 const review = ref<InstanceType<typeof ReviewPanel> | null>(null);
@@ -334,14 +374,18 @@ watch(
       <section v-if="steps.length" class="card steps" aria-labelledby="steps-title">
         <h2 id="steps-title">Steps <span class="hint">{{ videos.length ? "Pick a step to see it in the video." : "" }}</span></h2>
         <TimelineScrubber :model-value="playhead" :steps="steps" :duration="span" :marks="marks" label="Attempt time" @update:model-value="scrub" @pick="pickStep" />
+        <FilmStrip v-if="videos[0]" class="film" :src="videos[0].url" :duration="span" :playhead="playhead" :label="`Frames of ${videos[0].name}`" @seek="scrub" />
         <ol class="steplist">
           <li v-for="s in steps" :key="s.id">
             <button type="button" class="steprow" :class="{ on: playhead >= s.start && playhead < s.end }" @click="pickStep(s)">
               <span class="num muted">{{ clock(s.start) }}</span>
               <span class="st">{{ s.label }}</span>
-              <span class="num muted">{{ stepLength(s) }}</span>
+              <span class="num muted dur">{{ stepLength(s) }}</span>
               <StatusChip v-if="s.status" :status="s.status" />
               <span v-else aria-hidden="true" />
+            </button>
+            <button v-if="videos.length" v-tip="'Before and after'" type="button" class="ibtn" :aria-label="`Show the page before and after step ${s.label}`" @click="showAround(s)">
+              <Columns2 :size="15" />
             </button>
             <button v-tip="'Add to review note'" type="button" class="ibtn" :aria-label="`Add step ${s.label} to the review note`" @click="reviewStep(s)">
               <MessageSquarePlus :size="15" />
@@ -463,6 +507,17 @@ watch(
           </button>
         </template>
       </ImageViewer>
+
+      <ModalDialog v-model="aroundOpen" :heading="around ? `Step ${around.step.label}` : 'Step'" width="min(1180px, 96vw)">
+        <template v-if="around">
+          <ImageDiff v-if="around.before && around.after" :before="around.before" :after="around.after" />
+          <p v-else-if="around.failed" class="muted">The video's frames couldn't be read.</p>
+          <SkeletonBlock v-else shape="block" height="320px" />
+        </template>
+        <template #actions>
+          <button type="button" class="btn" @click="aroundOpen = false">Close</button>
+        </template>
+      </ModalDialog>
     </template>
     <PageSkeleton v-else-if="!error" label="Loading the attempt" :cards="2" />
   </main>
@@ -639,6 +694,15 @@ watch(
   font: inherit;
   text-align: left;
   cursor: pointer;
+}
+@media (max-width: 600px) {
+  .steprow {
+    grid-template-columns: 44px 1fr auto;
+    gap: var(--space-2);
+  }
+  .steprow .dur {
+    display: none;
+  }
 }
 .steprow:hover,
 .steprow.on {
