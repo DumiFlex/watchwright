@@ -174,6 +174,13 @@ An approval is `{ id, action, input, client, summary, status, answeredBy, result
 | `GET /approvals/:id/wait?timeout=` | Waits until the approval is answered or expires, at most `timeout` seconds (default 60, up to 110), and returns it. Call again while it is `waiting`. |
 | `POST /approvals/:id/answer` `{ approve }` | Approves (runs the action) or refuses. Only from the web page: 403 `not_allowed` otherwise. 409 `conflict` once it is answered. |
 
+## Agents
+
+| Method and path | Does |
+|---|---|
+| `GET /agents/seen?days=` | Agents that called the MCP server in the last `days` (default 30), most recent first: `{ name, firstAt, lastAt, lastTool, calls, started }`, where `started` counts the runs and explore sessions it started. |
+| `POST /agents/install` `{ folder, agents?, mcp?, server? }` | Does what [`watchwright init-agent`](./cli#init-agent) does, in a folder on the server's machine: `agents` is a list of `claude`, `codex`, `cursor`; `server` is the address written into the settings. Answers `{ folder, agents, wrote, commands, problems }`. 400 `install_failed` when the folder is missing. |
+
 ## Events
 
 Everything that happens is an event with a growing sequence number: `{ seq, time, type, runId?, attemptId?, data }`.

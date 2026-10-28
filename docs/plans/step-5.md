@@ -125,7 +125,7 @@ An agent explores in a **record session** (step 4's Record), driven by steps ins
 **The skill** ships in the package at `skill/watchwright/`:
 
 - `SKILL.md` (short): what Watchwright is; first check `watchwright status` (or `list_packs`) and give the person the web page's address so they can watch; then the loop: look at the pack, explore, write a test (YAML first, code when YAML can't say it), check it, run it, wait in bounded steps, read results and screenshots, fix the test when the robot went wrong and report a finding when the site did. The rules: never stop or change a run the agent didn't start; never delete; when a run is paused by a person, stop and ask; a broken attempt is a robot problem until the screenshots say otherwise; keep each wait bounded.
-- `references/yaml-steps.md`, `references/pack-api.md`, `references/results.md`, `references/cli.md`, `references/mcp.md`, generated from the same sources as the docs site's reference pages (the steps reference script already exists), with a test that fails when they are stale.
+- `references/`: the docs site's YAML tests, YAML steps, test packs, MCP tools and command line pages, copied with their links pointed at each other or at the published site (`pnpm --filter watchwright skill-references`), with a test that fails when they are stale. (Built this way rather than as separate pack-API and results pages, so the skill says exactly what the site says.)
 
 **`watchwright init-agent [folder] [--agent claude,codex,cursor] [--no-mcp]`** writes into a project (default: the current folder):
 

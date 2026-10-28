@@ -8,7 +8,7 @@ A browser test harness built on [Playwright](https://playwright.dev) that you wa
 - **Let your agents drive.** Everything the page does is an API call, and AI coding agents (Claude Code, Codex, any MCP client) get it through a CLI, an MCP server and an agent skill. Watchwright has no AI assistant of its own.
 - **Built to grow.** Every capability is a plugin on one core of browser sessions, jobs, events and actions. Testing comes first; scraping, crawling and other Playwright capabilities can be added later without reworking the base.
 
-> **Status: early (0.x).** The run engine, test packs in TypeScript or YAML, the live view, the web app (runs, review, compare, a pack editor and Record) and the HTTP API work. The agent CLI, MCP server and agent skill come next; see [docs/plan.md](docs/plan.md) for the plan and what is built so far.
+> **Status: early (0.x).** The run engine, test packs in TypeScript or YAML, the live view, the web app (runs, review, compare, a pack editor and Record), the HTTP API, the command line, the MCP server and the agent skill work; see [docs/plan.md](docs/plan.md) for the plan and what is built so far.
 
 **Docs:** [dumiflex.github.io/watchwright](https://dumiflex.github.io/watchwright/)
 
