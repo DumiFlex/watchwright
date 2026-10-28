@@ -9,6 +9,7 @@ import MenuButton from "../components/MenuButton.vue";
 import KeyHint from "../components/KeyHint.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import MultiSelect from "../components/MultiSelect.vue";
+import PageSkeleton from "../components/PageSkeleton.vue";
 import SelectMenu from "../components/SelectMenu.vue";
 import StatusChip from "../components/StatusChip.vue";
 import TextArea from "../components/TextArea.vue";
@@ -635,6 +636,7 @@ function time(iso: string) {
         <p class="muted small keysnote">Each works only when its button shows, and not while a dialog is open.</p>
       </ModalDialog>
     </template>
+    <PageSkeleton v-else-if="!error" label="Loading the run" :cards="2" />
   </main>
 </template>
 

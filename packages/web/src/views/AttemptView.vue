@@ -19,6 +19,7 @@ import CodeView from "../components/CodeView.vue";
 import DataTable from "../components/DataTable.vue";
 import FileLink from "../components/FileLink.vue";
 import ImageViewer from "../components/ImageViewer.vue";
+import PageSkeleton from "../components/PageSkeleton.vue";
 import ReviewPanel from "../components/ReviewPanel.vue";
 import SelectMenu from "../components/SelectMenu.vue";
 import StatusChip from "../components/StatusChip.vue";
@@ -466,7 +467,7 @@ watch(
         </template>
       </ImageViewer>
     </template>
-    <p v-else-if="!error" class="muted">Loading…</p>
+    <PageSkeleton v-else-if="!error" label="Loading the attempt" :cards="2" />
   </main>
 </template>
 

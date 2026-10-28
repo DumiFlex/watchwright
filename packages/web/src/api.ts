@@ -176,6 +176,20 @@ export interface RunPreview {
 export type RunStatus = "queued" | "running" | "pausing" | "paused" | "finished" | "stopped" | "interrupted" | "failed_to_start";
 export type AttemptStatus = "passed" | "failed" | "broken" | "skipped" | "stopped" | "running" | "interrupted";
 
+/** One finished attempt of a test (`GET /packs/:id/history`), oldest first per test. */
+export interface HistoryEntry {
+  attemptId: string;
+  runId: string;
+  runLabel: string;
+  number: number;
+  /** Above 1 when the attempt was run again after it broke. */
+  try: number;
+  status: AttemptStatus;
+  startedAt: string;
+  durationMs: number | null;
+  params: Record<string, ParamValue>;
+}
+
 export interface RunSummary {
   id: string;
   packId: string;

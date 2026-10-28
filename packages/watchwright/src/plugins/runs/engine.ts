@@ -21,6 +21,7 @@ import {
   runSummary,
   type AttemptStatus,
   type AttemptSummary,
+  type HistoryEntry,
   type PlanEntry,
   type RunMode,
   type RunOptions,
@@ -170,6 +171,10 @@ export class Engine {
     const until = o.until ?? dayOf(new Date().toISOString(), o.offset);
     const from = dayStart(dayList(until, o.days * 2)[0]!, o.offset);
     return runStats(this.o.repo.statsRows(from, o.packId), { until, days: o.days, offset: o.offset });
+  }
+
+  testHistory(packId: string, limit: number): Record<string, HistoryEntry[]> {
+    return this.o.repo.history(packId, limit);
   }
 
   list(filter: RunFilter = {}): RunSummary[] {

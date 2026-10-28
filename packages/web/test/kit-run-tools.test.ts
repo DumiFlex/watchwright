@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { dropIndex, moveItem } from "../src/reorder";
 import { clampSplit, loadSplit, saveSplit, splitAt } from "../src/split";
-import { clock, clusterMarks, fitTimelineZoom, laneSteps, nextStart, stepAt, stepTimelineZoom, timeTicks } from "../src/timeline";
+import { clock, clusterMarks, edgeScroll, fitTimelineZoom, laneSteps, nextStart, stepAt, stepTimelineZoom, timeTicks } from "../src/timeline";
 
 describe("split panes", () => {
   it("keeps both panes above their minimum", () => {
@@ -72,6 +72,15 @@ describe("timeline", () => {
     ]);
     // Zoomed in ten times they come apart.
     expect(clusterMarks(marks, 10_000, 10_000)).toHaveLength(4);
+  });
+  it("scrolls while a drag is near or past an edge", () => {
+    expect(edgeScroll(500, 100, 900)).toBe(0);
+    expect(edgeScroll(880, 100, 900)).toBeGreaterThan(0);
+    expect(edgeScroll(120, 100, 900)).toBeLessThan(0);
+    // Faster the closer, capped past the edge.
+    expect(edgeScroll(895, 100, 900)).toBeGreaterThan(edgeScroll(870, 100, 900));
+    expect(edgeScroll(2000, 100, 900)).toBe(28);
+    expect(edgeScroll(-500, 100, 900)).toBe(-28);
   });
   it("zooms in steps and opens far enough in for most labels", () => {
     expect(stepTimelineZoom(1, 1)).toBe(2);

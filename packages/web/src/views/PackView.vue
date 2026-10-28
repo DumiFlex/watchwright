@@ -1,20 +1,24 @@
 <script setup lang="ts">
 // One pack: whether it loads, its tests with their metadata, parameters and flag kinds, and
 // its recent runs, then its README the way a code host shows one.
-import { ArrowLeft, CircleDot, Ellipsis, FileText, Pencil, TriangleAlert } from "../icons";
+import { ArrowLeft, CircleDot, Ellipsis, FilePlus, FileText, Pencil, Play, TriangleAlert } from "../icons";
 import { nextTestId, recordingTestTemplate, slug, type PackFile } from "../editfiles";
 import { findReadme, packImageUrl, resolveRelative } from "../markdown";
 import MarkdownView from "../components/MarkdownView.vue";
 import TextField from "../components/TextField.vue";
 import { href } from "../router";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { getJson, sendJson, type Criterion, type FolderPlaces, type Pack, type PackTest, type RunSummary } from "../api";
-import { ago, countsText, when } from "../format";
+import { getJson, sendJson, type Criterion, type FolderPlaces, type HistoryEntry, type Pack, type PackTest, type RunSummary } from "../api";
+import { HISTORY_LIMIT, flakyReason, medianMs, passRate } from "../history";
+import { ago, countsText, duration, when } from "../format";
 import { LiveConnection } from "../live";
+import EmptyState from "../components/EmptyState.vue";
 import FileLink from "../components/FileLink.vue";
+import HistoryStrip from "../components/HistoryStrip.vue";
 import MenuButton from "../components/MenuButton.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import PackFolderDialog from "../components/PackFolderDialog.vue";
+import PageSkeleton from "../components/PageSkeleton.vue";
 import PathLine from "../components/PathLine.vue";
 import StatusChip from "../components/StatusChip.vue";
 import { buildErrorSpot } from "../editor";
@@ -27,6 +31,17 @@ const props = defineProps<{ id: string }>();
 
 const pack = ref<Pack | null>(null);
 const runs = ref<RunSummary[]>([]);
+const history = ref<Record<string, HistoryEntry[]>>({});
+const hasHistory = computed(() => Object.keys(history.value).length > 0);
+// Each test's history in one place for the template: the ticks, pass rate, typical time, flaky or not.
+const testHistory = computed(() => {
+  const out: Record<string, { entries: HistoryEntry[]; rate: string; median: string; flaky: string | null }> = {};
+  for (const [id, entries] of Object.entries(history.value)) {
+    const rate = passRate(entries);
+    out[id] = { entries, rate: rate === null ? "–" : `${Math.round(rate * 100)}%`, median: duration(medianMs(entries)) || "–", flaky: flakyReason(entries) };
+  }
+  return out;
+});
 const error = ref<string | null>(null);
 const reloading = ref(false);
 const home = ref<string | null>(null);
@@ -116,7 +131,11 @@ function readmeLink(target: string): string | null {
 }
 
 async function load() {
-  const [p, r] = await Promise.all([getJson<Pack>(`/api/v1/packs/${props.id}`), getJson<RunSummary[]>(`/api/v1/runs?pack=${props.id}&limit=10`)]);
+  const [p, r, h] = await Promise.all([
+    getJson<Pack>(`/api/v1/packs/${props.id}`),
+    getJson<RunSummary[]>(`/api/v1/runs?pack=${props.id}&limit=10`),
+    getJson<Record<string, HistoryEntry[]>>(`/api/v1/packs/${props.id}/history?limit=${HISTORY_LIMIT}`),
+  ]);
   if (!p.ok) {
     error.value = p.error.code === "not_found" ? "There is no pack with this id. It may have been removed." : p.error.message;
     pack.value = null;
@@ -125,6 +144,7 @@ async function load() {
   error.value = null;
   pack.value = p.data;
   if (r.ok) runs.value = r.data;
+  if (h.ok) history.value = h.data;
   if (!p.data.missing) void loadReadme();
   else readme.value = null;
 }
@@ -199,7 +219,7 @@ onBeforeUnmount(() => live?.close());
         <div v-show="tab === 'tests'" id="pack-panel-tests" role="tabpanel" aria-labelledby="pack-tab-tests" class="panel">
           <table v-if="pack.tests.length" class="tbl">
             <thead>
-              <tr><th>Test</th><th>Section</th><th>Needs</th><th>Attempts</th><th>File</th></tr>
+              <tr><th>Test</th><th>Section</th><th>Needs</th><th>Attempts</th><th v-if="hasHistory" class="c-hist">Last {{ HISTORY_LIMIT }} attempts, newest on the right</th><th>File</th></tr>
             </thead>
             <tbody>
               <tr v-for="t in pack.tests" :key="t.id" :class="{ child: t.inside.length > 0 }">
@@ -207,11 +227,20 @@ onBeforeUnmount(() => live?.close());
                   <code>{{ t.id }}</code> <span>{{ t.title !== t.id ? t.title : "" }}</span>
                   <span v-if="t.inside.length" class="muted small">runs inside {{ t.inside.join(" or ") }}</span>
                   <span v-for="tag in t.tags" :key="tag" class="tag small">{{ tag }}</span>
+                  <span v-if="testHistory[t.id]?.flaky" v-tip="testHistory[t.id]!.flaky!" class="flaky small" tabindex="0">flaky</span>
                   <p v-if="t.description" class="desc muted small">{{ t.description }}</p>
                 </td>
                 <td class="muted" data-label="Section" :class="{ none: !t.section }">{{ t.section ?? "–" }}</td>
                 <td data-label="Needs" :class="{ none: !t.needs.length }"><code v-if="t.needs.length">{{ t.needs.join(", ") }}</code><span v-else class="muted">–</span></td>
                 <td class="num" data-label="Attempts">{{ runsText(t) || "1" }}</td>
+                <td v-if="hasHistory" class="c-hist" :class="{ none: !testHistory[t.id] }">
+                  <div v-if="testHistory[t.id]" class="hist">
+                    <HistoryStrip :entries="testHistory[t.id]!.entries" :label="`Last attempts of ${t.id}`" />
+                    <span v-tip="'Passed, of the attempts that passed, failed or broke'" class="hist-num rate num small">{{ testHistory[t.id]!.rate }}</span>
+                    <span v-tip="'Typical time (median)'" class="hist-num num small muted">{{ testHistory[t.id]!.median }}</span>
+                  </div>
+                  <span v-else class="muted small">No runs yet</span>
+                </td>
                 <td class="muted small file">
                   <a v-tip="'Edit this test'" class="edit" :href="href({ name: 'edit', id: pack.id, file: t.file, line: t.line })" :aria-label="`Edit ${t.id}`"><Pencil :size="14" /></a>
                   <FileLink :file="join(pack.dir, t.file)" :label="t.file" />
@@ -219,7 +248,13 @@ onBeforeUnmount(() => live?.close());
               </tr>
             </tbody>
           </table>
-          <p v-else class="muted">No tests found.</p>
+          <EmptyState v-else :icon="FilePlus" heading="No tests yet" compact :level="3">
+            <p>Tests are files in the pack folder. Record one by clicking through the site, or write one in the editor.</p>
+            <template v-if="!pack.missing" #actions>
+              <button v-if="pack.status === 'ok'" type="button" class="btn primary" @click="startNewRecording"><CircleDot :size="15" /> New recording</button>
+              <a class="btn" :href="href({ name: 'edit', id: pack.id, file: null, line: null })"><Pencil :size="15" /> Open the editor</a>
+            </template>
+          </EmptyState>
         </div>
 
         <div v-show="tab === 'params'" id="pack-panel-params" role="tabpanel" aria-labelledby="pack-tab-params" class="panel">
@@ -281,7 +316,12 @@ onBeforeUnmount(() => live?.close());
             <span v-tip="when(r.startedAt ?? r.createdAt)" class="muted small">{{ ago(r.startedAt ?? r.createdAt) }}</span>
           </li>
         </ul>
-        <p v-else class="muted">No runs of this pack yet.</p>
+        <EmptyState v-else :icon="Play" heading="Nothing has run yet" compact :level="3">
+          <p>Runs of this pack show here with their results.</p>
+          <template v-if="pack.status === 'ok' && !pack.missing" #actions>
+            <a class="btn primary" :href="`#/new?pack=${pack.id}`">Start a run</a>
+          </template>
+        </EmptyState>
         <a v-if="runs.length" class="small" :href="`#/?pack=${pack.id}`">All runs of this pack</a>
       </section>
 
@@ -293,6 +333,7 @@ onBeforeUnmount(() => live?.close());
         <MarkdownView :source="readme.text" :resolve-link="readmeLink" :resolve-image="readmeImage" id-prefix="readme-" :label="readme.path" />
       </section>
     </template>
+    <PageSkeleton v-else-if="!error" label="Loading the pack" :cards="3" />
     <PackFolderDialog v-if="pack" v-model="moveOpen" mode="move" :packs="[]" :moving="pack" :home="home" @moved="load(), toast('The pack now loads from its new folder', { tone: 'ok' })" />
     <ModalDialog v-model="recOpen" heading="New recording" width="480px">
       <form class="form" @submit.prevent="createRecording">
@@ -392,6 +433,31 @@ onBeforeUnmount(() => live?.close());
   max-width: 72ch;
   margin: 2px 0 0;
   white-space: pre-line;
+}
+.flaky {
+  padding: 0 6px;
+  border-radius: var(--radius-chip);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+  color: var(--warn);
+  font-weight: 500;
+  cursor: help;
+}
+.c-hist {
+  width: 1%;
+  white-space: nowrap;
+}
+.hist {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+.hist-num {
+  min-width: 4.5ch;
+  text-align: right;
+}
+.hist-num + .hist-num {
+  min-width: 7ch;
 }
 .tag {
   padding: 0 6px;
@@ -548,6 +614,13 @@ onBeforeUnmount(() => live?.close());
   .tbl td.c-test {
     flex-basis: 100%;
     font-size: 14px;
+  }
+  .tbl td.c-hist {
+    flex-basis: 100%;
+    order: 1;
+  }
+  .hist {
+    justify-content: flex-start;
   }
   .tbl td[data-label]::before {
     content: attr(data-label) " ";
