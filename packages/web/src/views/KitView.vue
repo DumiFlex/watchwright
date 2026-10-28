@@ -17,6 +17,7 @@ import DiffView from "../components/DiffView.vue";
 import EmptyState from "../components/EmptyState.vue";
 import HistoryStrip from "../components/HistoryStrip.vue";
 import FilePicker from "../components/FilePicker.vue";
+import FilmStrip from "../components/FilmStrip.vue";
 import FolderBrowser from "../components/FolderBrowser.vue";
 import PathInput from "../components/PathInput.vue";
 import PathLine from "../components/PathLine.vue";
@@ -253,6 +254,8 @@ const shots = [
   { url: sampleShot("Cart", 20), name: "03 cart", note: "mark" },
 ];
 const shotOpen = ref<number | null>(null);
+const filmAt = ref(0);
+const KIT_VIDEO_MS = 3900; // kit/sample.webm is about 4 s long
 // Two takes of one page for the image diff: the second has a different third card.
 const diffBefore = { url: sampleShot("Cart", 20), label: "Before", note: "run #41" };
 const diffAfter = { url: sampleShot("Cart", 20).replace(encodeURIComponent("hsl(100,35%,72%)"), encodeURIComponent("hsl(0,70%,60%)")), label: "After", note: "run #42" };
@@ -796,6 +799,10 @@ const traces = [
         <div class="item wide">
           <span class="lbl">Video player (Space or K, arrows, comma and period, F)</span>
           <VideoPlayer class="video" src="kit/sample.webm" label="Sample video" />
+        </div>
+        <div class="item wide">
+          <span class="lbl">Filmstrip (hover or focus a frame to see it larger, click to move the playhead: {{ (filmAt / 1000).toFixed(1) }} s)</span>
+          <FilmStrip src="kit/sample.webm" :duration="KIT_VIDEO_MS" :playhead="filmAt" label="Frames of the sample video" @seek="(ms: number) => (filmAt = ms)" />
         </div>
       </div>
     </section>

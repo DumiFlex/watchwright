@@ -13,8 +13,10 @@ tests:
             - check: { role: checkbox, name: Toggle Todo, first: true }
       - click: { role: link, name: Active }
       - expect: { url: { regex: "#/active$" } }
+      - expect: { target: { testId: todo-title }, count: 1 }
       - expect: { target: { testId: todo-title }, text: Still to do }
       - click: { role: link, name: Completed }
+      - expect: { target: { testId: todo-title }, count: 1 }
       - expect: { target: { testId: todo-title }, text: Done already }
       - shot: completed-filter
 
