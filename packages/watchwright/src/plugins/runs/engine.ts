@@ -31,6 +31,7 @@ import {
   type RunSummary,
 } from "./repo.js";
 import { QueueError, RunQueue } from "./queue.js";
+import { dayList, dayOf, dayStart, runStats, type RunStats } from "./stats.js";
 import { fileUrl, resultDocument, type ResultDocument } from "./results.js";
 
 // The job runner: queue and site locks, one browser session per run, attempts with pause, retry,
@@ -163,6 +164,13 @@ export class Engine {
   /** On boot: runs a crash left running become interrupted, ready for resume. */
   recover(): void {
     for (const id of this.o.repo.interruptLeftovers()) this.o.events.append("run.interrupted", { reason: "server_stopped" }, { runId: id });
+  }
+
+  /** Runs and outcomes per day for the `days` days ending today, in a time zone `offset` minutes behind UTC. */
+  stats(o: { days: number; offset: number; packId?: string | undefined; until?: string | undefined }): RunStats {
+    const until = o.until ?? dayOf(new Date().toISOString(), o.offset);
+    const from = dayStart(dayList(until, o.days * 2)[0]!, o.offset);
+    return runStats(this.o.repo.statsRows(from, o.packId), { until, days: o.days, offset: o.offset });
   }
 
   testHistory(packId: string, limit: number): Record<string, HistoryEntry[]> {
