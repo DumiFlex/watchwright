@@ -84,6 +84,7 @@ export {
   SearchX,
   Send,
   Settings,
+  ShieldAlert,
   SkipForward,
   Square,
   StepBack,

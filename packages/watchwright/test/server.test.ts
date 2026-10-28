@@ -55,6 +55,7 @@ describe("server", () => {
         plugins: [
           { name: "core", schemaVersion: 2 },
           { name: "settings", schemaVersion: 1 },
+          { name: "approvals", schemaVersion: 1 },
           { name: "live", schemaVersion: 0 },
           { name: "folders", schemaVersion: 1 },
           { name: "packs", schemaVersion: 1 },
@@ -79,7 +80,7 @@ describe("server", () => {
     expect(stopped).toBe(1);
     // Without a way to stop (built without the CLI), it says so.
     const other = await make();
-    expect((await other.inject({ method: "POST", url: "/api/v1/stop", headers: { host: HOST } })).json()).toMatchObject({ error: { code: "cant_stop" } });
+    expect((await other.inject({ method: "POST", url: "/api/v1/stop", headers: { host: HOST, origin: `http://${HOST}` } })).json()).toMatchObject({ error: { code: "cant_stop" } });
   });
 
   it("refuses a foreign Host header", async () => {

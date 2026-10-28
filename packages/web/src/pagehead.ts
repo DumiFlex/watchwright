@@ -6,8 +6,18 @@ const BASE_TITLE = "Watchwright";
 let baseIcon: Promise<string | null> | null = null;
 let shown: Tone | null = null;
 
-export function setTitle(text?: string | null): void {
-  document.title = text || BASE_TITLE;
+let text: string | null = null;
+let prefix = "";
+
+export function setTitle(t?: string | null): void {
+  text = t || null;
+  document.title = prefix + (text ?? BASE_TITLE);
+}
+
+/** Something every page shows ahead of its own title, such as approvals waiting ("(1) Approve? · "); "" takes it away. */
+export function setTitlePrefix(p: string): void {
+  prefix = p;
+  setTitle(text);
 }
 
 /** A token color resolved for the current look and mode, as rgb(). */

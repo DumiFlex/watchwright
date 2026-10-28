@@ -232,6 +232,10 @@ export const runsPlugin = definePlugin({
       defineAction<{ id: string }>({
         name: "runs.delete",
         destructive: true,
+        explain: ({ id }: { id: string }) => {
+          const r = engine.get(id);
+          return r ? `Delete run ${id}${r.label ? ` "${r.label}"` : ""} of "${r.packName}" (${r.status}, ${r.attempts.length} attempts) with its files` : `Delete run ${id}`;
+        },
         title: "Delete a run that isn't going, with its results and files",
         method: "DELETE",
         path: "/runs/:id",
@@ -302,6 +306,7 @@ export const runsPlugin = definePlugin({
       defineAction<{ id: string }>({
         name: "runs.presets.delete",
         destructive: true,
+        explain: ({ id }: { id: string }) => `Delete the preset "${repo.preset(id)?.name ?? id}"`,
         title: "Delete a preset",
         method: "DELETE",
         path: "/presets/:id",

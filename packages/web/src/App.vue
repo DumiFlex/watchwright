@@ -3,12 +3,14 @@ import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, provide, re
 import { Columns2, FolderOpen, ListChecks, Moon, Palette, Plus, Search, Settings, Sun, SunMoon } from "./icons";
 import { getJson, sendJson, type HealthData, type Pack, type RunSummary } from "./api";
 import { finderCommands } from "./finder";
+import ApprovalBar from "./components/ApprovalBar.vue";
 import BrandMark from "./components/BrandMark.vue";
 import CommandPalette, { type PaletteCommand } from "./components/CommandPalette.vue";
 import KeyHint from "./components/KeyHint.vue";
 import MenuButton from "./components/MenuButton.vue";
 import ThemePicker from "./components/ThemePicker.vue";
 import ToastHost from "./components/ToastHost.vue";
+import { useApprovals } from "./approvals";
 import { offerNotify, startNotifier } from "./notify";
 import { toast } from "./toasts";
 import { sectionOf, useRoute } from "./router";
@@ -85,6 +87,9 @@ const commands = computed<PaletteCommand[]>(() => [
 const stopNotifier = startNotifier(() => (route.value.name === "run" ? route.value.id : null));
 onBeforeUnmount(stopNotifier);
 
+// Deletes an agent or a script asked for, waiting for the person.
+const approvals = useApprovals();
+
 onMounted(async () => {
   const res = await getJson<HealthData>("/api/v1/health");
   if (res.ok) health.value = res.data;
@@ -117,6 +122,7 @@ onMounted(async () => {
       <MenuButton class="navmenu" :items="nav" label="Menu" />
     </div>
   </header>
+  <ApprovalBar :approvals="approvals.waiting.value" :busy="approvals.busy.value" @answer="(id, ok) => approvals.answer(id, ok)" />
   <RunView v-if="route.name === 'run'" :id="route.id" />
   <AttemptView v-else-if="route.name === 'attempt'" :run-id="route.runId" :attempt-id="route.attemptId" :line="route.line ?? null" />
   <NewRunView v-else-if="route.name === 'new'" :query="route.query" />

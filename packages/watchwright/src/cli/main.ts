@@ -46,7 +46,8 @@ Everywhere:
   --json              Print the data as JSON instead of text.
 
 Exit codes: 0 done (a run passed), 1 failed, 2 bad usage, 3 no server, 4 the run had failed or
-broken attempts, 5 the run is paused, 6 the run still goes.
+broken attempts, 5 the run is paused, 6 the run still goes, 7 an action waits for approval on
+the web page.
 `;
 
 /** Takes `--name value` / `--name=value` out of the arguments. */

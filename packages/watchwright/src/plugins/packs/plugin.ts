@@ -208,6 +208,7 @@ export const packsPlugin = definePlugin({
       defineAction<{ id: string }>({
         name: "packs.remove",
         destructive: true,
+        explain: ({ id }: { id: string }) => `Remove the pack "${registry.get(id)?.name ?? id}" from Watchwright (its files and past runs stay)`,
         title: "Remove a pack from this server (its files and past runs stay)",
         method: "DELETE",
         path: "/packs/:id",

@@ -2,6 +2,7 @@
 // Every themed control on one page (#/kit), to check them in each look and mode and to copy
 // from when a feature needs one. The page is not linked from the app.
 import { computed, onBeforeUnmount, ref } from "vue";
+import ApprovalBar from "../components/ApprovalBar.vue";
 import BreadCrumbs from "../components/BreadCrumbs.vue";
 import BarChart, { type BarItem, type BarSeries } from "../components/BarChart.vue";
 import CheckBox from "../components/CheckBox.vue";
@@ -105,6 +106,12 @@ const runColumns = [
 const took = (s: number) => (s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`);
 const lastRow = ref("");
 const iconList = Object.entries(icons);
+const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
+const kitApprovals = ref([
+  { id: "a1", action: "runs.delete", client: "Claude Code", summary: 'Delete run 3f2a9c01 "Nightly" of "Checkout" (finished, 41 attempts) with its files', status: "waiting" as const, answeredBy: null, error: null, createdAt: minutesAgo(2), expiresAt: minutesAgo(-28) },
+  { id: "a2", action: "packs.file-delete", client: "Codex", summary: 'Delete tests/old-login.yaml from the pack "Checkout"', status: "waiting" as const, answeredBy: null, error: null, createdAt: minutesAgo(0.2), expiresAt: minutesAgo(-30) },
+]);
+const answerKit = (id: string) => (kitApprovals.value = kitApprovals.value.filter((a) => a.id !== id));
 const mdText = ref(`# Checkout pack
 
 Tests for the **shop's** checkout. Start with [the setup notes](#setup), or read the
@@ -482,6 +489,10 @@ const traces = [
     <section class="card">
       <h2 class="display">Feedback</h2>
       <div class="grid">
+        <div class="item wide">
+          <span class="lbl">Approvals waiting (under the top bar on every page)</span>
+          <ApprovalBar inline :approvals="kitApprovals" :busy="null" @answer="(id) => answerKit(id)" />
+        </div>
         <div class="item">
           <span class="lbl">Progress</span>
           <ProgressBar :value="0.62" label="Run progress" />
