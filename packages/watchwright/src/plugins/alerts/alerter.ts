@@ -147,6 +147,7 @@ const VERDICT_WORDS: Record<string, string> = { failed: "failed", broken: "broke
 
 export class Alerter {
   private readonly timers = new Set<NodeJS.Timeout>();
+  private sending = 0;
   private unsubscribe: (() => void) | null = null;
   private readonly delays: number[];
   private readonly sendOne: (out: Outgoing) => Promise<void>;
@@ -359,9 +360,9 @@ export class Alerter {
     this.timers.clear();
   }
 
-  /** Waits until no send is waiting for a retry (tests). */
+  /** Sends still going or waiting for a retry (tests wait for it to reach 0). */
   get pending(): number {
-    return this.timers.size;
+    return this.timers.size + this.sending;
   }
 
   private onEvent(e: WwEvent): void {
@@ -489,6 +490,7 @@ export class Alerter {
     this.d.db.prepare("DELETE FROM alerts_log WHERE id <= ?").run(logId - KEEP_LOG);
     const what = { rule: rule.name, ruleId: rule.id, channel: ch.name, channelId: ch.id, trigger: message.trigger, title: message.title };
     const attempt = async (tries: number): Promise<void> => {
+      this.sending++;
       try {
         await this.sendOne(outgoing(ch.type, { url: ch.url, token: ch.token ?? undefined }, message, this.d.secret));
         this.d.db.prepare("UPDATE alerts_log SET status = 'sent', tries = ?, error = NULL WHERE id = ?").run(tries, logId);
@@ -508,6 +510,8 @@ export class Alerter {
         }, wait);
         timer.unref();
         this.timers.add(timer);
+      } finally {
+        this.sending--;
       }
     };
     void attempt(1);
