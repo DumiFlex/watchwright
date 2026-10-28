@@ -6,6 +6,9 @@ import { definePlugin } from "../../core/plugin.js";
 import { serviceKey } from "../../core/services.js";
 import type { EventLog } from "../../events/log.js";
 
+/** What a secret input field shows as in an approval (the same mark the engine masks secrets with). */
+const MASK = "•••";
+
 // Approvals: an action that deletes data or stops the server, called by anything but the web page
 // (an agent, the CLI without a terminal, a script), waits for the person to approve it on the web
 // page. The gate holds the call for a while, then hands the caller an approval to wait on
@@ -100,9 +103,22 @@ export class Approvals {
   ) {}
 
   get(id: string): Approval | null {
+    const a = this.raw(id);
+    return a ? this.shown(a) : null;
+  }
+
+  /** The approval with its input as given, secret fields too (only to run the action). */
+  private raw(id: string): Approval | null {
     this.expire();
     const r = this.db.prepare("SELECT * FROM approvals WHERE id = ?").get(id) as Row | undefined;
     return r ? toApproval(r) : null;
+  }
+
+  /** What the API answers: the action's secret input fields (a secret's value, a channel's token) as •••. */
+  private shown(a: Approval): Approval {
+    const secret = this.actions().find((x) => x.name === a.action)?.secret ?? [];
+    if (!secret.some((k) => k in a.input)) return a;
+    return { ...a, input: Object.fromEntries(Object.entries(a.input).map(([k, v]) => [k, secret.includes(k) && v !== "" && v !== undefined ? MASK : v])) };
   }
 
   list(status?: ApprovalStatus, limit = 50): Approval[] {
@@ -110,7 +126,7 @@ export class Approvals {
     const rows = (status
       ? this.db.prepare("SELECT * FROM approvals WHERE status = ? ORDER BY created_at DESC LIMIT ?").all(status, limit)
       : this.db.prepare("SELECT * FROM approvals ORDER BY created_at DESC LIMIT ?").all(limit)) as Row[];
-    return rows.map(toApproval);
+    return rows.map((r) => this.shown(toApproval(r)));
   }
 
   /** Files a request and tells the web page. */
@@ -131,7 +147,7 @@ export class Approvals {
 
   /** The person's answer from the web page: approving runs the action now, as they would. */
   async answer(id: string, approve: boolean, by: string): Promise<Approval> {
-    const a = this.get(id);
+    const a = this.raw(id);
     if (!a) throw new ActionError("not_found", `No approval with id ${id}.`, 404);
     if (a.status !== "waiting") throw new ActionError("conflict", `The approval is ${a.status} already.`, 409);
     const at = new Date(this.now()).toISOString();

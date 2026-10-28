@@ -7,6 +7,8 @@ import { PACKS } from "../packs/registry.js";
 import { STEP_BY_NAME, type StepArgs } from "../packs/yaml/steps.js";
 import type { Target } from "../packs/yaml/targets.js";
 import { ENGINE, FILES_ROOT } from "../runs/plugin.js";
+import { SECRETS } from "../secrets/plugin.js";
+import { SIGNINS } from "../signins/plugin.js";
 import { stepsYaml } from "./explore.js";
 import { RecordNotReady, RecordSession, type RecordInput } from "./session.js";
 
@@ -97,7 +99,7 @@ export const recordPlugin = definePlugin({
         path: "/record",
         handler: () => ({ canWindow: canOpenWindow(), recordings: recordings.list().map((r) => r.state()) }),
       }),
-      defineAction<{ packId: string; testId?: string; replay?: number; line?: number; url?: string; params?: Record<string, unknown>; window?: boolean }>({
+      defineAction<{ packId: string; testId?: string; replay?: number; line?: number; url?: string; params?: Record<string, unknown>; window?: boolean; signIn?: boolean }>({
         name: "record.start",
         title: "Start recording: a browser with the pack's options, shown on the live view (or in a window), whose clicks and typing become steps",
         agent: {
@@ -117,10 +119,11 @@ export const recordPlugin = definePlugin({
             url: { type: "string", description: "Where to open; the site's base URL by default." },
             params: { type: "object", description: "Parameter values for the steps that run first." },
             window: { type: "boolean", default: false, description: "Open a browser window on the server's machine instead of the live view." },
+            signIn: { type: "boolean", description: "Start with the site's saved sign-in (default: the pack's site.signIn)." },
           },
           required: ["packId"],
         },
-        handler: async ({ packId, testId, replay = 0, line, url, params = {}, window = false }, { client }) => {
+        handler: async ({ packId, testId, replay = 0, line, url, params = {}, window = false, signIn }, { client }) => {
           const summary = packs.get(packId);
           if (!summary) throw new ActionError("not_found", `No pack with id ${packId}.`, 404);
           const pack = await packs.current(packId).catch((err: unknown) => {
@@ -139,8 +142,16 @@ export const recordPlugin = definePlugin({
             }
           })();
           const session = new RecordSession(
-            { pack, packId, siteKey: pack.options.site.key, testId: testId ?? null, replay, line: line ?? null, url: url ?? null, params: resolved, window, dataDir, startedBy: client },
-            { events, frames, siteBusy: (k) => engine.siteBusy(k), holdSite: (k) => engine.holdSite(k) },
+            { pack, packId, siteKey: pack.options.site.key, testId: testId ?? null, replay, line: line ?? null, url: url ?? null, params: resolved, window, dataDir, startedBy: client, signIn },
+            {
+              events,
+              frames,
+              siteBusy: (k) => engine.siteBusy(k),
+              holdSite: (k) => engine.holdSite(k),
+              secret: (name) => services.get(SECRETS).get(name),
+              signIn: (k) => services.get(SIGNINS).get(k),
+              saveSignIn: (k, state, source) => void services.get(SIGNINS).save(k, state, source),
+            },
           );
           recordings.add(session);
           events.append("record.started", { packId, testId: testId ?? null, window, startedBy: client }, { runId: session.id });
@@ -223,6 +234,16 @@ export const recordPlugin = definePlugin({
           required: ["id", "steps"],
         },
         handler: ({ id, steps, shot = false }) => guard(() => recordings.get(id).do(steps, shot)),
+      }),
+      defineAction<{ id: string }>({
+        name: "record.save-sign-in",
+        destructive: true,
+        explain: ({ id }) => `Save the sign-in of recording ${id} for its site, replacing the one saved before`,
+        title: "Save the recording's cookies and local storage as its site's sign-in, for runs that start signed in",
+        method: "POST",
+        path: "/record/:id/sign-in",
+        input: { type: "object", properties: { id: REC }, required: ["id"] },
+        handler: async ({ id }) => ({ siteKey: await guard(() => recordings.get(id).saveSignIn()) }),
       }),
       defineAction<{ id: string; shot?: boolean }>({
         name: "record.look",

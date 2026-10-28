@@ -128,14 +128,26 @@ Tests for the **shop's** checkout. Start with [the setup notes](#setup), or read
 
 > Runs take about ten minutes on a laptop.
 
+> [!TIP]
+> Press <kbd>Ctrl</kbd>+<kbd>K</kbd> to find a test.
+
+> [!WARNING]
+> The payment sandbox resets at midnight.[^reset]
+
 | Test | Needs | Time |
 |:-----|:------|-----:|
 | C1 | S1 | 42 s |
 | C2 | C1 | 1 m 5 s |
 
+<details><summary>Answer schema</summary>
+
 \`\`\`ts
 await h.click("Pay now");
 \`\`\`
+
+</details>
+
+[^reset]: Times are UTC.
 `);
 
 const testCode = `import { test, expect } from "watchwright";

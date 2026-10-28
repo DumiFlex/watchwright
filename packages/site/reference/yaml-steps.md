@@ -4,7 +4,7 @@
 
 Every step a [YAML test](../guide/yaml-tests) can use. A step is one verb with its value: `- goto: /cart`, or with fields, `- click: { target: "#save", timeout: 2000 }`. Fields can also sit beside the verb on their own lines. Steps with a plain-value form name the field it fills.
 
-Text values can use `${params.name}`, `${saved.key}`, `${env.NAME}`, `${attempt}`, `${attempts}` and `${last}` (see [Variables](../guide/yaml-tests#variables)). Where a number or true / false goes, a variable works too.
+Text values can use `${params.name}`, `${saved.key}`, `${secret.NAME}`, `${env.NAME}`, `${attempt}`, `${attempts}` and `${last}` (see [Variables](../guide/yaml-tests#variables)). Where a number or true / false goes, a variable works too.
 
 ## Go
 
@@ -252,6 +252,12 @@ Saves an element's text (or the given text) with the attempt.
 | `name` (required) | text | The text's name. |
 | `target` | [target](#targets) | The element to read. |
 | `text` | text | Text to keep instead of an element's. |
+
+### saveSignIn
+
+Saves the browser's cookies and local storage as the site's sign-in, for runs that start signed in (`site.signIn: saved`). Put it at the end of a login test.
+
+Also written as `- saveSignIn`.
 
 ### note
 

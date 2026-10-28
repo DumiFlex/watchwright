@@ -5,8 +5,8 @@ import fastifyStatic from "@fastify/static";
 import fastifyWebsocket from "@fastify/websocket";
 import { checkActions, mountActions, type Action } from "../actions/registry.js";
 import { BUILTIN_PLUGINS } from "../core/builtin.js";
-import { checkPlugins, type PluginContext, type WatchwrightPlugin } from "../core/plugin.js";
-import { ACTION_GATE, ACTIONS } from "../core/keys.js";
+import { checkPlugins, pagesOf, type PluginContext, type WatchwrightPlugin } from "../core/plugin.js";
+import { ACTION_GATE, ACTIONS, PAGES, SERVER_PORT } from "../core/keys.js";
 import { Services } from "../core/services.js";
 import { EventLog } from "../events/log.js";
 import type { Store } from "../store/db.js";
@@ -76,9 +76,12 @@ export async function buildServer({ store, port, webRoot, plugins = BUILTIN_PLUG
   await app.register(fastifyWebsocket);
 
   const ctx: PluginContext = { store, plugins: plugins.map((p) => p.name), events: new EventLog(store.db), services: new Services(), stop: stop ?? null };
+  ctx.services.provide(PAGES, pagesOf(plugins));
+  ctx.services.provide(SERVER_PORT, port);
   prepare?.(ctx);
   app.decorate("watchwright", ctx);
   for (const plugin of plugins) await plugin.setup?.(ctx);
+  for (const plugin of plugins) await plugin.ready?.(ctx);
   app.addHook("onClose", async () => {
     for (const plugin of [...plugins].reverse()) await plugin.close?.(ctx);
   });

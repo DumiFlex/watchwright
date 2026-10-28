@@ -5,20 +5,30 @@ Watchwright runs as one long-lived server on your machine. You start it once, an
 ## Requirements
 
 - Node.js 22 or newer
-- pnpm 9 (`corepack enable` sets it up from `package.json`)
 - Windows, macOS or Linux. Windows is the first platform the run engine is checked on.
 
 ## Install and start
 
-Watchwright isn't published to npm yet, so you run it from a clone of the repository:
+Watchwright is the [`watchwright` package on npm](https://www.npmjs.com/package/watchwright). Run it with `npx`, or install it in your project (`npm install --save-dev watchwright`) or globally (`npm install --global watchwright`):
+
+```bash
+npx playwright install chromium firefox
+npx watchwright serve     # starts the server at http://127.0.0.1:7420/ and opens it
+```
+
+The first line downloads the browsers Playwright drives.
+
+Every version on npm is published by the repository's release workflow and carries a [provenance statement](https://docs.npmjs.com/generating-provenance-statements) that ties it to the commit it was built from; `npm audit signatures` checks it.
+
+### From a clone
+
+To work on Watchwright itself, run it from a clone of the repository (with pnpm 9; `corepack enable` sets it up from `package.json`):
 
 ```bash
 pnpm install
 pnpm --filter watchwright exec playwright install chromium firefox
-pnpm serve            # builds, starts the server at http://127.0.0.1:7420/ and opens it
+pnpm serve            # builds, starts the server and opens it
 ```
-
-The second line downloads the browsers Playwright drives.
 
 ## A first run
 

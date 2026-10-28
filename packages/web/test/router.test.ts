@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { href, parseRoute, sectionOf, type Route } from "../src/router";
+import { href, parseRoute, type Route } from "../src/router";
 
 describe("router", () => {
   it("parses every route", () => {
@@ -18,6 +18,7 @@ describe("router", () => {
     expect(parseRoute("#/packs/0a1b2c3d/edit/tests/my%20file.yaml?line=12")).toEqual({ name: "edit", id: "0a1b2c3d", file: "tests/my file.yaml", line: 12 });
     expect(parseRoute("#/kit")).toEqual({ name: "kit" });
     expect(parseRoute("#/settings")).toEqual({ name: "settings" });
+    expect(parseRoute("#/schedules")).toEqual({ name: "schedules" });
     expect(parseRoute("#/compare?runs=0a1b2c3d,1a1b2c3d")).toEqual({ name: "compare", query: { runs: "0a1b2c3d,1a1b2c3d" } });
   });
 
@@ -45,17 +46,9 @@ describe("router", () => {
       { name: "compare", query: { runs: "0a1b2c3d", show: "shot:home" } },
       { name: "kit" },
       { name: "settings" },
+      { name: "schedules" },
     ];
     for (const r of routes) expect(parseRoute(href(r))).toEqual(r);
     expect(href({ name: "runs", query: { pack: "" } })).toBe("#/");
-  });
-
-  it("knows which section a route is in", () => {
-    expect(sectionOf({ name: "run", id: "0a1b2c3d" })).toBe("runs");
-    expect(sectionOf({ name: "attempt", runId: "0a1b2c3d", attemptId: "0a1b2c3d4e5f" })).toBe("runs");
-    expect(sectionOf({ name: "pack", id: "0a1b2c3d" })).toBe("packs");
-    expect(sectionOf({ name: "compare", query: {} })).toBe("compare");
-    expect(sectionOf({ name: "kit" })).toBeNull();
-    expect(sectionOf({ name: "settings" })).toBeNull();
   });
 });

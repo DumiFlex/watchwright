@@ -494,7 +494,7 @@ async function remove() {
                   <code>{{ p.testId }}</code>
                   <span class="qt">{{ p.title !== p.testId ? p.title : "" }}<span v-if="p.of > 1" class="muted n">{{ p.number }}/{{ p.of }}</span></span>
                   <span v-if="elapsed(p)" class="muted small num">{{ elapsed(p) }}</span>
-                  <StatusChip :status="p.skip && p.status === 'pending' ? 'skipped' : p.status" />
+                  <StatusChip :status="p.skip && p.status === 'pending' ? 'skipped' : p.status" :kind="run.kind" />
                 </button>
                 <span v-if="editable(p)" class="qedit">
                   <template v-if="movable(i)">
@@ -524,7 +524,7 @@ async function remove() {
               </div>
               <ul v-if="p.children" class="kids">
                 <li v-for="a in run.attempts.filter((x) => x.parentId && x.parentId === p.attemptId)" :key="a.id">
-                  <button class="qrow" @click="openAttempt(a.id)"><code>{{ a.testId }}</code><span class="qt">{{ a.title }}</span><StatusChip :status="a.status" /></button>
+                  <button class="qrow" @click="openAttempt(a.id)"><code>{{ a.testId }}</code><span class="qt">{{ a.title }}</span><StatusChip :status="a.status" :kind="a.kind" /></button>
                 </li>
               </ul>
             </li>

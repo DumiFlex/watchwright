@@ -229,6 +229,14 @@ export const STEPS: readonly StepDef[] = [
     check: (a) => (a.target === undefined && a.text === undefined ? "keepText needs `target` or `text`." : a.target !== undefined && a.text !== undefined ? "keepText takes `target` or `text`, not both." : null),
     summary: (a) => `Keep the text "${s(a.name)}"`,
   },
+  {
+    name: "saveSignIn",
+    group: "keep",
+    doc: "Saves the browser's cookies and local storage as the site's sign-in, for runs that start signed in (`site.signIn: saved`). Put it at the end of a login test.",
+    bare: true,
+    fields: {},
+    summary: () => "Save the sign-in",
+  },
   { name: "note", group: "keep", doc: "A note for the people who review the result.", short: "text", fields: { text: req(str()) }, summary: (a) => `Note: ${s(a.text)}` },
   { name: "log", group: "keep", doc: "A line in the attempt's log.", short: "text", fields: { text: req(str()) }, summary: (a) => `Log: ${s(a.text)}` },
   {

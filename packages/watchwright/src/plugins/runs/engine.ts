@@ -1,19 +1,19 @@
 import { writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import path from "node:path";
-import type { Page } from "playwright";
+import type { BrowserContext, Page } from "playwright";
 import type { EventLog } from "../../events/log.js";
 import { AttemptAborted, RunControl, type BrokenDecision } from "../../jobs/control.js";
 import type { AttemptEnv, JobKind, KindPlan, PlanItem } from "../../jobs/kind.js";
+import type { JobKinds } from "../../jobs/kinds.js";
+import type { AttemptRuntime } from "../../jobs/runtime.js";
 import { AttemptRecorder, safeRelative, slug, type ArtifactInfo } from "../../jobs/recorder.js";
 import { BrowserSession } from "../../session/session.js";
 import type { FrameHub } from "../live/hub.js";
-import { StepError, type Collector, type CollectorAttempt, type CollectorRecord, type Helpers, type Outcome, type ParamValues } from "../packs/api.js";
+import { StepError, type Collector, type CollectorAttempt, type CollectorRecord, type Outcome, type ParamValues } from "../packs/api.js";
 import type { LoadedPack } from "../packs/loader.js";
 import { parentsOf, resolveParams } from "../packs/order.js";
 import type { PackRegistry } from "../packs/registry.js";
-import { createHelpers } from "../testing/helpers.js";
-import { classify } from "../testing/outcome.js";
 import {
   attemptSummary,
   DECIDED,
@@ -38,6 +38,10 @@ import { fileUrl, resultDocument, type ResultDocument } from "./results.js";
 // skip, stop and hot reload, resume after a crash, redo of broken attempts (docs/plan.md, section 6).
 
 export const DEFAULT_TEST_TIMEOUT = 30 * 60_000;
+/** Most items a job kind can add to one run (`AttemptEnv.addItem`). */
+export const MAX_ADDED_ITEMS = 10_000;
+/** Added items are written to the store and announced in batches, at most this often. */
+const ADDED_FLUSH_MS = 250;
 export const DEFAULT_PAUSE_LIMIT_MINUTES = 20;
 /** How long a timed-out attempt gets to reach its next pause point before the context is replaced. */
 const ABORT_GRACE_MS = 10_000;
@@ -63,6 +67,8 @@ export interface StartInput {
   startedBy: string;
   options?: RunOptions | undefined;
   label?: string | undefined;
+  /** The job kind (default `test`). */
+  kind?: string | undefined;
 }
 
 export interface RunPreview {
@@ -137,6 +143,17 @@ interface RunCtx {
   todo: Set<string>;
   /** Set once the run has gone through its queue, so it takes no more edits. */
   ended: boolean;
+  /** Items added since the last write to the store, and the timer that writes them. */
+  addedBatch: string[];
+  addedFlush: ReturnType<typeof setTimeout> | null;
+  addedLimitHit: boolean;
+}
+
+/** A kind's plan plus the items it added while the run went, as each run (and resume) sees it. */
+function withAdded(plan: KindPlan, added: RunOptions["added"]): KindPlan {
+  const have = new Set(plan.items.map((i) => i.itemId));
+  const extra = (added ?? []).filter((a) => !have.has(a.itemId)).flatMap((a) => Array.from({ length: a.of }, (_, n) => ({ itemId: a.itemId, number: n + 1, of: a.of })));
+  return extra.length === 0 ? plan : { ...plan, items: [...plan.items, ...extra] };
 }
 
 export interface EngineOptions {
@@ -146,17 +163,29 @@ export interface EngineOptions {
   frames: FrameHub;
   /** Folder that holds `runs/`; artifact paths are relative to it. */
   dataDir: string;
-  kinds: readonly JobKind[];
+  kinds: JobKinds;
+  /** Secrets for `h.secret` and `${secret.…}`; every value is masked in what runs record and announce. */
+  secrets?: { get(name: string): string | undefined; mask(text: string): string } | undefined;
+  /** Saved sign-ins: runs that start signed in get the site's storage state, and `h.saveSignIn` saves one. */
+  signIns?: { get(siteKey: string): StorageState | undefined; save(siteKey: string, state: StorageState, source: string): unknown } | undefined;
 }
+
+/** A copy of `value` with `mask` applied to every string in it (event data, attempt results). */
+export function maskDeep<T>(value: T, mask: (s: string) => string): T {
+  if (typeof value === "string") return mask(value) as T;
+  if (Array.isArray(value)) return value.map((v: unknown) => maskDeep(v, mask)) as T;
+  if (value !== null && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, maskDeep(v, mask)])) as T;
+  return value;
+}
+
+/** A browser context's cookies and local storage, as Playwright saves them. */
+export type StorageState = Awaited<ReturnType<BrowserContext["storageState"]>>;
 
 export class Engine {
   private readonly active = new Map<string, ActiveRun>();
-  private readonly kinds: Map<string, JobKind>;
   private closing = false;
 
-  constructor(private readonly o: EngineOptions) {
-    this.kinds = new Map(o.kinds.map((k) => [k.name, k]));
-  }
+  constructor(private readonly o: EngineOptions) {}
 
   /** On boot: runs a crash left running become interrupted, ready for resume. */
   recover(): void {
@@ -221,6 +250,41 @@ export class Engine {
     return this.editQueue(id, (q) => q.move(testId, direction));
   }
 
+  /** A kind adds an item to its running run (`AttemptEnv.addItem`). */
+  private addItem(ctx: RunCtx, itemId: string, attempts: number): boolean {
+    if (ctx.ended || ctx.plan.items.some((i) => i.itemId === itemId)) return false;
+    const added = ctx.options.added ?? [];
+    if (added.length >= MAX_ADDED_ITEMS) {
+      if (!ctx.addedLimitHit) {
+        ctx.addedLimitHit = true;
+        this.setInfo(ctx.run, "added items limit", MAX_ADDED_ITEMS);
+        this.emit("run.log", { level: "warn", message: `The run has added ${MAX_ADDED_ITEMS} items, its limit; it adds no more.` }, ctx.row.id);
+      }
+      return false;
+    }
+    const of = Math.max(1, Math.min(100, Math.floor(attempts)));
+    const items = Array.from({ length: of }, (_, n) => ({ itemId, number: n + 1, of }));
+    ctx.plan = { ...ctx.plan, items: [...ctx.plan.items, ...items] };
+    ctx.queue.extend(ctx.plan);
+    for (const i of items) ctx.todo.add(`${i.itemId}#${i.number}`);
+    ctx.options = { ...ctx.options, added: [...added, { itemId, of }] };
+    ctx.addedBatch.push(itemId);
+    ctx.addedFlush ??= setTimeout(() => this.flushAdded(ctx), ADDED_FLUSH_MS);
+    return true;
+  }
+
+  /** Writes items added since the last flush to the store and tells viewers, in one event. */
+  private flushAdded(ctx: RunCtx): void {
+    if (ctx.addedFlush) clearTimeout(ctx.addedFlush);
+    ctx.addedFlush = null;
+    if (ctx.addedBatch.length === 0) return;
+    const items = ctx.addedBatch.splice(0);
+    ctx.options = { ...ctx.options, queue: ctx.queue.edits() };
+    const entries = this.planEntries(ctx.kind, ctx.pack, ctx.plan, ctx.queue);
+    this.o.repo.updateRun(ctx.row.id, { plan: JSON.stringify(entries), options: JSON.stringify(ctx.options) });
+    this.emit("run.items-added", { items, total: ctx.options.added?.length ?? 0 }, ctx.row.id);
+  }
+
   /** Adds tests to a run that is going: they (and what they need that the run doesn't have) go at the end of the queue. */
   async addTests(id: string, tests: string[]): Promise<RunDetail> {
     const run = this.requireActive(id);
@@ -241,7 +305,7 @@ export class Engine {
     const all = [...(chosen.length > 0 ? chosen : top), ...fresh];
     let plan: KindPlan;
     try {
-      plan = ctx.kind.plan(ctx.pack, ctx.params, all, { attempts: ctx.options.attempts });
+      plan = withAdded(ctx.kind.plan(ctx.pack, ctx.params, all, { attempts: ctx.options.attempts }), ctx.options.added);
     } catch (err) {
       throw new EngineError("bad_input", err instanceof Error ? err.message : String(err));
     }
@@ -343,7 +407,9 @@ export class Engine {
     }
     const fresh = this.o.packs.get(input.packId)!;
     if (fresh.problems.length > 0) throw new EngineError("bad_pack", `The pack has problems: ${fresh.problems.join(" ")}`, 409);
-    const kind = this.kinds.get("test")!;
+    const name = input.kind ?? "test";
+    const kind = this.o.kinds.get(name);
+    if (!kind) throw new EngineError("bad_input", `No job kind "${name}" is loaded. Loaded kinds: ${this.o.kinds.list().map((k) => k.name).join(", ") || "none"}.`);
     try {
       const params = resolveParams(pack.options.params ?? {}, input.params);
       const plan = kind.plan(pack, params, input.tests ?? [], { attempts: input.options?.attempts });
@@ -411,7 +477,7 @@ export class Engine {
     // Queue edits belong to the run they were made in.
     const options = JSON.parse(r.options) as RunOptions;
     delete options.queue;
-    return this.start({ packId: r.pack_id, tests: JSON.parse(r.tests) as string[], params: JSON.parse(r.params) as Record<string, unknown>, options, label: r.label, startedBy });
+    return this.start({ packId: r.pack_id, tests: JSON.parse(r.tests) as string[], params: JSON.parse(r.params) as Record<string, unknown>, options, label: r.label, kind: r.job_kind, startedBy });
   }
 
   /** Gives a run a label (empty takes it away). */
@@ -557,7 +623,13 @@ export class Engine {
   }
 
   private emit(type: string, data: Record<string, unknown>, runId: string, attemptId?: string | null) {
-    this.o.events.append(type, data, { runId, attemptId: attemptId ?? undefined });
+    this.o.events.append(type, this.mask(data), { runId, attemptId: attemptId ?? undefined });
+  }
+
+  /** `value` with every secret masked (unchanged when there is no secrets store). */
+  private mask<T>(value: T): T {
+    const secrets = this.o.secrets;
+    return secrets ? maskDeep(value, (s) => secrets.mask(s)) : value;
   }
 
   private launch(row: RunRow): void {
@@ -608,7 +680,7 @@ export class Engine {
     this.emit("run.started", { mode }, row.id);
 
     const failStart = (message: string) => {
-      repo.updateRun(row.id, { status: "failed_to_start", error: message, finished_at: new Date().toISOString() });
+      repo.updateRun(row.id, { status: "failed_to_start", error: this.mask(message), finished_at: new Date().toISOString() });
       this.emit("run.failed_to_start", { message }, row.id);
     };
 
@@ -619,7 +691,7 @@ export class Engine {
       failStart(`The pack doesn't load: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`);
       return;
     }
-    const kind = this.kinds.get(row.job_kind);
+    const kind = this.o.kinds.get(row.job_kind);
     if (!kind) {
       failStart(`No job kind "${row.job_kind}" is loaded.`);
       return;
@@ -628,7 +700,7 @@ export class Engine {
     const options = JSON.parse(row.options) as RunOptions;
     let plan: KindPlan;
     try {
-      plan = kind.plan(pack, params, JSON.parse(row.tests) as string[], { attempts: options.attempts });
+      plan = withAdded(kind.plan(pack, params, JSON.parse(row.tests) as string[], { attempts: options.attempts }), options.added);
     } catch (err) {
       failStart(err instanceof Error ? err.message : String(err));
       return;
@@ -639,6 +711,14 @@ export class Engine {
     this.emit("run.planned", { plan: entries }, row.id);
 
     const o = pack.options;
+    let signIn: StorageState | undefined;
+    if (options.signIn ?? o.site.signIn === "saved") {
+      signIn = this.o.signIns?.get(o.site.key);
+      if (!signIn) {
+        failStart(`No saved sign-in for the site "${o.site.key}". Sign in on a Record session and press Save sign-in, or call h.saveSignIn() at the end of a login test.`);
+        return;
+      }
+    }
     let session: BrowserSession;
     try {
       session = await BrowserSession.launch(
@@ -647,7 +727,7 @@ export class Engine {
           headless: o.browser?.headless ?? true,
           viewport: o.browser?.viewport ?? { width: 1280, height: 800 },
           launch: o.browser?.launch,
-          context: o.browser?.context,
+          context: signIn ? { ...o.browser?.context, storageState: signIn } : o.browser?.context,
           size: o.run?.screencastSize,
           quality: o.run?.frameQuality ?? 70,
           showActions: o.run?.showActions ?? true,
@@ -692,7 +772,7 @@ export class Engine {
           params,
           page,
           session,
-          helpers: () => this.helpers(run, pack, page, setupRecorder, new Map(), null),
+          helpers: () => this.helpers(run, kind, pack, page, setupRecorder, new Map(), null),
           info: (k, v) => this.setInfo(run, k, v),
         });
       } catch (err) {
@@ -715,6 +795,9 @@ export class Engine {
         childRanIn: new Map(),
         todo: new Set(),
         ended: false,
+        addedBatch: [],
+        addedFlush: null,
+        addedLimitHit: false,
       };
       ctx.todo = this.select(ctx);
       run.ctx = ctx;
@@ -757,6 +840,7 @@ export class Engine {
         ctx.queue.finish(item);
       }
       ctx.ended = true;
+      this.flushAdded(ctx);
       if (!run.control.stopMode && !run.shutdown && mode === "normal") this.fileUnrunChildren(ctx);
     } finally {
       await session.stopCapture();
@@ -823,31 +907,35 @@ export class Engine {
     this.emit("attempt.finished", { testId: item.itemId, number: item.number, of: item.of, status: "skipped", reason, parentId }, ctx.row.id, id);
   }
 
-  private helpers(run: ActiveRun, pack: LoadedPack, page: Page, recorder: AttemptRecorder, saves: Map<string, unknown>, attemptId: string | null): Helpers {
-    return createHelpers(
-      {
-        page,
-        context: run.session!.context,
-        baseURL: pack.options.site.baseURL,
-        control: run.control,
-        recorder,
-        session: run.session!,
-        flagKinds: { ...(pack.options.flags ?? {}) },
-        idleCheck: pack.options.idle,
-        chapters: pack.options.run?.chapters ?? false,
-        save: (k, v) => saves.set(k, v),
-        load: (k) => (saves.has(k) ? saves.get(k) : run.state[k]),
-        info: (k, v) => this.setInfo(run, k, v),
-        onStep: (title) => {
-          run.step = title;
-          if (attemptId) this.emit("attempt.step", { title }, run.id, attemptId);
-        },
-        onFlag: (f) => {
-          if (attemptId) this.emit("attempt.flag", { ...f }, run.id, attemptId);
-        },
+  /** The kind's helper object for one attempt (or the run's setup), built from the runtime every kind gets. */
+  private helpers(run: ActiveRun, kind: JobKind, pack: LoadedPack, page: Page, recorder: AttemptRecorder, saves: Map<string, unknown>, attemptId: string | null): unknown {
+    const rt: AttemptRuntime = {
+      page,
+      context: run.session!.context,
+      control: run.control,
+      recorder,
+      session: run.session!,
+      save: (k, v) => saves.set(k, v),
+      load: (k) => (saves.has(k) ? saves.get(k) : run.state[k]),
+      info: (k, v) => this.setInfo(run, k, v),
+      secret: (name) => this.o.secrets?.get(name),
+      saveSignIn: async () => {
+        const signIns = this.o.signIns;
+        if (!signIns) throw new StepError("Saved sign-ins aren't available on this server.");
+        const key = pack.options.site.key;
+        signIns.save(key, await run.session!.context.storageState(), `run ${run.id}`);
+        this.emit("signin.saved", { siteKey: key }, run.id, attemptId);
+        return key;
       },
-      pack.options.helpers,
-    );
+      onStep: (title) => {
+        run.step = title;
+        if (attemptId) this.emit("attempt.step", { title }, run.id, attemptId);
+      },
+      onFlag: (f) => {
+        if (attemptId) this.emit("attempt.flag", { ...f }, run.id, attemptId);
+      },
+    };
+    return kind.helpers(rt, pack);
   }
 
   private async runAttempt(ctx: RunCtx, item: PlanItem, parentId: string | null): Promise<{ outcome: Outcome; attemptId: string }> {
@@ -910,8 +998,9 @@ export class Engine {
       session,
       control: run.control,
       recorder,
-      helpers: () => this.helpers(run, pack, page, recorder, saves, id),
+      helpers: () => this.helpers(run, kind, pack, page, recorder, saves, id),
       runChild: (childId) => this.runChild(ctx, item, id, childId),
+      addItem: (itemId, opts) => this.addItem(ctx, itemId, opts?.attempts ?? 1),
     };
 
     // Collectors: records their context listeners make from here on belong to this attempt (a
@@ -982,7 +1071,7 @@ export class Engine {
     }
 
     if (top) run.recorder = null;
-    const { status, error: attemptError } = classify({
+    const { status, error: attemptError } = kind.classify({
       error,
       flags: recorder.flags,
       stopped: run.control.stopMode === "now" || run.shutdown,
@@ -1014,16 +1103,21 @@ export class Engine {
       this.o.repo.updateRun(row.id, { state: JSON.stringify(run.state) });
     }
 
-    this.o.repo.finishAttempt(id, {
-      status: finalStatus,
-      flags: recorder.flags,
-      metrics: recorder.metrics,
-      notes: recorder.notes,
-      texts: recorder.texts,
-      log: recorder.log,
-      steps: recorder.steps,
-      error: attemptError,
-    });
+    this.o.repo.finishAttempt(
+      id,
+      {
+        status: finalStatus,
+        ...this.mask({
+          flags: recorder.flags,
+          metrics: recorder.metrics,
+          notes: recorder.notes,
+          texts: recorder.texts,
+          log: recorder.log,
+          steps: recorder.steps,
+          error: attemptError,
+        }),
+      },
+    );
     const doc = resultDocument(this.o.repo.attempt(id)!, this.o.repo.artifacts(id));
     try {
       writeFileSync(path.join(dir, "result.json"), JSON.stringify(doc, null, 2));
@@ -1086,7 +1180,7 @@ export class Engine {
     const k = String(key).trim();
     if (!k || k.length > 64) throw new StepError("info(key, value): the key must be 1 to 64 characters.");
     if (!["string", "number", "boolean"].includes(typeof value)) throw new StepError(`info("${k}", value): the value must be a string, number or boolean.`);
-    const v = typeof value === "string" && value.length > 500 ? `${value.slice(0, 500)}…` : value;
+    const v = this.mask(typeof value === "string" && value.length > 500 ? `${value.slice(0, 500)}…` : value);
     if (run.info[k] === v) return;
     run.info[k] = v;
     this.o.repo.updateRun(run.id, { info: JSON.stringify(run.info) });

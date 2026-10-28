@@ -8,3 +8,7 @@ test-results/
 .DS_Store
 .env
 .env.*
+
+# Copied from the repository root when the package is packed (scripts/copy-legal.mjs).
+packages/watchwright/LICENSE
+packages/watchwright/NOTICE

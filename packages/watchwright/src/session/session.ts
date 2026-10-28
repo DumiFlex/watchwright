@@ -68,7 +68,9 @@ export class BrowserSession {
   ) {}
 
   static async launch(opts: SessionOptions, hooks: SessionHooks = {}): Promise<BrowserSession> {
-    const browser = await BROWSERS[opts.browser].launch({ headless: opts.headless, ...opts.launch });
+    const browser = await BROWSERS[opts.browser].launch({ headless: opts.headless, ...opts.launch }).catch((err: unknown) => {
+      throw missingBrowser(opts.browser, err) ?? err;
+    });
     try {
       const context = await browser.newContext({ viewport: opts.viewport, ...opts.context });
       const session = new BrowserSession(browser, context, opts, hooks);
@@ -252,3 +254,11 @@ export class BrowserSession {
     await this.browser.close().catch(() => undefined);
   }
 }
+
+/** Playwright's error for a browser that was never downloaded, as one line that says what to run. */
+export function missingBrowser(name: string, err: unknown): Error | null {
+  const message = err instanceof Error ? err.message : String(err);
+  if (!/Executable doesn't exist|playwright install/i.test(message)) return null;
+  return new Error(`Playwright's ${name} isn't installed on this machine. Install it with: npx playwright install ${name}`, { cause: err });
+}
+

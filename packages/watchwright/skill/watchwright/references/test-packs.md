@@ -28,7 +28,7 @@ Through the [API](https://dumiflex.github.io/watchwright/reference/http-api#pack
 
 **Starting from nothing?** In the folder browser, open the folder the pack should live in and press **New pack here…**. Give it a name and the site's address, pick YAML or TypeScript, and Watchwright writes a small pack that works (a pack file, a first test that opens the site and takes a screenshot, and a `README.md`) and adds it. It never overwrites a file that's already there.
 
-A pack's page lists its tests, parameters, flags, rubric and recent runs. Once the pack has run, each test shows its last 20 attempts as a row of ticks (newest on the right, green passed, red failed, amber broken, grey skipped or stopped), its pass rate and its typical time. Point at a tick to see its run, date, time and values; click it to open the attempt. A tick with a notch passed only on a later try. A test is marked **flaky** when it went from passing to failing and back with the same parameter values, or passed only when it was run again; a test that started failing once and stayed that way isn't flaky, it broke. When the pack's folder has a `README.md` at its top (or `README`, `readme.markdown` and the like), the page shows it below, rendered as on a code host, with a pencil to edit it. Links in it to other pack files open them in the [editor](https://dumiflex.github.io/watchwright/guide/editing).
+A pack's page lists its tests, parameters, flags, rubric and recent runs. Once the pack has run, each test shows its last 20 attempts as a row of ticks (newest on the right, green passed, red failed, amber broken, grey skipped or stopped), its pass rate and its typical time. Point at a tick to see its run, date, time and values; click it to open the attempt. A tick with a notch passed only on a later try. A test is marked **flaky** when it went from passing to failing and back with the same parameter values, or passed only when it was run again; a test that started failing once and stayed that way isn't flaky, it broke. When the pack's folder has a `README.md` at its top (or `README`, `readme.markdown` and the like), the page shows it below, rendered as on a code host, with a pencil to edit it: GitHub's Markdown (tables, task lists, footnotes, alerts such as `> [!NOTE]`) and the safe HTML tags READMEs use, like `<details>`, `<summary>`, `<kbd>`, `<sub>`, `<sup>` and `<img width>`. Scripts, styles, frames and event handlers are dropped. Links in it to other pack files open them in the [editor](https://dumiflex.github.io/watchwright/guide/editing).
 
 If a pack's folder moves, its card says the folder is gone; **Locate…** points it at the new folder and keeps its runs. **Remove** in the card's menu takes a pack off the list without touching its files or runs.
 
@@ -65,6 +65,7 @@ export default pack({
 | `name` | Shown on the web page. |
 | `site.key` | Runs of packs with the same key wait for each other, so two runs never change the same app at once. |
 | `site.baseURL` | Relative URLs in `h.goto()` resolve against it. |
+| `site.signIn` | `"saved"`: every run starts with the sign-in saved for this site key (see [Saved sign-ins](yaml-tests.md#saved-sign-ins)). |
 | `browser` | `name` (`chromium`, `firefox`, `webkit`), `viewport`, `headless` (default `true`; you watch through the live view), and raw Playwright `launch` and `context` options. |
 | `params` | Values chosen per run. A param has a `default`, optional `choices` (with optional display `labels`: `{ q9: "Qwen3.5 9B" }`), and an optional `type` (`string`, `number`, `boolean`). Tests get them as `params`. |
 | `flags` | Flags tests may raise, with their kind: `robot` (the harness or test went wrong: the attempt is **broken**), `finding` (the site did something wrong: the attempt **failed**), `info` (changes nothing). |
@@ -144,6 +145,8 @@ Every `h` call is a pause point: Pause takes effect at the next one.
 | `h.metric(name, value, unit?)` | A number to keep with the result. |
 | `h.save(key, value)`, `h.load(key)` | State for later tests (see `needs`). A test's saves are kept from its last attempt, when it passed or failed. |
 | `h.info(key, value)` | Saves a fact about the whole run (the app's version, the model it runs on). Facts show on the run page, in Compare and in exports. |
+| `h.saveSignIn()` | Saves the browser's cookies and local storage as the sign-in for the pack's site key. Call it at the end of a login test. |
+| `h.secret(name)` | A secret set on Settings > Secrets (a password, a token). Its value is masked in everything the run records; see [Secrets](yaml-tests.md#secrets). |
 | `h.skip(reason)` | Ends the attempt as skipped, with the reason (a file it needs isn't there, the feature is off). |
 
 A target is a Playwright selector string (`"#add"`, `"text=Checkout"`, `"role=button[name=Save]"`) or a locator (`h.page.getByRole("button")`).

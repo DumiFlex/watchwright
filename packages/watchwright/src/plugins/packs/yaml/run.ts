@@ -30,7 +30,7 @@ interface PageWindow {
   document: { documentElement: { scrollHeight: number } };
 }
 
-/** Values read from `${env.…}`, kept out of logs and error messages. */
+/** Values read from `${env.…}` and `${secret.…}`, kept out of logs and error messages. */
 class Secrets {
   readonly values = new Set<string>();
   mask(s: string): string {
@@ -54,6 +54,11 @@ function lookup(expr: string, env: StepEnv, secrets: Secrets): unknown {
       if (v === undefined) throw new VariableError(`\${saved.${key}}: nothing was saved as "${key}" (does this test list the test that saves it in needs?).`);
       return v;
     }
+    case "secret": {
+      const v = env.h.secret(key);
+      secrets.values.add(v);
+      return v;
+    }
     case "env": {
       const v = process.env[key];
       if (v === undefined) throw new VariableError(`\${env.${key}}: the environment variable ${key} isn't set on the machine running Watchwright.`);
@@ -67,7 +72,7 @@ function lookup(expr: string, env: StepEnv, secrets: Secrets): unknown {
     case "last":
       return env.last;
     default:
-      throw new VariableError(`\${${expr}} isn't a variable. Use params.…, saved.…, env.…, attempt, attempts or last.`);
+      throw new VariableError(`\${${expr}} isn't a variable. Use params.…, saved.…, secret.…, env.…, attempt, attempts or last.`);
   }
 }
 
@@ -269,6 +274,9 @@ async function runOne(step: Step, env: StepEnv, secrets: Secrets): Promise<void>
       return;
     case "keepText":
       await h.keepText(str(a.name), a.target !== undefined ? at(a.target) : { text: secrets.mask(str(a.text)) });
+      return;
+    case "saveSignIn":
+      await h.saveSignIn();
       return;
     case "note":
       return h.note(secrets.mask(str(a.text)));

@@ -14,7 +14,8 @@ export type Route =
   | { name: "edit"; id: string; file: string | null; line: number | null; record?: boolean; watch?: string }
   | { name: "compare"; query: Record<string, string> }
   | { name: "kit" }
-  | { name: "settings" };
+  | { name: "settings" }
+  | { name: "schedules" };
 
 const ID8 = "([0-9a-f]{8})";
 
@@ -35,6 +36,7 @@ export function parseRoute(hash: string): Route {
   if (path === "/packs") return { name: "packs", query };
   if (path === "/kit") return { name: "kit" };
   if (path === "/settings") return { name: "settings" };
+  if (path === "/schedules") return { name: "schedules" };
   if (path === "/compare") return { name: "compare", query };
   if ((m = new RegExp(`^/runs/${ID8}$`).exec(path))) return { name: "run", id: m[1]! };
   if ((m = new RegExp(`^/runs/${ID8}/attempts/([0-9a-f]{12})$`).exec(path))) {
@@ -82,15 +84,9 @@ export function href(route: Route): string {
       return "#/kit";
     case "settings":
       return "#/settings";
+    case "schedules":
+      return "#/schedules";
   }
-}
-
-/** Which top bar section a route belongs to. */
-export function sectionOf(route: Route): "runs" | "packs" | "compare" | null {
-  if (route.name === "runs" || route.name === "run" || route.name === "attempt" || route.name === "new") return "runs";
-  if (route.name === "packs" || route.name === "pack" || route.name === "edit") return "packs";
-  if (route.name === "compare") return "compare";
-  return null;
 }
 
 /** The current route, kept in step with the address. */

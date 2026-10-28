@@ -5,6 +5,22 @@ export interface HealthData {
   version: string;
   dataDir: string;
   plugins: { name: string; schemaVersion: number }[];
+  /** The web app's pages the loaded plugins bring, in menu order. */
+  pages: HealthPage[];
+}
+
+/** A page a plugin brings (`PluginPage` on the server). */
+export interface HealthPage {
+  plugin: string;
+  name: string;
+  title: string;
+  /** The address after `#`. */
+  path: string;
+  /** A Lucide icon name from src/icons.ts. */
+  icon: string;
+  menu: "main" | "more";
+  order: number;
+  words?: string;
 }
 
 export interface ApiError {
@@ -129,6 +145,8 @@ export interface PackRunDefaults {
   pauseLimitMinutes: number;
   trace: TraceMode;
   video: boolean;
+  /** Runs start with the site's saved sign-in (`site.signIn: saved`); older servers leave it out. */
+  signIn?: boolean;
 }
 
 /** What a run sets for itself; anything left out comes from the pack. */
@@ -138,6 +156,7 @@ export interface RunOptions {
   attempts?: number;
   trace?: TraceMode;
   video?: boolean;
+  signIn?: boolean;
 }
 
 /** What a run starts with apart from its pack: what a preset keeps. */
@@ -195,6 +214,8 @@ export interface RunSummary {
   packId: string;
   packName: string;
   siteKey: string;
+  /** The job kind (`test`, or one a plugin adds). */
+  kind: string;
   tests: string[];
   params: Record<string, ParamValue>;
   /** Facts the run saved while it ran (the app's version, the model it used). */
@@ -214,6 +235,8 @@ export interface RunSummary {
 
 export interface Attempt {
   id: string;
+  /** The job kind (`test`, or one a plugin adds). */
+  kind: string;
   testId: string;
   title: string;
   number: number;
@@ -260,6 +283,7 @@ export interface ResultDocument {
   schemaVersion: 1;
   runId: string;
   attemptId: string;
+  kind: string;
   test: { id: string; title: string };
   attempt: { number: number; of: number; try: number; current: boolean; parentId: string | null };
   status: AttemptStatus;

@@ -46,7 +46,7 @@ describe("run preview", () => {
     ]);
     expect(res.data.params).toEqual({ model: "a" });
     const pack = await h.api<{ run: unknown }>("GET", `/packs/${packId}`);
-    expect(pack.data.run).toEqual({ pauseOnBroken: true, pauseLimitMinutes: 20, trace: "problems", video: true });
+    expect(pack.data.run).toEqual({ pauseOnBroken: true, pauseLimitMinutes: 20, trace: "problems", video: true, signIn: false });
   });
 
   it("follows parameter values and the attempts override", async () => {

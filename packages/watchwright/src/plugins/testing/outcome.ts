@@ -1,13 +1,8 @@
 import type { Outcome } from "../packs/api.js";
 import { AttemptAborted, StopNow } from "../../jobs/control.js";
-import type { FlagRecord } from "../../jobs/recorder.js";
+import type { AttemptEnd, AttemptError } from "../../jobs/kind.js";
 
-export interface AttemptError {
-  /** assertion: an expect failed. step: the harness couldn't do a step. skipped: the test skipped itself. timeout, exception, stopped. */
-  kind: "assertion" | "step" | "timeout" | "exception" | "stopped" | "skipped";
-  message: string;
-  stack: string | null;
-}
+export type { AttemptError } from "../../jobs/kind.js";
 
 function errorOf(kind: AttemptError["kind"], err: unknown): AttemptError {
   if (err instanceof Error) return { kind, message: err.message, stack: err.stack ?? null };
@@ -18,7 +13,7 @@ function errorOf(kind: AttemptError["kind"], err: unknown): AttemptError {
  * The outcome of an attempt from how its body ended and the flags it raised
  * (docs/research/step-1-engine.md, decision 2).
  */
-export function classify(input: { error: unknown; flags: readonly FlagRecord[]; stopped: boolean }): { status: Outcome; error: AttemptError | null } {
+export function classify(input: AttemptEnd): { status: Outcome; error: AttemptError | null } {
   const { error, flags, stopped } = input;
   if (stopped || error instanceof StopNow) return { status: "stopped", error: { kind: "stopped", message: "The run was stopped during this attempt.", stack: null } };
   if (error !== undefined) {

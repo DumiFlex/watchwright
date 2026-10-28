@@ -3,30 +3,38 @@
 A browser test harness built on [Playwright](https://playwright.dev) that you watch work live.
 
 - **Watch it.** Every run streams a live picture of the browser to Watchwright's own web page, with the current test, step and log.
-- **Control it from the page.** Start, pause, resume, retry, skip and stop runs on the website, and review what each test saved: screenshots, text, metrics, video and Playwright traces.
+- **Control it from the page.** Start, pause, resume, retry, skip and stop runs on the website, and review what each test saved: screenshots, text, metrics, video and Playwright traces. Or let a schedule start them, and an alert on your phone or in a chat tell you when one fails.
 - **Test any site.** You write test packs for your own websites: a folder with a `pack` file and test files in the familiar Playwright style.
 - **Let your agents drive.** Everything the page does is an API call, and AI coding agents (Claude Code, Codex, any MCP client) get it through a CLI, an MCP server and an agent skill. Watchwright has no AI assistant of its own.
 - **Built to grow.** Every capability is a plugin on one core of browser sessions, jobs, events and actions. Testing comes first; scraping, crawling and other Playwright capabilities can be added later without reworking the base.
 
-> **Status: early (0.x).** The run engine, test packs in TypeScript or YAML, the live view, the web app (runs, review, compare, a pack editor and Record), the HTTP API, the command line, the MCP server and the agent skill work; see [docs/plan.md](docs/plan.md) for the plan and what is built so far.
+> **Status: early (0.x).** The run engine, test packs in TypeScript or YAML, the live view, the web app (runs, review, compare, a pack editor and Record), schedules, alerts, secrets, saved sign-ins, the HTTP API, the command line, the MCP server and the agent skill work; see [docs/plan.md](docs/plan.md) for the plan and what is built so far.
 
 **Docs:** [dumiflex.github.io/watchwright](https://dumiflex.github.io/watchwright/)
 
-![A run in progress, with the live browser picture](docs/screenshots/run-live-light.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/run-live-dark.png">
+  <img alt="A run in progress, with the live browser picture, the controls and the queue" src="docs/screenshots/run-live-light.png">
+</picture>
 
 ## Requirements
 
 - Node.js 22 or newer
-- pnpm 9 (`corepack enable` sets it up from `package.json`)
 - Windows, macOS or Linux. Windows is the first platform the run engine is checked on.
 
 ## Getting started
 
 ```bash
+npx playwright install chromium firefox
+npx watchwright serve     # starts the server at http://127.0.0.1:7420/ and opens it
+```
+
+The package is [`watchwright` on npm](https://www.npmjs.com/package/watchwright). To run it from a clone instead (pnpm 9; `corepack enable` sets it up from `package.json`):
+
+```bash
 pnpm install
 pnpm --filter watchwright exec playwright install chromium firefox
-pnpm build
-pnpm serve            # builds, starts the server at http://127.0.0.1:7420/ and opens it
+pnpm serve            # builds, starts the server and opens it
 ```
 
 Then add a test pack on the Packs page (browse to a folder with a `pack.ts` or `pack.yaml` file, or start a new one from a starter) and start a run. The [TodoMVC example](examples/todomvc) is a small pack to try first. [Writing a test pack](packages/site/guide/test-packs.md) explains how to write a pack, and the [HTTP and WebSocket API](packages/site/reference/http-api.md) lists every route, event and the live WebSocket.

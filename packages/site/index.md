@@ -21,7 +21,7 @@ features:
   - title: Watch it
     details: Every run streams a live picture of the browser to Watchwright's web page, with the current test, step and log.
   - title: Control it from the page
-    details: Start, pause, resume, retry, skip and stop runs, then review what each test saved, from screenshots and text to video and Playwright traces.
+    details: Start, pause, resume, retry, skip and stop runs, then review what each test saved, from screenshots and text to video and Playwright traces. Or schedule them, and get an alert when one fails.
   - title: Test any site
     details: Write test packs for your own websites, as a folder with a pack file and test files in the familiar Playwright style.
   - title: Let your agents drive
@@ -34,7 +34,7 @@ features:
 
 <div class="ww-status">
 
-**Status: early.** The run engine, test packs (in code or YAML), the live view, reviews, the editor, recording, the HTTP API, the command line, the MCP server and the agent skill work.
+**Status: early.** The run engine, test packs (in code or YAML), the live view, reviews, the editor, recording, schedules, alerts, secrets, saved sign-ins, the HTTP API, the command line, the MCP server and the agent skill work.
 
 ![A run in progress on the Watchwright web page, with the live browser picture, the controls and the plan](/web-page.png)
 

@@ -12,12 +12,16 @@ import { errorBody } from "../../server/errors.js";
 import { FRAMES } from "../live/hub.js";
 import { PACKS } from "../packs/registry.js";
 import { SETTINGS } from "../settings/plugin.js";
-import { testKind } from "../testing/kind.js";
+import { JobKinds } from "../../jobs/kinds.js";
+import { SECRETS } from "../secrets/plugin.js";
+import { SIGNINS } from "../signins/plugin.js";
 import { digest, readRunFile, waitForRun } from "./digest.js";
 import { Engine, EngineError } from "./engine.js";
 import { RUNS_ARTIFACT_SET_SQL, RUNS_INFO_SQL, RUNS_LABELS_PRESETS_SQL, RUNS_MIGRATION_SQL, RUNS_STEPS_SQL, RunsRepo, type RunChoices, type RunOptions, type RunStatus } from "./repo.js";
 
 export const ENGINE = serviceKey<Engine>("runs.engine");
+/** Job kinds by name: a plugin registers its kinds here in `setup` (the testing plugin registers `test`). */
+export const JOB_KINDS = serviceKey<JobKinds>("runs.job-kinds");
 export const RUNS_REPO = serviceKey<RunsRepo>("runs.repo");
 /** The folder that holds `runs/` (the data folder, or a temp folder for an in-memory store). */
 export const FILES_ROOT = serviceKey<string>("runs.files-root");
@@ -59,6 +63,7 @@ interface StartBody extends RunChoices {
   packId: string;
   label?: string;
   preset?: string;
+  kind?: string;
 }
 
 const CHOICE_PROPS = {
@@ -69,6 +74,7 @@ const CHOICE_PROPS = {
   attempts: { type: "integer", minimum: 1, maximum: 100, description: "Attempts for every test, instead of each test's own count." },
   trace: { type: "string", enum: ["problems", "always", "never"], description: "Which attempts keep a Playwright trace (default: the pack's setting, else problems)." },
   video: { type: "boolean", description: "Record a video per attempt (default: the pack's setting, else true)." },
+  signIn: { type: "boolean", description: "Start with the site's saved sign-in (default: the pack's site.signIn)." },
 } as const;
 const CHOICE_KEYS = Object.keys(CHOICE_PROPS) as (keyof RunChoices)[];
 const PACK_ID = { type: "string", pattern: "^[0-9a-f]{8}$" } as const;
@@ -82,6 +88,7 @@ const START_INPUT: ObjectSchema = {
     ...CHOICE_PROPS,
     label: LABEL,
     preset: { ...PRESET_NAME, description: "Start from the pack's preset with this name; the other fields given override it." },
+    kind: { type: "string", pattern: "^[a-z][a-z0-9-]{0,39}$", description: "The job kind (default test). GET /health lists the loaded kinds." },
   },
   required: ["packId"],
 };
@@ -101,6 +108,7 @@ function runOptions(input: RunChoices): RunOptions {
   if (input.attempts !== undefined) o.attempts = input.attempts;
   if (input.trace !== undefined) o.trace = input.trace;
   if (input.video !== undefined) o.video = input.video;
+  if (input.signIn !== undefined) o.signIn = input.signIn;
   return o;
 }
 
@@ -121,6 +129,10 @@ function filesRoot(dataDir: string): string {
 /** Runs: starting, controlling and reading them, and the files they save. */
 export const runsPlugin = definePlugin({
   name: "runs",
+  pages: [
+    { name: "runs", title: "Runs", path: "/", icon: "ListChecks", menu: "main", order: 10, words: "history list" },
+    { name: "new-run", title: "New run", path: "/new", icon: "Plus", menu: "more", order: 40, words: "start" },
+  ],
   migrations: [
     { id: 1, name: "init", sql: RUNS_MIGRATION_SQL },
     { id: 2, name: "artifact-set", sql: RUNS_ARTIFACT_SET_SQL },
@@ -139,17 +151,24 @@ export const runsPlugin = definePlugin({
     });
     const repo = new RunsRepo(store.db);
     services.provide(RUNS_REPO, repo);
+    const kinds = new JobKinds();
+    services.provide(JOB_KINDS, kinds);
     const engine = new Engine({
       repo,
       events,
       packs: services.get(PACKS),
       frames: services.get(FRAMES),
       dataDir,
-      kinds: [testKind],
+      kinds,
+      secrets: services.has(SECRETS) ? services.get(SECRETS) : undefined,
+      signIns: services.has(SIGNINS) ? services.get(SIGNINS) : undefined,
     });
     engine.recover();
     services.provide(ENGINE, engine);
-    engine.schedule();
+  },
+  // Queued runs start once every plugin has registered its job kinds.
+  ready({ services }) {
+    services.get(ENGINE).schedule();
   },
   async close({ services }) {
     await services.get(ENGINE).close();
@@ -169,7 +188,7 @@ export const runsPlugin = definePlugin({
       if (!input.preset) return input;
       const preset = repo.presetByName(input.packId, input.preset);
       if (!preset) throw new ActionError("not_found", `The pack has no preset named "${input.preset}".`, 404);
-      return { ...preset.choices, ...choicesOf(input), packId: input.packId, ...(input.label !== undefined ? { label: input.label } : {}) };
+      return { ...preset.choices, ...choicesOf(input), packId: input.packId, ...(input.label !== undefined ? { label: input.label } : {}), ...(input.kind !== undefined ? { kind: input.kind } : {}) };
     };
     const control = (name: string, verb: string, title: string, fn: (id: string, client: string) => unknown) =>
       defineAction<{ id: string }>({ name, title, method: "POST", path: `/runs/:id/${verb}`, input: byId, handler: ({ id }, { client }) => guard(() => fn(id, client)) });
@@ -253,7 +272,7 @@ export const runsPlugin = definePlugin({
         input: START_INPUT,
         handler: (body, { client }) => {
           const input = withPreset(body);
-          return guard(() => engine.start({ packId: input.packId, tests: input.tests, params: input.params, startedBy: client, options: runOptions(input), label: input.label }));
+          return guard(() => engine.start({ packId: input.packId, tests: input.tests, params: input.params, startedBy: client, options: runOptions(input), label: input.label, kind: input.kind }));
         },
       }),
       defineAction<{ id: string }>({
@@ -323,7 +342,15 @@ export const runsPlugin = definePlugin({
         method: "POST",
         path: "/runs/preview",
         input: START_INPUT,
-        handler: (input) => guard(() => engine.preview({ packId: input.packId, tests: input.tests, params: input.params, options: runOptions(input) })),
+        handler: (input) => guard(() => engine.preview({ packId: input.packId, tests: input.tests, params: input.params, options: runOptions(input), kind: input.kind })),
+      }),
+      defineAction<Record<string, never>>({
+        name: "runs.kinds",
+        title: "The job kinds loaded, with the words each one uses for outcomes",
+        method: "GET",
+        path: "/kinds",
+        input: { type: "object", properties: {} },
+        handler: () => services.get(JOB_KINDS).list().map((k) => ({ name: k.name, labels: { ...(k.labels ?? {}) } })),
       }),
       defineAction<{ id: string; history?: boolean }>({
         name: "runs.get",

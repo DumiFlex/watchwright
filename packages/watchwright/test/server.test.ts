@@ -55,15 +55,28 @@ describe("server", () => {
         plugins: [
           { name: "core", schemaVersion: 2 },
           { name: "settings", schemaVersion: 1 },
+          { name: "secrets", schemaVersion: 1 },
+          { name: "signins", schemaVersion: 1 },
           { name: "approvals", schemaVersion: 1 },
           { name: "live", schemaVersion: 0 },
           { name: "folders", schemaVersion: 1 },
           { name: "packs", schemaVersion: 1 },
           { name: "editor", schemaVersion: 0 },
           { name: "runs", schemaVersion: 5 },
+          { name: "testing", schemaVersion: 0 },
+          { name: "schedules", schemaVersion: 1 },
+          { name: "alerts", schemaVersion: 1 },
           { name: "record", schemaVersion: 0 },
           { name: "reviews", schemaVersion: 1 },
           { name: "agents", schemaVersion: 1 },
+        ],
+        pages: [
+          { plugin: "runs", name: "runs", title: "Runs", path: "/", icon: "ListChecks", menu: "main", order: 10, words: "history list" },
+          { plugin: "packs", name: "packs", title: "Packs", path: "/packs", icon: "FolderOpen", menu: "main", order: 20, words: "tests suites" },
+          { plugin: "reviews", name: "compare", title: "Compare", path: "/compare", icon: "Columns2", menu: "main", order: 30, words: "side by side matrix export" },
+          { plugin: "schedules", name: "schedules", title: "Schedules", path: "/schedules", icon: "CalendarClock", menu: "main", order: 35, words: "cron every timer nightly" },
+          { plugin: "runs", name: "new-run", title: "New run", path: "/new", icon: "Plus", menu: "more", order: 40, words: "start" },
+          { plugin: "settings", name: "settings", title: "Settings", path: "/settings", icon: "Settings", menu: "more", order: 90, words: "preferences editor folders" },
         ],
       },
     });
@@ -109,6 +122,21 @@ describe("server", () => {
     expect(res.json()).toEqual({ data: [] });
     const health = await app.inject({ url: "/api/v1/health", headers: { host: HOST } });
     expect(health.json().data.plugins.at(-1)).toEqual({ name: "notes", schemaVersion: 1 });
+  });
+
+  it("lists a plugin's pages in menu order", async () => {
+    const notes = definePlugin({ name: "notes", pages: [{ name: "notes", title: "Notes", path: "/notes", icon: "FileText", menu: "main", order: 25 }] });
+    const app = await make({ plugins: [...BUILTIN_PLUGINS, notes] });
+    const health = await app.inject({ url: "/api/v1/health", headers: { host: HOST } });
+    const pages = (health.json().data.pages as { name: string; plugin: string }[]).map((p) => `${p.plugin}:${p.name}`);
+    expect(pages).toEqual(["runs:runs", "packs:packs", "notes:notes", "reviews:compare", "schedules:schedules", "runs:new-run", "settings:settings"]);
+  });
+
+  it("refuses badly named, duplicate or pathless pages", async () => {
+    const page = { title: "X", icon: "FileText", menu: "main" as const, order: 1 };
+    await expect(make({ plugins: [...BUILTIN_PLUGINS, definePlugin({ name: "x", pages: [{ ...page, name: "Bad", path: "/x" }] })] })).rejects.toThrow(/lowercase/);
+    await expect(make({ plugins: [...BUILTIN_PLUGINS, definePlugin({ name: "x", pages: [{ ...page, name: "packs", path: "/x" }] })] })).rejects.toThrow(/both have a page named "packs"/);
+    await expect(make({ plugins: [...BUILTIN_PLUGINS, definePlugin({ name: "x", pages: [{ ...page, name: "x", path: "x" }] })] })).rejects.toThrow(/starts with/);
   });
 
   it("refuses badly named or duplicate plugins", async () => {
