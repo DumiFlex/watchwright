@@ -47,7 +47,7 @@ The tools are the [actions](./http-api) marked for agents; a tool's description 
 | `delete_pack_file` | `packs.file-delete` | Deletes one, after the person approves. |
 | `check_test` | `packs.check-yaml` | Checks a YAML test without saving it. |
 | `test_format` | `packs.yaml-schema` | The JSON Schema of YAML tests. |
-| `start_run` | `runs.start` | Starts a run. The pack can be named by its id, its name or its folder. |
+| `start_run` | `runs.start` | Starts a run. The pack can be named by its id, its name or its folder. The answer ends with the run's page on this server ("Watch it live: …"), and the server's instructions give its web page address, so agents point people to the right port. |
 | `list_runs` | `runs.list` | Runs, newest first. |
 | `get_run` | `runs.summary` | A run in brief: status, counts and one line per attempt. |
 | `wait_for_run` | `runs.wait` | Waits up to 110 seconds for the run to end or pause; call again with the cursor. |

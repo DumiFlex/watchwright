@@ -66,7 +66,7 @@ export async function resolveRefs(page: Page, raw: unknown): Promise<{ value: un
 }
 
 async function targetsOfRef(page: Page, ref: string): Promise<Target[]> {
-  if (!/^[a-z]*\d+$/i.test(ref)) throw new ExploreError(`"${ref}" isn't a ref. Refs come from the snapshot, like e4.`);
+  if (!/^[a-z]*\d+(?:[a-z]+\d+)*$/i.test(ref)) throw new ExploreError(`"${ref}" isn't a ref. Refs come from the snapshot, like e4.`);
   const handle = await page
     .getByRef(ref)
     .elementHandle({ timeout: 2000 })

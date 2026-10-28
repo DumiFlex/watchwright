@@ -155,6 +155,8 @@ export interface McpServerOptions {
   caller: (clientInfo: string | null) => string;
   /** Told about each tool call, for Settings > Agents (who called lately). */
   onCall?: (client: string, tool: string) => void;
+  /** The web page's address (`http://127.0.0.1:7420/`), so the agent can tell the person where to watch. */
+  page?: string;
 }
 
 const MAX_TEXT = 200_000;
@@ -165,8 +167,7 @@ export function buildMcpServer(opts: McpServerOptions): McpServer {
     { name: "watchwright", title: "Watchwright", version: opts.version },
     {
       capabilities: { tools: {} },
-      instructions:
-        "Watchwright runs browser test packs and shows each run live on its web page. Start with list_packs, run with start_run, follow with wait_for_run (call it again while the run goes), then read get_run and get_attempt. Tell the person the run's page address so they can watch. Deleting asks the person first.",
+      instructions: instructionsFor(opts.page),
     },
   );
   const byName = new Map(opts.actions.map((a) => [a.name, a]));
@@ -193,7 +194,7 @@ export function buildMcpServer(opts: McpServerOptions): McpServer {
     try {
       const input = await resolvePack(a, withDefaults(a.input, raw), client, signal);
       const out = await opts.door.call(a, input, client, signal);
-      return resultOf(a, out);
+      return withPage(resultOf(a, out), a, out, opts.page);
     } catch (err) {
       if (err instanceof ToolError) return errorResult(err.code, err.message, err.detail);
       throw err;
@@ -221,6 +222,18 @@ export function buildMcpServer(opts: McpServerOptions): McpServer {
     }
   }
   return server;
+}
+
+function instructionsFor(page: string | undefined): string {
+  const where = page ? ` Its web page is ${page}, and a run's page is ${page}#/runs/<run id>.` : "";
+  return `Watchwright runs browser test packs and shows each run live on its web page.${where} Start with list_packs, run with start_run, follow with wait_for_run (call it again while the run goes), then read get_run and get_attempt. Tell the person the run's page address so they can watch. Deleting asks the person first.`;
+}
+
+/** A started run's answer also says where to watch it, at this server's real address. */
+function withPage(result: CallToolResult, a: ActionInfo, out: { status: number; data: unknown }, page: string | undefined): CallToolResult {
+  const id = record(out.data)?.id;
+  if (!page || a.name !== "runs.start" || out.status === 202 || typeof id !== "string") return result;
+  return { ...result, content: [...result.content, { type: "text", text: `Watch it live: ${page}#/runs/${id}` }] };
 }
 
 function errorResult(code: string, message: string, detail?: unknown): CallToolResult {

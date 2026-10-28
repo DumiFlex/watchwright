@@ -169,6 +169,8 @@ run("following a run as an agent", { timeout: 90_000 }, () => {
       const started = await call("start_run", { packId: "Agent fixture", tests: ["T1"] });
       expect(started.isError).toBeFalsy();
       const id = String(json(started).id);
+      expect(started.content.at(-1)).toEqual({ type: "text", text: `Watch it live: http://${h.host}/#/runs/${id}` });
+      expect(mcp.getInstructions()).toContain(`Its web page is http://${h.host}/,`);
       let waited = json(await call("wait_for_run", { id, timeout: 30 }));
       while (waited.reason === "timeout") waited = json(await call("wait_for_run", { id, after: waited.cursor, timeout: 30 }));
       expect(waited.reason).toBe("ended");
@@ -220,6 +222,11 @@ run("following a run as an agent", { timeout: 90_000 }, () => {
       expect(text(done, 1)).toContain("Count:");
       const stale = await call("explore_do", { id: session.id, steps: [{ click: { ref: "e999" } }] });
       expect(JSON.parse(text(stale))).toMatchObject({ steps: [{ ok: false, error: expect.stringContaining("Look again") as string }] });
+      // Refs inside frames (f2e5) are refs too; a selector isn't.
+      const framed = await call("explore_do", { id: session.id, steps: [{ click: { ref: "f2e5" } }] });
+      expect(JSON.parse(text(framed))).toMatchObject({ steps: [{ ok: false, error: expect.stringContaining("Look again") as string }] });
+      const notRef = await call("explore_do", { id: session.id, steps: [{ click: { ref: "#inc" } }] });
+      expect(JSON.parse(text(notRef))).toMatchObject({ steps: [{ ok: false, error: expect.stringContaining("isn't a ref") as string }] });
       const bad = await call("explore_do", { id: session.id, steps: [{ clik: "#inc" }] });
       expect(JSON.parse(text(bad))).toMatchObject({ steps: [{ ok: false, error: expect.stringContaining('Did you mean "click"') as string }] });
 
