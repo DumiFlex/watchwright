@@ -4,6 +4,12 @@ import type { ParamDef, ParamValues, RunsSpec, TestDefinition } from "./api.js";
 // Which tests run, in which order, and how many attempts each gets. Same rules as the bench
 // robot's pickTests, from declarations instead of hand-kept tables (docs/plan.md, section 6).
 
+/** The tests a test may run inside (empty for a top-level test). */
+export function parentsOf(t: TestDefinition): string[] {
+  const i = t.meta.inside;
+  return i === undefined ? [] : typeof i === "string" ? [i] : [...i];
+}
+
 /** Problems with a pack's test graph: unknown ids in `needs`/`inside`, cycles. Empty when fine. */
 export function checkTests(tests: readonly TestDefinition[], rubric?: readonly RubricCriterion[]): string[] {
   const byId = new Map(tests.map((t) => [t.id, t]));
@@ -13,9 +19,10 @@ export function checkTests(tests: readonly TestDefinition[], rubric?: readonly R
     problems.push(...rubricProblems(t.meta.review?.add, `test ${t.id} review.add`));
     for (const d of t.meta.review?.drop ?? []) if (!criteria.has(d)) problems.push(`Test ${t.id} drops the criterion "${d}", which the pack's rubric doesn't have.`);
     for (const n of t.meta.needs ?? []) if (!byId.has(n)) problems.push(`Test ${t.id} needs "${n}", which doesn't exist.`);
-    if (t.meta.inside !== undefined) {
-      const parent = byId.get(t.meta.inside);
-      if (!parent) problems.push(`Test ${t.id} is inside "${t.meta.inside}", which doesn't exist.`);
+    if (t.meta.inside !== undefined && parentsOf(t).length === 0) problems.push(`Test ${t.id} has an empty "inside" list.`);
+    for (const p of parentsOf(t)) {
+      const parent = byId.get(p);
+      if (!parent) problems.push(`Test ${t.id} is inside "${p}", which doesn't exist.`);
       else if (parent.meta.inside !== undefined) problems.push(`Test ${t.id} is inside ${parent.id}, which is itself inside another test. Only one level is allowed.`);
     }
   }
@@ -44,7 +51,7 @@ export function checkTests(tests: readonly TestDefinition[], rubric?: readonly R
 export function planTests(tests: readonly TestDefinition[], chosen: readonly string[] | undefined): { order: string[]; children: Map<string, string[]> } {
   const byId = new Map(tests.map((t) => [t.id, t]));
   const children = new Map<string, string[]>();
-  for (const t of tests) if (t.meta.inside !== undefined) children.set(t.meta.inside, [...(children.get(t.meta.inside) ?? []), t.id]);
+  for (const t of tests) for (const p of parentsOf(t)) children.set(p, [...(children.get(p) ?? []), t.id]);
 
   const picked = new Set<string>();
   const add = (id: string) => {
@@ -52,12 +59,22 @@ export function planTests(tests: readonly TestDefinition[], chosen: readonly str
     if (!t || picked.has(id)) return;
     picked.add(id);
     for (const n of t.meta.needs ?? []) add(n);
-    if (t.meta.inside !== undefined) add(t.meta.inside);
     for (const c of children.get(id) ?? []) add(c);
   };
   for (const id of chosen && chosen.length > 0 ? chosen : tests.map((t) => t.id)) {
     if (!byId.has(id)) throw new Error(`The pack has no test "${id}".`);
     add(id);
+  }
+  // A child runs only inside a parent: when none of its parents is in, its first one joins.
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (const id of [...picked]) {
+      const ps = parentsOf(byId.get(id)!);
+      if (ps.length > 0 && !ps.some((p) => picked.has(p))) {
+        add(ps[0]!);
+        changed = true;
+      }
+    }
   }
 
   // A top-level test waits for its needs and for its children's needs.
@@ -65,7 +82,10 @@ export function planTests(tests: readonly TestDefinition[], chosen: readonly str
   const needsOf = (t: TestDefinition): string[] => {
     const own = [...(t.meta.needs ?? [])];
     for (const c of children.get(t.id) ?? []) own.push(...(byId.get(c)?.meta.needs ?? []));
-    return own.map((n) => byId.get(n)?.meta.inside ?? n).filter((n) => n !== t.id);
+    return own.flatMap((n) => {
+      const ps = byId.has(n) ? parentsOf(byId.get(n)!) : [];
+      return ps.length > 0 ? ps : [n];
+    }).filter((n) => n !== t.id);
   };
   const order: string[] = [];
   const placed = new Set<string>();

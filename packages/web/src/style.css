@@ -313,6 +313,13 @@ textarea {
 a.btn {
   text-decoration: none;
 }
+/* An icon alone: square, as tall as a button with text beside it. */
+.btn.icon {
+  justify-content: center;
+  min-width: calc(1lh + 12px + 2 * var(--border-width));
+  min-height: calc(1lh + 12px + 2 * var(--border-width));
+  padding: 6px;
+}
 .btn:hover:not(:disabled) {
   background: var(--hover);
 }
@@ -374,6 +381,12 @@ input::-ms-clear {
   display: none;
 }
 
+/* while a modal dialog is open (popup.ts) */
+html.ww-modal-open {
+  overflow: hidden;
+  padding-right: var(--scrollbar-gap, 0);
+}
+
 .field::placeholder {
   color: var(--muted);
   opacity: 1;
@@ -397,6 +410,8 @@ a {
   margin: 0 auto;
   padding: var(--space-6);
   display: grid;
+  /* minmax(0, …): a long unbreakable line (a path) can't widen the page past the screen. */
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-4);
 }
 .card {

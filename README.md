@@ -8,7 +8,9 @@ A browser test harness built on [Playwright](https://playwright.dev) that you wa
 - **Let your agents drive.** Everything the page does is an API call, and AI coding agents (Claude Code, Codex, any MCP client) get it through a CLI, an MCP server and an agent skill. Watchwright has no AI assistant of its own.
 - **Built to grow.** Every capability is a plugin on one core of browser sessions, jobs, events and actions. Testing comes first; scraping, crawling and other Playwright capabilities can be added later without reworking the base.
 
-> **Status: early.** The run engine, test packs, the live view and the HTTP API work. The CLI, MCP server, agent skill and richer review pages come next; see [docs/plan.md](docs/plan.md) for the plan and what is built so far.
+> **Status: early (0.x).** The run engine, test packs in TypeScript or YAML, the live view, the web app (runs, review, compare, a pack editor and Record) and the HTTP API work. The agent CLI, MCP server and agent skill come next; see [docs/plan.md](docs/plan.md) for the plan and what is built so far.
+
+**Docs:** [dumiflex.github.io/watchwright](https://dumiflex.github.io/watchwright/)
 
 ![A run in progress, with the live browser picture](docs/screenshots/run-live-light.png)
 
@@ -27,7 +29,7 @@ pnpm build
 pnpm serve            # builds, starts the server at http://127.0.0.1:7420/ and opens it
 ```
 
-Then add a test pack on the home page (the path of a folder with a `pack.ts` file) and start a run. [Writing a test pack](packages/site/guide/test-packs.md) explains how to write a pack, and the [HTTP and WebSocket API](packages/site/reference/http-api.md) lists every route, event and the live WebSocket.
+Then add a test pack on the Packs page (browse to a folder with a `pack.ts` or `pack.yaml` file, or start a new one from a starter) and start a run. The [TodoMVC example](examples/todomvc) is a small pack to try first. [Writing a test pack](packages/site/guide/test-packs.md) explains how to write a pack, and the [HTTP and WebSocket API](packages/site/reference/http-api.md) lists every route, event and the live WebSocket.
 
 `watchwright serve` options:
 

@@ -1,7 +1,8 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 // Shared test fixtures: temp folders, a tiny site to test against, and pack folders written from strings.
 
@@ -36,6 +37,16 @@ export async function startSite(): Promise<{ url: string; close(): Promise<void>
       <div style="height: 2400px">tall</div>`,
     "/other": `<!doctype html><title>Other</title><h1>Other page</h1><p id="msg">Hello from the other page</p>`,
     "/noisy": `<!doctype html><title>Noisy</title><h1>Noisy</h1><script>console.error("fixture console error"); fetch("/missing")</script>`,
+    "/form": `<!doctype html><title>Form</title><h1>Form</h1>
+      <ul><li data-testid="color">Red</li><li data-testid="color">Green</li><li data-testid="color">Blue</li></ul>
+      <label>Email <input id="email" type="email"></label>
+      <label><input id="agree" type="checkbox"> I agree</label>
+      <label>Size <select id="size"><option value="s">Small</option><option value="m">Medium</option><option value="l">Large</option></select></label>
+      <label>Photo <input id="photo" type="file"></label>
+      <button id="send" onclick="document.getElementById('out').textContent = 'Sent ' + document.getElementById('email').value + ' ' + document.getElementById('size').value + ' ' + (document.getElementById('agree').checked ? 'yes' : 'no') + ' ' + (document.getElementById('photo').files[0]?.name ?? '-')">Send</button>
+      <p id="out"></p><p id="price">Total: 1,234.50 EUR</p>`,
+    // The example pack's app (examples/todomvc), so its tests run without the internet.
+    "/todomvc/": readFileSync(fileURLToPath(new URL("../fixtures/todomvc.html", import.meta.url)), "utf8"),
   };
   const server: Server = createServer((req, res) => {
     const url = (req.url ?? "/").split("?")[0]!;

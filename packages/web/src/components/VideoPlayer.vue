@@ -4,6 +4,9 @@
 // and pause, arrows jump 5 s, comma and period step one frame, F full screen.
 // Videos written while recording (WebM) often report an endless duration until the end of the
 // file is read, so on load the player seeks far ahead once to make the browser find the end.
+// The browser reports the position only about four times a second (timeupdate), so while the
+// video plays the player reads it every animation frame instead, and the seek bar and any
+// timeline below move smoothly.
 import { Maximize, Pause, Play, StepBack, StepForward } from "../icons";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { clockTime } from "../format";
@@ -12,6 +15,8 @@ import RangeSlider from "./RangeSlider.vue";
 import { vTip } from "../tooltip";
 
 const props = defineProps<{ src: string; label: string }>();
+/** `time`: the position in seconds as the video plays or seeks. `duration`: its length in seconds, once known. */
+const emit = defineEmits<{ time: [seconds: number]; duration: [seconds: number] }>();
 
 const SPEEDS = [0.5, 1, 1.5, 2, 4];
 const FRAME = 1 / 25;
@@ -31,13 +36,14 @@ const seek = computed({
   set: (v: number) => {
     if (video.value) video.value.currentTime = v;
     time.value = v;
+    tell(v);
   },
 });
 
 function onMeta() {
   const v = video.value;
   if (!v) return;
-  if (Number.isFinite(v.duration)) duration.value = v.duration;
+  if (Number.isFinite(v.duration)) setDuration(v.duration);
   else {
     probing = true;
     v.currentTime = 1e101;
@@ -46,14 +52,48 @@ function onMeta() {
 function onDuration() {
   const v = video.value;
   if (!v || !Number.isFinite(v.duration)) return;
-  duration.value = v.duration;
+  setDuration(v.duration);
   if (probing) {
     probing = false;
     v.currentTime = 0;
   }
 }
+function setDuration(seconds: number) {
+  duration.value = seconds;
+  emit("duration", seconds);
+}
+// Every position change goes out once: from playing, the seek bar, the keys or seekTo.
+let told = -1;
+function tell(seconds: number) {
+  if (seconds === told) return;
+  told = seconds;
+  emit("time", seconds);
+}
 function onTime() {
-  if (!probing && video.value) time.value = video.value.currentTime;
+  if (probing || !video.value) return;
+  time.value = video.value.currentTime;
+  tell(time.value);
+}
+// While playing: the position every animation frame.
+let frameId = 0;
+function follow() {
+  cancelAnimationFrame(frameId);
+  const tick = () => {
+    const v = video.value;
+    if (!v || v.paused || v.ended) return;
+    onTime();
+    frameId = requestAnimationFrame(tick);
+  };
+  frameId = requestAnimationFrame(tick);
+}
+function onPlay() {
+  playing.value = true;
+  follow();
+}
+function onStop() {
+  playing.value = false;
+  cancelAnimationFrame(frameId);
+  onTime();
 }
 function toggle() {
   const v = video.value;
@@ -70,10 +110,27 @@ function frame(dir: 1 | -1) {
   video.value?.pause();
   jump(dir * FRAME);
 }
+// Leaving full screen can leave the page scrolled somewhere else (Firefox resets it), so the
+// page's scroll is kept on the way in and put back, with the player in view, on the way out.
+let scrollBefore: { x: number; y: number } | null = null;
 function fullscreen() {
   if (document.fullscreenElement) void document.exitFullscreen();
-  else void box.value?.requestFullscreen?.();
+  else if (box.value?.requestFullscreen) {
+    scrollBefore = { x: window.scrollX, y: window.scrollY };
+    void box.value.requestFullscreen();
+  }
 }
+function onFullscreenChange() {
+  if (document.fullscreenElement || !scrollBefore) return;
+  const back = scrollBefore;
+  scrollBefore = null;
+  // After the browser's own layout pass for leaving full screen.
+  requestAnimationFrame(() => {
+    window.scrollTo(back.x, back.y);
+    box.value?.scrollIntoView({ block: "nearest" });
+  });
+}
+document.addEventListener("fullscreenchange", onFullscreenChange);
 function setSpeed(v: string) {
   speed.value = Number(v);
 }
@@ -91,8 +148,8 @@ watch(
 );
 
 function onKey(e: KeyboardEvent) {
-  // Keys that the seek bar and the speed menu handle themselves stay theirs.
-  if ((e.target as HTMLElement).closest(".seek, .speed")) return;
+  // Keys that the seek bar, the speed menu and a timeline below handle themselves stay theirs.
+  if ((e.target as HTMLElement).closest(".seek, .speed, .below")) return;
   const k = e.key;
   if (k === " " || k === "k" || k === "K") toggle();
   else if (k === "ArrowRight") jump(5);
@@ -103,7 +160,20 @@ function onKey(e: KeyboardEvent) {
   else return;
   e.preventDefault();
 }
-onBeforeUnmount(() => video.value?.pause());
+onBeforeUnmount(() => {
+  cancelAnimationFrame(frameId);
+  video.value?.pause();
+  document.removeEventListener("fullscreenchange", onFullscreenChange);
+});
+
+/** Jumps to `seconds` (kept inside the video), pausing it there. */
+function seekTo(seconds: number) {
+  const v = video.value;
+  if (!v) return;
+  v.pause();
+  seek.value = Math.min(Math.max(0, seconds), duration.value || seconds);
+}
+defineExpose({ seekTo });
 </script>
 
 <template>
@@ -117,9 +187,9 @@ onBeforeUnmount(() => video.value?.pause());
       @loadedmetadata="onMeta"
       @durationchange="onDuration"
       @timeupdate="onTime"
-      @play="playing = true"
-      @pause="playing = false"
-      @ended="playing = false"
+      @play="onPlay"
+      @pause="onStop"
+      @ended="onStop"
       @error="failed = true"
     />
     <p v-if="failed" class="failed">This video can't be played here. <a :href="src" download>Download it</a> instead.</p>
@@ -145,6 +215,8 @@ onBeforeUnmount(() => video.value?.pause());
         <Maximize :size="17" />
       </button>
     </div>
+    <!-- Under the controls: a timeline of what happened in the video (the attempt page's steps). -->
+    <div v-if="$slots.default" class="below"><slot /></div>
   </div>
 </template>
 
@@ -180,6 +252,10 @@ video {
   margin: 0;
   padding: var(--space-2) var(--space-3);
   color: var(--bad);
+}
+.below {
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  border-top: var(--border-width) solid var(--line);
 }
 .controls {
   display: flex;

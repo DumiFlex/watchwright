@@ -1,0 +1,48 @@
+section: Editing and completing
+tests:
+  - id: E1
+    title: Complete a todo
+    steps:
+      - fill: { target: { placeholder: What needs to be done? }, value: Water the plants }
+      - press: Enter
+      - check: { role: checkbox, name: Toggle Todo }
+      - expect: { target: { testId: todo-item }, containsText: Water the plants }
+      - expect: { target: { testId: todo-count }, text: 0 items left }
+      - if:
+          hasNot: { role: button, name: Clear completed }
+          then:
+            - flag: { name: wrong-count, detail: No "Clear completed" after completing a todo. }
+
+  - id: E2
+    title: Edit a todo
+    description: Double-clicking a todo opens it for editing; Enter keeps the new text.
+    steps:
+      - fill: { target: { placeholder: What needs to be done? }, value: Call mum }
+      - press: Enter
+      - dblclick: { testId: todo-title }
+      - fill: { target: { role: textbox, name: Edit }, value: Call mum and dad }
+      - press: { key: Enter, target: { role: textbox, name: Edit } }
+      - expect: { target: { testId: todo-title }, text: Call mum and dad }
+
+  - id: E3
+    title: Delete a todo
+    steps:
+      - fill: { target: { placeholder: What needs to be done? }, value: Old idea }
+      - press: Enter
+      - hover: { testId: todo-item }
+      - click: { role: button, name: Delete }
+      - expect: { target: { testId: todo-item }, count: 0 }
+
+  - id: E4
+    title: Mark all as complete
+    steps:
+      - step:
+          title: Add two todos
+          steps:
+            - fill: { target: { placeholder: What needs to be done? }, value: One }
+            - press: Enter
+            - fill: { target: { placeholder: What needs to be done? }, value: Two }
+            - press: Enter
+      - check: { label: Mark all as complete }
+      - expect: { target: { testId: todo-count }, text: 0 items left }
+      - shot: all-done

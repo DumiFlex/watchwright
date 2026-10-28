@@ -32,7 +32,7 @@ export default pack({
   rubric: ${rubric},
 });`;
 
-run("reviews", () => {
+run("reviews", { timeout: 60_000 }, () => {
   it("scores attempts on the rubric the run started with", async () => {
     const packDir = tempDir("ww-pack-");
     writeFiles(packDir, {
@@ -137,6 +137,14 @@ test("A", { title: "Home" }, async ({ h, params }) => { await h.goto("/"); await
     expect(mixed.error?.code).toBe("mixed_packs");
     expect((await h.api("GET", `/compare?runs=${r1},00000000`)).status).toBe(404);
     expect((await h.api("GET", `/compare?runs=nope`)).status).toBe(400);
+
+    // Changes: r2 has no earlier run with its params; against r1 nothing moved.
+    type Changes = { previous: { id: string } | null; rows: unknown[]; same: number };
+    expect((await h.api<Changes>("GET", `/runs/${r2}/changes`)).data).toEqual({ previous: null, rows: [], same: 0 });
+    const vs = await h.api<Changes>("GET", `/runs/${r2}/changes?against=${r1}`);
+    expect(vs.data.previous?.id).toBe(r1);
+    expect(vs.data).toMatchObject({ rows: [], same: 1 });
+    expect((await h.api("GET", `/runs/${r2}/changes?against=${r3}`)).error?.code).toBe("mixed_packs");
 
     const md = await h.api<{ name: string; markdown: string }>("GET", `/export?runs=${r1}`);
     expect(md.data.name).toBe(`reviewed-${r1}.md`);

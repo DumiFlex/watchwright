@@ -1,16 +1,25 @@
 <script setup lang="ts">
 // The home page: runs that are going (or waiting) first, then every earlier run with filters
 // by pack and status, a page at a time. Filters live in the address so a list can be linked.
-import { Ellipsis } from "../icons";
+import { Ellipsis, Package, Play, SearchX } from "../icons";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, sendJson, type Pack, type RunSummary } from "../api";
-import { ago, countsText, done, duration, runDuration, when } from "../format";
+import { ago, countsText, done, duration, isActive, runDuration, when } from "../format";
+import { PERIODS, SERIES, anything, bars, tiles, type RunStats } from "../runstats";
 import { LiveConnection } from "../live";
+import { offerNotify } from "../notify";
 import { replaceRoute } from "../router";
+import { browserStore } from "../theme";
+import { toast } from "../toasts";
+import EmptyState from "../components/EmptyState.vue";
 import MenuButton from "../components/MenuButton.vue";
+import BarChart from "../components/BarChart.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import ProgressBar from "../components/ProgressBar.vue";
 import SelectMenu from "../components/SelectMenu.vue";
+import SkeletonBlock from "../components/SkeletonBlock.vue";
+import TextField from "../components/TextField.vue";
+import StatTile from "../components/StatTile.vue";
 import StatusChip from "../components/StatusChip.vue";
 import { vTip } from "../tooltip";
 
@@ -34,19 +43,52 @@ const loading = ref(true);
 const loadError = ref<string | null>(null);
 const packFilter = ref(props.query.pack ?? "");
 const statusFilter = ref(statusOptions.some((o) => o.value === props.query.status) ? (props.query.status ?? "") : "");
+const search = ref(props.query.q ?? "");
 const now = ref(Date.now());
 
+// At a glance: tiles and attempts per day for the last days, following the pack filter.
+const store = browserStore();
+const stats = ref<RunStats | null>(null);
+const periodOptions = PERIODS.map((d) => ({ value: String(d), label: `Last ${d} days` }));
+const period = ref(((): string => {
+  try {
+    const v = store?.getItem("ww.runs.period");
+    return v && periodOptions.some((o) => o.value === v) ? v : "14";
+  } catch {
+    return "14";
+  }
+})());
+const glanceTiles = computed(() => (stats.value ? tiles(stats.value) : []));
+const glanceBars = computed(() => (stats.value ? bars(stats.value) : []));
+const showGlance = computed(() => stats.value !== null && anything(stats.value));
+async function loadStats() {
+  const q = new URLSearchParams({ days: period.value, tz: String(new Date().getTimezoneOffset()) });
+  if (packFilter.value) q.set("pack", packFilter.value);
+  const res = await getJson<RunStats>(`/api/v1/runs/stats?${q}`);
+  if (res.ok) stats.value = res.data;
+}
+watch(period, (v) => {
+  try {
+    store?.setItem("ww.runs.period", v);
+  } catch {
+    // remembered only when the browser allows it
+  }
+  void loadStats();
+});
+
 const packOptions = computed(() => [{ value: "", label: "All packs" }, ...packs.value.map((p) => ({ value: p.id, label: p.name }))]);
-const filtered = computed(() => packFilter.value !== "" || statusFilter.value !== "");
+const filtered = computed(() => packFilter.value !== "" || statusFilter.value !== "" || search.value.trim() !== "");
 
 function listUrl(before?: string) {
   const q = new URLSearchParams({ limit: String(PAGE), status: statusFilter.value || FINISHED });
   if (packFilter.value) q.set("pack", packFilter.value);
+  if (search.value.trim()) q.set("q", search.value.trim());
   if (before) q.set("before", before);
   return `/api/v1/runs?${q}`;
 }
 
 async function load() {
+  void loadStats();
   const [p, a, r] = await Promise.all([
     getJson<Pack[]>("/api/v1/packs"),
     getJson<RunSummary[]>("/api/v1/runs?status=queued,running,pausing,paused&limit=50"),
@@ -73,8 +115,24 @@ async function loadMore() {
 }
 
 watch([packFilter, statusFilter], () => {
-  replaceRoute({ name: "runs", query: { pack: packFilter.value, status: statusFilter.value } });
+  replaceRoute({ name: "runs", query: { pack: packFilter.value, status: statusFilter.value, q: search.value.trim() } });
   void load();
+});
+// A link to the list with a search (#/?q=…) while the list is open.
+watch(
+  () => props.query.q ?? "",
+  (q) => {
+    if (q !== search.value.trim()) search.value = q;
+  },
+);
+// The search waits for a pause in typing.
+let typing: ReturnType<typeof setTimeout> | null = null;
+watch(search, () => {
+  if (typing) clearTimeout(typing);
+  typing = setTimeout(() => {
+    replaceRoute({ name: "runs", query: { pack: packFilter.value, status: statusFilter.value, q: search.value.trim() } });
+    void load();
+  }, 250);
 });
 
 // Delete, behind a confirm dialog.
@@ -87,10 +145,15 @@ const deleteOpen = computed({
 });
 const deleteError = ref<string | null>(null);
 const busy = ref(false);
-function onRowMenu(r: RunSummary, value: string) {
+async function onRowMenu(r: RunSummary, value: string) {
   if (value === "delete") {
     deleteError.value = null;
     deleting.value = r;
+  } else if (value === "run-again") {
+    const res = await sendJson<RunSummary>(`/api/v1/runs/${r.id}/again`);
+    if (!res.ok) return void toast(res.error.message, { tone: "bad" });
+    offerNotify();
+    window.location.hash = `#/runs/${res.data.id}`;
   }
 }
 async function confirmDelete() {
@@ -107,7 +170,8 @@ async function confirmDelete() {
 function rowMenu(r: RunSummary) {
   return [
     { value: "open", label: "Open", href: `#/runs/${r.id}` },
-    { value: "again", label: "New run like this", href: `#/new?pack=${r.packId}&from=${r.id}` },
+    ...(isActive(r.status) ? [] : [{ value: "run-again", label: "Run again" }]),
+    { value: "again", label: "New run like this…", href: `#/new?pack=${r.packId}&from=${r.id}` },
     { value: "delete", label: "Delete…", danger: true },
   ];
 }
@@ -138,6 +202,7 @@ onBeforeUnmount(() => {
   live?.close();
   if (timer) clearTimeout(timer);
   if (clock) clearInterval(clock);
+  if (typing) clearTimeout(typing);
 });
 </script>
 
@@ -156,7 +221,7 @@ onBeforeUnmount(() => {
       <ul class="active">
         <li v-for="r in active" :key="r.id">
           <a class="arun" :href="`#/runs/${r.id}`">
-            <span class="aname">{{ r.packName }} <span class="muted num small">{{ r.id }}</span></span>
+            <span class="aname">{{ r.packName }} <span v-if="r.label" class="rlabel">{{ r.label }}</span> <span class="muted num small">{{ r.id }}</span></span>
             <StatusChip :status="r.status" />
             <ProgressBar class="aprog" :value="done(r.counts)" :max="Math.max(1, r.counts.planned)" :label="`${r.packName} progress`" :tone="r.counts.broken || r.counts.failed ? 'warn' : 'accent'" />
             <span class="muted small">
@@ -172,10 +237,36 @@ onBeforeUnmount(() => {
       </ul>
     </section>
 
+    <section v-if="showGlance" class="card glance" aria-labelledby="glance-title">
+      <div class="list-head">
+        <h2 id="glance-title" class="display">At a glance<template v-if="packFilter && packName(packFilter)">: {{ packName(packFilter) }}</template></h2>
+        <label class="sr-only" for="glance-period">Period</label>
+        <SelectMenu id="glance-period" v-model="period" class="period" :options="periodOptions" />
+      </div>
+      <div class="tiles">
+        <StatTile
+          v-for="t in glanceTiles"
+          :key="t.key"
+          :label="t.label"
+          :value="t.value"
+          :unit="t.unit"
+          :delta="t.delta"
+          :period="t.delta === undefined ? undefined : `the ${period} days before`"
+          :good-when="t.goodWhen"
+          v-bind="t.formatDelta ? { formatDelta: t.formatDelta } : {}"
+          :trend="t.trend"
+          :trend-labels="t.trendLabels"
+        />
+      </div>
+      <BarChart :items="glanceBars" :series="SERIES" label="Attempts per day, by outcome" :height="200" />
+    </section>
+
     <section class="card" aria-labelledby="runs-title">
       <div class="list-head">
         <h2 id="runs-title" class="display">Earlier runs</h2>
         <div class="filters">
+          <label class="sr-only" for="f-search">Search runs</label>
+          <TextField id="f-search" v-model="search" type="search" class="search" placeholder="Search: label, id, lang=de…" />
           <label class="sr-only" for="f-pack">Pack</label>
           <SelectMenu id="f-pack" v-model="packFilter" :options="packOptions" />
           <label class="sr-only" for="f-status">Status</label>
@@ -183,7 +274,13 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <p v-if="loading" class="muted">Loading…</p>
+      <div v-if="loading" class="skeleton-rows" aria-busy="true" aria-label="Loading runs">
+        <div v-for="w in [52, 38, 61, 45, 30]" :key="w" class="skeleton-row">
+          <SkeletonBlock :width="`${w}%`" />
+          <SkeletonBlock shape="block" width="64px" height="20px" />
+          <SkeletonBlock width="80px" />
+        </div>
+      </div>
       <table v-else-if="runs.length" class="runs">
         <thead>
           <tr>
@@ -199,6 +296,7 @@ onBeforeUnmount(() => {
           <tr v-for="r in runs" :key="r.id">
             <td class="c-run">
               <a :href="`#/runs/${r.id}`" class="rname">{{ r.packName }}</a>
+              <span v-if="r.label" class="rlabel">{{ r.label }}</span>
               <span class="muted num small">{{ r.id }}</span>
               <span v-if="Object.keys(r.params).length" class="params small">
                 <code v-for="(v, k) in r.params" :key="k">{{ k }}={{ v }}</code>
@@ -224,20 +322,26 @@ onBeforeUnmount(() => {
           </tr>
         </tbody>
       </table>
-      <div v-else class="empty">
-        <template v-if="filtered">
-          <p class="muted">No runs match these filters.</p>
-          <button class="btn" @click="(packFilter = ''), (statusFilter = '')">Clear filters</button>
-        </template>
-        <template v-else-if="packs.length === 0">
-          <p class="muted">No runs yet. Add a test pack first: the folder with its <code>pack.ts</code>.</p>
-          <a class="btn primary" href="#/packs">Add a pack</a>
-        </template>
-        <template v-else>
-          <p class="muted">No finished runs yet.</p>
-          <a class="btn primary" href="#/new">Start a run</a>
-        </template>
-      </div>
+      <template v-else-if="!loadError">
+        <EmptyState v-if="filtered" :icon="SearchX" heading="No runs match" compact :level="3">
+          <p>{{ search.trim() ? `Nothing matches "${search.trim()}"${packFilter || statusFilter ? " with these filters" : ""}.` : "No runs have this pack and status." }}</p>
+          <template #actions>
+            <button class="btn" @click="(packFilter = ''), (statusFilter = ''), (search = '')">Clear the filters</button>
+          </template>
+        </EmptyState>
+        <EmptyState v-else-if="packs.length === 0" :icon="Package" heading="No packs yet" compact :level="3">
+          <p>Runs start from a test pack: a folder with a pack file and its tests. Add one first.</p>
+          <template #actions>
+            <a class="btn primary" href="#/packs?browse=add">Add a pack</a>
+          </template>
+        </EmptyState>
+        <EmptyState v-else :icon="Play" heading="Nothing has run yet" compact :level="3">
+          <p>Start a run to watch it live here. Runs keep their videos, screenshots and logs.</p>
+          <template #actions>
+            <a class="btn primary" href="#/new">Start a run</a>
+          </template>
+        </EmptyState>
+      </template>
       <div v-if="more" class="more"><button class="btn" @click="loadMore">Show older runs</button></div>
     </section>
 
@@ -299,6 +403,16 @@ onBeforeUnmount(() => {
   background: var(--raised);
   color: var(--muted);
 }
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.period {
+  flex: none;
+  width: 170px;
+}
 .list-head {
   display: flex;
   flex-wrap: wrap;
@@ -317,6 +431,9 @@ onBeforeUnmount(() => {
 }
 .filters > :deep(*) {
   min-width: 160px;
+}
+.filters > .search {
+  min-width: 240px;
 }
 .runs {
   width: 100%;
@@ -344,6 +461,15 @@ onBeforeUnmount(() => {
   font-weight: 600;
   color: var(--text);
   text-decoration: none;
+}
+.rlabel {
+  margin-right: 2px;
+  padding: 0 6px;
+  border-radius: var(--radius-chip);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-size: 12px;
+  font-weight: 500;
 }
 .rname:hover {
   color: var(--accent-text);
@@ -379,13 +505,16 @@ onBeforeUnmount(() => {
   text-align: right;
   padding-right: 0;
 }
-.empty {
+.skeleton-rows {
   display: grid;
-  justify-items: start;
-  gap: var(--space-2);
 }
-.empty p {
-  margin: 0;
+.skeleton-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--line);
 }
 .more {
   margin-top: var(--space-3);
@@ -395,10 +524,14 @@ onBeforeUnmount(() => {
 @media (max-width: 720px) {
   .filters {
     width: 100%;
+    flex-wrap: wrap;
   }
   .filters > :deep(*) {
     flex: 1;
     min-width: 0;
+  }
+  .filters > .search {
+    flex-basis: 100%;
   }
   .runs thead {
     display: none;

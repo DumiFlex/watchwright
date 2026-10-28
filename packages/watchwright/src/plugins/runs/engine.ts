@@ -4,13 +4,13 @@ import path from "node:path";
 import type { Page } from "playwright";
 import type { EventLog } from "../../events/log.js";
 import { AttemptAborted, RunControl, type BrokenDecision } from "../../jobs/control.js";
-import type { JobKind, KindPlan, PlanItem } from "../../jobs/kind.js";
-import { AttemptRecorder, type ArtifactInfo } from "../../jobs/recorder.js";
+import type { AttemptEnv, JobKind, KindPlan, PlanItem } from "../../jobs/kind.js";
+import { AttemptRecorder, slug, type ArtifactInfo } from "../../jobs/recorder.js";
 import { BrowserSession } from "../../session/session.js";
 import type { FrameHub } from "../live/hub.js";
-import type { CollectorRecord, Helpers, Outcome, ParamValues } from "../packs/api.js";
+import { StepError, type Collector, type CollectorAttempt, type CollectorRecord, type Helpers, type Outcome, type ParamValues } from "../packs/api.js";
 import type { LoadedPack } from "../packs/loader.js";
-import { resolveParams } from "../packs/order.js";
+import { parentsOf, resolveParams } from "../packs/order.js";
 import type { PackRegistry } from "../packs/registry.js";
 import { createHelpers } from "../testing/helpers.js";
 import { classify } from "../testing/outcome.js";
@@ -21,6 +21,7 @@ import {
   runSummary,
   type AttemptStatus,
   type AttemptSummary,
+  type HistoryEntry,
   type PlanEntry,
   type RunMode,
   type RunOptions,
@@ -30,6 +31,7 @@ import {
   type RunSummary,
 } from "./repo.js";
 import { QueueError, RunQueue } from "./queue.js";
+import { dayList, dayOf, dayStart, runStats, type RunStats } from "./stats.js";
 import { fileUrl, resultDocument, type ResultDocument } from "./results.js";
 
 // The job runner: queue and site locks, one browser session per run, attempts with pause, retry,
@@ -41,6 +43,15 @@ export const DEFAULT_PAUSE_LIMIT_MINUTES = 20;
 const ABORT_GRACE_MS = 10_000;
 /** After "stop now", how long the attempt's body gets to notice before it is filed as stopped anyway. */
 const STOP_GRACE_MS = 5_000;
+/** How long a pack or collector hook may take before the attempt goes on without it. */
+const HOOK_LIMIT_MS = 120_000;
+
+/** A file name a collector gave, as a safe path inside the attempt folder, or null. */
+function safeRelative(name: string): string | null {
+  const parts = name.split(/[\\/]+/).filter((p) => p !== "" && p !== ".");
+  if (parts.length === 0 || parts.some((p) => p === ".." || /[:<>|?*"]/.test(p))) return null;
+  return parts.join("/");
+}
 
 export class EngineError extends Error {
   constructor(
@@ -58,6 +69,7 @@ export interface StartInput {
   params?: Record<string, unknown> | undefined;
   startedBy: string;
   options?: RunOptions | undefined;
+  label?: string | undefined;
 }
 
 export interface RunPreview {
@@ -98,6 +110,8 @@ interface ActiveRun {
   testId: string | null;
   step: string | null;
   state: Record<string, unknown>;
+  /** Facts the run saved with `info(key, value)`. */
+  info: Record<string, string | number | boolean>;
   collected: Map<string, CollectorRecord[]>;
   shutdown: boolean;
   done: Promise<void>;
@@ -120,6 +134,12 @@ interface RunCtx {
   queue: RunQueue;
   pauseOnBroken: boolean;
   pauseLimitMs: number;
+  /** For children with several parents: which parent test ran each `child#number`. */
+  childRanIn: Map<string, { parent: string; outcome: Outcome }>;
+  /** Top-level attempts this run goes through (by mode), as `test#number`. */
+  todo: Set<string>;
+  /** Set once the run has gone through its queue, so it takes no more edits. */
+  ended: boolean;
 }
 
 export interface EngineOptions {
@@ -146,6 +166,17 @@ export class Engine {
     for (const id of this.o.repo.interruptLeftovers()) this.o.events.append("run.interrupted", { reason: "server_stopped" }, { runId: id });
   }
 
+  /** Runs and outcomes per day for the `days` days ending today, in a time zone `offset` minutes behind UTC. */
+  stats(o: { days: number; offset: number; packId?: string | undefined; until?: string | undefined }): RunStats {
+    const until = o.until ?? dayOf(new Date().toISOString(), o.offset);
+    const from = dayStart(dayList(until, o.days * 2)[0]!, o.offset);
+    return runStats(this.o.repo.statsRows(from, o.packId), { until, days: o.days, offset: o.offset });
+  }
+
+  testHistory(packId: string, limit: number): Record<string, HistoryEntry[]> {
+    return this.o.repo.history(packId, limit);
+  }
+
   list(filter: RunFilter = {}): RunSummary[] {
     return this.o.repo.runs(filter).map((r) => runSummary(r, this.o.repo.counts(r.id)));
   }
@@ -169,6 +200,7 @@ export class Engine {
     const run = this.requireActive(id);
     const ctx = run.ctx;
     if (!ctx) throw new EngineError("not_running", "The run is still setting up; try again in a moment.", 409);
+    if (ctx.ended) throw new EngineError("not_running", "The run has gone through its queue.", 409);
     try {
       edit(ctx.queue);
     } catch (err) {
@@ -192,14 +224,60 @@ export class Engine {
     return this.editQueue(id, (q) => q.move(testId, direction));
   }
 
-  /** Saves what the live view shows now (the newest frame of the followed page) with a note, on the attempt that is running. */
-  mark(id: string, note: string): { attemptId: string; artifact: ArtifactInfo & { url: string } } {
+  /** Adds tests to a run that is going: they (and what they need that the run doesn't have) go at the end of the queue. */
+  async addTests(id: string, tests: string[]): Promise<RunDetail> {
+    const run = this.requireActive(id);
+    const ctx = run.ctx;
+    if (!ctx) throw new EngineError("not_running", "The run is still setting up; try again in a moment.", 409);
+    if (ctx.ended) throw new EngineError("not_running", "The run has gone through its queue.", 409);
+    // A test written since the run started can be added, so take the pack as it is now.
+    const r = await this.o.packs.refresh(ctx.row.pack_id, ctx.pack);
+    if (r.reloaded) {
+      ctx.pack = r.pack;
+      this.emit("pack.reloaded", { packId: ctx.row.pack_id }, id);
+    }
+    const top = [...new Set(ctx.plan.items.map((i) => i.itemId))];
+    const inRun = new Set([...top, ...top.flatMap((t) => ctx.plan.children.get(t) ?? [])]);
+    const fresh = [...new Set(tests)].filter((t) => !inRun.has(t));
+    if (fresh.length === 0) throw new EngineError("bad_input", tests.length === 1 ? `${tests[0]} is already in the run.` : "Those tests are already in the run.");
+    const chosen = JSON.parse(ctx.row.tests) as string[];
+    const all = [...(chosen.length > 0 ? chosen : top), ...fresh];
+    let plan: KindPlan;
+    try {
+      plan = ctx.kind.plan(ctx.pack, ctx.params, all, { attempts: ctx.options.attempts });
+    } catch (err) {
+      throw new EngineError("bad_input", err instanceof Error ? err.message : String(err));
+    }
+    const added = ctx.queue.extend(plan);
+    ctx.plan = plan;
+    for (const i of added) ctx.todo.add(`${i.itemId}#${i.number}`);
+    ctx.row.tests = JSON.stringify(all);
+    ctx.options = { ...ctx.options, queue: ctx.queue.edits() };
+    const entries = this.planEntries(ctx.kind, ctx.pack, ctx.plan, ctx.queue);
+    this.o.repo.updateRun(id, { tests: ctx.row.tests, plan: JSON.stringify(entries), options: JSON.stringify(ctx.options) });
+    this.emit("run.tests-added", { tests: fresh, attempts: added.length }, id);
+    this.emit("run.planned", { plan: entries }, id);
+    return this.get(id)!;
+  }
+
+  /**
+   * Saves what the live view shows now (the newest frame of the followed page), or a frame of the
+   * rewind buffer with `back`, with a note, on the attempt that is running.
+   */
+  mark(id: string, note: string, back?: { pageId?: string | undefined; at: number }): { attemptId: string; artifact: ArtifactInfo & { url: string } } {
     const run = this.requireActive(id);
     const recorder = run.recorder;
     if (!recorder || !run.attemptId) throw new EngineError("not_running", "No test is running right now, so there is nothing to mark.", 409);
-    const frames = this.o.frames.latestFrames(id);
-    const frame = frames.find((f) => f.pageId === run.session?.activePage) ?? frames[frames.length - 1];
-    if (!frame) throw new EngineError("no_frame", "The live view has no picture yet.", 409);
+    let frame;
+    if (back) {
+      const pageId = back.pageId ?? run.session?.activePage ?? "";
+      frame = this.o.frames.frameAt(id, pageId, back.at);
+      if (!frame) throw new EngineError("no_frame", "That moment is no longer in the rewind buffer.", 409);
+    } else {
+      const frames = this.o.frames.latestFrames(id);
+      frame = frames.find((f) => f.pageId === run.session?.activePage) ?? frames[frames.length - 1];
+      if (!frame) throw new EngineError("no_frame", "The live view has no picture yet.", 409);
+    }
     const text = note.trim();
     const artifact = recorder.write("mark", text || "Mark", recorder.numberedName("mark", ".jpg"), frame.data, "image/jpeg");
     recorder.notes.push(text ? `Mark ${path.posix.basename(artifact.path)}: ${text}` : `Mark ${path.posix.basename(artifact.path)}`);
@@ -319,12 +397,30 @@ export class Engine {
       tests: JSON.stringify(input.tests ?? []),
       params: JSON.stringify(params),
       options: JSON.stringify(input.options ?? {}),
+      label: (input.label ?? "").trim(),
       status: "queued",
       started_by: input.startedBy,
       created_at: new Date().toISOString(),
     });
     this.o.events.append("run.queued", { packId: input.packId, tests: input.tests ?? [], params, startedBy: input.startedBy }, { runId: id });
     this.schedule();
+    return runSummary(this.o.repo.run(id)!, this.o.repo.counts(id));
+  }
+
+  /** Starts a new run with another run's pack, tests, values, options and label. */
+  async again(id: string, startedBy: string): Promise<RunSummary> {
+    const r = this.requireRun(id);
+    // Queue edits belong to the run they were made in.
+    const options = JSON.parse(r.options) as RunOptions;
+    delete options.queue;
+    return this.start({ packId: r.pack_id, tests: JSON.parse(r.tests) as string[], params: JSON.parse(r.params) as Record<string, unknown>, options, label: r.label, startedBy });
+  }
+
+  /** Gives a run a label (empty takes it away). */
+  setLabel(id: string, label: string): RunSummary {
+    this.requireRun(id);
+    this.o.repo.updateRun(id, { label: label.trim() });
+    this.o.events.append("run.labeled", { label: label.trim() }, { runId: id });
     return runSummary(this.o.repo.run(id)!, this.o.repo.counts(id));
   }
 
@@ -404,10 +500,35 @@ export class Engine {
     this.schedule();
   }
 
+  /** Sites something other than a run is using (a recording), with how many hold each. */
+  private readonly holds = new Map<string, number>();
+
+  /** True while a run of this site is going. */
+  siteBusy(siteKey: string): boolean {
+    return [...this.active.values()].some((r) => r.siteKey === siteKey);
+  }
+
+  /**
+   * Keeps runs of a site queued while something else uses the site, as a run of it would (a
+   * recording changes the same app). Returns the release; runs that waited start after it.
+   */
+  holdSite(siteKey: string): () => void {
+    this.holds.set(siteKey, (this.holds.get(siteKey) ?? 0) + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const n = (this.holds.get(siteKey) ?? 1) - 1;
+      if (n > 0) this.holds.set(siteKey, n);
+      else this.holds.delete(siteKey);
+      this.schedule();
+    };
+  }
+
   /** Starts every queued run whose site is free. */
   schedule(): void {
     if (this.closing) return;
-    const busy = new Set([...this.active.values()].map((r) => r.siteKey));
+    const busy = new Set([...[...this.active.values()].map((r) => r.siteKey), ...this.holds.keys()]);
     for (const row of this.o.repo.queued()) {
       if (busy.has(row.site_key) || this.active.has(row.id)) continue;
       busy.add(row.site_key);
@@ -453,6 +574,7 @@ export class Engine {
       testId: null,
       step: null,
       state: JSON.parse(row.state) as Record<string, unknown>,
+      info: JSON.parse(row.info ?? "{}") as Record<string, string | number | boolean>,
       collected: new Map(),
       shutdown: false,
       done: Promise.resolve(),
@@ -551,17 +673,22 @@ export class Engine {
     run.session = session;
 
     try {
-      for (const c of o.collectors ?? []) {
-        run.collected.set(c.name, []);
-        await c.attach(session.context, (entry) => run.collected.get(c.name)?.push(entry));
-      }
+      for (const c of o.collectors ?? []) run.collected.set(c.name, []);
+      await this.attachCollectors(run, pack);
       await session.restartCapture(null);
       const page = await session.mainPage();
       const setupRecorder = new AttemptRecorder(path.join(this.o.dataDir, "runs", row.id, "setup"), this.o.dataDir, () => undefined, (l) =>
         this.emit("run.log", { ...l }, row.id),
       );
       try {
-        await kind.setup({ pack, params, page, session, helpers: () => this.helpers(run, pack, page, setupRecorder, new Map(), null) });
+        await kind.setup({
+          pack,
+          params,
+          page,
+          session,
+          helpers: () => this.helpers(run, pack, page, setupRecorder, new Map(), null),
+          info: (k, v) => this.setInfo(run, k, v),
+        });
       } catch (err) {
         failStart(`Setup failed: ${err instanceof Error ? err.message : String(err)}`);
         return;
@@ -579,15 +706,18 @@ export class Engine {
         queue,
         pauseOnBroken: options.pauseOnBroken ?? o.run?.pauseOnBroken ?? true,
         pauseLimitMs: (options.pauseLimitMinutes ?? o.run?.pauseLimitMinutes ?? DEFAULT_PAUSE_LIMIT_MINUTES) * 60_000,
+        childRanIn: new Map(),
+        todo: new Set(),
+        ended: false,
       };
+      ctx.todo = this.select(ctx);
       run.ctx = ctx;
-      const todo = this.select(ctx);
       for (;;) {
         await run.control.checkpoint("boundary");
         if (run.control.stopMode) break;
         const item = ctx.queue.next();
         if (!item) break;
-        if (!todo.has(`${item.itemId}#${item.number}`)) {
+        if (!ctx.todo.has(`${item.itemId}#${item.number}`)) {
           ctx.queue.finish(item);
           continue;
         }
@@ -597,7 +727,7 @@ export class Engine {
           continue;
         }
 
-        const r = await packs.refresh(row.pack_id);
+        const r = await packs.refresh(row.pack_id, ctx.pack);
         if (r.reloaded) {
           ctx.pack = r.pack;
           this.emit("pack.reloaded", { packId: row.pack_id }, row.id);
@@ -620,6 +750,8 @@ export class Engine {
         }
         ctx.queue.finish(item);
       }
+      ctx.ended = true;
+      if (!run.control.stopMode && !run.shutdown && mode === "normal") this.fileUnrunChildren(ctx);
     } finally {
       await session.stopCapture();
       await session.close();
@@ -669,7 +801,7 @@ export class Engine {
     for (const n of ctx.plan.needs.get(itemId) ?? []) {
       const last = [...ctx.plan.items].reverse().find((i) => i.itemId === n);
       const parent = last ? null : ctx.plan.items.find((i) => (ctx.plan.children.get(i.itemId) ?? []).includes(n));
-      const of = last?.of ?? parent?.of;
+      const of = last?.of ?? (parent ? (ctx.plan.childAttempts?.get(n) ?? parent.of) : undefined);
       if (of === undefined || of === 0) continue;
       const a = this.o.repo.currentAttempt(ctx.row.id, n, of);
       if (!a) return `${n} didn't run.`;
@@ -699,6 +831,7 @@ export class Engine {
         chapters: pack.options.run?.chapters ?? false,
         save: (k, v) => saves.set(k, v),
         load: (k) => (saves.has(k) ? saves.get(k) : run.state[k]),
+        info: (k, v) => this.setInfo(run, k, v),
         onStep: (title) => {
           run.step = title;
           if (attemptId) this.emit("attempt.step", { title }, run.id, attemptId);
@@ -760,23 +893,51 @@ export class Engine {
     const page = await session.mainPage();
     const saves = new Map<string, unknown>();
     const last = item.number === item.of;
+    const env: AttemptEnv = {
+      pack,
+      itemId: item.itemId,
+      number: item.number,
+      of: item.of,
+      last,
+      params: ctx.params,
+      page,
+      session,
+      control: run.control,
+      recorder,
+      helpers: () => this.helpers(run, pack, page, recorder, saves, id),
+      runChild: (childId) => this.runChild(ctx, item, id, childId),
+    };
+
+    // Collectors: records their context listeners make from here on belong to this attempt (a
+    // child takes its share out of its parent's), plus what their attempt hooks add.
+    const collectors = pack.options.collectors ?? [];
+    const marks = new Map([...run.collected].map(([name, list]) => [name, top ? 0 : list.length]));
+    const added = new Map<string, CollectorRecord[]>();
+    const views = collectors.map((c): [Collector, CollectorAttempt] => [
+      c,
+      {
+        attemptId: id,
+        testId: item.itemId,
+        number: item.number,
+        page,
+        context: session.context,
+        record: (entry) => added.set(c.name, [...(added.get(c.name) ?? []), entry]),
+        file: (name, data, contentType) => {
+          const rel = safeRelative(name);
+          if (!rel) throw new Error(`Collector "${c.name}": "${name}" isn't a usable file name.`);
+          recorder.write("file", `${c.name}: ${rel}`, path.join("collectors", slug(c.name), ...rel.split("/")), data, contentType);
+        },
+        metric: (name, value, unit) => {
+          if (Number.isFinite(value)) recorder.metrics[name] = { value, unit: unit ?? null };
+        },
+      },
+    ]);
+    for (const [c, view] of views) if (c.beginAttempt) await this.hook(recorder, `Collector "${c.name}" (beginAttempt)`, () => c.beginAttempt!(view));
+
     let error: unknown;
     let watchdog: ReturnType<typeof setInterval> | null = null;
     try {
-      const body = ctx.kind.execute({
-        pack,
-        itemId: item.itemId,
-        number: item.number,
-        of: item.of,
-        last,
-        params: ctx.params,
-        page,
-        session,
-        control: run.control,
-        recorder,
-        helpers: () => this.helpers(run, pack, page, recorder, saves, id),
-        runChild: (childId) => this.runChild(ctx, item, id, childId),
-      });
+      const body = ctx.kind.execute(env);
       // After "stop now" the body normally fails at once (its page is gone); don't wait on one that hangs.
       const stopped = run.control.whenStoppedNow.then(() => new Promise<void>((r) => setTimeout(r, STOP_GRACE_MS)));
       if (!top) await Promise.race([body, stopped]);
@@ -800,6 +961,7 @@ export class Engine {
             if (!settled) {
               recorder.addLog("warn", "The attempt didn't stop after its time limit; the browser context was replaced.");
               await session.resetContext();
+              await this.attachCollectors(run, pack);
               await session.restartCapture(null);
             }
           }
@@ -821,17 +983,23 @@ export class Engine {
     });
     const finalStatus: AttemptStatus = run.shutdown && status === "stopped" ? "interrupted" : status;
 
+    if (finalStatus !== "stopped" && finalStatus !== "interrupted") {
+      if (ctx.kind.afterAttempt) await this.hook(recorder, "afterAttempt", () => ctx.kind.afterAttempt!(env, status));
+      for (const [c, view] of views) if (c.endAttempt) await this.hook(recorder, `Collector "${c.name}" (endAttempt)`, () => c.endAttempt!(view));
+    }
+    for (const [name, list] of run.collected) {
+      const mine = [...list.splice(marks.get(name) ?? 0), ...(added.get(name) ?? [])];
+      added.delete(name);
+      if (mine.length > 0) recorder.write("collector", name, path.join("collectors", `${slug(name)}.json`), JSON.stringify(mine, null, 2), "application/json");
+    }
+    for (const [name, mine] of added) recorder.write("collector", name, path.join("collectors", `${slug(name)}.json`), JSON.stringify(mine, null, 2), "application/json");
+
     if (top) {
       for (const v of await session.restartCapture(null).catch(() => [])) recorder.register("video", `video ${v.pageId}`, v.path, "video/webm");
       if (traceMode !== "never") {
         const keep = traceMode === "always" || finalStatus === "broken" || finalStatus === "failed";
         const file = path.join(dir, "trace.zip");
         if (await session.stopTraceChunk(keep ? file : null)) recorder.register("trace", "trace", file, "application/zip");
-      }
-      for (const [name, records] of run.collected) {
-        if (records.length === 0) continue;
-        recorder.write("collector", name, path.join("collectors", `${name}.json`), JSON.stringify(records, null, 2), "application/json");
-        records.length = 0;
       }
     }
 
@@ -847,6 +1015,7 @@ export class Engine {
       notes: recorder.notes,
       texts: recorder.texts,
       log: recorder.log,
+      steps: recorder.steps,
       error: attemptError,
     });
     const doc = resultDocument(this.o.repo.attempt(id)!, this.o.repo.artifacts(id));
@@ -881,14 +1050,74 @@ export class Engine {
     }
   }
 
+  /** Runs a pack or collector hook; a failure is logged on the attempt, not raised. */
+  private async hook(recorder: AttemptRecorder, what: string, fn: () => unknown): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        Promise.resolve().then(fn),
+        new Promise((_, reject) => (timer = setTimeout(() => reject(new Error(`took longer than ${HOOK_LIMIT_MS / 1000} s`)), HOOK_LIMIT_MS))),
+      ]);
+    } catch (err) {
+      recorder.addLog("warn", `${what} failed: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /** Lets the pack's collectors listen to the session's browser context (again, after it was replaced). */
+  private async attachCollectors(run: ActiveRun, pack: LoadedPack): Promise<void> {
+    const context = run.session!.context;
+    for (const c of pack.options.collectors ?? []) {
+      if (!c.attach) continue;
+      if (!run.collected.has(c.name)) run.collected.set(c.name, []);
+      await c.attach(context, (entry) => run.collected.get(c.name)?.push(entry));
+    }
+  }
+
+  /** Saves a fact about the run, shown on its page. */
+  private setInfo(run: ActiveRun, key: string, value: string | number | boolean): void {
+    const k = String(key).trim();
+    if (!k || k.length > 64) throw new StepError("info(key, value): the key must be 1 to 64 characters.");
+    if (!["string", "number", "boolean"].includes(typeof value)) throw new StepError(`info("${k}", value): the value must be a string, number or boolean.`);
+    const v = typeof value === "string" && value.length > 500 ? `${value.slice(0, 500)}…` : value;
+    if (run.info[k] === v) return;
+    run.info[k] = v;
+    this.o.repo.updateRun(run.id, { info: JSON.stringify(run.info) });
+    this.emit("run.info", { key: k, value: v }, run.id);
+  }
+
+  /** At the end of a run: a planned child attempt that no parent ran is filed as skipped, so it doesn't look lost. */
+  private fileUnrunChildren(ctx: RunCtx): void {
+    const parentsOfChild = new Map<string, string[]>();
+    for (const [p, kids] of ctx.plan.children) for (const c of kids) parentsOfChild.set(c, [...(parentsOfChild.get(c) ?? []), p]);
+    for (const [child, parents] of parentsOfChild) {
+      const of = Math.max(0, ...parents.map((p) => ctx.plan.childAttempts?.get(child) ?? Math.max(0, ...ctx.plan.items.filter((i) => i.itemId === p).map((i) => i.of))));
+      for (let n = 1; n <= of; n++) {
+        if (this.o.repo.currentAttempt(ctx.row.id, child, n)) continue;
+        const parentRows = parents.map((p) => this.o.repo.currentAttempt(ctx.row.id, p, n)).filter((a) => a !== null);
+        if (parentRows.length === 0) continue; // its parent didn't run this number either
+        const reason = parents.length > 1 ? `None of ${parents.join(", ")} ran it in attempt ${n}.` : `${parents[0]} didn't run it in attempt ${n}.`;
+        this.skipAttempt(ctx, { itemId: child, number: n, of }, parentRows[0]!.id, reason);
+      }
+    }
+  }
+
   private async runChild(ctx: RunCtx, parent: PlanItem, parentId: string, childId: string): Promise<Outcome> {
     const kids = ctx.plan.children.get(parent.itemId) ?? [];
     if (!kids.includes(childId)) {
       const t = ctx.pack.tests.find((x) => x.id === childId);
-      if (t?.meta.inside === parent.itemId) return "skipped"; // added to the pack after this run was planned
+      if (t && parentsOf(t).includes(parent.itemId)) return "skipped"; // added to the pack after this run was planned
       throw new Error(`child("${childId}"): that test doesn't declare inside: "${parent.itemId}".`);
     }
-    const item: PlanItem = { itemId: childId, number: parent.number, of: parent.of };
+    // A child's own attempt count caps it; past it, the call does nothing.
+    const of = ctx.plan.childAttempts?.get(childId) ?? parent.of;
+    if (parent.number > of) return "skipped";
+    const item: PlanItem = { itemId: childId, number: parent.number, of };
+    // A child with several parents runs each number once, in the first parent that gets to it.
+    const key = `${childId}#${item.number}`;
+    const earlier = ctx.childRanIn.get(key);
+    if (earlier && earlier.parent !== parent.itemId) return earlier.outcome;
     if (ctx.mode !== "normal") {
       const s = this.o.repo.currentAttempt(ctx.row.id, childId, parent.number)?.status;
       const keep = ctx.mode === "resume" ? s !== undefined && DECIDED.includes(s) : s !== undefined && s !== "broken";
@@ -901,11 +1130,12 @@ export class Engine {
     }
     for (;;) {
       const { outcome, attemptId } = await this.runAttempt(ctx, item, parentId);
+      ctx.childRanIn.set(key, { parent: parent.itemId, outcome });
       if (outcome !== "broken" || !ctx.pauseOnBroken || ctx.run.control.stopMode) return outcome;
       const d = await this.pauseOnBroken(ctx, childId, attemptId);
       this.emit("run.decision", { decision: d, testId: childId, number: parent.number }, ctx.row.id);
       if (d !== "retry") return outcome;
-      const r = await this.o.packs.refresh(ctx.row.pack_id);
+      const r = await this.o.packs.refresh(ctx.row.pack_id, ctx.pack);
       if (r.reloaded) ctx.pack = r.pack;
     }
   }

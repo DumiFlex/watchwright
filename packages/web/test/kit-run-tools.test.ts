@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { dropIndex, moveItem } from "../src/reorder";
 import { clampSplit, loadSplit, saveSplit, splitAt } from "../src/split";
-import { clock, laneSteps, nextStart, stepAt, timeTicks } from "../src/timeline";
+import { clock, clusterMarks, edgeScroll, fitTimelineZoom, laneSteps, nextStart, stepAt, stepTimelineZoom, timeTicks } from "../src/timeline";
 
 describe("split panes", () => {
   it("keeps both panes above their minimum", () => {
@@ -52,6 +52,52 @@ describe("timeline", () => {
     expect(timeTicks(20_000, 800)).toEqual([0, 2000, 4000, 6000, 8000, 10_000, 12_000, 14_000, 16_000, 18_000, 20_000]);
     expect(timeTicks(3_600_000, 600)).toEqual([0, 600_000, 1_200_000, 1_800_000, 2_400_000, 3_000_000, 3_600_000]);
     expect(timeTicks(0, 600)).toEqual([0]);
+  });
+  it("picks sub-second ticks that tenths show exactly", () => {
+    // 2.7 s on 930 px: 250 ms ticks would read 0:00.2, 0:00.5, 0:00.7.
+    expect(timeTicks(2700, 930).map((t) => clock(t, true))).toEqual(["0:00.0", "0:00.5", "0:01.0", "0:01.5", "0:02.0", "0:02.5"]);
+    expect(timeTicks(2700, 1600)).toEqual([0, 200, 400, 600, 800, 1000, 1200, 1400, 1600, 1800, 2000, 2200, 2400, 2600]);
+  });
+  it("groups marks that would sit on top of each other", () => {
+    const marks = [
+      { at: 1000, label: "a" },
+      { at: 1050, label: "b" },
+      { at: 9000, label: "c" },
+      { at: 1100, label: "d" },
+    ];
+    // 10 s on 1000 px: 10 ms a pixel, so marks less than 160 ms from the one before join.
+    expect(clusterMarks(marks, 10_000, 1000).map((c) => [c.at, c.marks.map((m) => m.label)])).toEqual([
+      [1000, ["a", "b", "d"]],
+      [9000, ["c"]],
+    ]);
+    // Zoomed in ten times they come apart.
+    expect(clusterMarks(marks, 10_000, 10_000)).toHaveLength(4);
+  });
+  it("scrolls while a drag is near or past an edge", () => {
+    expect(edgeScroll(500, 100, 900)).toBe(0);
+    expect(edgeScroll(880, 100, 900)).toBeGreaterThan(0);
+    expect(edgeScroll(120, 100, 900)).toBeLessThan(0);
+    // Faster the closer, capped past the edge.
+    expect(edgeScroll(895, 100, 900)).toBeGreaterThan(edgeScroll(870, 100, 900));
+    expect(edgeScroll(2000, 100, 900)).toBe(28);
+    expect(edgeScroll(-500, 100, 900)).toBe(-28);
+  });
+  it("zooms in steps and opens far enough in for most labels", () => {
+    expect(stepTimelineZoom(1, 1)).toBe(2);
+    expect(stepTimelineZoom(2, -1)).toBe(1);
+    expect(stepTimelineZoom(1, -1)).toBe(1);
+    expect(stepTimelineZoom(64, 1)).toBe(64);
+    const many = Array.from({ length: 60 }, (_, i) => ({ id: String(i), label: `S${i}`, start: i * 5000, end: (i + 1) * 5000 }));
+    // 60 steps of 5 s on 900 px are 15 px each; a short label needs 56 px, so 4×.
+    expect(fitTimelineZoom(many, 300_000, 900)).toBe(4);
+    expect(fitTimelineZoom(many.slice(0, 5), 25_000, 900)).toBe(1);
+    // Never further in than 8× on opening.
+    expect(fitTimelineZoom(many, 3_000_000, 900)).toBe(8);
+    expect(fitTimelineZoom([], 1000, 900)).toBe(1);
+    // Wide enough steps still zoom when their labels are longer than the step.
+    const named = Array.from({ length: 9 }, (_, i) => ({ id: String(i), label: i % 2 ? "Repeat 3 times" : "Fill placeholder \"What needs to be done?\"", start: i * 530, end: (i + 1) * 530 }));
+    expect(fitTimelineZoom(named, 4800, 900)).toBe(4);
+    expect(fitTimelineZoom(named.map((s) => ({ ...s, label: "Go" })), 4800, 900)).toBe(1);
   });
   it("formats clock times", () => {
     expect(clock(7400)).toBe("0:07");

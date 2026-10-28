@@ -20,6 +20,19 @@ describe("test order", () => {
     expect(planTests(pack, ["W3"]).children.get("W3")).toEqual(["W4"]);
   });
 
+  it("plans a child with several parents", () => {
+    const packs = [t("P1"), t("P2"), t("P6"), t("P12", { inside: ["P1", "P2", "P6"] }), t("X", { needs: ["P12"] })];
+    // Chosen alone, the child brings its first parent; a chosen parent brings the child.
+    expect(planTests(packs, ["P12"])).toEqual({ order: ["P1"], children: new Map([["P1", ["P12"]]]) });
+    expect(planTests(packs, ["P6"]).children).toEqual(new Map([["P6", ["P12"]]]));
+    expect(planTests(packs, ["P2", "P12"]).order).toEqual(["P2"]);
+    // A need on such a child waits for every parent of it that runs.
+    expect(planTests(packs, ["X", "P2"]).order).toEqual(["P2", "X"]);
+    expect(planTests(packs, ["X"]).order).toEqual(["P1", "X"]);
+    expect(checkTests([t("A"), t("C", { inside: [] })])).toEqual(['Test C has an empty "inside" list.']);
+    expect(checkTests([t("A"), t("C", { inside: ["A", "Z"] })])).toEqual(['Test C is inside "Z", which doesn\'t exist.']);
+  });
+
   it("refuses an unknown test", () => {
     expect(() => planTests(pack, ["nope"])).toThrow(/no test "nope"/);
   });

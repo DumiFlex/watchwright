@@ -36,13 +36,17 @@ A pack without a rubric is scored on one 1-to-5 **Overall**. The pack page's **R
 
 Open an attempt from the run page. The **Review** panel beside the results has one row of buttons per criterion and a note. Click a score, or focus a row and press a digit; pick the same score again to clear it. Changes save by themselves a moment later. J and K move to the next and previous attempt, so you can work through a run from the keyboard.
 
+To talk about one picture or one step, use **Add to review note** in the screenshot viewer or beside a step on the **Steps** timeline. It adds a line naming the shot's file (`Shot 03-results.png: `) or the step and when it started (`Step send › wait at 0:12: `) to your note, with the cursor after it.
+
 Once a run is over, its page shows the results as a grid: one row per test, one column per attempt, with each attempt's status, its score and its flags, and the test's mean score at the end. Scale scores count on a 1-to-5 footing so tests with different scales compare; choices and yes/no criteria are shown but not averaged.
 
 ## Comparing runs
 
-**Compare** in the top bar puts up to six runs of one pack side by side: tests down the side, runs across the top. Runs with different parameter values make a matrix, for example one run per model, and the parameters that differ are shown in bold. Each cell has the attempt's status, score, flags and metrics; **Show in cells** adds a screenshot or a kept text to every cell, and **All screenshots** on a row opens every screenshot of that row's attempts side by side. Click a cell to open the attempt and review it. The address holds the runs and the choice, so a comparison can be shared. A finished run's page has a **Compare** button that starts one with that run.
+**Compare** in the top bar puts up to six runs of one pack side by side: tests down the side, runs across the top. Runs with different parameter values make a matrix, for example one run per model, and the parameters that differ are shown in bold. Each cell has the attempt's status, score, flags and metrics; **Show in cells** adds a screenshot or a kept text to every cell, and **All screenshots** on a row opens every screenshot of that row's attempts side by side. When the cells show a screenshot, **Compare "name"…** on a row opens two of them in one view: side by side, a **Wipe** with a line you drag across, or an **Overlay** that marks the changed pixels in red with a box around them. It says what share of the pixels changed and where; pick any two attempts of the row as before and after. Click a cell to open the attempt and review it. The address holds the runs and the choice, so a comparison can be shared. A finished run's page has a **Compare** button that starts one with that run.
 
 ## Exporting
+
+A finished run's page also shows **Since the last run**: the attempts whose status, flags, score or time moved since the newest earlier run of the same pack with the same parameters, and tests one of the two runs didn't have. A score counts as moved at half a point, a time at half again as long or short (and at least 2 seconds apart). **Compare side by side** opens both runs on the compare page.
 
 **Export** on a run page or the compare page downloads the results as Markdown: the runs with their parameters and mean scores, then one section per test with each attempt's status, flags, metrics, the scores as a small table, the reviewers' notes and links to the screenshots. The plain Markdown links to the Watchwright server. **Markdown and screenshots (zip)** puts the screenshots next to the Markdown, so it reads anywhere, for example attached to an issue.
 

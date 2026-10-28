@@ -3,8 +3,8 @@ import { AttemptAborted, StopNow } from "../../jobs/control.js";
 import type { FlagRecord } from "../../jobs/recorder.js";
 
 export interface AttemptError {
-  /** assertion: an expect failed. step: the harness couldn't do a step. timeout, exception, stopped. */
-  kind: "assertion" | "step" | "timeout" | "exception" | "stopped";
+  /** assertion: an expect failed. step: the harness couldn't do a step. skipped: the test skipped itself. timeout, exception, stopped. */
+  kind: "assertion" | "step" | "timeout" | "exception" | "stopped" | "skipped";
   message: string;
   stack: string | null;
 }
@@ -22,6 +22,7 @@ export function classify(input: { error: unknown; flags: readonly FlagRecord[]; 
   const { error, flags, stopped } = input;
   if (stopped || error instanceof StopNow) return { status: "stopped", error: { kind: "stopped", message: "The run was stopped during this attempt.", stack: null } };
   if (error !== undefined) {
+    if (error instanceof Error && error.name === "SkipTest") return { status: "skipped", error: { kind: "skipped", message: error.message, stack: null } };
     if (error instanceof AttemptAborted) return { status: "broken", error: errorOf("timeout", error) };
     if (error instanceof Error && "matcherResult" in error) return { status: "failed", error: errorOf("assertion", error) };
     if (error instanceof Error && error.name === "StepError") return { status: "broken", error: errorOf("step", error) };

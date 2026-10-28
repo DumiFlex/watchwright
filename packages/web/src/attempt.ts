@@ -1,6 +1,7 @@
 // Pure helpers for the attempt page: the order to step through attempts, how shots group into
-// the gallery and scroll sets, and the columns of a collector's records.
-import type { Artifact, RunDetail } from "./api";
+// the gallery and scroll sets, the columns of a collector's records, and the step timeline.
+import type { Artifact, ResultDocument, RunDetail } from "./api";
+import type { TimelineStep } from "./timeline";
 
 /** The run's attempts in the order they show on the run page: each planned attempt, then the attempts that ran inside it. */
 export function attemptOrder(run: Pick<RunDetail, "plan" | "attempts">): string[] {
@@ -54,4 +55,41 @@ export function traceViewerUrl(origin: string, traceUrl: string): string {
 export function plainText(text: string): string {
   // eslint-disable-next-line no-control-regex
   return text.replace(/\u001b\[[0-9;]*m/g, "");
+}
+
+/**
+ * An attempt's steps on its own time axis (ms from the attempt's start), nested steps labelled
+ * with their parents. Attempts recorded before step times were kept get their steps from the
+ * "Step: …" lines of their log, each running until the next one starts.
+ */
+export function attemptSteps(doc: Pick<ResultDocument, "steps" | "startedAt" | "finishedAt"> & { log?: ResultDocument["log"] }): TimelineStep[] {
+  const start = Date.parse(doc.startedAt);
+  const end = doc.finishedAt ? Date.parse(doc.finishedAt) : Date.now();
+  if (!doc.steps?.length) {
+    const lines = (doc.log ?? []).filter((l) => l.level === "info" && l.message.startsWith("Step: "));
+    return lines.map((l, i) => ({
+      id: String(i),
+      label: l.message.slice("Step: ".length),
+      start: Math.max(0, Date.parse(l.time) - start),
+      end: Math.max(0, (lines[i + 1] ? Date.parse(lines[i + 1]!.time) : end) - start),
+    }));
+  }
+  const path: string[] = [];
+  return doc.steps.map((s, i) => {
+    path.length = s.depth;
+    path.push(s.title);
+    return {
+      id: String(i),
+      label: path.join(" › "),
+      start: Math.max(0, Date.parse(s.startedAt) - start),
+      end: Math.max(0, (s.finishedAt ? Date.parse(s.finishedAt) : end) - start),
+      status: s.status,
+    };
+  });
+}
+
+/** Warnings and errors from the log as points on the attempt's time axis. */
+export function logMarks(doc: Pick<ResultDocument, "log" | "startedAt">): { at: number; label: string; tone: "warn" | "bad" }[] {
+  const start = Date.parse(doc.startedAt);
+  return doc.log.filter((l) => l.level !== "info").map((l) => ({ at: Math.max(0, Date.parse(l.time) - start), label: l.message, tone: l.level === "error" ? "bad" : "warn" }));
 }

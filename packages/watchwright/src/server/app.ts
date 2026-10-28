@@ -26,6 +26,8 @@ export interface ServerOptions {
   logger?: boolean;
   /** Called with the plugin context before plugins are set up (tests use it to provide services). */
   prepare?: (ctx: PluginContext) => void;
+  /** Shuts the process down, for `POST /stop` (the CLI's own shutdown). Without it the server can't stop itself. */
+  stop?: () => void;
 }
 
 declare module "fastify" {
@@ -35,7 +37,7 @@ declare module "fastify" {
   }
 }
 
-export async function buildServer({ store, port, webRoot, plugins = BUILTIN_PLUGINS, logger = false, prepare }: ServerOptions): Promise<FastifyInstance> {
+export async function buildServer({ store, port, webRoot, plugins = BUILTIN_PLUGINS, logger = false, prepare, stop }: ServerOptions): Promise<FastifyInstance> {
   checkPlugins(plugins);
   const app = Fastify({ logger });
 
@@ -68,7 +70,7 @@ export async function buildServer({ store, port, webRoot, plugins = BUILTIN_PLUG
 
   await app.register(fastifyWebsocket);
 
-  const ctx: PluginContext = { store, plugins: plugins.map((p) => p.name), events: new EventLog(store.db), services: new Services() };
+  const ctx: PluginContext = { store, plugins: plugins.map((p) => p.name), events: new EventLog(store.db), services: new Services(), stop: stop ?? null };
   prepare?.(ctx);
   app.decorate("watchwright", ctx);
   for (const plugin of plugins) await plugin.setup?.(ctx);

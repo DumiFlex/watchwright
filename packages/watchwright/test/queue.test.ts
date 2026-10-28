@@ -35,6 +35,15 @@ describe("run queue", () => {
     expect(() => q.move("C", "down")).toThrow(/bottom/);
   });
 
+  it("adds a larger plan's new attempts at the end and keeps its own order", () => {
+    const q = new RunQueue(plan);
+    q.move("C", "up");
+    const added = q.extend({ ...plan, items: [{ itemId: "D", number: 1, of: 1 }, ...plan.items] });
+    expect(added.map((i) => i.itemId)).toEqual(["D"]);
+    expect(q.tests()).toEqual(["A", "B", "C", "P", "D"]);
+    expect(q.edits().order).toEqual(["A", "B", "C", "P", "D"]);
+  });
+
   it("refuses to touch what has started", () => {
     const q = new RunQueue(plan);
     const a = q.next()!;

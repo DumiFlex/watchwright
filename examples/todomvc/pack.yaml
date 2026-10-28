@@ -1,0 +1,26 @@
+# A pack without code for the TodoMVC demo app that Playwright hosts. It is Watchwright's YAML
+# example: every test here is a list of steps. See the README for how to run it.
+name: TodoMVC demo
+description: Adding, editing, completing and filtering todos in the TodoMVC demo app.
+site:
+  key: playwright-todomvc
+  baseURL: https://demo.playwright.dev/
+browser:
+  viewport: { width: 1280, height: 800 }
+flags:
+  wrong-count: finding
+rubric:
+  - { id: overall, title: Overall, scale: 5 }
+  - id: looks-right
+    title: Looks right
+    description: The list, the counter and the filters look as they should.
+    yesNo: true
+collectors:
+  - consoleErrors
+  - failedRequests
+
+# Every test starts from an empty list: the app keeps todos in local storage.
+beforeEach:
+  - goto: /todomvc/
+  - clear: storage
+  - reload

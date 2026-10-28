@@ -6,10 +6,15 @@ import { computed, ref, watch } from "vue";
 import { getJson, type CompareCell, type Comparison, type Pack, type RunSummary } from "../api";
 import { MAX_COMPARE, differingParams, exportUrl, paramsText, runIdsOf, runScores, shotOf, showOptions } from "../compare";
 import { countsText, duration, when } from "../format";
+import { Columns2 } from "../icons";
 import { replaceRoute } from "../router";
+import EmptyState from "../components/EmptyState.vue";
+import ImageDiff from "../components/ImageDiff.vue";
 import ImageViewer from "../components/ImageViewer.vue";
+import ModalDialog from "../components/ModalDialog.vue";
 import MenuButton from "../components/MenuButton.vue";
 import MultiSelect from "../components/MultiSelect.vue";
+import SkeletonBlock from "../components/SkeletonBlock.vue";
 import SelectMenu from "../components/SelectMenu.vue";
 import StatusChip from "../components/StatusChip.vue";
 import { vTip } from "../tooltip";
@@ -30,7 +35,7 @@ const packOptions = computed(() => [{ value: "", label: "Pick a pack" }, ...pack
 const runOptions = computed(() =>
   packRuns.value.map((r) => ({
     value: r.id,
-    label: [r.id, paramsText(r.params)].filter(Boolean).join("  "),
+    label: [r.label, r.id, paramsText(r.params)].filter(Boolean).join("  "),
     note: `${when(r.createdAt)} · ${countsText(r.counts)}`,
   })),
 );
@@ -81,8 +86,20 @@ async function loadComparison() {
   if (show.value && !showOptions(res.data).some((o) => o.value === show.value)) show.value = "";
 }
 
+/** With nothing picked, opens on the latest finished run's pack and its two latest finished runs, older on the left. */
+async function openLatest() {
+  const latest = await getJson<RunSummary[]>("/api/v1/runs?status=finished&limit=1");
+  const run = latest.ok ? latest.data[0] : undefined;
+  if (!run || chosen.value.length || packId.value) return;
+  const two = await getJson<RunSummary[]>(`/api/v1/runs?pack=${run.packId}&status=finished&limit=2`);
+  if (!two.ok || chosen.value.length || packId.value) return;
+  packId.value = run.packId;
+  chosen.value = two.data.map((r) => r.id).reverse();
+}
+
 void loadPacks();
-void loadComparison();
+if (chosen.value.length) void loadComparison();
+else void openLatest();
 watch(packId, (id, old) => {
   void loadRuns(id);
   // A new pack starts a new comparison; the first load only fills in the pack of the runs given.
@@ -119,9 +136,35 @@ function openShots(cell: CompareCell, url: string) {
   viewerImages.value = cell.shots.map((s) => ({ url: s.url, name: s.name }));
   viewerAt.value = Math.max(0, cell.shots.findIndex((s) => s.url === url));
 }
+// Image diff: one screenshot of one row in two runs, picked from the runs that have it.
+const shotName = computed(() => (show.value.startsWith("shot:") ? show.value.slice(5) : null));
+/** The columns of a row that have the shown screenshot. */
+const withShot = (cells: readonly (CompareCell | null)[]) => {
+  const name = shotName.value;
+  return name === null ? [] : cells.flatMap((c, i) => (c && shotOf(c, name) ? [i] : []));
+};
+const diffRow = ref<{ testId: string; title: string; cells: (CompareCell | null)[] } | null>(null);
+const diffOpen = computed({ get: () => diffRow.value !== null, set: (v) => (v ? undefined : (diffRow.value = null)) });
+const diffBefore = ref("0");
+const diffAfter = ref("1");
+const diffChoices = computed(() => (diffRow.value ? withShot(diffRow.value.cells).map((i) => ({ value: String(i), label: runTag(i) })) : []));
+function openDiff(row: { testId: string; title: string; cells: (CompareCell | null)[] }) {
+  const cols = withShot(row.cells);
+  diffBefore.value = String(cols[0] ?? 0);
+  diffAfter.value = String(cols.at(-1) ?? 1);
+  diffRow.value = row;
+}
+const diffImage = (col: string, side: "Before" | "After") => {
+  const i = Number(col);
+  const cell = diffRow.value?.cells[i];
+  const shot = cell && shotName.value !== null ? shotOf(cell, shotName.value) : null;
+  const run = data.value?.runs[i];
+  return { url: shot?.url ?? "", label: `${side} · ${run?.label || run?.id || ""}`, note: run ? when(run.createdAt) : undefined };
+};
+
 const runTag = (i: number) => {
   const r = data.value?.runs[i];
-  return r ? [r.id, paramsText(r.params, differing.value)].filter(Boolean).join(" · ") : "";
+  return r ? [r.label, r.id, paramsText(r.params, differing.value)].filter(Boolean).join(" · ") : "";
 };
 </script>
 
@@ -153,9 +196,16 @@ const runTag = (i: number) => {
     </section>
 
     <p v-if="error" class="error" role="alert">{{ error }}</p>
-    <section v-else-if="!data" class="card empty">
-      <p v-if="loading" class="muted">Loading…</p>
-      <p v-else class="muted">Pick a pack, then the runs to put side by side.</p>
+    <section v-else-if="!data && loading" class="card skeleton-grid" aria-busy="true" aria-label="Loading the comparison">
+      <template v-for="r in 4" :key="r">
+        <SkeletonBlock :width="r === 1 ? '50%' : '80%'" />
+        <SkeletonBlock v-for="c in 3" :key="c" shape="block" height="44px" />
+      </template>
+    </section>
+    <section v-else-if="!data" class="card">
+      <EmptyState :icon="Columns2" heading="Nothing to compare yet" compact>
+        <p>Pick a pack, then up to {{ MAX_COMPARE }} of its runs. Each test gets a row and each run a column, so you can see what changed.</p>
+      </EmptyState>
     </section>
 
     <section v-else class="card grid-card" :aria-busy="loading">
@@ -165,9 +215,13 @@ const runTag = (i: number) => {
             <tr>
               <th scope="col" class="corner"><span class="muted small">{{ data.rows.length }} rows · {{ data.packName }}</span></th>
               <th v-for="(r, i) in data.runs" :key="r.id" scope="col" class="runhead">
+                <span v-if="r.label" class="runlabel">{{ r.label }}</span>
                 <a :href="`#/runs/${r.id}`" class="mono runid">{{ r.id }}</a>
                 <span v-if="Object.keys(r.params).length" class="params">
                   <span v-for="(v, k) in r.params" :key="k" class="param" :class="{ differs: differing.includes(String(k)) }">{{ k }}={{ v }}</span>
+                </span>
+                <span v-if="Object.keys(r.info ?? {}).length" class="facts small">
+                  <span v-for="(v, k) in r.info" :key="k" class="fact"><span class="muted">{{ k }}</span> {{ v }}</span>
                 </span>
                 <span class="line"><StatusChip :status="r.status" /> <span class="muted small">{{ countsText(r.counts) }}</span></span>
                 <span class="small">Score <strong class="num">{{ scoreText(scores[i] ?? null) ?? "–" }}</strong></span>
@@ -189,6 +243,7 @@ const runTag = (i: number) => {
                   >
                     {{ opened.has(rowKey(row)) ? "Hide screenshots" : "All screenshots" }}
                   </button>
+                  <button v-if="withShot(row.cells).length > 1" type="button" class="more small" @click="openDiff(row)">Compare "{{ shotName }}"…</button>
                 </th>
                 <td v-for="(cell, i) in row.cells" :key="i" class="cell">
                   <span class="runtag mono small">{{ runTag(i) }}</span>
@@ -200,7 +255,7 @@ const runTag = (i: number) => {
                       <span v-if="cell.flags.length" v-tip="cell.flags.map((f) => f.name).join(', ')" class="flags num">{{ cell.flags.length }}</span>
                       <span v-if="cell.durationMs !== null" class="muted small dur">{{ duration(cell.durationMs) }}</span>
                     </a>
-                    <p v-if="cell.error" class="err small">{{ cell.error.split("\n")[0] }}</p>
+                    <p v-if="cell.error" class="err small" :class="{ calm: cell.status === 'skipped' }">{{ cell.error.split("\n")[0] }}</p>
                     <dl v-if="metrics(cell).length" class="metrics small">
                       <template v-for="[k, m] in metrics(cell)" :key="k">
                         <dt>{{ k }}</dt>
@@ -240,12 +295,41 @@ const runTag = (i: number) => {
       </div>
     </section>
     <ImageViewer v-model="viewerAt" :images="viewerImages" label="Screenshots" />
+    <ModalDialog v-model="diffOpen" :heading="diffRow ? `${diffRow.testId}${diffRow.title !== diffRow.testId ? ` ${diffRow.title}` : ''}: ${shotName}` : 'Compare'" width="min(1180px, 96vw)">
+      <div v-if="diffRow" class="diff">
+        <div class="diff-pick">
+          <label class="label" for="diff-before">Before</label>
+          <SelectMenu id="diff-before" v-model="diffBefore" :options="diffChoices" />
+          <label class="label" for="diff-after">After</label>
+          <SelectMenu id="diff-after" v-model="diffAfter" :options="diffChoices" />
+        </div>
+        <ImageDiff :before="diffImage(diffBefore, 'Before')" :after="diffImage(diffAfter, 'After')" />
+      </div>
+      <template #actions>
+        <button class="btn" @click="diffRow = null">Close</button>
+      </template>
+    </ModalDialog>
   </main>
 </template>
 
 <style scoped>
 .page.wide {
   max-width: 1600px;
+}
+.diff {
+  display: grid;
+  gap: var(--space-4);
+}
+.diff-pick {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+@media (max-width: 720px) {
+  .diff-pick {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
 }
 .picker {
   display: grid;
@@ -262,8 +346,11 @@ const runTag = (i: number) => {
   padding: 0 var(--space-2);
   font-size: 14px;
 }
-.empty p {
-  margin: 0;
+.skeleton-grid {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) repeat(3, minmax(0, 2fr));
+  align-items: center;
+  gap: var(--space-3);
 }
 .grid-card {
   padding: 0;
@@ -320,6 +407,14 @@ thead .corner {
 }
 .runid {
   font-weight: 600;
+}
+.runlabel {
+  display: block;
+  font-weight: 600;
+}
+.runlabel + .runid {
+  font-weight: 400;
+  font-size: 12px;
 }
 .param {
   padding: 0 6px;
@@ -388,6 +483,9 @@ thead .corner {
   margin: var(--space-2) 0 0;
   color: var(--bad);
   overflow-wrap: anywhere;
+}
+.err.calm {
+  color: var(--muted);
 }
 .metrics {
   display: grid;
@@ -489,5 +587,13 @@ thead .corner {
     margin-bottom: var(--space-1);
     color: var(--muted);
   }
+}
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+}
+.fact {
+  overflow-wrap: anywhere;
 }
 </style>

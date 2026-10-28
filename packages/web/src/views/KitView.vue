@@ -1,21 +1,32 @@
 <script setup lang="ts">
 // Every themed control on one page (#/kit), to check them in each look and mode and to copy
 // from when a feature needs one. The page is not linked from the app.
-import { computed, ref } from "vue";
+import { computed, onBeforeUnmount, ref } from "vue";
 import BreadCrumbs from "../components/BreadCrumbs.vue";
 import BarChart, { type BarItem, type BarSeries } from "../components/BarChart.vue";
 import CheckBox from "../components/CheckBox.vue";
 import CheckTree from "../components/CheckTree.vue";
 import CommandPalette, { type PaletteCommand } from "../components/CommandPalette.vue";
+import CodeEditor from "../components/CodeEditor.vue";
 import CodeView from "../components/CodeView.vue";
+import MarkdownView from "../components/MarkdownView.vue";
 import DataTable from "../components/DataTable.vue";
 import DatePicker from "../components/DatePicker.vue";
 import DateRangePicker, { type DateRange } from "../components/DateRangePicker.vue";
 import DiffView from "../components/DiffView.vue";
+import EmptyState from "../components/EmptyState.vue";
+import HistoryStrip from "../components/HistoryStrip.vue";
 import FilePicker from "../components/FilePicker.vue";
+import FilmStrip from "../components/FilmStrip.vue";
+import FolderBrowser from "../components/FolderBrowser.vue";
+import PathInput from "../components/PathInput.vue";
+import PathLine from "../components/PathLine.vue";
+import ImageDiff from "../components/ImageDiff.vue";
 import ImageViewer from "../components/ImageViewer.vue";
 import JsonTree from "../components/JsonTree.vue";
 import KeyHint from "../components/KeyHint.vue";
+import LogViewer from "../components/LogViewer.vue";
+import type { LogLine } from "../logview";
 import MenuButton from "../components/MenuButton.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import MultiSelect from "../components/MultiSelect.vue";
@@ -35,13 +46,15 @@ import StatusChip from "../components/StatusChip.vue";
 import TabBar from "../components/TabBar.vue";
 import TextArea from "../components/TextArea.vue";
 import TextField from "../components/TextField.vue";
+import TargetField from "../components/TargetField.vue";
 import TimelineScrubber, { type TimelineMark } from "../components/TimelineScrubber.vue";
 import ToggleSwitch from "../components/ToggleSwitch.vue";
 import VideoPlayer from "../components/VideoPlayer.vue";
-import type { Criterion, Score } from "../api";
+import type { Criterion, HistoryEntry, Score } from "../api";
 import type { Sort } from "../table";
 import type { TimelineStep } from "../timeline";
 import type { TreeNode } from "../tree";
+import type { Target } from "../yamlsteps";
 import * as icons from "../icons";
 import { toast } from "../toasts";
 import { vTip } from "../tooltip";
@@ -63,6 +76,8 @@ const limit = ref(20);
 const day = ref("");
 const until = ref("2026-11-03");
 const files = ref<File[]>([]);
+const folderPath = ref("");
+const browsed = ref<string | null>(null);
 const span = ref<DateRange>({ from: "2026-10-05", to: "2026-10-18" });
 const anySpan = ref<DateRange>({ from: "", to: "" });
 
@@ -90,6 +105,32 @@ const runColumns = [
 const took = (s: number) => (s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`);
 const lastRow = ref("");
 const iconList = Object.entries(icons);
+const mdText = ref(`# Checkout pack
+
+Tests for the **shop's** checkout. Start with [the setup notes](#setup), or read the
+[Watchwright guide](https://example.com/guide).
+
+## Setup
+
+1. Start the shop on \`http://localhost:3000\`.
+2. Run the *smoke* tests first.
+
+- [x] Guest checkout
+- [ ] Saved cards
+- [ ] ~~Gift wrap~~ (dropped)
+
+> Runs take about ten minutes on a laptop.
+
+| Test | Needs | Time |
+|:-----|:------|-----:|
+| C1 | S1 | 42 s |
+| C2 | C1 | 1 m 5 s |
+
+\`\`\`ts
+await h.click("Pay now");
+\`\`\`
+`);
+
 const testCode = `import { test, expect } from "watchwright";
 
 // Guest checkout: add boots to the cart and pay as a guest.
@@ -106,6 +147,15 @@ test("C1 Guest checkout", { needs: ["S1"] }, async ({ page, h }) => {
 const expectedText = ["Order summary", "Trail boots, size 42", "Qty 1", "Subtotal 59.90", "Shipping free", "Total 59.90", "", "Pay as a guest", "Email", "Card number", "Pay now"].join("\n");
 const actualText = ["Order summary", "Trail boots, size 42", "Qty 1", "Subtotal 59.90", "Shipping 5.00", "Total 64.90", "", "Pay as a guest", "Email", "Card number", "Pay now", "Have a coupon?"].join("\n");
 const diffMode = ref<"unified" | "split">("split");
+const yamlText = ref(`id: T1
+title: Add a todo
+steps:
+  - goto: /todomvc/
+  - fill: { target: { placeholder: What needs to be done? }, value: Buy milk }
+  - press: Enter
+  - expect: { target: { testId: todo-title }, text: Buy milk }
+`);
+const pickedTarget = ref<Target | undefined>({ role: "button", name: "Save" });
 const sampleJson = {
   id: "0a1b2c3d",
   pack: "shop-smoke",
@@ -206,9 +256,63 @@ const shots = [
   { url: sampleShot("Cart", 20), name: "03 cart", note: "mark" },
 ];
 const shotOpen = ref<number | null>(null);
+const filmAt = ref(0);
+const KIT_VIDEO_MS = 3900; // kit/sample.webm is about 4 s long
+// Two takes of one page for the image diff: the second has a different third card.
+const diffBefore = { url: sampleShot("Cart", 20), label: "Before", note: "run #41" };
+const diffAfter = { url: sampleShot("Cart", 20).replace(encodeURIComponent("hsl(100,35%,72%)"), encodeURIComponent("hsl(0,70%,60%)")), label: "After", note: "run #42" };
+
+// Log viewer: a made-up overnight run's log.
+const KIT_LOG_SAMPLES: [LogLine["level"], string, string][] = [
+  ["info", "C1", "goto http://localhost:3000/ → 200 in 312 ms"],
+  ["info", "C1", 'click link "Boots"'],
+  ["info", "C1", 'click button "Add to cart"'],
+  ["warn", "C1", "slow response: POST /api/cart took 2,410 ms (limit 2,000)"],
+  ["info", "C1", 'fill label "Card number"'],
+  ["error", "C1", 'expect text "Thank you" failed: timeout 30,000 ms exceeded'],
+  ["info", "S1", 'fill role searchbox with "boots"'],
+  ["warn", "S1", "console: Failed to load resource /img/banner-de.webp (404)"],
+  ["info", "S1", "expect count of role listitem ≥ 1: 24"],
+  ["info", "S2", 'click label "Only reduced items"'],
+];
+const kitLogStart = Date.parse("2026-10-27T02:00:00Z");
+const kitLine = (i: number): LogLine => {
+  const [level, test, message] = KIT_LOG_SAMPLES[(i * 7) % KIT_LOG_SAMPLES.length]!;
+  return { key: i, n: i + 1, time: new Date(kitLogStart + i * 731).toISOString(), level: i % 97 === 50 ? "error" : level, message, test };
+};
+const kitLog = ref<LogLine[]>(Array.from({ length: 2500 }, (_, i) => kitLine(i)));
+const kitLogLive = ref(false);
+let kitLogTimer = 0;
+function startKitLog() {
+  kitLogLive.value = true;
+  kitLogTimer = window.setInterval(() => kitLog.value.push(kitLine(kitLog.value.length)), 500);
+}
+function stopKitLog() {
+  kitLogLive.value = false;
+  clearInterval(kitLogTimer);
+}
+onBeforeUnmount(stopKitLog);
 
 // "At a glance": made-up numbers for the last 24 runs of a pack.
 const runIds = Array.from({ length: 24 }, (_, i) => `#${101 + i}`);
+// History strips: one letter per attempt, oldest first (p passed, f failed, b broken, s skipped, r passed on a retry).
+const historyOf = (seq: string): HistoryEntry[] =>
+  [...seq].map((c, i) => ({
+    attemptId: `kit${String(i).padStart(9, "0")}`,
+    runId: `0a1b2c${String(i).padStart(2, "0")}`,
+    runLabel: "",
+    number: 1,
+    try: c === "r" ? 2 : 1,
+    status: ({ p: "passed", r: "passed", f: "failed", b: "broken", s: "skipped" } as const)[c as "p"],
+    startedAt: new Date(Date.UTC(2026, 9, 8 + i, 9)).toISOString(),
+    durationMs: 3000 + ((i * 37) % 900),
+    params: { lang: "de" },
+  }));
+const histories = [
+  { id: "H1", seq: "pppppppppppppppppppp" },
+  { id: "S2", seq: "ppfppfpppfppfppppfpp" },
+  { id: "C2", seq: "ssssssspppprppbppppp" },
+];
 const passedPerRun = runIds.map((_, i) => 38 + ((i * 7) % 9) - (i % 5 === 3 ? 6 : 0));
 const failedPerRun = runIds.map((_, i) => (i % 5 === 3 ? 7 : (i * 3) % 4));
 const brokenPerRun = runIds.map((_, i) => (i % 7 === 2 ? 2 : 0));
@@ -366,6 +470,16 @@ const traces = [
     </section>
 
     <section class="card">
+      <h2 class="display">Folders</h2>
+      <p class="muted note">Folders on the server's machine (a page never learns a folder's path from the browser). <code>PathInput</code> completes as you type (Tab, arrows, Enter) and says whether the folder has a pack; <code>PathLine</code> shows a path that always fits; <code>FolderBrowser</code> browses with places, crumbs and a filter.</p>
+      <div class="grid">
+        <div class="item wide"><label for="k-folder">Path with completion</label><PathInput id="k-folder" v-model="folderPath" placeholder="Start with / or C:\ or ~/" mark="pack" mark-label="Pack" /></div>
+        <div class="item wide"><span class="muted small">Path line</span><PathLine path="/home/sam/projects/clients/acme-storefront/packages/end-to-end/watchwright" home="/home/sam" /></div>
+      </div>
+      <FolderBrowser v-model:path="browsed" :mark-labels="{ pack: 'Pack' }" />
+    </section>
+
+    <section class="card">
       <h2 class="display">Feedback</h2>
       <div class="grid">
         <div class="item">
@@ -390,6 +504,22 @@ const traces = [
             <button class="btn" @click="demoToast('ok')">Passed</button>
             <button class="btn" @click="demoToast('bad')">Error</button>
             <button class="btn" @click="demoToast('warn')">Stays</button>
+          </div>
+        </div>
+        <div class="item wide">
+          <span class="lbl">Empty states</span>
+          <div class="empty-demo">
+            <EmptyState :icon="icons.Package" heading="No packs yet" :level="3">
+              <p>A pack is a folder of tests for one site. Add one you have, or start a new one.</p>
+              <template #actions>
+                <button class="btn primary">Add a pack…</button>
+                <button class="btn">Find packs in a folder…</button>
+              </template>
+            </EmptyState>
+            <EmptyState :icon="icons.SearchX" heading="No runs match" compact :level="3">
+              <p>Nothing matches "checkout firefox" with these filters.</p>
+              <template #actions><button class="btn">Clear the filters</button></template>
+            </EmptyState>
           </div>
         </div>
         <div class="item">
@@ -489,8 +619,28 @@ const traces = [
       <h2 class="display">Inspecting</h2>
       <div class="grid">
         <div class="item wide">
+          <span class="lbl">Log viewer (search with Enter and Shift+Enter, level toggles, Follow, Wrap; 2,500 lines, only those on screen drawn)</span>
+          <LogViewer :lines="kitLog" label="Sample run log" :live="kitLogLive" height="300px" :line-href="(n: number) => `#/kit?line=${n}`" />
+          <button type="button" class="btn kit-log-btn" @click="kitLogLive ? stopKitLog() : startKitLog()">{{ kitLogLive ? "Stop adding lines" : "Add a line every half second" }}</button>
+        </div>
+        <div class="item wide">
           <span class="lbl">Code</span>
           <CodeView :code="testCode" lang="ts" label="Test file" name="tests/checkout.test.ts" :marked="[9]" max-height="320px" />
+        </div>
+        <div class="item wide">
+          <span class="lbl">Code editor (a YAML test: completion and hover)</span>
+          <div class="kit-editor"><CodeEditor v-model="yamlText" lang="yaml" steps label="YAML test" /></div>
+        </div>
+        <div class="item">
+          <span class="lbl">Target</span>
+          <TargetField id="kit-target" v-model="pickedTarget" label="target" />
+        </div>
+        <div class="item wide">
+          <span class="lbl">Markdown (edit the source, the preview follows)</span>
+          <div class="kit-md">
+            <div class="kit-editor tall"><CodeEditor v-model="mdText" lang="markdown" label="Markdown source" /></div>
+            <div class="kit-md-preview"><MarkdownView :source="mdText" id-prefix="kit-md-" label="Markdown preview" /></div>
+          </div>
         </div>
         <div class="item wide">
           <span class="lbl">Diff</span>
@@ -636,6 +786,13 @@ const traces = [
           </div>
         </div>
         <div class="item">
+          <span class="lbl">Test history</span>
+          <div v-for="h in histories" :key="h.id" class="row">
+            <code>{{ h.id }}</code>
+            <HistoryStrip :entries="historyOf(h.seq)" :label="`Last attempts of ${h.id}`" />
+          </div>
+        </div>
+        <div class="item">
           <span class="lbl">Loading placeholders</span>
           <ToggleSwitch v-model="loading">Loading</ToggleSwitch>
           <div class="skeleton-demo" :aria-busy="loading">
@@ -664,7 +821,7 @@ const traces = [
       <h2 class="display">Media</h2>
       <div class="grid">
         <div class="item wide">
-          <span class="lbl">Image viewer (click a shot; arrows, Z to zoom, Esc to close)</span>
+          <span class="lbl">Image viewer (click a shot; arrows, + and - or Ctrl+wheel to zoom, drag to pan, Esc to close)</span>
           <div class="shots">
             <button v-for="(s, i) in shots" :key="s.name" type="button" class="shot" @click="shotOpen = i">
               <img :src="s.url" :alt="s.name" />
@@ -674,8 +831,16 @@ const traces = [
           <ImageViewer v-model="shotOpen" :images="shots" label="Sample shots" />
         </div>
         <div class="item wide">
+          <span class="lbl">Image diff (1, 2 and 3 switch the view; drag the line or use the slider in the wipe)</span>
+          <ImageDiff :before="diffBefore" :after="diffAfter" />
+        </div>
+        <div class="item wide">
           <span class="lbl">Video player (Space or K, arrows, comma and period, F)</span>
           <VideoPlayer class="video" src="kit/sample.webm" label="Sample video" />
+        </div>
+        <div class="item wide">
+          <span class="lbl">Filmstrip (hover or focus a frame to see it larger, click to move the playhead: {{ (filmAt / 1000).toFixed(1) }} s)</span>
+          <FilmStrip src="kit/sample.webm" :duration="KIT_VIDEO_MS" :playhead="filmAt" label="Frames of the sample video" @seek="(ms: number) => (filmAt = ms)" />
         </div>
       </div>
     </section>
@@ -744,6 +909,37 @@ header p {
   align-content: start;
   gap: var(--space-2);
   min-width: 0;
+}
+.kit-editor {
+  height: 220px;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.kit-editor.tall {
+  height: 480px;
+}
+.kit-md {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+.kit-md-preview {
+  height: 480px;
+  overflow: auto;
+  padding: var(--space-4) var(--space-5);
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.empty-demo {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
+  gap: var(--space-3);
+}
+.empty-demo > * {
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
 }
 .item.wide {
   grid-column: 1 / -1;
@@ -859,6 +1055,9 @@ header p {
   max-width: 640px;
 }
 @media (max-width: 640px) {
+  .kit-md {
+    grid-template-columns: 1fr;
+  }
   .page {
     padding: var(--space-4);
   }
@@ -905,5 +1104,8 @@ header p {
   background: var(--accent-soft);
   color: var(--accent-text);
   font-weight: 600;
+}
+.kit-log-btn {
+  justify-self: start;
 }
 </style>

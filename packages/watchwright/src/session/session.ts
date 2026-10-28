@@ -16,6 +16,8 @@ export interface SessionOptions {
   /** JPEG quality of frames, 1–100. */
   quality: number;
   showActions: boolean;
+  /** Keep a Playwright trace that chunks can be saved from (default true). */
+  trace?: boolean;
 }
 
 export interface SessionFrame {
@@ -91,6 +93,7 @@ export class BrowserSession {
     };
     ctx.on("requestfinished", done);
     ctx.on("requestfailed", done);
+    if (this.opts.trace === false) return;
     await ctx.tracing.start({ snapshots: true, screenshots: false, sources: false });
     this.tracing = true;
   }

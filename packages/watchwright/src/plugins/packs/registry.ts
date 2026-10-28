@@ -1,11 +1,12 @@
 import { randomBytes } from "node:crypto";
+import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import type Database from "better-sqlite3";
 import { serviceKey } from "../../core/services.js";
 import type { EventLog } from "../../events/log.js";
 import type { FlagKind, ParamDef, TestDefinition } from "./api.js";
-import { currentStamp, findPackFile, loadPack, packChanged, PackLoadError, type LoadedPack } from "./loader.js";
-import { checkTests, paramType } from "./order.js";
+import { currentStamp, findPackFile, loadPack, PACK_FILES, packChanged, PackLoadError, type LoadedPack } from "./loader.js";
+import { checkTests, paramType, parentsOf } from "./order.js";
 import { rubricFor, type Criterion, type RubricCriterion } from "./rubric.js";
 
 export interface PackTestSummary {
@@ -14,18 +15,27 @@ export interface PackTestSummary {
   section: string | null;
   tags: string[];
   needs: string[];
-  inside: string | null;
+  /** The tests this one may run inside (empty for a top-level test). */
+  inside: string[];
+  description: string | null;
   /** A number, `{ by, …counts }`, or "computed" when the pack gives a function. */
   runs: number | Record<string, unknown> | "computed";
   timeout: number | null;
   file: string;
+  /** For a YAML test, the line it starts on in its file; null for a code test. */
+  line: number | null;
   /** The criteria reviewers score this test's attempts on. */
   rubric: Criterion[];
 }
 
 export interface PackSummary {
   id: string;
+  /** The pack file. */
   path: string;
+  /** The pack's folder. */
+  dir: string;
+  /** True when the pack file is gone (the folder moved or was deleted); `packs.move` points the pack at its new place. */
+  missing: boolean;
   name: string;
   description: string | null;
   siteKey: string | null;
@@ -90,10 +100,12 @@ function testSummary(t: TestDefinition, rubric: readonly RubricCriterion[] | und
     section: t.meta.section ?? null,
     tags: [...(t.meta.tags ?? [])],
     needs: [...(t.meta.needs ?? [])],
-    inside: t.meta.inside ?? null,
+    inside: parentsOf(t),
+    description: t.meta.description ?? null,
     runs: r === undefined ? 1 : typeof r === "function" ? "computed" : typeof r === "number" ? r : { ...r },
     timeout: t.meta.timeout ?? null,
     file: t.file,
+    line: t.yaml?.line ?? null,
     rubric: rubricFor(rubric, t.meta.review),
   };
 }
@@ -131,6 +143,25 @@ export class PackRegistry {
     this.events.append("pack.added", { packId: id, path: full });
     await this.reload(id).catch(() => undefined); // a pack that doesn't load is still added, with its error shown
     return this.get(id)!;
+  }
+
+  /** Points a pack at a new folder (it moved), keeping its id and runs, and loads it from there. */
+  async move(id: string, input: string): Promise<PackSummary> {
+    if (!this.get(id)) throw new PackLoadError(`No pack with id ${id}.`);
+    const { dir, packFile } = findPackFile(input);
+    const full = path.join(dir, packFile);
+    const other = this.db.prepare("SELECT id, name FROM packs WHERE path = ? AND id <> ?").get(full, id) as { id: string; name: string } | undefined;
+    if (other) throw new PackLoadError(`${full} is already added as the pack "${other.name}".`);
+    this.loaded.delete(id);
+    this.db.prepare("UPDATE packs SET path = ? WHERE id = ?").run(full, id);
+    this.events.append("pack.moved", { packId: id, path: full });
+    await this.reload(id).catch(() => undefined);
+    return this.get(id)!;
+  }
+
+  /** The pack whose folder is `dir`, if any. */
+  byDir(dir: string): PackSummary | null {
+    return this.list().find((p) => p.dir === dir) ?? null;
   }
 
   remove(id: string): boolean {
@@ -175,11 +206,13 @@ export class PackRegistry {
 
   /**
    * Before each attempt: rebuild when a source file changed. A build that fails keeps the old code
-   * (and logs why), so a typo saved mid-run doesn't stop the run.
+   * (and logs why), so a typo saved mid-run doesn't stop the run. `held` is the build the caller
+   * runs now: when something else rebuilt the pack since (a save in the editor), that newer build
+   * counts as reloaded too.
    */
-  async refresh(id: string): Promise<{ pack: LoadedPack; reloaded: boolean; error?: string }> {
+  async refresh(id: string, held?: LoadedPack): Promise<{ pack: LoadedPack; reloaded: boolean; error?: string }> {
     const old = await this.current(id);
-    if (!packChanged(old)) return { pack: old, reloaded: false };
+    if (!packChanged(old)) return { pack: old, reloaded: held !== undefined && !sameBuild(held, old) };
     try {
       return { pack: await this.reload(id), reloaded: true };
     } catch (err) {
@@ -223,6 +256,8 @@ export class PackRegistry {
     return {
       id: r.id,
       path: r.path,
+      dir: path.dirname(r.path),
+      missing: !existsSync(r.path),
       name: r.name,
       description: s.description ?? null,
       siteKey: r.site_key,
@@ -237,9 +272,54 @@ export class PackRegistry {
       flags: s.flags ?? {},
       run: { ...RUN_DEFAULTS, ...s.run },
       rubric: s.rubric ?? rubricFor(undefined, undefined),
-      tests: (s.tests ?? []).map((t) => ({ ...t, rubric: t.rubric ?? rubricFor(undefined, undefined) })),
+      tests: (s.tests ?? []).map((t) => ({ ...t, line: t.line ?? null, rubric: t.rubric ?? rubricFor(undefined, undefined) })),
     };
   }
 }
 
+export interface FoundPack {
+  dir: string;
+  packFile: string;
+  /** The id of the pack when it is already added. */
+  packId: string | null;
+}
+
+// Folders a pack never lives in, skipped by `discover` (hidden folders are skipped too).
+const SKIP_DIRS = new Set(["node_modules", "dist", "build", "out", "coverage", "target", "vendor", "__pycache__", "venv"]);
+export const DISCOVER_MAX_DIRS = 5000;
+
+/**
+ * Finds pack files under `root`, `depth` levels down. A pack folder isn't searched further (its
+ * tests aren't packs). Stops after DISCOVER_MAX_DIRS folders so a scan of a whole drive ends.
+ */
+export function discoverPacks(root: string, depth: number, known: (dir: string) => string | null): { found: FoundPack[]; truncated: boolean } {
+  const found: FoundPack[] = [];
+  let seen = 0;
+  let truncated = false;
+  const walk = (dir: string, level: number) => {
+    if (seen >= DISCOVER_MAX_DIRS) return void (truncated = true);
+    seen++;
+    const packFile = PACK_FILES.find((f) => existsSync(path.join(dir, f)));
+    if (packFile) return void found.push({ dir, packFile, packId: known(dir) });
+    if (level >= depth) return;
+    let names: string[];
+    try {
+      names = readdirSync(dir, { withFileTypes: true })
+        .filter((d) => d.isDirectory() && !d.name.startsWith(".") && !d.name.startsWith("$") && !SKIP_DIRS.has(d.name))
+        .map((d) => d.name)
+        .sort((a, b) => a.localeCompare(b));
+    } catch {
+      return; // unreadable folders are skipped
+    }
+    for (const n of names) walk(path.join(dir, n), level + 1);
+  };
+  walk(root, 0);
+  return { found, truncated };
+}
+
 export const PACKS = serviceKey<PackRegistry>("packs.registry");
+
+/** The same build (a failed rebuild copies the build with a new stamp, which is still the same code). */
+function sameBuild(a: LoadedPack, b: LoadedPack): boolean {
+  return a.buildFile === b.buildFile && a.builtAt === b.builtAt;
+}

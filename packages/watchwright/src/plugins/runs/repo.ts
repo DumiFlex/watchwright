@@ -1,9 +1,10 @@
 import { randomBytes } from "node:crypto";
 import type Database from "better-sqlite3";
-import type { ArtifactInfo, FlagRecord, LogLine, MetricRecord } from "../../jobs/recorder.js";
+import type { ArtifactInfo, FlagRecord, LogLine, MetricRecord, StepRecord } from "../../jobs/recorder.js";
 import type { Outcome, ParamValues } from "../packs/api.js";
 import type { AttemptError } from "../testing/outcome.js";
 import type { QueueEdits } from "./queue.js";
+import type { StatsRows } from "./stats.js";
 
 // Rows of the runs plugin: runs, their attempts (with retry history) and artifacts.
 
@@ -16,6 +17,8 @@ export interface RunFilter {
   packId?: string | undefined;
   statuses?: readonly RunStatus[] | undefined;
   before?: string | undefined;
+  /** Words that must each appear in the run's id, label, pack name, values, facts or status. */
+  q?: string | undefined;
 }
 
 export const ACTIVE_STATUSES: readonly RunStatus[] = ["running", "pausing", "paused"];
@@ -24,6 +27,24 @@ export const DECIDED: readonly AttemptStatus[] = ["passed", "failed", "skipped"]
 
 /** Migration 2: shots taken as a set (scroll shots) keep the set's name. */
 export const RUNS_ARTIFACT_SET_SQL = `ALTER TABLE runs_artifacts ADD COLUMN set_name TEXT;`;
+
+/** Migration 3: facts a run learns while it runs (`info(key, value)` in setup and tests). */
+export const RUNS_INFO_SQL = `ALTER TABLE runs ADD COLUMN info TEXT NOT NULL DEFAULT '{}';`;
+export const RUNS_STEPS_SQL = `ALTER TABLE runs_attempts ADD COLUMN steps TEXT NOT NULL DEFAULT '[]';`;
+
+/** Migration 4: a run's optional label, and presets (named run choices per pack). */
+export const RUNS_LABELS_PRESETS_SQL = `
+  ALTER TABLE runs ADD COLUMN label TEXT NOT NULL DEFAULT '';
+  CREATE TABLE runs_presets (
+    id         TEXT PRIMARY KEY,
+    pack_id    TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    choices    TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (pack_id, name)
+  );
+`;
 
 export const RUNS_MIGRATION_SQL = `
   CREATE TABLE runs (
@@ -100,6 +121,8 @@ export interface RunRow {
   mode: RunMode;
   plan: string;
   state: string;
+  info: string;
+  label: string;
   started_by: string;
   error: string | null;
   created_at: string;
@@ -124,6 +147,7 @@ export interface AttemptRow {
   notes: string;
   texts: string;
   log: string;
+  steps: string;
   error: string | null;
   folder: string;
   started_at: string;
@@ -142,6 +166,37 @@ export interface RunOptions {
   /** Queue edits made while the run went (order, skipped attempts). */
   queue?: QueueEdits;
 }
+
+/** What a run is started with, apart from the pack: what a preset keeps and "Run again" repeats. */
+export interface RunChoices {
+  tests?: string[];
+  params?: Record<string, unknown>;
+  pauseOnBroken?: boolean;
+  pauseLimitMinutes?: number;
+  attempts?: number;
+  trace?: "problems" | "always" | "never";
+  video?: boolean;
+}
+
+export interface Preset {
+  id: string;
+  packId: string;
+  name: string;
+  choices: RunChoices;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface PresetRow {
+  id: string;
+  pack_id: string;
+  name: string;
+  choices: string;
+  created_at: string;
+  updated_at: string;
+}
+
+const presetOf = (r: PresetRow): Preset => ({ id: r.id, packId: r.pack_id, name: r.name, choices: JSON.parse(r.choices) as RunChoices, createdAt: r.created_at, updatedAt: r.updated_at });
 
 export interface PlanEntry {
   testId: string;
@@ -182,7 +237,11 @@ export interface RunSummary {
   kind: string;
   tests: string[];
   params: ParamValues;
+  /** Facts the run saved while it ran (`info(key, value)`), in the order first saved. */
+  info: Record<string, string | number | boolean>;
   options: RunOptions;
+  /** A name the person gave the run; empty when none. */
+  label: string;
   status: RunStatus;
   mode: RunMode;
   startedBy: string;
@@ -193,6 +252,21 @@ export interface RunSummary {
   counts: Record<AttemptStatus, number> & { planned: number };
 }
 
+/** One finished attempt of a test, for the test's history strip on the pack page. */
+export interface HistoryEntry {
+  attemptId: string;
+  runId: string;
+  runLabel: string;
+  /** Which attempt of the test in its run (a test can run several times). */
+  number: number;
+  /** The try that counts: above 1 when the attempt was run again after it broke. */
+  try: number;
+  status: AttemptStatus;
+  startedAt: string;
+  durationMs: number | null;
+  params: ParamValues;
+}
+
 export const newId = (bytes: number) => randomBytes(bytes).toString("hex");
 
 const EMPTY_COUNTS = (): RunSummary["counts"] => ({ passed: 0, failed: 0, broken: 0, skipped: 0, stopped: 0, running: 0, interrupted: 0, planned: 0 });
@@ -200,13 +274,13 @@ const EMPTY_COUNTS = (): RunSummary["counts"] => ({ passed: 0, failed: 0, broken
 export class RunsRepo {
   constructor(readonly db: Database.Database) {}
 
-  insertRun(r: Omit<RunRow, "plan" | "state" | "mode" | "error" | "started_at" | "finished_at" | "job_kind"> & { job_kind: string }): void {
+  insertRun(r: Omit<RunRow, "plan" | "state" | "info" | "label" | "mode" | "error" | "started_at" | "finished_at" | "job_kind"> & { job_kind: string; label?: string }): void {
     this.db
       .prepare(
-        `INSERT INTO runs (id, pack_id, pack_name, pack_path, site_key, job_kind, tests, params, options, status, started_by, created_at)
-         VALUES (@id, @pack_id, @pack_name, @pack_path, @site_key, @job_kind, @tests, @params, @options, @status, @started_by, @created_at)`,
+        `INSERT INTO runs (id, pack_id, pack_name, pack_path, site_key, job_kind, tests, params, options, label, status, started_by, created_at)
+         VALUES (@id, @pack_id, @pack_name, @pack_path, @site_key, @job_kind, @tests, @params, @options, @label, @status, @started_by, @created_at)`,
       )
-      .run(r);
+      .run({ label: "", ...r });
   }
 
   run(id: string): RunRow | null {
@@ -229,6 +303,20 @@ export class RunsRepo {
       where.push("created_at < ?");
       args.push(filter.before);
     }
+    for (const word of (filter.q ?? "").trim().split(/\s+/).filter(Boolean).slice(0, 8)) {
+      const esc = (t: string) => t.replace(/[\\%_]/g, (c) => `\\${c}`);
+      const kv = /^([^=]+)=(.+)$/.exec(word);
+      if (kv) {
+        // name=value matches the run's whole value, quoted (text) or not (numbers, true/false)
+        const key = `%${esc(JSON.stringify(kv[1]))}:`;
+        where.push(`(${[1, 2, 3].map(() => "params LIKE ? ESCAPE '\\'").join(" OR ")})`);
+        args.push(`${key}${esc(JSON.stringify(kv[2]))}%`, `${key}${esc(kv[2]!)},%`, `${key}${esc(kv[2]!)}}%`);
+        continue;
+      }
+      const like = `%${esc(word)}%`;
+      where.push(`(${["id", "label", "pack_name", "params", "info", "status"].map((c) => `${c} LIKE ? ESCAPE '\\'`).join(" OR ")})`);
+      args.push(like, like, like, like, like, like);
+    }
     const sql = `SELECT * FROM runs ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY created_at DESC, rowid DESC LIMIT ?`;
     return this.db.prepare(sql).all(...args, filter.limit ?? 100) as RunRow[];
   }
@@ -242,7 +330,7 @@ export class RunsRepo {
     return this.db.prepare("SELECT * FROM runs WHERE status = 'queued' ORDER BY created_at, rowid").all() as RunRow[];
   }
 
-  updateRun(id: string, fields: Partial<Pick<RunRow, "status" | "mode" | "plan" | "options" | "state" | "error" | "started_at" | "finished_at">>): void {
+  updateRun(id: string, fields: Partial<Pick<RunRow, "status" | "mode" | "tests" | "plan" | "options" | "state" | "info" | "label" | "error" | "started_at" | "finished_at">>): void {
     const keys = Object.keys(fields);
     if (keys.length === 0) return;
     this.db.prepare(`UPDATE runs SET ${keys.map((k) => `${k} = @${k}`).join(", ")} WHERE id = @id`).run({ ...fields, id });
@@ -276,11 +364,31 @@ export class RunsRepo {
 
   finishAttempt(
     id: string,
-    f: { status: AttemptStatus; flags: FlagRecord[]; metrics: Record<string, MetricRecord>; notes: string[]; texts: Record<string, string>; log: LogLine[]; error: AttemptError | null },
+    f: {
+      status: AttemptStatus;
+      flags: FlagRecord[];
+      metrics: Record<string, MetricRecord>;
+      notes: string[];
+      texts: Record<string, string>;
+      log: LogLine[];
+      steps?: StepRecord[];
+      error: AttemptError | null;
+    },
   ): void {
     this.db
-      .prepare("UPDATE runs_attempts SET status = ?, flags = ?, metrics = ?, notes = ?, texts = ?, log = ?, error = ?, finished_at = ? WHERE id = ?")
-      .run(f.status, JSON.stringify(f.flags), JSON.stringify(f.metrics), JSON.stringify(f.notes), JSON.stringify(f.texts), JSON.stringify(f.log), f.error ? JSON.stringify(f.error) : null, new Date().toISOString(), id);
+      .prepare("UPDATE runs_attempts SET status = ?, flags = ?, metrics = ?, notes = ?, texts = ?, log = ?, steps = ?, error = ?, finished_at = ? WHERE id = ?")
+      .run(
+        f.status,
+        JSON.stringify(f.flags),
+        JSON.stringify(f.metrics),
+        JSON.stringify(f.notes),
+        JSON.stringify(f.texts),
+        JSON.stringify(f.log),
+        JSON.stringify(f.steps ?? []),
+        f.error ? JSON.stringify(f.error) : null,
+        new Date().toISOString(),
+        id,
+      );
   }
 
   /** A skipped attempt that never ran: a row so the result says why. */
@@ -336,6 +444,94 @@ export class RunsRepo {
     c.planned = run ? (JSON.parse(run.plan) as PlanEntry[]).length : 0;
     return c;
   }
+
+  /** Runs made and top-level attempts started from `from` on, for the runs page's numbers. */
+  statsRows(from: string, packId?: string): StatsRows {
+    const pack = packId ? " AND r.pack_id = ?" : "";
+    const args = packId ? [from, packId] : [from];
+    return {
+      runs: this.db.prepare(`SELECT r.created_at FROM runs r WHERE r.created_at >= ?${pack}`).all(...args) as StatsRows["runs"],
+      attempts: this.db
+        .prepare(
+          `SELECT a.status, a.started_at, a.finished_at FROM runs_attempts a JOIN runs r ON r.id = a.run_id
+           WHERE a.started_at >= ? AND a.current = 1 AND a.parent_id IS NULL${pack}`,
+        )
+        .all(...args) as StatsRows["attempts"],
+    };
+  }
+
+  /** Each test's last `limit` finished attempts in a pack's runs, oldest first. */
+  history(packId: string, limit: number): Record<string, HistoryEntry[]> {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM (
+           SELECT a.id, a.run_id, a.item_id, a.number, a.try, a.status, a.started_at, a.finished_at, r.label, r.params,
+             ROW_NUMBER() OVER (PARTITION BY a.item_id ORDER BY a.started_at DESC, a.rowid DESC) AS rn
+           FROM runs_attempts a JOIN runs r ON r.id = a.run_id
+           WHERE r.pack_id = ? AND a.current = 1 AND a.status NOT IN ('running', 'interrupted')
+         ) WHERE rn <= ? ORDER BY item_id, started_at, rn DESC`,
+      )
+      .all(packId, limit) as {
+      id: string;
+      run_id: string;
+      item_id: string;
+      number: number;
+      try: number;
+      status: AttemptStatus;
+      started_at: string;
+      finished_at: string | null;
+      label: string;
+      params: string;
+    }[];
+    const out: Record<string, HistoryEntry[]> = {};
+    for (const r of rows)
+      (out[r.item_id] ??= []).push({
+        attemptId: r.id,
+        runId: r.run_id,
+        runLabel: r.label ?? "",
+        number: r.number,
+        try: r.try,
+        status: r.status,
+        startedAt: r.started_at,
+        durationMs: r.finished_at ? Date.parse(r.finished_at) - Date.parse(r.started_at) : null,
+        params: JSON.parse(r.params) as ParamValues,
+      });
+    return out;
+  }
+
+  presets(packId?: string): Preset[] {
+    const rows = packId
+      ? this.db.prepare("SELECT * FROM runs_presets WHERE pack_id = ? ORDER BY name COLLATE NOCASE").all(packId)
+      : this.db.prepare("SELECT * FROM runs_presets ORDER BY pack_id, name COLLATE NOCASE").all();
+    return (rows as PresetRow[]).map(presetOf);
+  }
+
+  preset(id: string): Preset | null {
+    const r = this.db.prepare("SELECT * FROM runs_presets WHERE id = ?").get(id) as PresetRow | undefined;
+    return r ? presetOf(r) : null;
+  }
+
+  presetByName(packId: string, name: string): Preset | null {
+    const r = this.db.prepare("SELECT * FROM runs_presets WHERE pack_id = ? AND name = ?").get(packId, name) as PresetRow | undefined;
+    return r ? presetOf(r) : null;
+  }
+
+  /** Saves choices under a name; a preset of the pack with that name already is replaced. */
+  savePreset(packId: string, name: string, choices: RunChoices): Preset {
+    const now = new Date().toISOString();
+    const old = this.presetByName(packId, name);
+    if (old) this.db.prepare("UPDATE runs_presets SET choices = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(choices), now, old.id);
+    else this.db.prepare("INSERT INTO runs_presets (id, pack_id, name, choices, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)").run(newId(4), packId, name, JSON.stringify(choices), now, now);
+    return this.presetByName(packId, name)!;
+  }
+
+  renamePreset(id: string, name: string): void {
+    this.db.prepare("UPDATE runs_presets SET name = ?, updated_at = ? WHERE id = ?").run(name, new Date().toISOString(), id);
+  }
+
+  deletePreset(id: string): boolean {
+    return this.db.prepare("DELETE FROM runs_presets WHERE id = ?").run(id).changes > 0;
+  }
 }
 
 export function runSummary(r: RunRow, counts: RunSummary["counts"]): RunSummary {
@@ -347,7 +543,9 @@ export function runSummary(r: RunRow, counts: RunSummary["counts"]): RunSummary 
     kind: r.job_kind,
     tests: JSON.parse(r.tests) as string[],
     params: JSON.parse(r.params) as ParamValues,
+    info: JSON.parse(r.info ?? "{}") as Record<string, string | number | boolean>,
     options: JSON.parse(r.options) as RunOptions,
+    label: r.label ?? "",
     status: r.status,
     mode: r.mode,
     startedBy: r.started_by,

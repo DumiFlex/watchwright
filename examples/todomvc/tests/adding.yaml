@@ -1,0 +1,40 @@
+section: Adding
+tests:
+  - id: A1
+    title: Add a todo
+    description: A new todo shows in the list and counts as one item left.
+    steps:
+      - fill: { target: { placeholder: What needs to be done? }, value: Buy milk }
+      - press: Enter
+      - expect: { target: { testId: todo-title }, text: Buy milk }
+      - expect: { target: { testId: todo-count }, text: 1 item left }
+      # Later tests reuse this title through ${saved.first}.
+      - save: { key: first, target: { testId: todo-title } }
+      - shot: one-todo
+
+  - id: A2
+    title: Add several todos in order
+    steps:
+      - repeat:
+          times: 3
+          steps:
+            - fill: { target: { placeholder: What needs to be done? }, value: "Todo ${attempt}" }
+            - press: Enter
+      - expect: { target: { testId: todo-item }, count: 3 }
+      - expect: { target: { testId: todo-count }, text: 3 items left }
+      - metric: { name: Items left, target: { testId: todo-count } }
+      - shot: three-todos
+
+  - id: A3
+    title: An empty todo isn't added
+    steps:
+      - fill: { target: { placeholder: What needs to be done? }, value: "   " }
+      - press: Enter
+      - expect: { target: { testId: todo-item }, count: 0 }
+
+  - id: A4
+    title: The input clears after adding
+    steps:
+      - fill: { target: { placeholder: What needs to be done? }, value: Walk the dog }
+      - press: Enter
+      - expect: { target: { placeholder: What needs to be done? }, value: "" }

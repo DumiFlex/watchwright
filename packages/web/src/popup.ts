@@ -3,7 +3,7 @@
 // with overflow: hidden never clips them. They open on the preferred side, flip when the
 // other side has more room and stay inside the viewport. The room left on their side is
 // in the CSS variable --popup-room, for `max-height: min(240px, var(--popup-room))`.
-import { onBeforeUnmount, onMounted, ref, shallowReactive, watch, type Ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, shallowReactive, shallowRef, watch, type Ref } from "vue";
 
 export type Side = "bottom" | "top";
 export type Align = "start" | "center" | "end";
@@ -115,17 +115,48 @@ export function useOutside(inside: Ref<HTMLElement | null>[], open: Ref<boolean>
   onBeforeUnmount(() => document.removeEventListener("pointerdown", onDown, true));
 }
 
-/**
- * Where to teleport a popup: <body>, or the modal <dialog> around `root` when there is one,
- * because a modal dialog sits in the top layer and makes everything outside it inert.
- */
 /** Open modal dialogs, innermost last. ModalDialog keeps it; ToastHost follows the top one. */
 export const openModals = shallowReactive<HTMLDialogElement[]>([]);
 
+// The page behind an open modal doesn't scroll: a wheel over a dialog that has nothing left to
+// scroll would otherwise scroll the page. The scrollbar's width is kept as padding so nothing shifts.
+if (typeof document !== "undefined") {
+  watch(
+    () => openModals.length > 0,
+    (locked) => {
+      const root = document.documentElement;
+      if (locked) {
+        root.style.setProperty("--scrollbar-gap", `${window.innerWidth - root.clientWidth}px`);
+        root.classList.add("ww-modal-open");
+      } else root.classList.remove("ww-modal-open");
+    },
+  );
+}
+
+/** The element shown full screen, if any. Only what is inside it is drawn while it is. */
+export const fullscreenElement = shallowRef<Element | null>(null);
+if (typeof document !== "undefined") document.addEventListener("fullscreenchange", () => (fullscreenElement.value = document.fullscreenElement));
+
+/** Where a popup for an element goes when it isn't in a modal: the full-screen element around it, or <body>. */
+export function pageHost(el: Element | null): HTMLElement {
+  const fs = document.fullscreenElement;
+  return fs instanceof HTMLElement && el && fs.contains(el) ? fs : document.body;
+}
+
+/**
+ * Where to teleport a popup: <body>; the popup holder of the modal <dialog> around `root` when
+ * there is one, because a modal dialog sits in the top layer and makes everything outside it
+ * inert; or the element shown full screen around `root`, because nothing outside it is drawn.
+ */
 export function usePopupHost(root: Ref<HTMLElement | null>) {
-  const host = ref<string | HTMLElement>("body");
+  const dialogHost = ref<HTMLElement | null>(null);
   onMounted(() => {
-    host.value = root.value?.closest("dialog") ?? "body";
+    const dialog = root.value?.closest("dialog");
+    dialogHost.value = dialog ? (dialog.querySelector<HTMLElement>(":scope > .dlg-popups") ?? dialog) : null;
   });
-  return host;
+  return computed<string | HTMLElement>(() => {
+    if (dialogHost.value) return dialogHost.value;
+    const fs = fullscreenElement.value;
+    return fs instanceof HTMLElement && root.value && fs.contains(root.value) ? fs : "body";
+  });
 }

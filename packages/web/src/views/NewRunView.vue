@@ -2,12 +2,24 @@
 // Start a run: a pack, its tests (none chosen means all), parameter values and run options.
 // The planned order beside the form comes from the server (`POST /runs/preview`), so it shows
 // exactly what will run, including the tests that join because a chosen one needs them.
-// `?pack=<id>` picks the pack, and `&from=<run id>` copies an earlier run's choices.
+// `?pack=<id>` picks the pack, and `&from=<run id>` copies an earlier run's choices. Without
+// them it opens on the pack of the latest run with that run's choices (Settings can make it
+// start from the pack's defaults instead). Presets are named choices kept per pack.
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
-import { getJson, sendJson, type Pack, type ParamValue, type RunPreview, type RunSummary, type TraceMode } from "../api";
+import { Ellipsis, Package } from "../icons";
+import { getJson, sendJson, type Pack, type ParamValue, type Preset, type RunChoices, type RunPreview, type RunSummary, type TraceMode } from "../api";
+import { useShortcut } from "../keys";
 import { replaceRoute } from "../router";
+import { loadSettings, settings } from "../settings";
+import { offerNotify } from "../notify";
+import { toast } from "../toasts";
 import CheckBox from "../components/CheckBox.vue";
+import KeyHint from "../components/KeyHint.vue";
+import MenuButton from "../components/MenuButton.vue";
+import EmptyState from "../components/EmptyState.vue";
+import ModalDialog from "../components/ModalDialog.vue";
 import MultiSelect from "../components/MultiSelect.vue";
+import SkeletonBlock from "../components/SkeletonBlock.vue";
 import NumberInput from "../components/NumberInput.vue";
 import RadioGroup from "../components/RadioGroup.vue";
 import SelectMenu from "../components/SelectMenu.vue";
@@ -22,7 +34,11 @@ const loadError = ref<string | null>(null);
 const packId = ref<string>("");
 const chosen = ref<string[]>([]);
 const params = reactive<Record<string, ParamValue>>({});
-const copiedFrom = ref<string | null>(null);
+const label = ref("");
+// Where the choices came from: an earlier run ("latest" when New run picked it by itself) or a preset.
+const copiedFrom = ref<{ run: string; latest: boolean } | null>(null);
+const presets = ref<Preset[]>([]);
+const presetId = ref("");
 
 // Run options, filled from the pack's settings when the pack changes.
 const attemptsMode = ref<"pack" | "same">("pack");
@@ -41,7 +57,7 @@ const pack = computed(() => packs.value.find((p) => p.id === packId.value) ?? nu
 const packOptions = computed(() => packs.value.map((p) => ({ value: p.id, label: p.status === "error" ? `${p.name} (doesn't load)` : p.name })));
 const testOptions = computed(() =>
   (pack.value?.tests ?? []).map((t) => {
-    const bits = [t.inside ? `inside ${t.inside}` : "", t.needs.length ? `needs ${t.needs.join(", ")}` : "", ...t.tags.map((x) => `#${x}`)].filter(Boolean);
+    const bits = [t.inside.length ? `inside ${t.inside.join(" or ")}` : "", t.needs.length ? `needs ${t.needs.join(", ")}` : "", ...t.tags.map((x) => `#${x}`)].filter(Boolean);
     return { value: t.id, label: t.title !== t.id ? `${t.id} · ${t.title}` : t.id, group: t.section ?? "Tests", note: bits.join(" · ") || undefined };
   }),
 );
@@ -66,8 +82,12 @@ const attemptOptions = [
 ];
 
 function body() {
+  return { packId: packId.value, ...(label.value.trim() ? { label: label.value.trim() } : {}), ...choices() };
+}
+
+/** The form's choices: what a preset keeps. */
+function choices(): RunChoices {
   return {
-    packId: packId.value,
     tests: chosen.value,
     params: { ...params },
     pauseOnBroken: pauseOnBroken.value,
@@ -89,20 +109,39 @@ function applyPack(p: Pack) {
   pauseOnBroken.value = p.run.pauseOnBroken;
   pauseLimit.value = p.run.pauseLimitMinutes;
   copiedFrom.value = null;
+  presetId.value = "";
 }
 
+/** Set while the page fills itself in, so the pack watcher leaves the choices alone. */
+let opening = true;
 watch(pack, (p, old) => {
   if (!p || p.id === old?.id) return;
+  void loadPresets(p.id);
+  if (opening) return;
   applyPack(p);
   replaceRoute({ name: "new", query: { pack: p.id } });
+  if (settings.values["runs.newRunFrom"] === "latest") void copyLatest(p);
 });
 
-/** Copies an earlier run's tests, values and options over the pack's defaults. */
-function copyRun(run: RunSummary, p: Pack) {
+async function loadPresets(id: string) {
+  const res = await getJson<Preset[]>(`/api/v1/presets?pack=${id}`);
+  if (res.ok && packId.value === id) presets.value = res.data;
+}
+
+/** Copies the pack's latest run's choices, when it has one. */
+async function copyLatest(p: Pack) {
+  const res = await getJson<RunSummary[]>(`/api/v1/runs?pack=${p.id}&limit=1`);
+  const run = res.ok ? res.data[0] : undefined;
+  if (run && packId.value === p.id) copyRun(run, p, true);
+}
+
+/** Puts choices (a run's or a preset's) over the pack's defaults; tests the pack no longer has are left out. */
+function applyChoices(c: RunChoices, p: Pack) {
+  applyPack(p);
   const known = new Set(p.tests.map((t) => t.id));
-  chosen.value = run.tests.filter((t) => known.has(t));
-  for (const [k, v] of Object.entries(run.params)) if (k in params) params[k] = v;
-  const o = run.options;
+  chosen.value = (c.tests ?? []).filter((t) => known.has(t));
+  for (const [k, v] of Object.entries(c.params ?? {})) if (k in params) params[k] = v;
+  const o = c;
   if (o.attempts !== undefined) {
     attemptsMode.value = "same";
     attempts.value = o.attempts;
@@ -111,27 +150,120 @@ function copyRun(run: RunSummary, p: Pack) {
   if (o.video !== undefined) video.value = o.video;
   if (o.pauseOnBroken !== undefined) pauseOnBroken.value = o.pauseOnBroken;
   if (o.pauseLimitMinutes !== undefined) pauseLimit.value = o.pauseLimitMinutes;
-  copiedFrom.value = run.id;
+}
+
+/** Copies an earlier run's tests, values, options and label. */
+function copyRun(run: RunSummary, p: Pack, latest = false) {
+  applyChoices({ tests: run.tests, params: run.params, ...run.options }, p);
+  label.value = run.label;
+  copiedFrom.value = { run: run.id, latest };
+}
+
+function useDefaults() {
+  if (!pack.value) return;
+  applyPack(pack.value);
+  label.value = "";
 }
 
 onMounted(async () => {
-  const res = await getJson<Pack[]>("/api/v1/packs");
+  const [res, latest] = await Promise.all([getJson<Pack[]>("/api/v1/packs"), getJson<RunSummary[]>("/api/v1/runs?limit=1"), loadSettings()]);
   loaded.value = true;
   if (!res.ok) return void (loadError.value = res.error.message);
   packs.value = res.data;
-  const wanted = res.data.find((p) => p.id === props.query.pack) ?? res.data.find((p) => p.status === "ok") ?? res.data[0];
+  const fromLatest = settings.values["runs.newRunFrom"] === "latest";
+  const last = latest.ok ? latest.data[0] : undefined;
+  const wanted =
+    res.data.find((p) => p.id === props.query.pack) ??
+    (fromLatest && last ? res.data.find((p) => p.id === last.packId && p.status === "ok") : undefined) ??
+    res.data.find((p) => p.status === "ok") ??
+    res.data[0];
   if (!wanted) return;
   packId.value = wanted.id;
-  await nextTick(); // let the pack watcher fill the defaults first
+  await nextTick();
+  applyPack(wanted);
+  opening = false;
+  // #/new?pack=…&test=… (a test found with Ctrl+K): that test alone, on the pack's defaults.
+  const test = props.query.test;
+  if (test && wanted.tests.some((t) => t.id === test)) {
+    chosen.value = [test];
+    replaceRoute({ name: "new", query: { pack: wanted.id } });
+    return;
+  }
   const from = props.query.from;
   if (from && /^[0-9a-f]{8}$/.test(from)) {
     const run = await getJson<RunSummary>(`/api/v1/runs/${from}`);
     if (run.ok && run.data.packId === wanted.id) {
       copyRun(run.data, wanted);
       replaceRoute({ name: "new", query: { pack: wanted.id, from } });
+      return;
     }
   }
+  replaceRoute({ name: "new", query: { pack: wanted.id } });
+  if (fromLatest) await copyLatest(wanted);
 });
+
+// Presets: pick one to fill the form; save, rename or delete from the menu beside it.
+const presetOptions = computed(() => [{ value: "", label: presets.value.length ? "None" : "No presets yet" }, ...presets.value.map((p) => ({ value: p.id, label: p.name }))]);
+const preset = computed(() => presets.value.find((p) => p.id === presetId.value) ?? null);
+function pickPreset(id: string) {
+  const p = presets.value.find((x) => x.id === id);
+  if (!p || !pack.value) return void (presetId.value = "");
+  applyChoices(p.choices, pack.value);
+  presetId.value = p.id;
+}
+const presetMenu = computed(() => [
+  { value: "save", label: preset.value ? `Save to "${preset.value.name}"` : "Save as a preset…" },
+  ...(preset.value
+    ? [
+        { value: "save-new", label: "Save as a new preset…" },
+        { value: "rename", label: "Rename…" },
+        { value: "delete", label: "Delete", danger: true },
+      ]
+    : []),
+]);
+const naming = ref<"save" | "rename" | null>(null);
+const presetName = ref("");
+const namingOpen = computed({ get: () => naming.value !== null, set: (v) => (v ? undefined : (naming.value = null)) });
+const presetError = ref<string | null>(null);
+
+async function onPresetMenu(v: string) {
+  presetError.value = null;
+  if (v === "save" && preset.value) return void savePreset(preset.value.name);
+  if (v === "save" || v === "save-new") {
+    naming.value = "save";
+    presetName.value = "";
+  } else if (v === "rename" && preset.value) {
+    naming.value = "rename";
+    presetName.value = preset.value.name;
+  } else if (v === "delete" && preset.value) {
+    const gone = preset.value;
+    const res = await sendJson(`/api/v1/presets/${gone.id}`, {}, "DELETE");
+    if (!res.ok) return void toast(res.error.message, { tone: "bad" });
+    presetId.value = "";
+    await loadPresets(packId.value);
+    toast(`Deleted the preset "${gone.name}"`, { tone: "ok" });
+  }
+}
+
+async function savePreset(name: string) {
+  const res = await sendJson<Preset>("/api/v1/presets", { packId: packId.value, name, ...choices() });
+  if (!res.ok) return void (presetError.value = res.error.message);
+  naming.value = null;
+  await loadPresets(packId.value);
+  presetId.value = res.data.id;
+  toast(`Saved the preset "${res.data.name}"`, { tone: "ok" });
+}
+
+async function submitName() {
+  const name = presetName.value.trim();
+  if (!name) return;
+  if (naming.value === "save") return savePreset(name);
+  if (!preset.value) return;
+  const res = await sendJson<Preset>(`/api/v1/presets/${preset.value.id}`, { name });
+  if (!res.ok) return void (presetError.value = res.error.message);
+  naming.value = null;
+  await loadPresets(packId.value);
+}
 
 // The planned order follows every change, a moment after the last one.
 let timer: ReturnType<typeof setTimeout> | null = null;
@@ -187,14 +319,17 @@ function why(testId: string): string | null {
 }
 
 async function start() {
-  if (!pack.value) return;
+  if (!pack.value || pack.value.status !== "ok" || starting.value || previewError.value) return;
   startError.value = null;
   starting.value = true;
   const res = await sendJson<RunSummary>("/api/v1/runs", body());
   starting.value = false;
   if (!res.ok) return void (startError.value = res.error.message);
+  offerNotify();
   window.location.hash = `#/runs/${res.data.id}`;
 }
+// Ctrl+Enter (Cmd+Enter on a Mac) starts the run from anywhere in the form; not while a dialog is open.
+useShortcut("Mod+Enter", () => !namingOpen.value && void start());
 </script>
 
 <template>
@@ -207,9 +342,32 @@ async function start() {
     </div>
     <p v-if="loadError" class="error" role="alert">{{ loadError }}</p>
 
-    <section v-if="loaded && packs.length === 0" class="card empty">
-      <p class="muted">There are no packs yet. Add the folder of a test pack first.</p>
-      <a class="btn primary" href="#/packs">Add a pack</a>
+    <div v-if="!loaded" class="layout" aria-busy="true" aria-label="Loading">
+      <div class="form">
+        <section class="card skeleton-card">
+          <SkeletonBlock width="60px" />
+          <SkeletonBlock shape="block" height="36px" />
+          <SkeletonBlock width="55%" />
+        </section>
+        <section class="card skeleton-card">
+          <SkeletonBlock width="30%" height="1.1em" />
+          <SkeletonBlock :lines="3" />
+        </section>
+      </div>
+      <section class="card skeleton-card">
+        <SkeletonBlock width="40%" height="1.1em" />
+        <SkeletonBlock :lines="4" />
+        <SkeletonBlock shape="block" height="40px" />
+      </section>
+    </div>
+
+    <section v-else-if="packs.length === 0 && !loadError" class="card">
+      <EmptyState :icon="Package" heading="No packs yet">
+        <p>A run starts from a test pack: a folder with a pack file and its tests. Add one first.</p>
+        <template #actions>
+          <a class="btn primary" href="#/packs?browse=add">Add a pack</a>
+        </template>
+      </EmptyState>
     </section>
 
     <template v-else-if="pack">
@@ -221,7 +379,21 @@ async function start() {
             <p class="muted small">
               {{ pack.tests.length }} tests · {{ pack.browser }}<template v-if="pack.baseURL"> · {{ pack.baseURL }}</template> · <a :href="`#/packs/${pack.id}`">about this pack</a>
             </p>
-            <p v-if="copiedFrom" class="muted small">Choices copied from run <a :href="`#/runs/${copiedFrom}`" class="num">{{ copiedFrom }}</a>.</p>
+            <p v-if="copiedFrom" class="copied muted small">
+              <span>{{ copiedFrom.latest ? "Choices from the latest run," : "Choices copied from run" }} <a :href="`#/runs/${copiedFrom.run}`" class="num">{{ copiedFrom.run }}</a>.</span>
+              <button type="button" class="linkbtn" @click="useDefaults">Use pack defaults</button>
+            </p>
+            <template v-if="pack.status === 'ok'">
+              <label class="lbl" for="nr-preset">Preset</label>
+              <div class="presetrow">
+                <SelectMenu id="nr-preset" :model-value="presetId" class="grow" :options="presetOptions" :disabled="presets.length === 0" @update:model-value="pickPreset" />
+                <MenuButton :items="presetMenu" label="Preset actions" @select="onPresetMenu">
+                  <template #button><Ellipsis :size="16" /></template>
+                </MenuButton>
+              </div>
+              <label class="lbl" for="nr-label">Label</label>
+              <TextField id="nr-label" v-model="label" placeholder="Optional, e.g. nightly or after the fix" />
+            </template>
           </section>
 
           <section v-if="pack.status === 'error'" class="card">
@@ -254,7 +426,7 @@ async function start() {
               <div class="params">
                 <div v-for="(d, key) in pack.params" :key="key" class="param">
                   <label class="name" :for="`p-${key}`">{{ key }}</label>
-                  <SelectMenu v-if="d.choices" :id="`p-${key}`" v-model="params[key]!" :options="d.choices.map((c) => ({ value: c, label: String(c) }))" />
+                  <SelectMenu v-if="d.choices" :id="`p-${key}`" v-model="params[key]!" :options="d.choices.map((c) => ({ value: c, label: d.labels?.[String(c)] ? `${c} · ${d.labels[String(c)]}` : String(c) }))" />
                   <NumberInput v-else-if="d.type === 'number'" :id="`p-${key}`" v-model="params[key] as number" :label="String(key)" />
                   <CheckBox v-else-if="d.type === 'boolean'" :id="`p-${key}`" v-model="params[key] as boolean">{{ d.description ?? "On" }}</CheckBox>
                   <TextField v-else :id="`p-${key}`" v-model="params[key] as string" />
@@ -321,23 +493,35 @@ async function start() {
           </template>
           <p v-else class="muted small">Planning…</p>
           <div class="go">
-            <button class="btn primary" :disabled="starting || !!previewError" @click="start">{{ starting ? "Starting…" : "Start run" }}</button>
+            <button class="btn primary" :disabled="starting || !!previewError" @click="start">
+              {{ starting ? "Starting…" : "Start run" }}
+              <KeyHint class="hint" keys="Mod+Enter" />
+            </button>
             <span v-if="startError" class="error small" role="alert">{{ startError }}</span>
           </div>
         </aside>
       </div>
+
+      <ModalDialog v-model="namingOpen" :heading="naming === 'rename' ? 'Rename the preset' : 'Save as a preset'">
+        <form class="naming" @submit.prevent="submitName">
+          <p v-if="naming === 'save'" class="muted small">Keeps the tests, values and options chosen now under a name, for this pack. Agents can start it by name too.</p>
+          <label class="lbl" for="nr-preset-name">Name</label>
+          <TextField id="nr-preset-name" v-model="presetName" placeholder="e.g. full, German" :invalid="!!presetError" />
+          <p v-if="presetError" class="error small" role="alert">{{ presetError }}</p>
+        </form>
+        <template #actions>
+          <button class="btn" @click="naming = null">Cancel</button>
+          <button class="btn primary" :disabled="!presetName.trim()" @click="submitName">{{ naming === "rename" ? "Rename" : "Save preset" }}</button>
+        </template>
+      </ModalDialog>
     </template>
   </main>
 </template>
 
 <style scoped>
-.empty {
+.skeleton-card {
   display: grid;
-  justify-items: start;
-  gap: var(--space-2);
-}
-.empty p {
-  margin: 0;
+  gap: var(--space-3);
 }
 .layout {
   display: grid;
@@ -360,7 +544,46 @@ async function start() {
   grid-column: 1 / -1;
   margin: 0;
 }
+.copied {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+}
+.linkbtn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-text);
+  font: inherit;
+  cursor: pointer;
+}
+.linkbtn:hover {
+  text-decoration: underline;
+}
+.presetrow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+.go .hint {
+  margin-left: var(--space-2);
+  opacity: 0.85;
+}
+.naming {
+  display: grid;
+  gap: var(--space-2);
+}
+.naming p {
+  margin: 0;
+}
 .pick .lbl,
+.naming .lbl,
 .name {
   font-weight: 600;
   font-size: 13px;

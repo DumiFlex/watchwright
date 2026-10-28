@@ -2,7 +2,7 @@ import type { BrowserContext, Locator, Page } from "playwright";
 import type { RunControl } from "../../jobs/control.js";
 import type { AttemptRecorder } from "../../jobs/recorder.js";
 import type { BrowserSession } from "../../session/session.js";
-import { StepError, type ClickOptions, type FlagKind, type Helpers, type Target } from "../packs/api.js";
+import { SkipTest, StepError, type ClickOptions, type FlagKind, type Helpers, type Target } from "../packs/api.js";
 
 // The core `h` helper (docs/plan.md, section 5), ported from the bench robot's Bot without the
 // Wildcard parts. Every call starts at a checkpoint, so a pause lands between actions.
@@ -19,6 +19,7 @@ export interface HelperRuntime {
   chapters: boolean;
   save(key: string, value: unknown): void;
   load(key: string): unknown;
+  info(key: string, value: string | number | boolean): void;
   onStep(title: string | null): void;
   onFlag(flag: { name: string; kind: FlagKind; detail: string | null }): void;
 }
@@ -76,7 +77,7 @@ export function createHelpers(rt: HelperRuntime, extend?: (h: Helpers) => Record
       const done = options.done;
       const isDone = done === undefined ? null : typeof done === "function" ? done : () => loc(done).isVisible();
       try {
-        await loc(target).click({ timeout });
+        await loc(target).click({ timeout, ...(options.position ? { position: options.position } : {}) });
       } catch (err) {
         // Firefox sometimes reports a click as timed out although it landed. When the test says how
         // to tell the click worked, trust that check over the timeout.
@@ -125,15 +126,20 @@ export function createHelpers(rt: HelperRuntime, extend?: (h: Helpers) => Record
       steps.push(title);
       rt.onStep(steps.join(" › "));
       recorder.addLog("info", `Step: ${title}`);
+      const record = recorder.beginStep(title, steps.length - 1);
+      let ok = false;
       if (rt.chapters) await page.screencast.showChapter(title, { duration: 1200 }).catch(() => undefined);
       try {
-        return await fn();
+        const out = await fn();
+        ok = true;
+        return out;
       } catch (err) {
         if (err instanceof Error && !err.message.startsWith(`[${title}]`) && err.name !== "StopNow" && err.name !== "AttemptAborted") {
           err.message = `[${title}] ${err.message}`;
         }
         throw err;
       } finally {
+        recorder.endStep(record, ok);
         steps.pop();
         rt.onStep(steps.length > 0 ? steps.join(" › ") : null);
         await control.checkpoint("attempt");
@@ -228,6 +234,43 @@ export function createHelpers(rt: HelperRuntime, extend?: (h: Helpers) => Record
 
     load<T>(key: string) {
       return rt.load(key) as T | undefined;
+    },
+
+    info(key, value) {
+      rt.info(key, value);
+    },
+
+    skip(reason): never {
+      throw new SkipTest(reason);
+    },
+
+    async waitUntil(check, options = {}) {
+      await enter();
+      const timeout = options.timeout ?? 30_000;
+      const interval = options.interval ?? 250;
+      const stallMs = options.progress ? options.stallMs : undefined;
+      // Time spent paused doesn't count: control.sleep stretches across a pause.
+      let waited = 0;
+      let last: unknown = options.progress?.();
+      let still = 0;
+      for (;;) {
+        if (await Promise.resolve(check()).catch(() => false)) return "done";
+        if (waited >= timeout) throw new StepError(`Waited ${Math.round(timeout / 1000)} s${options.what ? ` for ${options.what}` : ""} and it didn't happen.`);
+        await control.sleep(interval);
+        waited += interval;
+        if (stallMs !== undefined && options.progress) {
+          const now = options.progress();
+          if (Object.is(now, last) || JSON.stringify(now) === JSON.stringify(last)) still += interval;
+          else {
+            still = 0;
+            last = now;
+          }
+          if (still >= stallMs) {
+            recorder.addLog("warn", `No progress for ${Math.round(stallMs / 1000)} s${options.what ? ` while waiting for ${options.what}` : ""}; stopped waiting.`);
+            return "stalled";
+          }
+        }
+      }
     },
   };
 

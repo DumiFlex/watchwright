@@ -1,12 +1,19 @@
 <script setup lang="ts">
 // A run's steps on a time axis with a playhead to drag. Steps that overlap go on separate
 // lanes and take the color of their status. Click or drag anywhere to move the playhead;
-// hovering shows the time and step under the pointer. The playhead is a role="slider":
-// arrows move a second (Shift ten), Page Up/Down jump to the previous or next step,
-// Home/End to the ends. v-model is the playhead time in ms; `pick` fires with the step
-// clicked on. `marks` are points to flag (a failure, a pause) above the steps.
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-import { clock, laneSteps, nextStart, stepAt, timeTicks, type TimelineStep } from "../timeline";
+// hovering shows the time, the step and any flagged point under the pointer in the line above. The playhead is a
+// role="slider": arrows move a second (Shift ten), Page Up/Down jump to the previous or next
+// step, Home/End to the ends, + and - zoom. v-model is the playhead time in ms; `pick` fires
+// with the step clicked on. `marks` are points to flag (a failure, a pause) above the steps;
+// marks closer than a few pixels show as one with a count.
+// Many short steps don't fit side by side, so the axis zooms (the buttons, Ctrl or Cmd with the
+// wheel, + and -) and scrolls sideways, following the playhead while it moves; dragging the
+// playhead against an edge scrolls on. It opens zoomed in far enough for most steps to show
+// their label.
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { ZoomIn, ZoomOut } from "../icons";
+import { clock, clusterMarks, edgeScroll, fitTimelineZoom, laneSteps, nextStart, stepAt, stepTimelineZoom, timeTicks, TIMELINE_ZOOMS, type TimelineStep } from "../timeline";
+import { vTip } from "../tooltip";
 
 export type TimelineMark = { at: number; label: string; tone?: "ok" | "bad" | "warn" | "accent" | undefined };
 
@@ -14,19 +21,55 @@ const props = withDefaults(defineProps<{ steps: readonly TimelineStep[]; duratio
 const emit = defineEmits<{ pick: [step: TimelineStep] }>();
 const at = defineModel<number>({ default: 0 });
 
+const view = ref<HTMLElement | null>(null);
 const track = ref<HTMLElement | null>(null);
-const width = ref(0);
-const hoverX = ref<number | null>(null);
+const viewWidth = ref(0);
+const zoom = ref(1);
+const zoomedByHand = ref(false); // once the person zooms, the fit below leaves the zoom alone
+const hoverX = ref<number | null>(null); // on the whole axis, in px
+// Room at the sides of the scrolling part for the playhead's knob at either end.
+const PAD = 8;
 const dragging = ref(false);
 
+const width = computed(() => viewWidth.value * zoom.value);
 const lanes = computed(() => laneSteps(props.steps));
 const ticks = computed(() => timeTicks(props.duration, width.value));
 const fine = computed(() => props.duration < 60_000);
+// Ticks less than a second apart need tenths, or neighbours read the same.
+const fineTicks = computed(() => ticks.value.length > 1 && ticks.value[1]! - ticks.value[0]! < 1000);
 const current = computed(() => stepAt(props.steps, at.value));
+const shownAt = computed(() => Math.min(Math.max(0, at.value), props.duration));
 const pos = (t: number) => (props.duration > 0 ? Math.min(100, Math.max(0, (t / props.duration) * 100)) : 0);
+const px = (t: number) => (pos(t) / 100) * width.value;
 const hoverAt = computed(() => (hoverX.value === null || !width.value ? null : (hoverX.value / width.value) * props.duration));
 const hoverStep = computed(() => (hoverAt.value === null ? null : stepAt(props.steps, hoverAt.value)));
-const valueText = computed(() => `${clock(at.value)} of ${clock(props.duration)}${current.value ? `, ${current.value.label}` : ""}`);
+const valueText = computed(() => `${clock(shownAt.value)} of ${clock(props.duration)}${current.value ? `, ${current.value.label}` : ""}`);
+
+const shown = computed(() => {
+  if (hoverAt.value === null || dragging.value) return { time: null, step: current.value?.label ?? "" };
+  return { time: clock(hoverAt.value, fine.value), step: hoverStep.value?.label ?? "" };
+});
+
+const segments = computed(() =>
+  lanes.value.map((lane) =>
+    lane.map((s) => {
+      const w = px(s.end) - px(s.start);
+      return { step: s, left: pos(s.start), width: Math.max(0, pos(s.end) - pos(s.start)), thin: w < 8, labelled: w >= 60 };
+    }),
+  ),
+);
+
+const RANK = { bad: 3, warn: 2, accent: 1, ok: 0 } as const;
+const clusters = computed(() =>
+  clusterMarks(props.marks, props.duration, width.value).map((c) => {
+    const tone = c.marks.map((m) => m.tone ?? "accent").reduce((a, b) => (RANK[b] > RANK[a] ? b : a));
+    const first = c.marks[0]!;
+    const label = c.marks.length > 1 ? `${c.marks.length} flagged points from ${clock(first.at)}, first: ${first.label}` : `${first.label} at ${clock(first.at)}`;
+    return { at: c.at, count: c.marks.length, tone, label, first };
+  }),
+);
+// The marks under the pointer, for the line above the track.
+const hoverMarks = computed(() => (hoverX.value === null ? null : (clusters.value.find((c) => Math.abs(px(c.at) - hoverX.value!) <= 8) ?? null)));
 
 function tone(status: string | undefined) {
   switch (status) {
@@ -45,11 +88,61 @@ function tone(status: string | undefined) {
 
 let observer: ResizeObserver | undefined;
 onMounted(() => {
-  if (!track.value) return;
-  observer = new ResizeObserver(() => (width.value = track.value?.clientWidth ?? 0));
-  observer.observe(track.value);
+  if (!view.value) return;
+  observer = new ResizeObserver(() => {
+    viewWidth.value = Math.max(0, (view.value?.clientWidth ?? 0) - 2 * PAD);
+    openZoom();
+  });
+  observer.observe(view.value);
 });
 onBeforeUnmount(() => observer?.disconnect());
+
+/**
+ * Zooms in far enough for most steps to show their whole label, with the playhead in view. It
+ * runs again when the steps, the width or the length change (the video's length is known only
+ * once it loads), until the person zooms themselves.
+ */
+function openZoom() {
+  if (zoomedByHand.value || !viewWidth.value || !props.steps.length || !(props.duration > 0)) return;
+  // A phone shows a sixteenth of the run as readily as a desktop shows an eighth.
+  const z = fitTimelineZoom(props.steps, props.duration, viewWidth.value, viewWidth.value < 480 ? 16 : 8);
+  if (z !== zoom.value) setZoom(z, null);
+}
+watch([() => props.steps, () => props.duration], openZoom);
+
+/** Zooms to `z`, keeping the time under `anchor` (px from the left of the view) where it is; the playhead when null. */
+function setZoom(z: number, anchor: number | null) {
+  const v = view.value;
+  const next = Math.min(TIMELINE_ZOOMS[TIMELINE_ZOOMS.length - 1]!, Math.max(1, z));
+  if (!v || next === zoom.value) {
+    zoom.value = next;
+    return;
+  }
+  // x: the anchor in px from the view's left edge; the axis starts PAD in, less what is scrolled.
+  const x = anchor ?? Math.min(Math.max(PAD, PAD + px(at.value) - v.scrollLeft), PAD + viewWidth.value);
+  const t = width.value ? Math.min(Math.max(0, (v.scrollLeft + x - PAD) / width.value), 1) * props.duration : 0;
+  zoom.value = next;
+  void nextTick(() => {
+    if (view.value) view.value.scrollLeft = Math.max(0, PAD + px(t) - x);
+  });
+}
+function zoomBy(dir: 1 | -1, anchor: number | null = null) {
+  zoomedByHand.value = true;
+  setZoom(stepTimelineZoom(zoom.value, dir), anchor);
+}
+function wheel(e: WheelEvent) {
+  if (!(e.ctrlKey || e.metaKey) || !e.deltaY || !view.value) return;
+  e.preventDefault();
+  zoomBy(e.deltaY < 0 ? 1 : -1, e.clientX - view.value.getBoundingClientRect().left);
+}
+
+// Keep the playhead in view while it moves (the video playing), unless it is being dragged.
+watch(at, (t) => {
+  const v = view.value;
+  if (!v || dragging.value || zoom.value === 1) return;
+  const x = px(t) - v.scrollLeft; // from the start of what is visible
+  if (x < 0 || x > viewWidth.value - 16) v.scrollLeft = Math.max(0, px(t) - viewWidth.value * 0.1);
+});
 
 function seek(t: number) {
   at.value = Math.round(Math.min(props.duration, Math.max(0, t)));
@@ -63,6 +156,8 @@ function down(e: PointerEvent) {
   e.preventDefault();
   (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   dragging.value = true;
+  dragX = e.clientX;
+  edgeLoop();
   const t = (xOf(e) / width.value) * props.duration;
   const step = stepAt(props.steps, t);
   seek(t);
@@ -71,12 +166,40 @@ function down(e: PointerEvent) {
 }
 function move(e: PointerEvent) {
   hoverX.value = xOf(e);
+  dragX = e.clientX;
   if (dragging.value && width.value) seek((hoverX.value / width.value) * props.duration);
 }
 function up() {
   dragging.value = false;
+  cancelAnimationFrame(edgeFrame);
 }
+// While dragging, a pointer near or past an edge of the view scrolls it and the playhead along.
+let edgeFrame = 0;
+let dragX = 0;
+function edgeLoop() {
+  cancelAnimationFrame(edgeFrame);
+  const tick = () => {
+    const v = view.value;
+    if (!dragging.value || !v) return;
+    const r = v.getBoundingClientRect();
+    const by = edgeScroll(dragX, r.left + PAD, r.right - PAD);
+    const before = v.scrollLeft;
+    if (by) v.scrollLeft = Math.max(0, before + by);
+    if (v.scrollLeft !== before && width.value) {
+      const t = track.value?.getBoundingClientRect();
+      if (t) seek((Math.min(t.width, Math.max(0, dragX - t.left)) / width.value) * props.duration);
+    }
+    edgeFrame = requestAnimationFrame(tick);
+  };
+  edgeFrame = requestAnimationFrame(tick);
+}
+onBeforeUnmount(() => cancelAnimationFrame(edgeFrame));
 function key(e: KeyboardEvent) {
+  if (e.key === "+" || e.key === "=" || e.key === "-") {
+    e.preventDefault();
+    zoomBy(e.key === "-" ? -1 : 1);
+    return;
+  }
   const step = e.shiftKey ? 10_000 : 1000;
   const to: Record<string, () => number | null> = {
     ArrowLeft: () => at.value - step,
@@ -99,44 +222,60 @@ function key(e: KeyboardEvent) {
 <template>
   <div class="tl">
     <div class="top">
-      <span class="time num">{{ clock(at, fine) }} <span class="of">/ {{ clock(duration, fine) }}</span></span>
-      <span class="cur">{{ current?.label ?? "" }}</span>
-    </div>
-    <div ref="track" class="track" :class="{ dragging }" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="up" @pointerleave="hoverX = null">
-      <div v-if="marks.length" class="marks">
-        <span v-for="(m, i) in marks" :key="i" class="mark" :class="m.tone ?? 'accent'" :style="{ left: `${pos(m.at)}%` }" :aria-label="`${m.label} at ${clock(m.at)}`" role="img" />
-      </div>
-      <div v-for="(lane, li) in lanes" :key="li" class="lane" aria-hidden="true">
-        <span
-          v-for="s in lane"
-          :key="s.id"
-          class="seg"
-          :class="[tone(s.status), { on: current?.id === s.id }]"
-          :style="{ left: `${pos(s.start)}%`, width: `${Math.max(0, pos(s.end) - pos(s.start))}%` }"
-        >
-          <span v-if="((pos(s.end) - pos(s.start)) / 100) * width >= 32" class="seg-text">{{ s.label }}</span>
-        </span>
-      </div>
-      <div v-if="!steps.length" class="lane none" aria-hidden="true" />
-      <div class="playhead" :style="{ left: `${pos(at)}%` }">
-        <div
-          class="knob"
-          role="slider"
-          tabindex="0"
-          :aria-label="label"
-          aria-valuemin="0"
-          :aria-valuemax="duration"
-          :aria-valuenow="at"
-          :aria-valuetext="valueText"
-          @keydown="key"
-        />
-      </div>
-      <div v-if="hoverAt !== null && !dragging" class="hover" :style="{ left: `${pos(hoverAt)}%` }" aria-hidden="true">
-        <span class="bubble" :class="{ start: pos(hoverAt) < 12, end: pos(hoverAt) > 88 }"><span class="num">{{ clock(hoverAt, fine) }}</span><template v-if="hoverStep"> · {{ hoverStep.label }}</template></span>
+      <span class="time num">{{ clock(shownAt, fine) }} <span class="of">/ {{ clock(duration, fine) }}</span></span>
+      <!-- The step at the playhead, or what is under the pointer while hovering. -->
+      <span class="cur" :class="{ hovering: shown.time !== null }">
+        <span v-if="shown.time !== null" class="num">{{ shown.time }}</span>
+        <span v-if="shown.step" class="cur-step">{{ shown.step }}</span>
+        <span v-if="shown.time !== null && hoverMarks" class="cur-mark" :class="hoverMarks.tone">{{ hoverMarks.first.label }}<template v-if="hoverMarks.count > 1"> and {{ hoverMarks.count - 1 }} more</template></span>
+      </span>
+      <div v-if="duration > 0" class="zoom" role="group" aria-label="Timeline zoom">
+        <button v-tip="'Zoom out (-)'" type="button" class="ib" aria-label="Zoom out" :disabled="zoom <= 1" @click="zoomBy(-1)"><ZoomOut :size="15" /></button>
+        <span class="zoom-text num" aria-live="polite">{{ zoom }}×</span>
+        <button v-tip="'Zoom in (+)'" type="button" class="ib" aria-label="Zoom in" :disabled="zoom >= TIMELINE_ZOOMS[TIMELINE_ZOOMS.length - 1]!" @click="zoomBy(1)"><ZoomIn :size="15" /></button>
       </div>
     </div>
-    <div class="axis" aria-hidden="true">
-      <span v-for="t in ticks" :key="t" class="tick num" :style="{ left: `${pos(t)}%` }">{{ clock(t) }}</span>
+    <div class="frame">
+      <div ref="view" class="view" :class="{ zoomed: zoom > 1 }" @wheel="wheel">
+        <div class="inner" :style="{ width: `${zoom * 100}%` }">
+          <div ref="track" class="track" :class="{ dragging }" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="up" @pointerleave="hoverX = null">
+            <div v-if="clusters.length" class="marks">
+              <span v-for="c in clusters" :key="c.at" class="mark" :class="[c.tone, { many: c.count > 1 }]" :style="{ left: `${pos(c.at)}%` }" :aria-label="c.label" role="img">
+                <template v-if="c.count > 1">{{ c.count }}</template>
+              </span>
+            </div>
+            <div v-for="(lane, li) in segments" :key="li" class="lane" aria-hidden="true">
+              <span
+                v-for="g in lane"
+                :key="g.step.id"
+                class="seg"
+                :class="[tone(g.step.status), { on: current?.id === g.step.id, thin: g.thin }]"
+                :style="{ left: `calc(${g.left}% + 1px)`, width: `max(2px, calc(${g.width}% - 2px))` }"
+              >
+                <span v-if="g.labelled" class="seg-text">{{ g.step.label }}</span>
+              </span>
+            </div>
+            <div v-if="!steps.length" class="lane none" aria-hidden="true" />
+            <div class="playhead" :style="{ left: `${pos(at)}%` }">
+              <div
+                class="knob"
+                role="slider"
+                tabindex="0"
+                :aria-label="label"
+                aria-valuemin="0"
+                :aria-valuemax="duration"
+                :aria-valuenow="shownAt"
+                :aria-valuetext="valueText"
+                @keydown="key"
+              />
+            </div>
+            <div v-if="hoverAt !== null && !dragging" class="hover" :style="{ left: `${pos(hoverAt)}%` }" aria-hidden="true" />
+          </div>
+          <div class="axis" aria-hidden="true">
+            <span v-for="t in ticks" :key="t" class="tick num" :class="{ end: pos(t) > 100 - (48 / (width || 1)) * 100 }" :style="{ left: `${pos(t)}%` }">{{ clock(t, fineTicks) }}</span>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -162,11 +301,88 @@ function key(e: KeyboardEvent) {
   font-weight: 400;
 }
 .cur {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
   overflow: hidden;
   color: var(--muted);
   font-size: 13px;
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+.cur.hovering {
+  color: var(--text);
+}
+.cur-step,
+.cur-mark {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cur-step {
+  flex: 0 1 auto;
+}
+.cur-mark {
+  flex: 1 1 0;
+}
+.cur-mark.bad {
+  color: var(--bad);
+}
+.cur-mark.warn {
+  color: var(--warn);
+}
+.zoom {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 2px;
+  align-self: center;
+}
+.zoom-text {
+  min-width: 30px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+.ib {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+}
+.ib:hover:not(:disabled) {
+  background: var(--hover);
+}
+.ib:disabled {
+  color: var(--muted);
+  opacity: 0.5;
+  cursor: default;
+}
+.ib:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.frame {
+  position: relative;
+  min-width: 0;
+}
+/* Room above the track for the playhead's knob, which the scrolling would cut off. */
+.view {
+  padding: 8px 8px 0;
+  overflow: hidden;
+}
+.view.zoomed {
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.inner {
+  min-width: 100%;
 }
 .track {
   position: relative;
@@ -184,16 +400,31 @@ function key(e: KeyboardEvent) {
 }
 .marks {
   position: relative;
-  height: 10px;
+  height: 14px;
 }
 .mark {
   position: absolute;
-  top: 1px;
+  top: 3px;
   width: 8px;
   height: 8px;
   margin-left: -4px;
   border-radius: 50%;
   background: var(--accent);
+}
+/* Several marks too close to tell apart: one pill with their count. */
+.mark.many {
+  top: 0;
+  width: auto;
+  min-width: 14px;
+  height: 14px;
+  margin-left: -7px;
+  padding: 0 4px;
+  border-radius: 7px;
+  color: var(--surface);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
 }
 .mark.ok {
   background: var(--ok);
@@ -238,6 +469,24 @@ function key(e: KeyboardEvent) {
 .seg.accent {
   border-color: var(--accent);
   background: var(--accent-soft);
+}
+/* Too narrow for a frame and a label: a plain bar in the status color. */
+.seg.thin {
+  padding: 0;
+  border: 0;
+  background: var(--line-strong);
+}
+.seg.thin.ok {
+  background: var(--ok);
+}
+.seg.thin.bad {
+  background: var(--bad);
+}
+.seg.thin.warn {
+  background: var(--warn);
+}
+.seg.thin.accent {
+  background: var(--accent);
 }
 .seg.on {
   box-shadow: inset 0 0 0 1px currentColor;
@@ -295,26 +544,6 @@ function key(e: KeyboardEvent) {
   left: 0;
   border-left: 1px dashed var(--line-strong);
 }
-.bubble {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 0;
-  transform: translateX(-50%);
-  padding: 3px 7px;
-  border: var(--border-width) solid var(--line-strong);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  color: var(--text);
-  font-size: 12px;
-  white-space: nowrap;
-  box-shadow: 0 4px 12px rgb(0 0 0 / 14%);
-}
-.bubble.start {
-  transform: translateX(-8px);
-}
-.bubble.end {
-  transform: translateX(calc(-100% + 8px));
-}
 .axis {
   position: relative;
   height: 16px;
@@ -329,5 +558,9 @@ function key(e: KeyboardEvent) {
 }
 .tick:first-child {
   transform: none;
+}
+/* A label at the far end ends at the edge instead of being cut off. */
+.tick.end {
+  transform: translateX(-100%);
 }
 </style>

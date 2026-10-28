@@ -2,8 +2,8 @@ import type { KindPlan, PlanItem } from "../../jobs/kind.js";
 
 // The queue of a run that is going: the plan's attempts in the order they will run. A person or an
 // agent can skip an attempt that hasn't started or move a test that hasn't started up or down,
-// as long as every test still runs after the tests it needs. Edits are kept with the run (its
-// options), so a resumed run keeps them.
+// as long as every test still runs after the tests it needs, and add tests at the end. Edits are
+// kept with the run (its options and tests), so a resumed run keeps them.
 
 /** Queue edits as stored with the run. `order` lists test ids; `skip` lists `test#number` keys. */
 export interface QueueEdits {
@@ -23,7 +23,7 @@ export class RunQueue {
   private readonly begun = new Set<string>();
 
   constructor(
-    private readonly plan: Pick<KindPlan, "items" | "needs" | "children">,
+    private plan: Pick<KindPlan, "items" | "needs" | "children">,
     edits: QueueEdits = {},
   ) {
     this.items = plan.items.slice();
@@ -74,6 +74,15 @@ export class RunQueue {
     const problem = this.orderProblem(next);
     if (problem) throw new QueueError(problem);
     this.items = this.reordered(next)!;
+  }
+
+  /** Takes a larger plan for the same run: the attempts it adds go at the end, in its order. Returns them. */
+  extend(plan: Pick<KindPlan, "items" | "needs" | "children">): PlanItem[] {
+    const have = new Set(this.items.map(keyOf));
+    const added = plan.items.filter((i) => !have.has(keyOf(i)));
+    this.plan = plan;
+    this.items = [...this.items, ...added];
+    return added;
   }
 
   /** Top-level test ids in run order. */
