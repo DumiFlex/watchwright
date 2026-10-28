@@ -29,6 +29,8 @@ export interface WatchwrightPlugin {
   migrations?: Migration[];
   /** Runs once when the server is built, in plugin order: provide services, recover state. */
   setup?: (ctx: PluginContext) => void | Promise<void>;
+  /** Runs once after every plugin's `setup`, in plugin order: start work that needs other plugins' registrations (queued runs need their job kind). */
+  ready?: (ctx: PluginContext) => void | Promise<void>;
   /** The plugin's operations. Each becomes an HTTP route under /api/v1 (and later a CLI command and an MCP tool). */
   actions?: (ctx: PluginContext) => Action[];
   /** Routes that aren't actions (WebSockets, file downloads). Mounted under /api/v1. */

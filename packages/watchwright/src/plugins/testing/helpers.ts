@@ -1,29 +1,19 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import type { BrowserContext, Locator, Page } from "playwright";
-import type { RunControl } from "../../jobs/control.js";
-import { contentTypeOf, safeRelative, type AttemptRecorder } from "../../jobs/recorder.js";
-import type { BrowserSession } from "../../session/session.js";
+import type { Locator, Page } from "playwright";
+import { contentTypeOf, safeRelative } from "../../jobs/recorder.js";
+import type { AttemptRuntime } from "../../jobs/runtime.js";
 import { SkipTest, StepError, type ClickOptions, type FlagKind, type Helpers, type Target } from "../packs/api.js";
 
 // The core `h` helper (docs/plan.md, section 5), ported from the bench robot's Bot without the
 // Wildcard parts. Every call starts at a checkpoint, so a pause lands between actions.
 
-export interface HelperRuntime {
-  page: Page;
-  context: BrowserContext;
+/** The runner's attempt runtime plus what `h` reads from the pack. */
+export interface HelperRuntime extends AttemptRuntime {
   baseURL: string | undefined;
-  control: RunControl;
-  recorder: AttemptRecorder;
-  session: BrowserSession;
   flagKinds: Record<string, FlagKind>;
   idleCheck: ((page: Page) => boolean | Promise<boolean>) | undefined;
   chapters: boolean;
-  save(key: string, value: unknown): void;
-  load(key: string): unknown;
-  info(key: string, value: string | number | boolean): void;
-  onStep(title: string | null): void;
-  onFlag(flag: { name: string; kind: FlagKind; detail: string | null }): void;
 }
 
 const DEFAULT_TIMEOUT = 15_000;

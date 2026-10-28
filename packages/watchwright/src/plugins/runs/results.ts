@@ -1,5 +1,5 @@
 import type { ArtifactInfo, FlagRecord, LogLine, MetricRecord, StepRecord } from "../../jobs/recorder.js";
-import type { AttemptError } from "../testing/outcome.js";
+import type { AttemptError } from "../../jobs/kind.js";
 import type { AttemptRow, AttemptStatus } from "./repo.js";
 
 /** Bumped only for changes old readers can't ignore; new fields are added without a bump. */

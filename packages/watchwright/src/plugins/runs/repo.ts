@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import type Database from "better-sqlite3";
 import type { ArtifactInfo, FlagRecord, LogLine, MetricRecord, StepRecord } from "../../jobs/recorder.js";
 import type { Outcome, ParamValues } from "../packs/api.js";
-import type { AttemptError } from "../testing/outcome.js";
+import type { AttemptError } from "../../jobs/kind.js";
 import type { QueueEdits } from "./queue.js";
 import type { StatsRows } from "./stats.js";
 

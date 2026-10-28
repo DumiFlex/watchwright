@@ -5,15 +5,15 @@ import type { Page } from "playwright";
 import type { EventLog } from "../../events/log.js";
 import { AttemptAborted, RunControl, type BrokenDecision } from "../../jobs/control.js";
 import type { AttemptEnv, JobKind, KindPlan, PlanItem } from "../../jobs/kind.js";
+import type { JobKinds } from "../../jobs/kinds.js";
+import type { AttemptRuntime } from "../../jobs/runtime.js";
 import { AttemptRecorder, safeRelative, slug, type ArtifactInfo } from "../../jobs/recorder.js";
 import { BrowserSession } from "../../session/session.js";
 import type { FrameHub } from "../live/hub.js";
-import { StepError, type Collector, type CollectorAttempt, type CollectorRecord, type Helpers, type Outcome, type ParamValues } from "../packs/api.js";
+import { StepError, type Collector, type CollectorAttempt, type CollectorRecord, type Outcome, type ParamValues } from "../packs/api.js";
 import type { LoadedPack } from "../packs/loader.js";
 import { parentsOf, resolveParams } from "../packs/order.js";
 import type { PackRegistry } from "../packs/registry.js";
-import { createHelpers } from "../testing/helpers.js";
-import { classify } from "../testing/outcome.js";
 import {
   attemptSummary,
   DECIDED,
@@ -63,6 +63,8 @@ export interface StartInput {
   startedBy: string;
   options?: RunOptions | undefined;
   label?: string | undefined;
+  /** The job kind (default `test`). */
+  kind?: string | undefined;
 }
 
 export interface RunPreview {
@@ -146,17 +148,14 @@ export interface EngineOptions {
   frames: FrameHub;
   /** Folder that holds `runs/`; artifact paths are relative to it. */
   dataDir: string;
-  kinds: readonly JobKind[];
+  kinds: JobKinds;
 }
 
 export class Engine {
   private readonly active = new Map<string, ActiveRun>();
-  private readonly kinds: Map<string, JobKind>;
   private closing = false;
 
-  constructor(private readonly o: EngineOptions) {
-    this.kinds = new Map(o.kinds.map((k) => [k.name, k]));
-  }
+  constructor(private readonly o: EngineOptions) {}
 
   /** On boot: runs a crash left running become interrupted, ready for resume. */
   recover(): void {
@@ -343,7 +342,9 @@ export class Engine {
     }
     const fresh = this.o.packs.get(input.packId)!;
     if (fresh.problems.length > 0) throw new EngineError("bad_pack", `The pack has problems: ${fresh.problems.join(" ")}`, 409);
-    const kind = this.kinds.get("test")!;
+    const name = input.kind ?? "test";
+    const kind = this.o.kinds.get(name);
+    if (!kind) throw new EngineError("bad_input", `No job kind "${name}" is loaded. Loaded kinds: ${this.o.kinds.list().map((k) => k.name).join(", ") || "none"}.`);
     try {
       const params = resolveParams(pack.options.params ?? {}, input.params);
       const plan = kind.plan(pack, params, input.tests ?? [], { attempts: input.options?.attempts });
@@ -411,7 +412,7 @@ export class Engine {
     // Queue edits belong to the run they were made in.
     const options = JSON.parse(r.options) as RunOptions;
     delete options.queue;
-    return this.start({ packId: r.pack_id, tests: JSON.parse(r.tests) as string[], params: JSON.parse(r.params) as Record<string, unknown>, options, label: r.label, startedBy });
+    return this.start({ packId: r.pack_id, tests: JSON.parse(r.tests) as string[], params: JSON.parse(r.params) as Record<string, unknown>, options, label: r.label, kind: r.job_kind, startedBy });
   }
 
   /** Gives a run a label (empty takes it away). */
@@ -619,7 +620,7 @@ export class Engine {
       failStart(`The pack doesn't load: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`);
       return;
     }
-    const kind = this.kinds.get(row.job_kind);
+    const kind = this.o.kinds.get(row.job_kind);
     if (!kind) {
       failStart(`No job kind "${row.job_kind}" is loaded.`);
       return;
@@ -692,7 +693,7 @@ export class Engine {
           params,
           page,
           session,
-          helpers: () => this.helpers(run, pack, page, setupRecorder, new Map(), null),
+          helpers: () => this.helpers(run, kind, pack, page, setupRecorder, new Map(), null),
           info: (k, v) => this.setInfo(run, k, v),
         });
       } catch (err) {
@@ -823,31 +824,26 @@ export class Engine {
     this.emit("attempt.finished", { testId: item.itemId, number: item.number, of: item.of, status: "skipped", reason, parentId }, ctx.row.id, id);
   }
 
-  private helpers(run: ActiveRun, pack: LoadedPack, page: Page, recorder: AttemptRecorder, saves: Map<string, unknown>, attemptId: string | null): Helpers {
-    return createHelpers(
-      {
-        page,
-        context: run.session!.context,
-        baseURL: pack.options.site.baseURL,
-        control: run.control,
-        recorder,
-        session: run.session!,
-        flagKinds: { ...(pack.options.flags ?? {}) },
-        idleCheck: pack.options.idle,
-        chapters: pack.options.run?.chapters ?? false,
-        save: (k, v) => saves.set(k, v),
-        load: (k) => (saves.has(k) ? saves.get(k) : run.state[k]),
-        info: (k, v) => this.setInfo(run, k, v),
-        onStep: (title) => {
-          run.step = title;
-          if (attemptId) this.emit("attempt.step", { title }, run.id, attemptId);
-        },
-        onFlag: (f) => {
-          if (attemptId) this.emit("attempt.flag", { ...f }, run.id, attemptId);
-        },
+  /** The kind's helper object for one attempt (or the run's setup), built from the runtime every kind gets. */
+  private helpers(run: ActiveRun, kind: JobKind, pack: LoadedPack, page: Page, recorder: AttemptRecorder, saves: Map<string, unknown>, attemptId: string | null): unknown {
+    const rt: AttemptRuntime = {
+      page,
+      context: run.session!.context,
+      control: run.control,
+      recorder,
+      session: run.session!,
+      save: (k, v) => saves.set(k, v),
+      load: (k) => (saves.has(k) ? saves.get(k) : run.state[k]),
+      info: (k, v) => this.setInfo(run, k, v),
+      onStep: (title) => {
+        run.step = title;
+        if (attemptId) this.emit("attempt.step", { title }, run.id, attemptId);
       },
-      pack.options.helpers,
-    );
+      onFlag: (f) => {
+        if (attemptId) this.emit("attempt.flag", { ...f }, run.id, attemptId);
+      },
+    };
+    return kind.helpers(rt, pack);
   }
 
   private async runAttempt(ctx: RunCtx, item: PlanItem, parentId: string | null): Promise<{ outcome: Outcome; attemptId: string }> {
@@ -910,7 +906,7 @@ export class Engine {
       session,
       control: run.control,
       recorder,
-      helpers: () => this.helpers(run, pack, page, recorder, saves, id),
+      helpers: () => this.helpers(run, kind, pack, page, recorder, saves, id),
       runChild: (childId) => this.runChild(ctx, item, id, childId),
     };
 
@@ -982,7 +978,7 @@ export class Engine {
     }
 
     if (top) run.recorder = null;
-    const { status, error: attemptError } = classify({
+    const { status, error: attemptError } = kind.classify({
       error,
       flags: recorder.flags,
       stopped: run.control.stopMode === "now" || run.shutdown,
