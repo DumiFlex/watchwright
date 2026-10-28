@@ -7,7 +7,7 @@ import { AttemptAborted, RunControl, type BrokenDecision } from "../../jobs/cont
 import type { AttemptEnv, JobKind, KindPlan, PlanItem } from "../../jobs/kind.js";
 import type { JobKinds } from "../../jobs/kinds.js";
 import type { AttemptRuntime } from "../../jobs/runtime.js";
-import { AttemptRecorder, slug, type ArtifactInfo } from "../../jobs/recorder.js";
+import { AttemptRecorder, safeRelative, slug, type ArtifactInfo } from "../../jobs/recorder.js";
 import { BrowserSession } from "../../session/session.js";
 import type { FrameHub } from "../live/hub.js";
 import { StepError, type Collector, type CollectorAttempt, type CollectorRecord, type Outcome, type ParamValues } from "../packs/api.js";
@@ -45,13 +45,6 @@ const ABORT_GRACE_MS = 10_000;
 const STOP_GRACE_MS = 5_000;
 /** How long a pack or collector hook may take before the attempt goes on without it. */
 const HOOK_LIMIT_MS = 120_000;
-
-/** A file name a collector gave, as a safe path inside the attempt folder, or null. */
-function safeRelative(name: string): string | null {
-  const parts = name.split(/[\\/]+/).filter((p) => p !== "" && p !== ".");
-  if (parts.length === 0 || parts.some((p) => p === ".." || /[:<>|?*"]/.test(p))) return null;
-  return parts.join("/");
-}
 
 export class EngineError extends Error {
   constructor(

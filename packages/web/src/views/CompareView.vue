@@ -44,7 +44,7 @@ const differing = computed(() => (data.value ? differingParams(data.value.runs) 
 const scores = computed(() => (data.value ? runScores(data.value) : []));
 const exports = computed(() => [
   { value: "md", label: "Markdown", href: exportUrl("md", chosen.value) },
-  { value: "zip", label: "Markdown and screenshots (zip)", href: exportUrl("zip", chosen.value) },
+  { value: "zip", label: "Markdown and files (zip)", href: exportUrl("zip", chosen.value) },
 ]);
 /** Tests with more than one attempt show the attempt number on each row. */
 const manyAttempts = computed(() => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Artifact } from "../src/api";
-import { attemptOrder, attemptSteps, cellOf, logMarks, plainText, recordColumns, shotGroups, traceViewerUrl } from "../src/attempt";
+import { attemptOrder, attemptSteps, besideFile, cellOf, isMarkdown, logMarks, plainText, recordColumns, shotGroups, traceViewerUrl } from "../src/attempt";
 
 const art = (name: string, kind = "shot", set?: string): Artifact => ({ kind, name, contentType: "image/png", url: `/f/${name}`, size: 1, ...(set ? { set } : {}) });
 
@@ -79,5 +79,18 @@ describe("step timeline", () => {
   });
   it("marks warnings from the log", () => {
     expect(logMarks(doc)).toEqual([{ at: 2500, label: "The click timed out but landed.", tone: "warn" }]);
+  });
+  it("tells Markdown files and resolves links next to a saved file", () => {
+    expect(isMarkdown({ contentType: "text/markdown; charset=utf-8", url: "/f/a" })).toBe(true);
+    expect(isMarkdown({ contentType: "application/octet-stream", url: "/f/notes.MD" })).toBe(true);
+    expect(isMarkdown({ contentType: "text/plain", url: "/f/a.txt" })).toBe(false);
+    const file = "/api/v1/files/runs/r1/A/attempt-1/collectors/ai/debug-01.md";
+    expect(besideFile(file, "debug-01.json")).toBe("/api/v1/files/runs/r1/A/attempt-1/collectors/ai/debug-01.json");
+    expect(besideFile(file, "../../01-home.png#x")).toBe("/api/v1/files/runs/r1/A/attempt-1/01-home.png#x");
+    expect(besideFile(file, "../../../../../r2/x.png")).toBeNull();
+    expect(besideFile(file, "https://example.com/")).toBeNull();
+    expect(besideFile(file, "/etc/passwd")).toBeNull();
+    expect(besideFile(file, "#top")).toBeNull();
+    expect(besideFile(file, "")).toBeNull();
   });
 });
