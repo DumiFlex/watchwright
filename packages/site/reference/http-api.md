@@ -119,6 +119,25 @@ Runs that start by themselves; see [Schedules](../guide/schedules). A due schedu
 
 Events: `schedule.created`, `schedule.updated`, `schedule.deleted`, `schedule.fired` (with `runId` and `why`: `due`, `missed` or `now`), `schedule.skipped` (its last run was still going), `schedule.missed` (a time passed while the server was off, with the `policy` used) and `schedule.failed` (the run didn't start, with `message`).
 
+## Alerts
+
+Messages to ntfy, Discord, Slack or a webhook when runs end a certain way; see [Alerts](../guide/alerts). Adding, changing and deleting channels and rules wait for approval from anything but the web page.
+
+| Method and path | Does |
+|---|---|
+| `GET /alerts/channels` | `[{ id, name, type, url, hasToken, createdAt, updatedAt }]`. `url` is only the site (`https://ntfy.sh/…`), or a `${secret.NAME}` reference as written; tokens are never answered. |
+| `POST /alerts/channels` `{ name, type, url, token? }` | Adds a channel (201). `type` is `ntfy`, `discord`, `slack` or `webhook`. `url` and `token` may be `${secret.NAME}`. 400 `bad_url`, 409 `name_taken`. |
+| `POST /alerts/channels/:id` | Changes any of `name`, `type`, `url`, `token`. A missing `url` or `token` keeps the saved one; an empty `token` removes it. |
+| `DELETE /alerts/channels/:id` | Deletes a channel and takes it out of every rule. |
+| `POST /alerts/channels/:id/test` | Sends a test message now: `{ sent: true }`, or 502 `send_failed` with the reason. |
+| `GET /alerts/rules` | `[{ id, name, triggers, packs, schedules, channels, onlyOnChange, enabled, createdAt, updatedAt }]`. |
+| `POST /alerts/rules` `{ name, triggers, channels, packs?, schedules?, onlyOnChange?, enabled? }` | Adds a rule (201). `triggers` are `failed`, `broken`, `stopped`, `passed`, `failed_to_start`, `recovered` (passes again), `test_broken`, `schedule_missed` and `approval`. `packs` and `schedules` are ids; both empty covers everything. `onlyOnChange` defaults to true. |
+| `POST /alerts/rules/:id` | Changes any of the rule's fields. |
+| `DELETE /alerts/rules/:id` | Deletes a rule. |
+| `GET /alerts/log?limit=` | What was sent lately, newest first (default 50, at most 500): `{ id, at, ruleId, ruleName, channelId, channelName, trigger, title, runId, status, tries, error }`. `status` is `sending`, `sent` or `failed`. |
+
+Events: `alert.sent` and `alert.failed` (`{ rule, channel, trigger, title, tries, error? }`, on the run when there is one), `alert.channel_changed` and `alert.rule_changed` (`{ id, name, change }`).
+
 ## Folders
 
 A web page can't learn a folder's path from the browser, so the server lists folders on its machine for the web app's folder browser. It lists folder names and the marker files plugins ask about (a pack file), never other files or what's in them.
@@ -222,7 +241,7 @@ Everything that happens is an event with a growing sequence number: `{ seq, time
 
 `GET /events?after=<seq>&wait=<seconds>&runId=&types=&limit=` returns `{ events, next, head }`. With `wait` (up to 110 seconds) it holds the request until a matching event arrives, so an agent can follow a run with one request at a time: call again with `after=next`.
 
-Event types (open set, more come with later plugins): `run.queued`, `run.started`, `run.planned`, `run.pausing`, `run.paused`, `run.resumed`, `run.decision`, `run.stopping`, `run.labeled`, `run.finished`, `run.interrupted`, `run.failed_to_start`, `run.log`, `run.info`, `run.tests-added`, `run.items-added` (items a job kind added to its running run, in batches, with `total` so far; a run's `options.added` lists them, and a resumed run keeps them), `attempt.started`, `attempt.step`, `attempt.log`, `attempt.flag`, `attempt.artifact`, `attempt.finished`, `page.opened`, `page.navigated`, `page.active`, `page.closed`, `video.unavailable`, `pack.added`, `pack.loaded`, `pack.reload_failed`, `pack.reloaded`, `pack.removed`, `editor.file_changed`, `review.saved`, `record.started`, `record.status`, `record.replay-step`, `record.agent-step`, `record.step`, `record.step-updated`, `record.step-removed`, `record.ended`, `signin.saved`, `schedule.created`, `schedule.updated`, `schedule.deleted`, `schedule.fired`, `schedule.skipped`, `schedule.missed`, `schedule.failed`, `approval.requested`, `approval.answered`.
+Event types (open set, more come with later plugins): `run.queued`, `run.started`, `run.planned`, `run.pausing`, `run.paused`, `run.resumed`, `run.decision`, `run.stopping`, `run.labeled`, `run.finished`, `run.interrupted`, `run.failed_to_start`, `run.log`, `run.info`, `run.tests-added`, `run.items-added` (items a job kind added to its running run, in batches, with `total` so far; a run's `options.added` lists them, and a resumed run keeps them), `attempt.started`, `attempt.step`, `attempt.log`, `attempt.flag`, `attempt.artifact`, `attempt.finished`, `page.opened`, `page.navigated`, `page.active`, `page.closed`, `video.unavailable`, `pack.added`, `pack.loaded`, `pack.reload_failed`, `pack.reloaded`, `pack.removed`, `editor.file_changed`, `review.saved`, `record.started`, `record.status`, `record.replay-step`, `record.agent-step`, `record.step`, `record.step-updated`, `record.step-removed`, `record.ended`, `signin.saved`, `schedule.created`, `schedule.updated`, `schedule.deleted`, `schedule.fired`, `schedule.skipped`, `schedule.missed`, `schedule.failed`, `alert.sent`, `alert.failed`, `alert.channel_changed`, `alert.rule_changed`, `approval.requested`, `approval.answered`.
 
 ## Live WebSocket
 
