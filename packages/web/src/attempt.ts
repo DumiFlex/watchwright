@@ -93,3 +93,21 @@ export function logMarks(doc: Pick<ResultDocument, "log" | "startedAt">): { at: 
   const start = Date.parse(doc.startedAt);
   return doc.log.filter((l) => l.level !== "info").map((l) => ({ at: Math.max(0, Date.parse(l.time) - start), label: l.message, tone: l.level === "error" ? "bad" : "warn" }));
 }
+
+/** True for a Markdown file (by its content type, or its name when the type is generic). */
+export function isMarkdown(a: Pick<Artifact, "contentType" | "url">): boolean {
+  return a.contentType.startsWith("text/markdown") || /\.(md|markdown)$/i.test(a.url.split("?")[0] ?? "");
+}
+
+/**
+ * A relative link or image in a saved file, as a url next to that file (`notes.md` linking
+ * `img/a.png`); null for anything that isn't relative or would leave the run's files.
+ */
+export function besideFile(fileUrl: string, target: string): string | null {
+  if (!target || /^[a-z][a-z0-9+.-]*:|^\/|^#/i.test(target)) return null;
+  const base = new URL(fileUrl, "http://x");
+  const to = new URL(target, base);
+  const run = base.pathname.split("/").slice(0, 6).join("/");
+  if (to.origin !== base.origin || !to.pathname.startsWith(`${run}/`)) return null;
+  return to.pathname + to.search + to.hash;
+}

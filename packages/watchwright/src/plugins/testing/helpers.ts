@@ -1,6 +1,8 @@
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 import type { BrowserContext, Locator, Page } from "playwright";
 import type { RunControl } from "../../jobs/control.js";
-import type { AttemptRecorder } from "../../jobs/recorder.js";
+import { contentTypeOf, safeRelative, type AttemptRecorder } from "../../jobs/recorder.js";
 import type { BrowserSession } from "../../session/session.js";
 import { SkipTest, StepError, type ClickOptions, type FlagKind, type Helpers, type Target } from "../packs/api.js";
 
@@ -204,6 +206,29 @@ export function createHelpers(rt: HelperRuntime, extend?: (h: Helpers) => Record
       recorder.texts[name] = text;
       recorder.write("text", name, recorder.numberedName(name, ".txt"), text, "text/plain; charset=utf-8");
       return text;
+    },
+
+    async file(name, data, contentType) {
+      await enter();
+      const rel = safeRelative(name);
+      if (!rel) throw new StepError(`"${name}" isn't a usable file name.`);
+      let body: string | Buffer;
+      if (typeof data === "string") body = data;
+      else if (data instanceof Uint8Array) body = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+      else {
+        try {
+          body = readFileSync(data.path);
+        } catch (e) {
+          throw new StepError(`Couldn't read ${data.path} to save it as "${rel}": ${(e as Error).message}`);
+        }
+      }
+      // A name used again gets -2, -3, … before its extension, so nothing saved earlier is lost.
+      const ext = path.posix.extname(rel);
+      const stem = rel.slice(0, rel.length - ext.length);
+      let saved = rel;
+      for (let n = 2; existsSync(path.join(recorder.dir, "files", ...saved.split("/"))); n++) saved = `${stem}-${n}${ext}`;
+      recorder.write("file", saved, path.join("files", ...saved.split("/")), body, contentType ?? contentTypeOf(saved));
+      return saved;
     },
 
     log(message) {

@@ -48,7 +48,7 @@ Once a run is over, its page shows the results as a grid: one row per test, one 
 
 A finished run's page also shows **Since the last run**: the attempts whose status, flags, score or time moved since the newest earlier run of the same pack with the same parameters, and tests one of the two runs didn't have. A score counts as moved at half a point, a time at half again as long or short (and at least 2 seconds apart). **Compare side by side** opens both runs on the compare page.
 
-**Export** on a run page or the compare page downloads the results as Markdown: the runs with their parameters and mean scores, then one section per test with each attempt's status, flags, metrics, the scores as a small table, the reviewers' notes and links to the screenshots. The plain Markdown links to the Watchwright server. **Markdown and screenshots (zip)** puts the screenshots next to the Markdown, so it reads anywhere, for example attached to an issue.
+**Export** on a run page or the compare page downloads the results as Markdown: the runs with their parameters and mean scores, then one section per test with each attempt's status, flags, metrics, the scores as a small table, the reviewers' notes and links to the screenshots and files (kept texts, collector records, and the files tests and collectors saved). The plain Markdown links to the Watchwright server. **Markdown and files (zip)** puts the screenshots and files next to the Markdown, under `shots/<run>/<attempt>/` and `files/<run>/<attempt>/`, so it reads anywhere, for example attached to an issue. Videos and traces stay out of the zip; open them from the attempt page.
 
 ## Reviews from agents and scripts
 

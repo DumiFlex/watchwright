@@ -49,6 +49,14 @@ const TYPES: Record<string, string> = {
   ".txt": "text/plain; charset=utf-8",
   ".json": "application/json",
   ".md": "text/markdown; charset=utf-8",
+  ".csv": "text/csv; charset=utf-8",
+  ".log": "text/plain; charset=utf-8",
+  ".yaml": "text/yaml; charset=utf-8",
+  ".yml": "text/yaml; charset=utf-8",
+  ".xml": "application/xml",
+  ".pdf": "application/pdf",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
   ".webm": "video/webm",
   ".zip": "application/zip",
   ".html": "text/html; charset=utf-8",
@@ -56,6 +64,13 @@ const TYPES: Record<string, string> = {
 
 export function contentTypeOf(file: string): string {
   return TYPES[path.extname(file).toLowerCase()] ?? "application/octet-stream";
+}
+
+/** A relative path inside a folder (`a/b.md`), or null when it would leave it or isn't a usable name. */
+export function safeRelative(name: string): string | null {
+  const parts = name.split(/[\\/]+/).filter((p) => p !== "" && p !== ".");
+  if (parts.length === 0 || parts.some((p) => p === ".." || /[:<>|?*"]/.test(p))) return null;
+  return parts.join("/");
 }
 
 /** File-name-safe version of a label: `Search results` → `search-results`. */
