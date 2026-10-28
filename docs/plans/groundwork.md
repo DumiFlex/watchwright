@@ -1,6 +1,6 @@
 # Groundwork plan: the eight seams before new capabilities
 
-Status: planned (2026-10-28). The gaps come from [docs/research/beyond-testing.md](../research/beyond-testing.md), section 3. Dumi asked to fix all eight before choosing a new capability. [docs/plan.md](../plan.md) is the base design; this step finishes the seams its section 3 promised, so that scraping, watching or crawling can arrive later as plugins without touching the core.
+Status: built (2026-10-28). Job kinds #92, runs that grow #93, pages #95, secrets #97, saved sign-ins #98, schedules #101, alerts #103, with a fix so approvals never show a secret (#104) and this sign-off. Two changes from the plan: secrets and sign-ins live in the database (one backup with everything else) instead of files, and a secret doesn't yet list where it is used. The gaps come from [docs/research/beyond-testing.md](../research/beyond-testing.md), section 3. Dumi asked to fix all eight before choosing a new capability. [docs/plan.md](../plan.md) is the base design; this step finishes the seams its section 3 promised, so that scraping, watching or crawling can arrive later as plugins without touching the core.
 
 Everything here is general. Most of it helps testing right away: schedules, alerts and saved sign-ins are test features too.
 

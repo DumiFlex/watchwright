@@ -32,4 +32,10 @@ Everything that happens is one row in an append-only event log: a run queued, an
 
 Every capability is a plugin, including the ones that ship. A plugin can bring its own database migrations, API routes, events, actions and web pages. Testing is the first capability; later ones such as scraping reuse browser sessions, the live view, pause and the store as they are.
 
+Each kind of job is a plugin too. A **job kind** plans a run's items, runs each one and says how it ended. Testing is the `test` kind; a later kind such as a crawl can add items while its run goes, and can name the outcomes in its own words (an extraction might say "done" for passed). Lists, filters, stats and redo work the same for every kind, because the five outcomes stay the same underneath. `GET /kinds` lists the loaded kinds, and the web app's menu shows the pages the loaded plugins bring.
+
 Each operation is declared once as an action with a JSON Schema for its input and output. The HTTP route, the [CLI](../reference/cli) command and the [MCP tool](../reference/mcp) come from that one declaration.
+
+## Running on its own
+
+A [schedule](./schedules) starts a pack's run by itself, every so often or at a time of day, while the server runs; on Windows, Settings can start the server when you sign in. [Alerts](./alerts) tell you how runs went when the web page is closed: on your phone through ntfy, in Discord or Slack, or at a webhook of your own. Tests that need passwords read them from [secrets](./yaml-tests#secrets), and runs of a site that needs signing in can start from a [saved sign-in](./yaml-tests#saved-sign-ins).

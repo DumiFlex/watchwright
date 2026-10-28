@@ -3,12 +3,12 @@
 A browser test harness built on [Playwright](https://playwright.dev) that you watch work live.
 
 - **Watch it.** Every run streams a live picture of the browser to Watchwright's own web page, with the current test, step and log.
-- **Control it from the page.** Start, pause, resume, retry, skip and stop runs on the website, and review what each test saved: screenshots, text, metrics, video and Playwright traces.
+- **Control it from the page.** Start, pause, resume, retry, skip and stop runs on the website, and review what each test saved: screenshots, text, metrics, video and Playwright traces. Or let a schedule start them, and an alert on your phone or in a chat tell you when one fails.
 - **Test any site.** You write test packs for your own websites: a folder with a `pack` file and test files in the familiar Playwright style.
 - **Let your agents drive.** Everything the page does is an API call, and AI coding agents (Claude Code, Codex, any MCP client) get it through a CLI, an MCP server and an agent skill. Watchwright has no AI assistant of its own.
 - **Built to grow.** Every capability is a plugin on one core of browser sessions, jobs, events and actions. Testing comes first; scraping, crawling and other Playwright capabilities can be added later without reworking the base.
 
-> **Status: early (0.x).** The run engine, test packs in TypeScript or YAML, the live view, the web app (runs, review, compare, a pack editor and Record), the HTTP API, the command line, the MCP server and the agent skill work; see [docs/plan.md](docs/plan.md) for the plan and what is built so far.
+> **Status: early (0.x).** The run engine, test packs in TypeScript or YAML, the live view, the web app (runs, review, compare, a pack editor and Record), schedules, alerts, secrets, saved sign-ins, the HTTP API, the command line, the MCP server and the agent skill work; see [docs/plan.md](docs/plan.md) for the plan and what is built so far.
 
 **Docs:** [dumiflex.github.io/watchwright](https://dumiflex.github.io/watchwright/)
 

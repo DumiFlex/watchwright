@@ -34,6 +34,8 @@ Watchwright still has no AI of its own. Where a capability would "use AI to find
 
 ## 3. Seams that are missing
 
+> All eight are fixed now (2026-10-28): see [docs/plans/groundwork.md](../plans/groundwork.md) for what was built and the PRs. The list below is how things stood when this note was written.
+
 Reading the code with a second job kind in mind, these are the gaps. They are small, but every capability below needs some of them, so they belong in the first PR of whichever capability goes first.
 
 1. **Job kinds are not pluggable yet.** The `runs` plugin passes `kinds: [testKind]` by import, and `RunEngine.prepare` picks `this.kinds.get("test")`. A `JOB_KINDS` service (plugins register kinds in `setup`) and a `kind` field on run start close this, as plan section 3 intended.
