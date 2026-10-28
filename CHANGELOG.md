@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.5.0](https://github.com/DumiFlex/watchwright/compare/v0.4.0...v0.5.0) (2026-10-28)
+
+
+### Features
+
+* a CLI for agents and scripts: status, run, wait, results and a command per action ([#77](https://github.com/DumiFlex/watchwright/issues/77)) ([172af3c](https://github.com/DumiFlex/watchwright/commit/172af3c469eb71e75a540eaad52f67319593feca))
+* agents ask for approval on the web page before deleting anything ([#78](https://github.com/DumiFlex/watchwright/issues/78)) ([29423d5](https://github.com/DumiFlex/watchwright/commit/29423d5a84c61e913bc563d1cc70e0d09c794680))
+* agents explore a site in a recording session before writing a test ([#80](https://github.com/DumiFlex/watchwright/issues/80)) ([296fd47](https://github.com/DumiFlex/watchwright/commit/296fd4791f61cc126dd832b742a261df245c9f13))
+* an MCP server for agents, over HTTP and stdio ([#79](https://github.com/DumiFlex/watchwright/issues/79)) ([cecfca1](https://github.com/DumiFlex/watchwright/commit/cecfca1ce0adedf42a24c1e5a1686ace1aa73190))
+* the agent skill, init-agent and an Agents section in Settings ([#81](https://github.com/DumiFlex/watchwright/issues/81)) ([deb6f9a](https://github.com/DumiFlex/watchwright/commit/deb6f9a2df019cbe44a42e116865cd0e8730e48d))
+
+
+### Bug Fixes
+
+* findings from the step 5 check on Windows ([#83](https://github.com/DumiFlex/watchwright/issues/83)) ([5e9ea39](https://github.com/DumiFlex/watchwright/commit/5e9ea39e63470b582700a391b25678a8a50b9ca0))
+* give agents the server's real page address, and accept refs inside frames ([#82](https://github.com/DumiFlex/watchwright/issues/82)) ([12720a3](https://github.com/DumiFlex/watchwright/commit/12720a3502ea33af3ed772d990751c4867613726))
+
 ## [0.4.0](https://github.com/DumiFlex/watchwright/compare/v0.3.0...v0.4.0) (2026-10-28)
 
 
