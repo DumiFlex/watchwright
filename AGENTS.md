@@ -58,4 +58,4 @@ Run `pnpm lint && pnpm typecheck && pnpm test` before every commit.
 - The commit type picks the bump. Below 1.0: `feat` → minor, `fix`/`perf`/`refactor` → patch, a breaking change (`feat!:`) → minor. `docs`, `chore`, `test`, `ci`, `build` and `style` don't release and stay out of the changelog. Changes only under `.github/` never release.
 - Never edit `CHANGELOG.md`, `.release-please-manifest.json` or the `version` fields by hand. To force a version (for example 1.0.0), set `"release-as"` in `release-please-config.json` in a PR, and remove it after the release.
 - Don't merge into `dev` while a release PR is open on `main`; let it finish first.
-- Each release also publishes the docs site to GitHub Pages, but only once the repository variable `PAGES_ENABLED` is `true`. It stays off while the repository is private, because a Pages site is public. To switch it on: Settings > Pages > Source "GitHub Actions", set the variable, then run the Site workflow on `main` once.
+- Each release also publishes the docs site to GitHub Pages (https://dumiflex.github.io/watchwright/). To publish `main` without a release, run the Site workflow on `main` by hand.
