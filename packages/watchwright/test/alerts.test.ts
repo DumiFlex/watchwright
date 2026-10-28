@@ -84,7 +84,10 @@ function world(sendImpl?: (out: Outgoing) => Promise<void>) {
     return id;
   };
   const titles = () => sent.map((s) => (JSON.parse(s.body) as { title: string }).title);
-  const flush = () => new Promise((r) => setTimeout(r, 30));
+  /** Waits until every send is done, retries included (timers are coarse on Windows). */
+  const flush = async () => {
+    for (let i = 0; i < 200 && (i < 2 || alerter.pending > 0); i++) await new Promise((r) => setTimeout(r, 10));
+  };
   return { store, events, alerter, runs, sent, finish, titles, flush };
 }
 

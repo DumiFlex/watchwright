@@ -12,7 +12,10 @@ A browser test harness built on [Playwright](https://playwright.dev) that you wa
 
 **Docs:** [dumiflex.github.io/watchwright](https://dumiflex.github.io/watchwright/)
 
-![A run in progress, with the live browser picture](docs/screenshots/run-live-light.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/run-live-dark.png">
+  <img alt="A run in progress, with the live browser picture, the controls and the queue" src="docs/screenshots/run-live-light.png">
+</picture>
 
 ## Requirements
 
