@@ -55,6 +55,8 @@ export interface Action<I = Record<string, unknown>, O = unknown> {
   destructive?: boolean;
   /** What a call would do, in words for the person approving it ("Delete run 3f2a… and its files"). */
   explain?: (input: I) => string | Promise<string>;
+  /** Input fields that hold a password or token: an approval of the call shows them as •••. */
+  secret?: readonly string[];
   handler: (input: I, call: ActionCall) => O | Promise<O>;
 }
 
