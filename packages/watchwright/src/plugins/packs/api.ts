@@ -124,6 +124,11 @@ export interface Helpers {
   load<T = unknown>(key: string): T | undefined;
   /** Saves a fact about the whole run (the app's version, the model it uses), shown on the run page. */
   info(key: string, value: string | number | boolean): void;
+  /**
+   * A secret set on Settings > Secrets (a password, a token). Its value is masked in logs, notes,
+   * kept texts, step titles and errors. Throws a step error when no secret has that name.
+   */
+  secret(name: string): string;
   /** Ends the attempt as skipped, with the reason. */
   skip(reason: string): never;
   /**

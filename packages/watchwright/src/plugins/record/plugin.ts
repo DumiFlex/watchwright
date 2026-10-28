@@ -7,6 +7,7 @@ import { PACKS } from "../packs/registry.js";
 import { STEP_BY_NAME, type StepArgs } from "../packs/yaml/steps.js";
 import type { Target } from "../packs/yaml/targets.js";
 import { ENGINE, FILES_ROOT } from "../runs/plugin.js";
+import { SECRETS } from "../secrets/plugin.js";
 import { stepsYaml } from "./explore.js";
 import { RecordNotReady, RecordSession, type RecordInput } from "./session.js";
 
@@ -140,7 +141,7 @@ export const recordPlugin = definePlugin({
           })();
           const session = new RecordSession(
             { pack, packId, siteKey: pack.options.site.key, testId: testId ?? null, replay, line: line ?? null, url: url ?? null, params: resolved, window, dataDir, startedBy: client },
-            { events, frames, siteBusy: (k) => engine.siteBusy(k), holdSite: (k) => engine.holdSite(k) },
+            { events, frames, siteBusy: (k) => engine.siteBusy(k), holdSite: (k) => engine.holdSite(k), secret: (name) => services.get(SECRETS).get(name) },
           );
           recordings.add(session);
           events.append("record.started", { packId, testId: testId ?? null, window, startedBy: client }, { runId: session.id });
