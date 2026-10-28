@@ -87,6 +87,7 @@ export const secretsPlugin = definePlugin({
       defineAction<{ name: string; value: string }>({
         name: "secrets.set",
         destructive: true,
+        secret: ["value"],
         explain: ({ name }) => (secrets.get(name) === undefined ? `Add the secret ${name}` : `Replace the value of the secret ${name}`),
         title: "Set a secret (a new one, or a new value for one that exists); tests read it as ${secret.NAME}",
         method: "POST",

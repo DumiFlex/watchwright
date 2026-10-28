@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ActionError, defineAction } from "../src/actions/registry.js";
 import { BUILTIN_PLUGINS } from "../src/core/builtin.js";
 import { definePlugin, migrationsOf } from "../src/core/plugin.js";
+import { SECRETS } from "../src/plugins/secrets/plugin.js";
 import { APPROVALS, type Approval } from "../src/plugins/approvals/plugin.js";
 import { Client } from "../src/cli/client.js";
 import { actionCommand, EXIT, guarded, type Io } from "../src/cli/commands.js";
@@ -95,6 +96,18 @@ describe("approvals", () => {
     expect(dropped).toEqual(["x as Claude Code"]);
     // A second answer is refused.
     expect((await req("POST", `/approvals/${a!.id}/answer`, { page: true, body: { approve: true } })).statusCode).toBe(409);
+  });
+
+  it("never shows a secret's value in an approval, and still sets it once approved", async () => {
+    const { app, req, waiting } = await make();
+    const call = req("POST", "/secrets", { client: "Claude Code", body: { name: "SHOP_TOKEN", value: "hunter2-long" } });
+    const [a] = await waiting();
+    expect(a!.input).toEqual({ name: "SHOP_TOKEN", value: "•••" });
+    expect(JSON.stringify((await req("GET", `/approvals/${a!.id}/wait?timeout=0`)).json())).not.toContain("hunter2");
+    const answered = (await req("POST", `/approvals/${a!.id}/answer`, { page: true, client: "web", body: { approve: true } })).json() as { data: Approval };
+    expect(answered.data).toMatchObject({ status: "approved", input: { value: "•••" } });
+    expect((await call).statusCode).toBe(201);
+    expect(app.watchwright.services.get(SECRETS).get("SHOP_TOKEN")).toBe("hunter2-long");
   });
 
   it("answers a refused call with an error, and runs nothing", async () => {

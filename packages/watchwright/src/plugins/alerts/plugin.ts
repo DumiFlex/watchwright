@@ -126,6 +126,7 @@ export const alertsPlugin = definePlugin({
       defineAction<ChannelInput>({
         name: "alerts.channel-create",
         destructive: true,
+        secret: ["url", "token"],
         explain: ({ name, type }) => `Add the ${type} alert channel "${name}", which sends messages outside this computer`,
         title: "Add an alert channel: a webhook, an ntfy topic, a Discord webhook or a Slack webhook",
         method: "POST",
@@ -137,6 +138,7 @@ export const alertsPlugin = definePlugin({
       defineAction<Partial<ChannelInput> & { id: string }>({
         name: "alerts.channel-update",
         destructive: true,
+        secret: ["url", "token"],
         explain: ({ id }) => `Change the alert channel ${id}`,
         title: "Change an alert channel (a missing url or token keeps the old one)",
         method: "POST",
