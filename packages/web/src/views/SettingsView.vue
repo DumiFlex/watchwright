@@ -13,6 +13,7 @@ import { LOOKS, MODES, type Theme } from "../theme";
 import { notify, notifySupport, turnOffNotify, turnOnNotify, type NotifySupport } from "../notify";
 import { toast } from "../toasts";
 import AgentsSettings from "../components/AgentsSettings.vue";
+import AlertsSettings from "../components/AlertsSettings.vue";
 import SecretsSettings from "../components/SecretsSettings.vue";
 import SigninsSettings from "../components/SigninsSettings.vue";
 import ModalDialog from "../components/ModalDialog.vue";
@@ -167,6 +168,7 @@ onMounted(() => {
 
     <SecretsSettings />
     <SigninsSettings />
+    <AlertsSettings />
 
     <AgentsSettings />
 

@@ -151,7 +151,7 @@ describe("approvals", () => {
   it("marks the built-in actions that delete things", async () => {
     const { req } = await make();
     const actions = ((await req("GET", "/actions")).json() as { data: { name: string; destructive?: boolean }[] }).data;
-    expect(actions.filter((a) => a.destructive).map((a) => a.name).sort()).toEqual(["core.stop", "demo.drop", "packs.file-delete", "packs.remove", "record.save-sign-in", "runs.delete", "runs.presets.delete", "schedules.create", "schedules.delete", "schedules.resume", "schedules.set-startup", "schedules.update", "secrets.delete", "secrets.set", "signins.delete"]);
+    expect(actions.filter((a) => a.destructive).map((a) => a.name).sort()).toEqual(["alerts.channel-create", "alerts.channel-delete", "alerts.channel-update", "alerts.rule-create", "alerts.rule-delete", "alerts.rule-update", "core.stop", "demo.drop", "packs.file-delete", "packs.remove", "record.save-sign-in", "runs.delete", "runs.presets.delete", "schedules.create", "schedules.delete", "schedules.resume", "schedules.set-startup", "schedules.update", "secrets.delete", "secrets.set", "signins.delete"]);
   });
 
   it("makes the CLI wait for the approval when no person is at a terminal", async () => {
