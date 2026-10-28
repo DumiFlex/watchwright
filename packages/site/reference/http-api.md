@@ -5,7 +5,8 @@ Everything the web page does goes through this API, so scripts and AI agents can
 - JSON in and out. Success is `{ "data": … }`. Failure is `{ "error": { "code", "message", "detail"? } }` with a snake_case `code` and a matching HTTP status.
 - Requests must pass the [request guard](../guide/safety#who-can-reach-the-server): a loopback `Host` with the server's port, and for changes no `Origin` header or the server's own (scripts and agents send none).
 - Send `x-watchwright-client: <name>` to be named as who started a run (default `api`).
-- `GET /actions` lists every action with its JSON Schema input. The [CLI](./cli) builds its commands from the same list, and the MCP server its tools.
+- `GET /actions` lists every action with its JSON Schema input. The [CLI](./cli) builds its commands from the same list, and the [MCP server](./mcp) its tools.
+- `/api/v1/mcp` is the MCP endpoint (streamable HTTP), for AI agents.
 
 ## Server
 

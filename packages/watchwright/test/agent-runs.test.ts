@@ -1,3 +1,4 @@
+import { Client as McpClient, StreamableHTTPClientTransport, type CallToolResult } from "@modelcontextprotocol/client";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { Client } from "../src/cli/client.js";
 import { actionCommand, EXIT, resultsCommand, runCommand, statusCommand, waitCommand, type Io } from "../src/cli/commands.js";
@@ -153,5 +154,35 @@ run("following a run as an agent", { timeout: 90_000 }, () => {
     const bad = io();
     expect(await actionCommand(client, bad.io, ["runs", "nope"], "watchwright")).toBe(EXIT.usage);
     expect(bad.err[0]).toContain("watchwright runs list");
+  });
+  it("runs a pack, waits and looks at a screenshot through the MCP tools", async () => {
+    const h = await startHarness(tempDir("ww-data-"), { listen: true });
+    harnesses.push(h);
+    await h.api("POST", "/packs", { path: pack() });
+    const mcp = new McpClient({ name: "codex-mcp-client", version: "1.0.0" });
+    await mcp.connect(new StreamableHTTPClientTransport(new URL(`http://${h.host}/api/v1/mcp`)));
+    try {
+      const call = async (name: string, args: Record<string, unknown>) => (await mcp.callTool({ name, arguments: args })) as CallToolResult;
+      const json = (r: CallToolResult) => JSON.parse(r.content[0]?.type === "text" ? r.content[0].text : "null") as Record<string, unknown>;
+
+      // The pack by its name, as an agent says it.
+      const started = await call("start_run", { packId: "Agent fixture", tests: ["T1"] });
+      expect(started.isError).toBeFalsy();
+      const id = String(json(started).id);
+      let waited = json(await call("wait_for_run", { id, timeout: 30 }));
+      while (waited.reason === "timeout") waited = json(await call("wait_for_run", { id, after: waited.cursor, timeout: 30 }));
+      expect(waited.reason).toBe("ended");
+      await engineOf(h).settled(id);
+
+      const summary = json(await call("get_run", { id })) as unknown as RunDigest;
+      expect(summary).toMatchObject({ status: "finished", startedBy: "Codex", counts: { passed: 1 } });
+      const attempt = json(await call("get_attempt", { id, attemptId: summary.attempts[0]!.id })) as { artifacts: { path: string; contentType: string }[] };
+      const shot = attempt.artifacts.find((a) => a.contentType === "image/png")!;
+      const file = await call("get_file", { id, path: shot.path });
+      expect(file.content[0]).toMatchObject({ type: "image", mimeType: "image/png" });
+      expect(file.content[1]).toMatchObject({ type: "text" });
+    } finally {
+      await mcp.close();
+    }
   });
 });

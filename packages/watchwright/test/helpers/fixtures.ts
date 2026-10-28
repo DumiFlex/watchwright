@@ -15,7 +15,8 @@ export function tempDir(prefix = "ww-test-"): string {
 }
 
 export function cleanTempDirs(): void {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  // Retries ride out Windows keeping a file locked for a moment after its process closed it.
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 }
 
 /** Writes files (relative path → content) under `root`. */

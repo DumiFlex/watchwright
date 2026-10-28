@@ -231,6 +231,7 @@ export const runsPlugin = definePlugin({
       }),
       defineAction<{ id: string }>({
         name: "runs.delete",
+        agent: { tool: "delete_run", say: "Only delete runs you started, unless the person asks." },
         destructive: true,
         explain: ({ id }: { id: string }) => {
           const r = engine.get(id);
