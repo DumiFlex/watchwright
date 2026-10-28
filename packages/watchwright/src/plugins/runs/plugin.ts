@@ -189,6 +189,18 @@ export const runsPlugin = definePlugin({
         handler: ({ limit, pack, status, before, q }) =>
           engine.list({ limit, packId: pack, statuses: status ? (status.split(",") as RunStatus[]) : undefined, before, q }),
       }),
+      defineAction<{ id: string; limit?: number }>({
+        name: "runs.history",
+        title: "Each test's last finished attempts in a pack's runs, oldest first, keyed by test id",
+        method: "GET",
+        path: "/packs/:id/history",
+        input: {
+          type: "object",
+          properties: { id: { type: "string", pattern: "^[0-9a-f]{8}$" }, limit: { type: "integer", minimum: 1, maximum: 100, default: 20 } },
+          required: ["id"],
+        },
+        handler: ({ id, limit }) => engine.testHistory(id, limit ?? 20),
+      }),
       defineAction<{ id: string }>({
         name: "runs.delete",
         title: "Delete a run that isn't going, with its results and files",

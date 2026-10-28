@@ -15,6 +15,7 @@ import DatePicker from "../components/DatePicker.vue";
 import DateRangePicker, { type DateRange } from "../components/DateRangePicker.vue";
 import DiffView from "../components/DiffView.vue";
 import EmptyState from "../components/EmptyState.vue";
+import HistoryStrip from "../components/HistoryStrip.vue";
 import FilePicker from "../components/FilePicker.vue";
 import FolderBrowser from "../components/FolderBrowser.vue";
 import PathInput from "../components/PathInput.vue";
@@ -45,7 +46,7 @@ import TargetField from "../components/TargetField.vue";
 import TimelineScrubber, { type TimelineMark } from "../components/TimelineScrubber.vue";
 import ToggleSwitch from "../components/ToggleSwitch.vue";
 import VideoPlayer from "../components/VideoPlayer.vue";
-import type { Criterion, Score } from "../api";
+import type { Criterion, HistoryEntry, Score } from "../api";
 import type { Sort } from "../table";
 import type { TimelineStep } from "../timeline";
 import type { TreeNode } from "../tree";
@@ -254,6 +255,24 @@ const shotOpen = ref<number | null>(null);
 
 // "At a glance": made-up numbers for the last 24 runs of a pack.
 const runIds = Array.from({ length: 24 }, (_, i) => `#${101 + i}`);
+// History strips: one letter per attempt, oldest first (p passed, f failed, b broken, s skipped, r passed on a retry).
+const historyOf = (seq: string): HistoryEntry[] =>
+  [...seq].map((c, i) => ({
+    attemptId: `kit${String(i).padStart(9, "0")}`,
+    runId: `0a1b2c${String(i).padStart(2, "0")}`,
+    runLabel: "",
+    number: 1,
+    try: c === "r" ? 2 : 1,
+    status: ({ p: "passed", r: "passed", f: "failed", b: "broken", s: "skipped" } as const)[c as "p"],
+    startedAt: new Date(Date.UTC(2026, 9, 8 + i, 9)).toISOString(),
+    durationMs: 3000 + ((i * 37) % 900),
+    params: { lang: "de" },
+  }));
+const histories = [
+  { id: "H1", seq: "pppppppppppppppppppp" },
+  { id: "S2", seq: "ppfppfpppfppfppppfpp" },
+  { id: "C2", seq: "ssssssspppprppbppppp" },
+];
 const passedPerRun = runIds.map((_, i) => 38 + ((i * 7) % 9) - (i % 5 === 3 ? 6 : 0));
 const failedPerRun = runIds.map((_, i) => (i % 5 === 3 ? 7 : (i * 3) % 4));
 const brokenPerRun = runIds.map((_, i) => (i % 7 === 2 ? 2 : 0));
@@ -719,6 +738,13 @@ const traces = [
             <span class="muted">Run time</span>
             <SparkLine :values="minutes" :labels="runIds" label="Run time in minutes" tone="muted" :format="(v: number) => `${v} min`" />
             <span class="num">{{ minutes.at(-1) }} min</span>
+          </div>
+        </div>
+        <div class="item">
+          <span class="lbl">Test history</span>
+          <div v-for="h in histories" :key="h.id" class="row">
+            <code>{{ h.id }}</code>
+            <HistoryStrip :entries="historyOf(h.seq)" :label="`Last attempts of ${h.id}`" />
           </div>
         </div>
         <div class="item">
