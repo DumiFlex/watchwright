@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { keyOf, pagePoint, screenRect } from "../src/liveinput";
 import { recordingTestTemplate } from "../src/editfiles";
-import { codeTestAt, insertCodeSteps, insertYamlSteps, targetLabel, yamlSpot } from "../src/recording";
+import { activeUrl, agentSessions, codeTestAt, insertCodeSteps, insertYamlSteps, targetLabel, yamlSpot, type RecordState } from "../src/recording";
 
 const FILE = `section: Adding
 tests:
@@ -116,5 +116,38 @@ describe("code tests and new recordings", () => {
     expect(insertYamlSteps(t.text, spot!, [{ name: "click", args: { target: { role: "button", name: "Go" } } }, { name: "press", args: { key: "Enter" } }])).toBe(
       "id: T3\ntitle: Check out\nsteps:\n  - click: { role: button, name: Go }\n  - press: Enter\n",
     );
+  });
+});
+
+describe("agents' explore sessions", () => {
+  const rec = (over: Partial<RecordState>): RecordState => ({
+    id: "0000000a",
+    packId: "0000000b",
+    testId: null,
+    status: "recording",
+    message: null,
+    window: false,
+    viewport: { width: 800, height: 600 },
+    pages: [],
+    activePage: null,
+    steps: [],
+    startedAt: "2026-10-28T10:00:00.000Z",
+    startedBy: "Claude Code",
+    ...over,
+  });
+
+  it("lists agents' sessions that are open, oldest first, and not the person's", () => {
+    const list = [rec({ id: "2", startedAt: "2026-10-28T11:00:00.000Z" }), rec({ id: "1" }), rec({ id: "3", startedBy: "web" }), rec({ id: "4", status: "ended" })];
+    expect(agentSessions(list).map((r) => r.id)).toEqual(["1", "2"]);
+  });
+
+  it("shows the active page's address", () => {
+    const pages = [
+      { id: "p1", url: "http://site.test/" },
+      { id: "p2", url: "http://site.test/cart" },
+    ];
+    expect(activeUrl(rec({ pages, activePage: "p2" }))).toBe("http://site.test/cart");
+    expect(activeUrl(rec({ pages, activePage: null }))).toBe("http://site.test/");
+    expect(activeUrl(rec({}))).toBeNull();
   });
 });

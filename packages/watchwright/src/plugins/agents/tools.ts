@@ -237,6 +237,15 @@ function resultOf(a: ActionInfo, out: { status: number; data: unknown }): CallTo
     const { data: text, ...about } = file;
     return { content: [{ type: "text", text: JSON.stringify(about) }, { type: "text", text: text.slice(0, MAX_TEXT) }] };
   }
+  // A look at a page (explore_look, and explore_do's answer): the screenshot as an image, the snapshot as text of its own.
+  const look = file && (a.name === "record.look" ? file : a.name === "record.do" ? record(file.look) : null);
+  if (file && look && typeof look.snapshot === "string") {
+    const { shot, snapshot, ...about } = look;
+    const rest = look === file ? about : { ...file, look: about };
+    const s = record(shot);
+    const image: CallToolResult["content"] = s && typeof s.data === "string" && typeof s.mimeType === "string" ? [{ type: "image", data: s.data, mimeType: s.mimeType }] : [];
+    return { content: [{ type: "text", text: JSON.stringify(rest).slice(0, MAX_TEXT) }, { type: "text", text: snapshot }, ...image] };
+  }
   const text = JSON.stringify(data) ?? "null";
   const result: CallToolResult = {
     content: [{ type: "text", text: text.length > MAX_TEXT ? `${text.slice(0, MAX_TEXT)}… (cut at ${MAX_TEXT} characters)` : text }],

@@ -12,6 +12,7 @@ export {
   ArrowRight,
   ArrowUp,
   Ban,
+  Bot,
   Braces,
   Calendar,
   Camera,

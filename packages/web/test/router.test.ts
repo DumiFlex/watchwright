@@ -41,6 +41,7 @@ describe("router", () => {
       { name: "edit", id: "0a1b2c3d", file: null, line: null },
       { name: "edit", id: "0a1b2c3d", file: "tests/a b#.yaml", line: 4 },
       { name: "edit", id: "0a1b2c3d", file: "tests/new.yaml", line: 4, record: true },
+      { name: "edit", id: "0a1b2c3d", file: null, line: null, watch: "9f8e7d6c" },
       { name: "compare", query: { runs: "0a1b2c3d", show: "shot:home" } },
       { name: "kit" },
       { name: "settings" },

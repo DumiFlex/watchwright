@@ -7,6 +7,7 @@ import { PACKS } from "../packs/registry.js";
 import { STEP_BY_NAME, type StepArgs } from "../packs/yaml/steps.js";
 import type { Target } from "../packs/yaml/targets.js";
 import { ENGINE, FILES_ROOT } from "../runs/plugin.js";
+import { stepsYaml } from "./explore.js";
 import { RecordNotReady, RecordSession, type RecordInput } from "./session.js";
 
 // Record: click and type on the live view of a recording browser, and the steps appear as you go
@@ -99,6 +100,10 @@ export const recordPlugin = definePlugin({
       defineAction<{ packId: string; testId?: string; replay?: number; line?: number; url?: string; params?: Record<string, unknown>; window?: boolean }>({
         name: "record.start",
         title: "Start recording: a browser with the pack's options, shown on the live view (or in a window), whose clicks and typing become steps",
+        agent: {
+          tool: "explore_start",
+          say: "Opens the site in a browser the person can watch on the web page, for you to explore with explore_do and explore_look before writing a test. With testId and replay, the test's first steps run first. Stop it with explore_stop when done.",
+        },
         method: "POST",
         path: "/record",
         status: 201,
@@ -115,7 +120,7 @@ export const recordPlugin = definePlugin({
           },
           required: ["packId"],
         },
-        handler: async ({ packId, testId, replay = 0, line, url, params = {}, window = false }) => {
+        handler: async ({ packId, testId, replay = 0, line, url, params = {}, window = false }, { client }) => {
           const summary = packs.get(packId);
           if (!summary) throw new ActionError("not_found", `No pack with id ${packId}.`, 404);
           const pack = await packs.current(packId).catch((err: unknown) => {
@@ -134,11 +139,11 @@ export const recordPlugin = definePlugin({
             }
           })();
           const session = new RecordSession(
-            { pack, packId, siteKey: pack.options.site.key, testId: testId ?? null, replay, line: line ?? null, url: url ?? null, params: resolved, window, dataDir },
+            { pack, packId, siteKey: pack.options.site.key, testId: testId ?? null, replay, line: line ?? null, url: url ?? null, params: resolved, window, dataDir, startedBy: client },
             { events, frames, siteBusy: (k) => engine.siteBusy(k), holdSite: (k) => engine.holdSite(k) },
           );
           recordings.add(session);
-          events.append("record.started", { packId, testId: testId ?? null, window }, { runId: session.id });
+          events.append("record.started", { packId, testId: testId ?? null, window, startedBy: client }, { runId: session.id });
           session.start();
           return session.state();
         },
@@ -199,6 +204,35 @@ export const recordPlugin = definePlugin({
           return found;
         },
       }),
+      defineAction<{ id: string; steps: unknown[]; shot?: boolean }>({
+        name: "record.do",
+        title: "Run steps on the recording's active page, one at a time until one fails; each step that ran joins the recording's steps",
+        agent: {
+          tool: "explore_do",
+          say: "Steps are YAML test steps as JSON ({ click: { role: button, name: Save } }, { fill: { target: { label: Email }, value: a@b.c } }, or a bare name such as reload). A target may be { ref: e4 }, from the last look's snapshot; it is saved as the element's own target. Answers each step's outcome, then the page as explore_look does.",
+        },
+        method: "POST",
+        path: "/record/:id/do",
+        input: {
+          type: "object",
+          properties: {
+            id: REC,
+            steps: { type: "array", minItems: 1, maxItems: 50, items: {}, description: "YAML test steps, as JSON. A target may be `{ ref: e4 }` from the snapshot." },
+            shot: { type: "boolean", default: false, description: "Add a screenshot of the viewport to the look." },
+          },
+          required: ["id", "steps"],
+        },
+        handler: ({ id, steps, shot = false }) => guard(() => recordings.get(id).do(steps, shot)),
+      }),
+      defineAction<{ id: string; shot?: boolean }>({
+        name: "record.look",
+        title: "The recording's active page: its address, title and aria snapshot, whose elements carry refs (e4) steps can name; a screenshot when asked",
+        agent: { tool: "explore_look", say: "Ask for shot: true when how the page looks matters, not just what is on it." },
+        method: "GET",
+        path: "/record/:id/look",
+        input: { type: "object", properties: { id: REC, shot: { type: "boolean", default: false, description: "Add a screenshot of the viewport (JPEG, base64)." } }, required: ["id"] },
+        handler: ({ id, shot = false }) => guard(() => recordings.get(id).look(shot)),
+      }),
       defineAction<{ id: string; pageId: string }>({
         name: "record.page",
         title: "Make one of the recording's tabs the one the live view shows and input goes to",
@@ -253,11 +287,15 @@ export const recordPlugin = definePlugin({
       }),
       defineAction<{ id: string }>({
         name: "record.stop",
-        title: "End a recording and close its browser; returns its steps (Done puts them in the file, Cancel drops them)",
+        title: "End a recording and close its browser; returns its steps, and as `yaml` the list a test's `steps:` takes (Done puts them in the file, Cancel drops them)",
+        agent: { tool: "explore_stop", say: "Only stop sessions you started. Put the yaml under a test's steps: and save it with write_pack_file, then check and run it." },
         method: "POST",
         path: "/record/:id/stop",
         input: { type: "object", properties: { id: REC }, required: ["id"] },
-        handler: async ({ id }) => (await recordings.stop(id)).state(),
+        handler: async ({ id }) => {
+          const r = await recordings.stop(id);
+          return { ...r.state(), yaml: stepsYaml(r.steps) };
+        },
       }),
     ];
   },

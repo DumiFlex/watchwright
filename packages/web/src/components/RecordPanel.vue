@@ -3,10 +3,11 @@
 // clicks and typing come back as steps. Each step can switch to another target that picks out the
 // same element, or click at the spot that was clicked instead of the element's middle. Check, Wait
 // for, Shot and Note add steps by pointing or typing. Done hands the steps to the page; nothing is
-// written to the pack here.
+// written to the pack here. With `attach`, it shows a session someone else started (an agent
+// exploring) instead of starting one: Close leaves it going, Stop ends it.
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, sendJson, type WwEvent } from "../api";
-import { AppWindow, ArrowLeft, Camera, CircleCheck, CircleDot, Crosshair, Hourglass, RotateCw, Send, StickyNote, Trash2 } from "../icons";
+import { AppWindow, ArrowLeft, Bot, Camera, CircleCheck, CircleDot, Crosshair, Hourglass, RotateCw, Send, StickyNote, Trash2 } from "../icons";
 import { LiveConnection } from "../live";
 import type { ViewInput } from "../liveinput";
 import { targetLabel, type RecordEntry, type RecordState } from "../recording";
@@ -29,6 +30,8 @@ const props = defineProps<{
   line?: number | null;
   window: boolean;
   params: Record<string, unknown>;
+  /** A session to show rather than start: an agent's. */
+  attach?: string | null;
 }>();
 const emit = defineEmits<{ done: [steps: { name: string; args: StepArgs }[]]; cancel: [] }>();
 
@@ -93,7 +96,7 @@ function onEvent(e: WwEvent) {
 }
 
 onMounted(async () => {
-  const res = await sendJson<RecordState>("/api/v1/record", { packId: props.packId, ...(props.testId ? { testId: props.testId } : {}), replay: props.replay, ...(props.line ? { line: props.line } : {}), window: props.window, params: props.params });
+  const res = props.attach ? await getJson<RecordState>(`/api/v1/record/${props.attach}`) : await sendJson<RecordState>("/api/v1/record", { packId: props.packId, ...(props.testId ? { testId: props.testId } : {}), replay: props.replay, ...(props.line ? { line: props.line } : {}), window: props.window, params: props.params });
   if (!res.ok) {
     startError.value = res.error.message;
     return;
@@ -106,6 +109,13 @@ onMounted(async () => {
 });
 
 let closed = false;
+const agent = computed(() => (state.value && state.value.startedBy !== "web" ? state.value.startedBy : null));
+const badgeText = computed(() => (agent.value && state.value?.status === "recording" ? `${agent.value} is exploring` : STATUS_TEXT[state.value?.status ?? "starting"]));
+/** Watching an agent's session: leave it going. */
+function close() {
+  closed = true;
+  emit("cancel");
+}
 async function finish(keep: boolean) {
   const s = state.value;
   closed = true;
@@ -117,8 +127,8 @@ async function finish(keep: boolean) {
 }
 onBeforeUnmount(() => {
   live?.close();
-  // Leaving the page ends the recording too.
-  if (!closed && state.value && state.value.status !== "ended") void sendJson(`/api/v1/record/${state.value.id}/stop`);
+  // Leaving the page ends the recording too, unless it is someone else's.
+  if (!closed && !props.attach && state.value && state.value.status !== "ended") void sendJson(`/api/v1/record/${state.value.id}/stop`);
 });
 
 // Input from the live view, sent one at a time in order (a press must land before its release).
@@ -290,7 +300,7 @@ const recording = computed(() => state.value?.status === "recording");
     <div v-else class="layout">
       <section class="view" aria-label="Recording browser">
         <div class="status" role="status">
-          <span class="badge" :class="state?.status ?? 'starting'"><CircleDot :size="14" />{{ STATUS_TEXT[state?.status ?? "starting"] }}</span>
+          <span class="badge" :class="[state?.status ?? 'starting', { agent }]"><component :is="agent ? Bot : CircleDot" :size="14" />{{ badgeText }}</span>
           <span v-if="state?.message" class="muted small msg">{{ state.message }}</span>
         </div>
         <div v-if="!state?.window" class="urlbar">
@@ -358,7 +368,12 @@ const recording = computed(() => state.value?.status === "recording");
         </ol>
       </section>
     </div>
-    <div class="actions">
+    <div v-if="attach" class="actions">
+      <span class="muted small hint">{{ state?.status === "ended" ? "The session ended." : `Steps ${agent ?? "the agent"} runs and those you click land in its list.` }}</span>
+      <button type="button" class="btn" @click="close">Close</button>
+      <button type="button" class="btn danger" :disabled="!state || state.status === 'ended'" @click="finish(false)">Stop the session</button>
+    </div>
+    <div v-else class="actions">
       <span class="muted small hint">{{ state?.status === "ended" ? "The recording browser closed." : "Nothing is written until Done." }}</span>
       <button type="button" class="btn" @click="finish(false)">Cancel</button>
       <button type="button" class="btn primary" :disabled="!state" @click="finish(true)">Done{{ steps.length ? `, add ${steps.length} ${steps.length === 1 ? "step" : "steps"}` : "" }}</button>
@@ -458,6 +473,10 @@ const recording = computed(() => state.value?.status === "recording");
 .badge.recording {
   background: color-mix(in srgb, var(--bad) 14%, transparent);
   color: var(--bad);
+}
+.badge.recording.agent {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
 }
 .badge.waiting,
 .badge.replaying {

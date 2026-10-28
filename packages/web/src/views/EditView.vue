@@ -36,7 +36,7 @@ import { vTip } from "../tooltip";
 import { rangeAt } from "../yamlhints";
 import { parseTestFile, type Problem } from "../yamlsteps";
 
-const props = defineProps<{ id: string; file: string | null; line: number | null; record?: boolean }>();
+const props = defineProps<{ id: string; file: string | null; line: number | null; record?: boolean; explore?: string | null }>();
 
 const pack = ref<Pack | null>(null);
 const files = ref<PackFile[]>([]);
@@ -323,6 +323,14 @@ async function startRecording(how: string) {
     path: o.path,
   };
 }
+// Watch: an agent's explore session on this pack, from the Runs page. Closing it leaves it going.
+const watching = ref<string | null>(null);
+const watchOpen = computed({ get: () => watching.value !== null, set: (v: boolean) => !v && stopWatching() });
+function stopWatching() {
+  watching.value = null;
+  window.history.replaceState(null, "", href({ name: "edit", id: props.id, file: open.value?.path ?? props.file, line: props.line }));
+}
+
 function recorded(steps: { name: string; args: Record<string, unknown> }[]) {
   const r = recording.value;
   recording.value = null;
@@ -458,6 +466,7 @@ onMounted(async () => {
     window.history.replaceState(null, "", href({ name: "edit", id: props.id, file: open.value.path, line: props.line }));
     if (canRecord.value) void startRecording("here");
   }
+  if (props.explore) watching.value = props.explore;
   live = new LiveConnection({}, {
     onEvent: (e) => {
       if (e.type === "editor.file_changed") void onFileEvent(e.data);
@@ -656,6 +665,9 @@ const problemSpot = (p: string) => buildErrorSpot(p);
     </ModalDialog>
     <ModalDialog v-model="recordOpen" :heading="recording?.window ? 'Recording in a window' : 'Recording'" width="min(1280px, 100%)" :dismissable="false">
       <RecordPanel v-if="recording" :pack-id="id" :test-id="recording.testId" :replay="recording.replay" :line="recording.codeLine" :window="recording.window" :params="recording.params" @done="recorded" @cancel="recording = null" />
+    </ModalDialog>
+    <ModalDialog v-model="watchOpen" heading="Agent exploring" width="min(1280px, 100%)" :dismissable="false">
+      <RecordPanel v-if="watching" :pack-id="id" :test-id="null" :replay="0" :window="false" :params="{}" :attach="watching" @cancel="stopWatching" />
     </ModalDialog>
     <ModalDialog v-model="diffOpen" heading="Changes on disk" width="860px">
       <DiffView v-if="conflict?.text != null && open" :before="conflict.text" :after="open.text" label="The file on disk and your version" before-label="On disk" after-label="Yours" />

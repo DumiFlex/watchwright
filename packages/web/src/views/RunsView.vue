@@ -1,13 +1,15 @@
 <script setup lang="ts">
 // The home page: runs that are going (or waiting) first, then every earlier run with filters
 // by pack and status, a page at a time. Filters live in the address so a list can be linked.
-import { Ellipsis, Package, Play, SearchX } from "../icons";
+// Agents' explore sessions show above them, each with Watch.
+import { Bot, Ellipsis, Eye, Package, Play, SearchX } from "../icons";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, sendJson, type Pack, type RunSummary } from "../api";
 import { ago, countsText, done, duration, isActive, runDuration, when } from "../format";
 import { PERIODS, SERIES, anything, bars, tiles, type RunStats } from "../runstats";
 import { LiveConnection } from "../live";
 import { offerNotify } from "../notify";
+import { activeUrl, agentSessions, type RecordState } from "../recording";
 import { replaceRoute } from "../router";
 import { browserStore } from "../theme";
 import { toast } from "../toasts";
@@ -37,6 +39,7 @@ const statusOptions = [
 
 const packs = ref<Pack[]>([]);
 const active = ref<RunSummary[]>([]);
+const exploring = ref<RecordState[]>([]);
 const runs = ref<RunSummary[]>([]);
 const more = ref(false);
 const loading = ref(true);
@@ -89,6 +92,7 @@ function listUrl(before?: string) {
 
 async function load() {
   void loadStats();
+  void loadExploring();
   const [p, a, r] = await Promise.all([
     getJson<Pack[]>("/api/v1/packs"),
     getJson<RunSummary[]>("/api/v1/runs?status=queued,running,pausing,paused&limit=50"),
@@ -103,6 +107,11 @@ async function load() {
     runs.value = r.data;
     more.value = r.data.length === PAGE;
   }
+}
+
+async function loadExploring() {
+  const res = await getJson<{ recordings: RecordState[] }>("/api/v1/record");
+  if (res.ok) exploring.value = agentSessions(res.data.recordings);
 }
 
 async function loadMore() {
@@ -182,6 +191,7 @@ const packName = (id: string) => packs.value.find((p) => p.id === id)?.name;
 
 let live: LiveConnection | null = null;
 let timer: ReturnType<typeof setTimeout> | null = null;
+let exploreTimer: ReturnType<typeof setTimeout> | null = null;
 let clock: ReturnType<typeof setInterval> | null = null;
 onMounted(() => {
   void load();
@@ -190,6 +200,11 @@ onMounted(() => {
     {},
     {
       onEvent: (e) => {
+        if (e.type.startsWith("record.") || (e.type === "page.navigated" && exploring.value.some((r) => r.id === e.runId))) {
+          if (exploreTimer) clearTimeout(exploreTimer);
+          exploreTimer = setTimeout(() => void loadExploring(), 300);
+          return;
+        }
         if (!/^(run|pack)\./.test(e.type)) return;
         if (timer) clearTimeout(timer);
         timer = setTimeout(() => void load(), 300);
@@ -201,6 +216,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   live?.close();
   if (timer) clearTimeout(timer);
+  if (exploreTimer) clearTimeout(exploreTimer);
   if (clock) clearInterval(clock);
   if (typing) clearTimeout(typing);
 });
@@ -215,6 +231,18 @@ onBeforeUnmount(() => {
       </div>
     </div>
     <p v-if="loadError" class="error" role="alert">{{ loadError }}</p>
+
+    <section v-if="exploring.length" class="card" aria-labelledby="exploring-title">
+      <h2 id="exploring-title" class="display">Agents exploring</h2>
+      <ul class="active">
+        <li v-for="r in exploring" :key="r.id" class="explore">
+          <span class="aname"><Bot :size="15" class="bot" /> {{ r.startedBy }}</span>
+          <a class="btn" :href="`#/packs/${r.packId}/edit?watch=${r.id}`"><Eye :size="15" /> Watch</a>
+          <span class="small">{{ packName(r.packId) ?? r.packId }} <span class="muted">· {{ r.steps.length }} {{ r.steps.length === 1 ? "step" : "steps" }} · {{ duration(now - Date.parse(r.startedAt)) }}</span></span>
+          <span class="muted small url">{{ activeUrl(r) ?? "Opening the browser…" }}</span>
+        </li>
+      </ul>
+    </section>
 
     <section v-if="active.length" class="card" aria-labelledby="active-title">
       <h2 id="active-title" class="display">Going now</h2>
@@ -384,6 +412,28 @@ onBeforeUnmount(() => {
 }
 .arun > :nth-child(n + 3) {
   grid-column: 1 / -1;
+}
+.explore {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius);
+}
+.explore > :nth-child(n + 3) {
+  grid-column: 1 / -1;
+}
+.explore .url {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bot {
+  vertical-align: -2px;
+  color: var(--accent);
 }
 .aname {
   font-weight: 600;

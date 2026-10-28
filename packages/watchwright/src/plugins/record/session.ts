@@ -17,6 +17,7 @@ import { createHelpers } from "../testing/helpers.js";
 import { stepOfAction, type RecorderAction } from "./actions.js";
 import { StopHere, stopBelow } from "./upto.js";
 import { hoverAt, sameTarget, snapshotAt, withAlternatives, type ElementInfo, type Hover, type Snapshot } from "./candidates.js";
+import { ExploreError, lookAt, parseStep, plainArgs, resolveRefs, targetsOf, type Look } from "./explore.js";
 
 // One recording: a browser with the pack's options, its pages streamed to the live view, input
 // from the web page sent to the active page, and Playwright's recorder turning what happens into
@@ -63,6 +64,8 @@ export interface RecordOptions {
   /** Open a browser window on the machine instead of recording on the live view. */
   window: boolean;
   dataDir: string;
+  /** Who started it: `web` for the person, else a client's name (an agent exploring). */
+  startedBy: string;
 }
 
 export interface RecordHost {
@@ -74,6 +77,10 @@ export interface RecordHost {
 
 /** Closes a recording nobody has touched for this long. */
 export const IDLE_LIMIT_MS = 30 * 60_000;
+/** Closes an agent's session after this long without a call. */
+export const AGENT_IDLE_LIMIT_MS = 15 * 60_000;
+/** Recorder actions this soon after an agent's step are the step's own echo, not the person's. */
+const ECHO_MS = 500;
 
 interface Pending {
   snapshot: Snapshot;
@@ -104,6 +111,14 @@ export class RecordSession {
   private idleTimer: ReturnType<typeof setInterval> | null = null;
   private waitTimer: ReturnType<typeof setTimeout> | null = null;
   private tmpDir: string;
+  /** Values `save` steps keep, for `${saved.…}` in later steps. */
+  private readonly saves = new Map<string, unknown>();
+  /** While an agent's steps run (and until this time after), the recorder's actions are their echo. */
+  private driving = false;
+  private drivenUntil = 0;
+  private queue: Promise<unknown> = Promise.resolve();
+  /** The event each running step announces itself with (replay before recording, an agent's steps after). */
+  private stepEvent = "record.replay-step";
 
   constructor(
     readonly opts: RecordOptions,
@@ -129,7 +144,13 @@ export class RecordSession {
       pages: this.session?.openPages() ?? [],
       activePage: this.session?.activePage ?? null,
       steps: this.steps,
+      startedBy: this.opts.startedBy,
     };
+  }
+
+  /** Started by an agent rather than the person on the web page. */
+  get byAgent(): boolean {
+    return this.opts.startedBy !== "web";
   }
 
   /** Read through a method so checks after an await aren't narrowed away. */
@@ -149,8 +170,9 @@ export class RecordSession {
 
   /** Starts once no run of the site is going; until then the status is `waiting`. */
   start(): void {
+    const limit = this.byAgent ? AGENT_IDLE_LIMIT_MS : IDLE_LIMIT_MS;
     this.idleTimer = setInterval(() => {
-      if (Date.now() - this.touched > IDLE_LIMIT_MS) void this.stop("Closed after 30 minutes without input.");
+      if (Date.now() - this.touched > limit) void this.stop(`Closed after ${limit / 60_000} minutes without ${this.byAgent ? "a call" : "input"}.`);
     }, 60_000);
     const tryStart = () => {
       if (this.status === "ended") return;
@@ -235,40 +257,45 @@ export class RecordSession {
       "replaying",
       upTo !== null ? `Running the test up to line ${upTo}…` : steps.length === 0 ? "Running the pack's steps before each test…" : `Running the ${steps.length === 1 ? "step" : `${steps.length} steps`} above the cursor…`,
     );
-    const session = this.session!;
-    const saves = new Map<string, unknown>();
-    const control = new RunControl({ onState: () => undefined });
-    const recorder = new AttemptRecorder(this.tmpDir, this.opts.dataDir);
-    const o = this.opts.pack.options;
-    const h = createHelpers(
-      {
-        page,
-        context: session.context as BrowserContext,
-        baseURL: o.site.baseURL,
-        control,
-        recorder,
-        session,
-        flagKinds: { ...(o.flags ?? {}) },
-        idleCheck: o.idle,
-        chapters: false,
-        save: (k, v) => saves.set(k, v),
-        load: (k) => saves.get(k),
-        info: () => undefined,
-        onStep: (title) => title && this.emit("record.replay-step", { title }),
-        onFlag: () => undefined,
-      },
-      o.helpers,
-    );
+    const h = this.helpers(page);
     try {
       const meta = test.meta;
       await hook?.({ page, h, params: this.opts.params, packDir: this.opts.pack.dir, test: { id: test.id, title: meta.title ?? test.id, section: meta.section ?? null, tags: [...(meta.tags ?? [])] }, attempt: 1, attempts: 1, last: true });
-      await runSteps(steps, { page, h, params: this.opts.params, packDir: this.opts.pack.dir, file: path.join(this.opts.pack.dir, test.file), attempt: 1, attempts: 1, last: true });
+      await runSteps(steps, this.stepEnv(page, h, path.join(this.opts.pack.dir, test.file)));
       if (upTo !== null) await this.runCodeUpTo(test, upTo, page, h);
       this.message = null;
     } catch (err) {
       const msg = err instanceof Error ? err.message.split("\n")[0] : String(err);
       this.message = `A step before the cursor didn't work, so recording starts from where it stopped: ${msg}`;
     }
+  }
+
+  /** The `h` steps run with: the pack's helpers on this page, without a run around them. */
+  private helpers(page: Page): Helpers {
+    const o = this.opts.pack.options;
+    return createHelpers(
+      {
+        page,
+        context: this.session!.context as BrowserContext,
+        baseURL: o.site.baseURL,
+        control: new RunControl({ onState: () => undefined }),
+        recorder: new AttemptRecorder(this.tmpDir, this.opts.dataDir),
+        session: this.session!,
+        flagKinds: { ...(o.flags ?? {}) },
+        idleCheck: o.idle,
+        chapters: false,
+        save: (k, v) => this.saves.set(k, v),
+        load: (k) => this.saves.get(k),
+        info: () => undefined,
+        onStep: (title) => title && this.emit(this.stepEvent, { title }),
+        onFlag: () => undefined,
+      },
+      o.helpers,
+    );
+  }
+
+  private stepEnv(page: Page, h: Helpers, file: string) {
+    return { page, h, params: this.opts.params, packDir: this.opts.pack.dir, file, attempt: 1, attempts: 1, last: true };
   }
 
   /** A code test's body, stopped at its first Playwright call below `line`. */
@@ -295,6 +322,7 @@ export class RecordSession {
   }
 
   private onAction(code: string, updated: boolean): void {
+    if (this.driving || Date.now() < this.drivenUntil) return;
     let action: RecorderAction;
     try {
       action = JSON.parse(code) as RecorderAction;
@@ -445,6 +473,54 @@ export class RecordSession {
     return { info: snap.info, targets: snap.targets, groups: snap.groups };
   }
 
+  /**
+   * Runs an agent's steps on the active page, one at a time, until one fails. A `{ ref: e4 }`
+   * target is swapped for the element's own targets first; each step that ran joins the list.
+   */
+  async do(raw: readonly unknown[], shot: boolean): Promise<{ steps: StepOutcome[]; look: Look }> {
+    const run = this.queue.then(() => this.drive(raw, shot));
+    this.queue = run.catch(() => undefined);
+    return run;
+  }
+
+  private async drive(raw: readonly unknown[], shot: boolean): Promise<{ steps: StepOutcome[]; look: Look }> {
+    this.touched = Date.now();
+    const page = this.page();
+    const h = this.helpers(page);
+    const file = path.join(this.opts.pack.dir, "(explore).yaml");
+    const out: StepOutcome[] = [];
+    this.driving = true;
+    this.stepEvent = "record.agent-step";
+    try {
+      for (let i = 0; i < raw.length; i++) {
+        let entry: RecordEntry | null = null;
+        try {
+          const { value, found } = await resolveRefs(page, raw[i]);
+          const step = parseStep(value);
+          await runSteps([step], this.stepEnv(page, h, file));
+          const args = plainArgs(step.name, step.args);
+          entry = this.add(step.name, args, targetsOf(args, found), null, false);
+          out.push({ index: i, ok: true, step: entry });
+        } catch (err) {
+          const message = err instanceof Error ? err.message.split("\n")[0]! : String(err);
+          out.push({ index: i, ok: false, error: err instanceof ExploreError ? message : `The step didn't work: ${message}` });
+          break;
+        }
+      }
+    } finally {
+      this.driving = false;
+      this.drivenUntil = Date.now() + ECHO_MS;
+      this.touched = Date.now();
+    }
+    return { steps: out, look: await this.look(shot) };
+  }
+
+  /** What an agent sees: the active page's address, title, aria snapshot with refs and, when asked, a screenshot. */
+  async look(shot: boolean): Promise<Look> {
+    this.touched = Date.now();
+    return lookAt(this.page(), shot);
+  }
+
   setActivePage(pageId: string): boolean {
     const page = this.findPage(pageId);
     if (!page || !this.session) return false;
@@ -474,6 +550,8 @@ export class RecordSession {
     this.emit("record.ended", { message, steps: this.steps.length });
   }
 }
+
+export type StepOutcome = { index: number; ok: true; step: RecordEntry } | { index: number; ok: false; error: string };
 
 export class RecordNotReady extends Error {
   constructor(readonly status: RecordStatus) {
