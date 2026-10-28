@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.4.0](https://github.com/DumiFlex/watchwright/compare/v0.3.0...v0.4.0) (2026-10-28)
+
+
+### Features
+
+* a Stop Watchwright button in Settings ([#59](https://github.com/DumiFlex/watchwright/issues/59)) ([41c2c0c](https://github.com/DumiFlex/watchwright/commit/41c2c0c5a2c9af8311ade1cb0ea1cd79965b8433))
+* add packs without typing paths: folder browser, path completion, find packs, locate and remove ([#43](https://github.com/DumiFlex/watchwright/issues/43)) ([983d8ec](https://github.com/DumiFlex/watchwright/commit/983d8ece32be41e69bb2f10a58f12a5ff09ef852))
+* each test's recent attempts on the pack page, with flaky tests marked ([#62](https://github.com/DumiFlex/watchwright/issues/62)) ([e39bbd5](https://github.com/DumiFlex/watchwright/commit/e39bbd5c533abdef1fb4bddc5a10a83b642db265))
+* edit packs in the web app: files, a code editor with YAML hints, a Steps view and Run this test ([#53](https://github.com/DumiFlex/watchwright/issues/53)) ([51659ae](https://github.com/DumiFlex/watchwright/commit/51659ae2f10b29734b3c7dd65565f245745bfb95))
+* Markdown preview in the editor and READMEs on pack pages ([#55](https://github.com/DumiFlex/watchwright/issues/55)) ([1540607](https://github.com/DumiFlex/watchwright/commit/15406076b36b51ca4ab936ab2a739f7c76df3369))
+* pack images and a cursor-following side by side in the Markdown preview ([#58](https://github.com/DumiFlex/watchwright/issues/58)) ([7864439](https://github.com/DumiFlex/watchwright/commit/786443976b0c1ec4795c9d786ed25396f0ba7289))
+* pack pieces for real-world packs: attempt and collector hooks, waitUntil, child caps and several parents, h.skip, run info, test descriptions, choice labels, Files tab ([#41](https://github.com/DumiFlex/watchwright/issues/41)) ([8958f70](https://github.com/DumiFlex/watchwright/commit/8958f707f0e914d8b05a7bf840a4ae010182ef3a))
+* record tests by clicking on the live view, with other targets and the spot clicked ([#54](https://github.com/DumiFlex/watchwright/issues/54)) ([68a2412](https://github.com/DumiFlex/watchwright/commit/68a24122def0b58eff1fb0d89d4d6fee68b11745))
+* run again, run labels, presets, and a New run that starts from your latest run ([#47](https://github.com/DumiFlex/watchwright/issues/47)) ([0fecaa8](https://github.com/DumiFlex/watchwright/commit/0fecaa88711a19c543bb2470a7a524daea1cc5b5))
+* run tools: add tests to a running run, rewind the live view, step timeline, add to review, changes since the last run ([#44](https://github.com/DumiFlex/watchwright/issues/44)) ([cc16aea](https://github.com/DumiFlex/watchwright/commit/cc16aea51c591caa9398289477d7ae387f77fa79))
+* runs at a glance: headline numbers and attempts per day on the runs page ([#63](https://github.com/DumiFlex/watchwright/issues/63)) ([148ad63](https://github.com/DumiFlex/watchwright/commit/148ad63bcaa40219c9d3064c6f529397b3b817a5))
+* settings page, open files in your editor, starter packs ([#45](https://github.com/DumiFlex/watchwright/issues/45)) ([28942b3](https://github.com/DumiFlex/watchwright/commit/28942b34d709b5625ddeeb9ae7185e564d580e22))
+* watch runs from the tab title, notifications and run shortcuts; find packs, runs and tests ([#48](https://github.com/DumiFlex/watchwright/issues/48)) ([530740a](https://github.com/DumiFlex/watchwright/commit/530740a0fb26d9c6331c52b9d853a8cec43578af))
+* **web:** a filmstrip of the attempt's video, and each step's before and after ([#68](https://github.com/DumiFlex/watchwright/issues/68)) ([c5c7d55](https://github.com/DumiFlex/watchwright/commit/c5c7d55461c44dd4f6121356a4a994d6ef4c1450))
+* **web:** a log viewer with search, level toggles, follow and links to lines ([#69](https://github.com/DumiFlex/watchwright/issues/69)) ([8dca000](https://github.com/DumiFlex/watchwright/commit/8dca000e3d69ee30c3691d44382310ee537b3ba2))
+* **web:** compare two screenshots side by side, as a wipe or as an overlay ([#66](https://github.com/DumiFlex/watchwright/issues/66)) ([24e5684](https://github.com/DumiFlex/watchwright/commit/24e56843b9b9ae41ab4a52ab9a830b7ae8c0aa86))
+* **web:** empty states that say what to do next, and loading skeletons ([#61](https://github.com/DumiFlex/watchwright/issues/61)) ([67fc15e](https://github.com/DumiFlex/watchwright/commit/67fc15e62803f81ced467d9e3122046d06595fa6))
+* YAML tests and pack.yaml, a YAML starter, convert to code, and a TodoMVC example pack ([#52](https://github.com/DumiFlex/watchwright/issues/52)) ([a60a312](https://github.com/DumiFlex/watchwright/commit/a60a312c24331d9a5329bfb35d9047e26b890c11))
+
+
+### Bug Fixes
+
+* a run takes a test file saved in the editor while it runs, and the Record dialog fits short windows ([#65](https://github.com/DumiFlex/watchwright/issues/65)) ([3b53c39](https://github.com/DumiFlex/watchwright/commit/3b53c39e0a932f8fd2f1fd8b36bab7a9dc65959e))
+* image viewer zoom, tooltips inside dialogs, page scroll behind dialogs and the video after full screen ([#46](https://github.com/DumiFlex/watchwright/issues/46)) ([63ea58f](https://github.com/DumiFlex/watchwright/commit/63ea58ff99df720e31aed3668547505977507c8b))
+* one Browse button to add or find packs, and step 4 signed off ([#71](https://github.com/DumiFlex/watchwright/issues/71)) ([9eeef41](https://github.com/DumiFlex/watchwright/commit/9eeef414ae7bf17dbec0ca64fcd8ce10b067e193))
+* outline the element under the pointer while recording, and size icon buttons like the others ([#56](https://github.com/DumiFlex/watchwright/issues/56)) ([8341bdc](https://github.com/DumiFlex/watchwright/commit/8341bdc3a43d4f6fe48cbf169299cf59693ac57d))
+* **web:** open the timeline zoomed in far enough for whole step labels ([#67](https://github.com/DumiFlex/watchwright/issues/67)) ([7aef6b6](https://github.com/DumiFlex/watchwright/commit/7aef6b6adcef661d1d762b530cba62a1b54c8f78))
+* **web:** smooth video timeline that stays readable with many steps ([#57](https://github.com/DumiFlex/watchwright/issues/57)) ([89c17c2](https://github.com/DumiFlex/watchwright/commit/89c17c253541a61e3f3d558b07f897e45754a03b))
+* **web:** video controls move the timeline, edge scrolling while dragging, menus in full screen ([#64](https://github.com/DumiFlex/watchwright/issues/64)) ([5667446](https://github.com/DumiFlex/watchwright/commit/56674467a3fdb7658967816e8c26ddc084c06bb1))
+
 ## [0.3.0](https://github.com/DumiFlex/watchwright/compare/v0.2.0...v0.3.0) (2026-10-27)
 
 
