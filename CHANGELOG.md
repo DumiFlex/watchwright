@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.7.0](https://github.com/DumiFlex/watchwright/compare/v0.6.0...v0.7.0) (2026-10-28)
+
+
+### Features
+
+* alerts to ntfy, Discord, Slack or a webhook ([#103](https://github.com/DumiFlex/watchwright/issues/103)) ([5233da2](https://github.com/DumiFlex/watchwright/commit/5233da285b426d4b957db2cfa5c92dd3afc26d0c))
+* core groundwork for new capabilities and npm publishing ([7d42e3c](https://github.com/DumiFlex/watchwright/commit/7d42e3c38991af85ad15588099b08829717fa96a))
+* job kinds can add items to a running run ([#93](https://github.com/DumiFlex/watchwright/issues/93)) ([7e858aa](https://github.com/DumiFlex/watchwright/commit/7e858aaa31af8b1ec0f9c910abfc5f30567b389b))
+* plugins bring their pages, and the web app builds its menu from them ([#95](https://github.com/DumiFlex/watchwright/issues/95)) ([f899b9a](https://github.com/DumiFlex/watchwright/commit/f899b9a5f9ee9703bba1df41df2da0684e834d8f))
+* saved sign-ins, so runs can start signed in ([#98](https://github.com/DumiFlex/watchwright/issues/98)) ([40105aa](https://github.com/DumiFlex/watchwright/commit/40105aa971c627ba51104f75299ce9749a1e101d))
+* schedules: runs that start by themselves ([#101](https://github.com/DumiFlex/watchwright/issues/101)) ([2e6f83c](https://github.com/DumiFlex/watchwright/commit/2e6f83ce5801571d53faa2469835247925be8947))
+* secrets for tests, set on Settings and masked everywhere ([#97](https://github.com/DumiFlex/watchwright/issues/97)) ([1826ab4](https://github.com/DumiFlex/watchwright/commit/1826ab4e130bb471b1de6927e4c5a0cf20c50a34))
+
+
+### Bug Fixes
+
+* --base-url, local times and a missing-browser hint in the CLI ([#110](https://github.com/DumiFlex/watchwright/issues/110)) ([ffd6b18](https://github.com/DumiFlex/watchwright/commit/ffd6b184a6cc79caf7c41c62ed7a08797ab0c4da))
+* approvals never show a secret's value ([#104](https://github.com/DumiFlex/watchwright/issues/104)) ([507f8d0](https://github.com/DumiFlex/watchwright/commit/507f8d0d7421cd64c5954ce95d67c6244d52ded6))
+* render GitHub Markdown and safe HTML in the Markdown preview ([#99](https://github.com/DumiFlex/watchwright/issues/99)) ([3b2c39d](https://github.com/DumiFlex/watchwright/commit/3b2c39d0f023227d01fe5866b71564095da31182))
+
+
+### Refactoring
+
+* job kinds come from plugins, with their own helpers, outcome rules and labels ([#92](https://github.com/DumiFlex/watchwright/issues/92)) ([3895662](https://github.com/DumiFlex/watchwright/commit/38956627b4e1ff85f484b0538560ee451277720b))
+
 ## [0.6.0](https://github.com/DumiFlex/watchwright/compare/v0.5.0...v0.6.0) (2026-10-28)
 
 
