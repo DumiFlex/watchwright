@@ -5,14 +5,14 @@ Everything the web page does goes through this API, so scripts and AI agents can
 - JSON in and out. Success is `{ "data": … }`. Failure is `{ "error": { "code", "message", "detail"? } }` with a snake_case `code` and a matching HTTP status.
 - Requests must pass the [request guard](../guide/safety#who-can-reach-the-server): a loopback `Host` with the server's port, and for changes no `Origin` header or the server's own (scripts and agents send none).
 - Send `x-watchwright-client: <name>` to be named as who started a run (default `api`).
-- `GET /actions` lists every action with its JSON Schema input. The CLI and MCP server in a later step are built from the same list.
+- `GET /actions` lists every action with its JSON Schema input. The [CLI](./cli) builds its commands from the same list, and the MCP server its tools.
 
 ## Server
 
 | Method and path | Does |
 |---|---|
 | `GET /health` | Whether the server is up, its version, its data folder and the loaded plugins with the newest store migration each one applied. |
-| `GET /actions` | Every action with its method, path and JSON Schema input. |
+| `GET /actions` | Every action: `name`, `title`, `method`, `path`, JSON Schema `input`, and where set `output` (the JSON Schema of its data), `agent` (`{ tool, say? }`: the MCP tool it is offered as, and a hint for agents) and `destructive: true` (it deletes data or stops the server). |
 | `POST /stop` | Stops the server, as Ctrl+C in its terminal does. It answers `{ stopping: true }` first. Runs going at the time become `interrupted` and can be resumed after it starts again. 409 `cant_stop` for a server that wasn't started by the `watchwright` command. |
 
 ## Packs
@@ -107,7 +107,11 @@ A web page can't learn a folder's path from the browser, so the server lists fol
 | `GET /runs/stats?days=&pack=&tz=&until=` | Runs at a glance: `days` (one entry per day, oldest first, `days` of them, default 14, at most 90) with `{ date, runs, passed, failed, broken, skipped, stopped, medianMs }`, and the same totals for the period (`current`) and the `days` days before it (`previous`). Runs count on the day they were made, attempts on the day they started; only top-level attempts that finished count, and `medianMs` is the median time of the passed and failed ones. `tz` is the caller's `Date.getTimezoneOffset()` (minutes behind UTC), so days are the caller's calendar days; `until` (YYYY-MM-DD) is the last day, today by default. `pack` keeps one pack's runs. |
 | `GET /packs/:id/history?limit=` | Each test's last `limit` (default 20, at most 100) finished attempts across the pack's runs, oldest first, keyed by test id: `{ attemptId, runId, runLabel, number, try, status, startedAt, durationMs, params }`. Only the try that counts is listed; `try` above 1 means it was run again after it broke. `{}` for a pack with no runs. |
 | `DELETE /runs/:id` | Deletes a run that isn't queued or going, with its attempts and its folder in the data folder. Its events stay in the event log. |
-| `POST /runs/:id/pause` | Pauses at the next step. |
+| `GET /runs/:id/summary` | A run in brief, for agents and scripts: `{ id, label, pack: { id, name }, status, startedBy, page, live, counts, pending, attempts, error }`. `page` is the run's page in the web app (`/#/runs/<id>`); `live` is `{ state, pauseReason, pausedBy, deadline, stopping, testId, step }` while it runs; `counts` leaves out zeros; each attempt is `{ id, testId, title, number, try, parentId, status, error, robot, findings, durationMs }`, with the error's kind and first line and how many robot and finding flags it has. |
+| `GET /runs/:id/wait?after=&timeout=` | Waits until the run ends or pauses, at most `timeout` seconds (default 60, at most 110). Returns `{ reason, cursor, happened, run }`: `reason` is `ended`, `paused`, `timeout` or `gone` (the caller went away); `run` is the summary; `happened` lists what happened since `after` (or since the call): runs starting, pausing (`reason`, `testId`, `by`), resuming, stopping and finishing, and each attempt finishing (`testId`, `number`, `status`, `error`, `flags`). Pass `cursor` as `after` to the next wait. Without `after` a paused run answers at once; with it, only a pause after that cursor does, so a caller isn't answered again while a person keeps the run paused. |
+| `POST /runs/:id/control` `{ do }` | One door for `pause`, `resume`, `retry`, `skip`, `stop` (after this test) and `stop-now`. Returns the summary. |
+| `GET /runs/:id/file?path=` | One of the run's files by its `path` from a result document: `{ path, url, mimeType, size, width?, height?, encoding, data, note? }`. PNG and JPEG images come as base64 with their size in pixels, text and JSON files as `utf8`. An image over 5 MB or with a side over 8000 px, a text over 1 MB, and other files come without `data`, with a `note` and the `url` to fetch them. 404 for a path outside the run's folder. |
+| `POST /runs/:id/pause` | Pauses at the next step. The run's `live.pausedBy` and the `run.paused` event's `by` name who asked. |
 | `POST /runs/:id/resume` | Resumes a manual pause. For an `interrupted`, `stopped` or `failed_to_start` run, queues it to continue: passed, failed and skipped attempts are kept, the rest run. |
 | `POST /runs/:id/retry`, `/skip` | Answers a pause on a broken attempt. |
 | `POST /runs/:id/stop` `{ when: "after" \| "now" }` | `after` finishes the current test first; `now` ends at once and files the current attempt as `stopped`. A queued run is cancelled. |

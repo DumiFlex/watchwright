@@ -140,6 +140,7 @@ export const reviewsPlugin = definePlugin({
       }),
       defineAction<{ id: string; attemptId: string; scores?: Record<string, Score | null>; note?: string }, Review>({
         name: "reviews.save",
+        agent: { tool: "save_review", say: "Score only attempts you looked at (screenshots, texts). The review is filed under your name." },
         title: "Score an attempt and leave a note",
         method: "POST",
         path: "/runs/:id/attempts/:attemptId/review",
@@ -175,6 +176,7 @@ export const reviewsPlugin = definePlugin({
       }),
       defineAction<{ id: string }, Record<string, Criterion[]>>({
         name: "reviews.rubric",
+        agent: { tool: "get_rubric" },
         title: "Get the criteria each test of a run is scored on",
         method: "GET",
         path: "/runs/:id/rubric",
