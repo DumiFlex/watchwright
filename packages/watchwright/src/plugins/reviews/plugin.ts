@@ -103,6 +103,7 @@ export interface AttemptReviews {
 
 export const reviewsPlugin = definePlugin({
   name: "reviews",
+  pages: [{ name: "compare", title: "Compare", path: "/compare", icon: "Columns2", menu: "main", order: 30, words: "side by side matrix export" }],
   migrations: [{ id: 1, name: "init", sql: REVIEWS_MIGRATION_SQL }],
   setup({ store, events, services }) {
     const repo = new ReviewsRepo(store.db);
