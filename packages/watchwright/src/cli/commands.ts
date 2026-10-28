@@ -225,8 +225,14 @@ export function exitOf(reason: WaitResult["reason"], run: RunDigest): number {
   return run.status === "finished" && bad === 0 ? EXIT.ok : EXIT.runFailed;
 }
 
+/** An event's time on this machine's clock, as the web page shows it (HH:MM:SS). */
+export function clock(iso: string): string {
+  const d = new Date(iso);
+  return [d.getHours(), d.getMinutes(), d.getSeconds()].map((n) => String(n).padStart(2, "0")).join(":");
+}
+
 export function describeHappening(h: Happening): string {
-  const t = h.time.slice(11, 19);
+  const t = clock(h.time);
   switch (h.type) {
     case "attempt.finished": {
       const err = typeof h.error === "string" && h.error ? `: ${h.error.split("\n")[0]}` : "";

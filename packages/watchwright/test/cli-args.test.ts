@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { checkActions, defineAction, describeAction, type ActionInfo } from "../src/actions/registry.js";
-import { actionHelp, coerce, parseActionArgs, UsageError } from "../src/cli/args.js";
+import { actionHelp, coerce, kebab, parseActionArgs, UsageError } from "../src/cli/args.js";
 import { clientName, serverUrl } from "../src/cli/client.js";
-import { EXIT, exitOf, findAction } from "../src/cli/commands.js";
+import { clock, EXIT, exitOf, findAction } from "../src/cli/commands.js";
 import type { RunDigest } from "../src/plugins/runs/digest.js";
 import { imageSize } from "../src/plugins/runs/digest.js";
+import { missingBrowser } from "../src/session/session.js";
 
 const start: ActionInfo = describeAction(
   defineAction({
@@ -137,5 +138,22 @@ describe("image sizes", () => {
     const jpg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x00, 0x00, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x02, 0x58, 0x03, 0x20, 0x03, 0, 0, 0, 0]);
     expect(imageSize(jpg)).toEqual({ width: 800, height: 600 });
     expect(imageSize(Buffer.from("not an image"))).toBeNull();
+  });
+});
+
+describe("what people read", () => {
+  it("writes options in kebab case, a run of capitals as one word", () => {
+    expect(["packId", "baseURL", "pauseOnBroken", "url", "screencastSize", "HTTPProxy"].map(kebab)).toEqual(["pack-id", "base-url", "pause-on-broken", "url", "screencast-size", "http-proxy"]);
+  });
+
+  it("shows event times on this machine's clock", () => {
+    const at = new Date(2026, 9, 28, 13, 4, 9);
+    expect(clock(at.toISOString())).toBe("13:04:09");
+  });
+
+  it("says how to install a browser Playwright hasn't downloaded", () => {
+    const err = new Error("browserType.launch: Executable doesn't exist at C:\\x\\chrome.exe\n╔═══╗\n║ Looks like Playwright was just installed or updated. Please run: npx playwright install ║");
+    expect(missingBrowser("chromium", err)?.message).toBe("Playwright's chromium isn't installed on this machine. Install it with: npx playwright install chromium");
+    expect(missingBrowser("chromium", new Error("Target closed"))).toBeNull();
   });
 });
