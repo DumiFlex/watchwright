@@ -2,7 +2,7 @@
 // The home page: runs that are going (or waiting) first, then every earlier run with filters
 // by pack and status, a page at a time. Filters live in the address so a list can be linked.
 // Agents' explore sessions show above them, each with Watch.
-import { Bot, Ellipsis, Eye, Package, Play, SearchX } from "../icons";
+import { Bot, CalendarClock, Ellipsis, Eye, Package, Play, SearchX } from "../icons";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, sendJson, type Pack, type RunSummary } from "../api";
 import { ago, countsText, done, duration, isActive, runDuration, when } from "../format";
@@ -340,7 +340,11 @@ onBeforeUnmount(() => {
               </span>
               <span class="small">{{ countsText(r.counts) }}</span>
             </td>
-            <td class="c-when muted small"><span v-tip="when(r.startedAt ?? r.createdAt)">{{ ago(r.startedAt ?? r.createdAt, now) }}</span> · {{ r.startedBy }}</td>
+            <td class="c-when muted small">
+              <span v-tip="when(r.startedAt ?? r.createdAt)">{{ ago(r.startedAt ?? r.createdAt, now) }}</span> ·
+              <span v-if="r.startedBy.startsWith('schedule:')" v-tip="'Started by a schedule'" class="by"><CalendarClock :size="13" /> {{ r.startedBy.slice(9) }}</span>
+              <template v-else>{{ r.startedBy }}</template>
+            </td>
             <td class="c-took muted small num">{{ duration(runDuration(r)) || "–" }}</td>
             <td class="c-act">
               <MenuButton :items="rowMenu(r)" :label="`Actions for run ${r.id}`" @select="onRowMenu(r, $event)">
@@ -388,6 +392,11 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.by {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
 .active {
   list-style: none;
   margin: 0;

@@ -8,8 +8,8 @@ const notes: HealthPage = { plugin: "notes", name: "notes", title: "Notes", path
 describe("pages from plugins", () => {
   it("builds the menu in the server's order and marks the page the route is on", () => {
     const nav = navFrom(DEFAULT_PAGES, { name: "pack", id: "0a1b2c3d" });
-    expect(nav.map((n) => n.label)).toEqual(["Runs", "Packs", "Compare", "New run", "Settings"]);
-    expect(nav.filter((n) => n.main).map((n) => n.href)).toEqual(["#/", "#/packs", "#/compare"]);
+    expect(nav.map((n) => n.label)).toEqual(["Runs", "Packs", "Compare", "Schedules", "New run", "Settings"]);
+    expect(nav.filter((n) => n.main).map((n) => n.href)).toEqual(["#/", "#/packs", "#/compare", "#/schedules"]);
     expect(nav.find((n) => n.current)?.value).toBe("packs");
     expect(navFrom(DEFAULT_PAGES, { name: "new", query: {} }).find((n) => n.current)?.value).toBe("new-run");
   });
@@ -25,7 +25,7 @@ describe("pages from plugins", () => {
     expect(hasPage(noCompare, { name: "compare", query: {} })).toBe(false);
     expect(hasPage(noCompare, { name: "runs", query: {} })).toBe(true);
     expect(hasPage([], { name: "kit" })).toBe(true);
-    expect(navFrom([...DEFAULT_PAGES, notes].sort((a, b) => a.order - b.order), { name: "runs", query: {} }).map((n) => n.value)).toEqual(["runs", "packs", "notes", "compare", "new-run", "settings"]);
+    expect(navFrom([...DEFAULT_PAGES, notes].sort((a, b) => a.order - b.order), { name: "runs", query: {} }).map((n) => n.value)).toEqual(["runs", "packs", "notes", "compare", "schedules", "new-run", "settings"]);
   });
 
   it("finds a page's icon by its Lucide name, with a dot for unknown names", () => {

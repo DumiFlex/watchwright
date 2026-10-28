@@ -18,6 +18,7 @@ describe("router", () => {
     expect(parseRoute("#/packs/0a1b2c3d/edit/tests/my%20file.yaml?line=12")).toEqual({ name: "edit", id: "0a1b2c3d", file: "tests/my file.yaml", line: 12 });
     expect(parseRoute("#/kit")).toEqual({ name: "kit" });
     expect(parseRoute("#/settings")).toEqual({ name: "settings" });
+    expect(parseRoute("#/schedules")).toEqual({ name: "schedules" });
     expect(parseRoute("#/compare?runs=0a1b2c3d,1a1b2c3d")).toEqual({ name: "compare", query: { runs: "0a1b2c3d,1a1b2c3d" } });
   });
 
@@ -45,6 +46,7 @@ describe("router", () => {
       { name: "compare", query: { runs: "0a1b2c3d", show: "shot:home" } },
       { name: "kit" },
       { name: "settings" },
+      { name: "schedules" },
     ];
     for (const r of routes) expect(parseRoute(href(r))).toEqual(r);
     expect(href({ name: "runs", query: { pack: "" } })).toBe("#/");

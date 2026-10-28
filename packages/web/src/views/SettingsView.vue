@@ -69,6 +69,30 @@ async function forget(path?: string) {
   if (res.ok) recent.value = res.data;
 }
 
+// Start at sign-in: schedules only start runs while the server runs. On Windows the server writes a
+// file to the Startup folder; elsewhere this shows the command to start it with.
+interface StartupInfo {
+  supported: boolean;
+  enabled: boolean;
+  file: string | null;
+  command: string;
+}
+const startup = ref<StartupInfo | null>(null);
+async function loadStartup() {
+  const res = await getJson<StartupInfo>("/api/v1/startup");
+  if (res.ok) startup.value = res.data;
+}
+const startAtSignIn = computed({
+  get: () => startup.value?.enabled ?? false,
+  set: (on: boolean) => void setStartup(on),
+});
+async function setStartup(on: boolean) {
+  const res = await sendJson<StartupInfo>("/api/v1/startup", { enabled: on });
+  if (!res.ok) return void toast(res.error.message, { tone: "bad" });
+  startup.value = res.data;
+  toast(on ? "Watchwright starts when you sign in." : "Watchwright no longer starts when you sign in.", { tone: "ok" });
+}
+
 // Stopping the server: runs going now become interrupted (they can be resumed after it starts
 // again), so the dialog says which ones.
 const stopOpen = ref(false);
@@ -89,6 +113,7 @@ async function stopServer() {
 onMounted(() => {
   void loadSettings(true);
   void loadRecent();
+  void loadStartup();
 });
 </script>
 
@@ -162,6 +187,18 @@ onMounted(() => {
 
     <section class="card" aria-labelledby="s-server">
       <h2 id="s-server" class="display">Server</h2>
+      <p class="muted small">Schedules only start runs while Watchwright is running.</p>
+      <template v-if="startup?.supported">
+        <ToggleSwitch id="s-startup" v-model="startAtSignIn">Start at sign-in</ToggleSwitch>
+        <p class="muted small">
+          Puts <code>Watchwright.cmd</code> in your Startup folder. It starts this server minimized when you sign in to Windows, on the same port and data folder, without opening the browser. Turning
+          this off deletes the file.
+        </p>
+      </template>
+      <div v-else-if="startup" class="cmd">
+        <p class="muted small">To start Watchwright when you sign in to this computer, run this command from a LaunchAgent (macOS) or a systemd user unit (Linux):</p>
+        <code class="block">{{ startup.command }}</code>
+      </div>
       <p class="muted small">Stops the Watchwright program on this machine, like Ctrl+C in its terminal. Runs going at the time are interrupted and can be resumed after it starts again.</p>
       <p v-if="stopped" class="stopped" role="status">Watchwright has stopped. To start it again, run <code>watchwright serve</code>.</p>
       <div v-else>
@@ -196,6 +233,19 @@ onMounted(() => {
 /* the line under a card's heading belongs to it */
 .card > h2:first-child + p {
   margin-top: calc(-1 * var(--space-2));
+}
+.cmd {
+  display: grid;
+  gap: var(--space-2);
+}
+.cmd .block {
+  display: block;
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+  user-select: all;
 }
 .two {
   display: grid;

@@ -27,6 +27,7 @@ import PackView from "./views/PackView.vue";
 import RunsView from "./views/RunsView.vue";
 import RunView from "./views/RunView.vue";
 import SettingsView from "./views/SettingsView.vue";
+import SchedulesView from "./views/SchedulesView.vue";
 // The editor (CodeMirror, the YAML checker) loads only when a pack is opened for editing.
 const EditView = defineAsyncComponent(() => import("./views/EditView.vue"));
 
@@ -126,6 +127,7 @@ onMounted(async () => {
   <CompareView v-else-if="shown.name === 'compare'" :query="shown.query" />
   <KitView v-else-if="shown.name === 'kit'" />
   <SettingsView v-else-if="shown.name === 'settings'" />
+  <SchedulesView v-else-if="shown.name === 'schedules'" />
   <RunsView v-else :query="shown.query" />
   <CommandPalette v-model:open="palette" :commands="commands" />
   <ToastHost />

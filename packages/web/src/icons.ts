@@ -15,6 +15,7 @@ export {
   Bot,
   Braces,
   Calendar,
+  CalendarClock,
   Camera,
   Check,
   ChevronDown,

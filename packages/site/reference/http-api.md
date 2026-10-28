@@ -100,6 +100,25 @@ Secrets are passwords and tokens tests read as `${secret.NAME}` or `h.secret("NA
 
 Events: `signin.saved` `{ siteKey }`, on the run or recording that saved it.
 
+## Schedules
+
+Runs that start by themselves; see [Schedules](../guide/schedules). A due schedule starts its run like `POST /runs`, with `startedBy` `schedule:<name>`. Creating, changing, resuming and deleting a schedule, and start at sign-in, wait for approval from anything but the web page.
+
+| Method and path | Does |
+|---|---|
+| `GET /schedules` | The schedules, by name: `{ id, name, packId, when, says, run, missed, enabled, nextAt, lastDueAt, lastRunId, lastRun, createdAt, updatedAt }`. `says` is `when` in words ("Every day at 02:00 (UTC)"); `lastRun` is `{ id, status, createdAt, finishedAt, counts }` or null. |
+| `GET /schedules/:id` | One schedule, with `runs`: `[{ runId, dueAt, startedAt, run }]`, newest first. 404 `not_found`. |
+| `POST /schedules` `{ name, packId, when, run?, missed?, enabled? }` | Creates a schedule (201). `when` is `{ every }` (`15m`, `2h`, `1d`) or `{ cron, timezone? }` (five fields; the time zone defaults to the machine's); 400 `bad_when` otherwise, or when it would run more than once a minute. `run` is what `POST /runs` takes, without `packId`; 400 `bad_run` when that run wouldn't start (an unknown test or preset). `missed` is `once` (default) or `skip`. 409 `name_taken`. |
+| `POST /schedules/:id` | Changes any of `name`, `packId`, `when`, `run`, `missed`, `enabled`. A new `when` counts from now. |
+| `DELETE /schedules/:id` | Deletes a schedule; the runs it started stay. |
+| `POST /schedules/:id/run` | Starts the schedule's run now (201, `{ runId }`); its next time stays. |
+| `POST /schedules/:id/pause` | Pauses it: `enabled` false, no `nextAt`. |
+| `POST /schedules/:id/resume` | Resumes it from its next time. |
+| `GET /startup` | Start at sign-in: `{ supported, enabled, file, command }`. `supported` is true on Windows, where the server writes `file`; `command` starts this server with its port and data folder. |
+| `POST /startup` `{ enabled }` | Turns start at sign-in on or off (Windows). 400 `not_supported` elsewhere. |
+
+Events: `schedule.created`, `schedule.updated`, `schedule.deleted`, `schedule.fired` (with `runId` and `why`: `due`, `missed` or `now`), `schedule.skipped` (its last run was still going), `schedule.missed` (a time passed while the server was off, with the `policy` used) and `schedule.failed` (the run didn't start, with `message`).
+
 ## Folders
 
 A web page can't learn a folder's path from the browser, so the server lists folders on its machine for the web app's folder browser. It lists folder names and the marker files plugins ask about (a pack file), never other files or what's in them.
@@ -203,7 +222,7 @@ Everything that happens is an event with a growing sequence number: `{ seq, time
 
 `GET /events?after=<seq>&wait=<seconds>&runId=&types=&limit=` returns `{ events, next, head }`. With `wait` (up to 110 seconds) it holds the request until a matching event arrives, so an agent can follow a run with one request at a time: call again with `after=next`.
 
-Event types (open set, more come with later plugins): `run.queued`, `run.started`, `run.planned`, `run.pausing`, `run.paused`, `run.resumed`, `run.decision`, `run.stopping`, `run.labeled`, `run.finished`, `run.interrupted`, `run.failed_to_start`, `run.log`, `run.info`, `run.tests-added`, `run.items-added` (items a job kind added to its running run, in batches, with `total` so far; a run's `options.added` lists them, and a resumed run keeps them), `attempt.started`, `attempt.step`, `attempt.log`, `attempt.flag`, `attempt.artifact`, `attempt.finished`, `page.opened`, `page.navigated`, `page.active`, `page.closed`, `video.unavailable`, `pack.added`, `pack.loaded`, `pack.reload_failed`, `pack.reloaded`, `pack.removed`, `editor.file_changed`, `review.saved`, `record.started`, `record.status`, `record.replay-step`, `record.agent-step`, `record.step`, `record.step-updated`, `record.step-removed`, `record.ended`, `signin.saved`, `approval.requested`, `approval.answered`.
+Event types (open set, more come with later plugins): `run.queued`, `run.started`, `run.planned`, `run.pausing`, `run.paused`, `run.resumed`, `run.decision`, `run.stopping`, `run.labeled`, `run.finished`, `run.interrupted`, `run.failed_to_start`, `run.log`, `run.info`, `run.tests-added`, `run.items-added` (items a job kind added to its running run, in batches, with `total` so far; a run's `options.added` lists them, and a resumed run keeps them), `attempt.started`, `attempt.step`, `attempt.log`, `attempt.flag`, `attempt.artifact`, `attempt.finished`, `page.opened`, `page.navigated`, `page.active`, `page.closed`, `video.unavailable`, `pack.added`, `pack.loaded`, `pack.reload_failed`, `pack.reloaded`, `pack.removed`, `editor.file_changed`, `review.saved`, `record.started`, `record.status`, `record.replay-step`, `record.agent-step`, `record.step`, `record.step-updated`, `record.step-removed`, `record.ended`, `signin.saved`, `schedule.created`, `schedule.updated`, `schedule.deleted`, `schedule.fired`, `schedule.skipped`, `schedule.missed`, `schedule.failed`, `approval.requested`, `approval.answered`.
 
 ## Live WebSocket
 
