@@ -9,7 +9,9 @@ import { countsText, duration, when } from "../format";
 import { Columns2 } from "../icons";
 import { replaceRoute } from "../router";
 import EmptyState from "../components/EmptyState.vue";
+import ImageDiff from "../components/ImageDiff.vue";
 import ImageViewer from "../components/ImageViewer.vue";
+import ModalDialog from "../components/ModalDialog.vue";
 import MenuButton from "../components/MenuButton.vue";
 import MultiSelect from "../components/MultiSelect.vue";
 import SkeletonBlock from "../components/SkeletonBlock.vue";
@@ -134,6 +136,32 @@ function openShots(cell: CompareCell, url: string) {
   viewerImages.value = cell.shots.map((s) => ({ url: s.url, name: s.name }));
   viewerAt.value = Math.max(0, cell.shots.findIndex((s) => s.url === url));
 }
+// Image diff: one screenshot of one row in two runs, picked from the runs that have it.
+const shotName = computed(() => (show.value.startsWith("shot:") ? show.value.slice(5) : null));
+/** The columns of a row that have the shown screenshot. */
+const withShot = (cells: readonly (CompareCell | null)[]) => {
+  const name = shotName.value;
+  return name === null ? [] : cells.flatMap((c, i) => (c && shotOf(c, name) ? [i] : []));
+};
+const diffRow = ref<{ testId: string; title: string; cells: (CompareCell | null)[] } | null>(null);
+const diffOpen = computed({ get: () => diffRow.value !== null, set: (v) => (v ? undefined : (diffRow.value = null)) });
+const diffBefore = ref("0");
+const diffAfter = ref("1");
+const diffChoices = computed(() => (diffRow.value ? withShot(diffRow.value.cells).map((i) => ({ value: String(i), label: runTag(i) })) : []));
+function openDiff(row: { testId: string; title: string; cells: (CompareCell | null)[] }) {
+  const cols = withShot(row.cells);
+  diffBefore.value = String(cols[0] ?? 0);
+  diffAfter.value = String(cols.at(-1) ?? 1);
+  diffRow.value = row;
+}
+const diffImage = (col: string, side: "Before" | "After") => {
+  const i = Number(col);
+  const cell = diffRow.value?.cells[i];
+  const shot = cell && shotName.value !== null ? shotOf(cell, shotName.value) : null;
+  const run = data.value?.runs[i];
+  return { url: shot?.url ?? "", label: `${side} · ${run?.label || run?.id || ""}`, note: run ? when(run.createdAt) : undefined };
+};
+
 const runTag = (i: number) => {
   const r = data.value?.runs[i];
   return r ? [r.label, r.id, paramsText(r.params, differing.value)].filter(Boolean).join(" · ") : "";
@@ -215,6 +243,7 @@ const runTag = (i: number) => {
                   >
                     {{ opened.has(rowKey(row)) ? "Hide screenshots" : "All screenshots" }}
                   </button>
+                  <button v-if="withShot(row.cells).length > 1" type="button" class="more small" @click="openDiff(row)">Compare "{{ shotName }}"…</button>
                 </th>
                 <td v-for="(cell, i) in row.cells" :key="i" class="cell">
                   <span class="runtag mono small">{{ runTag(i) }}</span>
@@ -266,12 +295,41 @@ const runTag = (i: number) => {
       </div>
     </section>
     <ImageViewer v-model="viewerAt" :images="viewerImages" label="Screenshots" />
+    <ModalDialog v-model="diffOpen" :heading="diffRow ? `${diffRow.testId}${diffRow.title !== diffRow.testId ? ` ${diffRow.title}` : ''}: ${shotName}` : 'Compare'" width="min(1180px, 96vw)">
+      <div v-if="diffRow" class="diff">
+        <div class="diff-pick">
+          <label class="label" for="diff-before">Before</label>
+          <SelectMenu id="diff-before" v-model="diffBefore" :options="diffChoices" />
+          <label class="label" for="diff-after">After</label>
+          <SelectMenu id="diff-after" v-model="diffAfter" :options="diffChoices" />
+        </div>
+        <ImageDiff :before="diffImage(diffBefore, 'Before')" :after="diffImage(diffAfter, 'After')" />
+      </div>
+      <template #actions>
+        <button class="btn" @click="diffRow = null">Close</button>
+      </template>
+    </ModalDialog>
   </main>
 </template>
 
 <style scoped>
 .page.wide {
   max-width: 1600px;
+}
+.diff {
+  display: grid;
+  gap: var(--space-4);
+}
+.diff-pick {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+@media (max-width: 720px) {
+  .diff-pick {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
 }
 .picker {
   display: grid;
