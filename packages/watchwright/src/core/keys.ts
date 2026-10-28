@@ -10,3 +10,6 @@ export const ACTIONS = serviceKey<readonly Action[]>("actions");
 
 /** Asked before a destructive action runs; the approvals plugin provides it. */
 export const ACTION_GATE = serviceKey<ActionGate>("action-gate");
+
+/** The port the server listens on (a plugin that writes a command to start this server again needs it). */
+export const SERVER_PORT = serviceKey<number>("server-port");

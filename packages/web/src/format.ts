@@ -29,6 +29,21 @@ export function ago(iso: string, now = Date.now()): string {
   return new Date(iso).toLocaleDateString();
 }
 
+/** "in 5 min", "in 3 h", "tomorrow 09:00", then the date and time: when something is due. */
+export function soon(iso: string, now = Date.now()): string {
+  const t = Date.parse(iso);
+  const s = Math.round((t - now) / 1000);
+  if (s < 45) return "any moment";
+  if (s < 3600) return `in ${Math.max(1, Math.round(s / 60))} min`;
+  const d = new Date(t);
+  const hm = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((day(d) - day(new Date(now))) / 86_400_000);
+  if (days === 0) return `today ${hm}`;
+  if (days === 1) return `tomorrow ${hm}`;
+  return `${d.toLocaleDateString()} ${hm}`;
+}
+
 export function when(iso: string | null): string {
   return iso ? new Date(iso).toLocaleString() : "–";
 }
