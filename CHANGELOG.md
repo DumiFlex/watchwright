@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/DumiFlex/watchwright/compare/v0.5.0...v0.6.0) (2026-10-28)
+
+
+### Features
+
+* save a test's own files, preview Markdown files, put files in the zip export ([#89](https://github.com/DumiFlex/watchwright/issues/89)) ([ca0c9cd](https://github.com/DumiFlex/watchwright/commit/ca0c9cd8516cfde3ad577f118c5eecaec0f379a8))
+
 ## [0.5.0](https://github.com/DumiFlex/watchwright/compare/v0.4.0...v0.5.0) (2026-10-28)
 
 
