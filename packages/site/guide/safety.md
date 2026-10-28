@@ -21,9 +21,11 @@ When an agent, a script or the command line without a terminal calls one of them
 - **Refuse** runs nothing; the agent is told you refused.
 - Nobody answers in 30 minutes: the approval expires and nothing runs. Approvals still waiting when the server stops expire too.
 
-The caller's request is held for up to a minute. If you answer in that time, it gets the result directly. After that it gets the approval to wait on (`202`, see [Approvals](../reference/http-api#approvals) in the API), so it can check back without holding a request open.
+The caller's request is held for up to 45 seconds, less than the time MCP clients wait for an answer. If you answer in that time, it gets the result directly. After that it gets the approval to wait on (`202`, see [Approvals](../reference/http-api#approvals) in the API), so it can check back without holding a request open.
 
 Only the web page can answer: a request to answer an approval without the page's `Origin` is refused. At a terminal, the [command line](../reference/cli#every-action-is-a-command) asks y/N instead, and a yes runs the action at once. There is no flag that skips the question.
+
+Approvals catch an agent's mistakes; they don't stop an agent set on getting around them. Agents that only reach Watchwright through MCP can't answer or skip an approval. An agent that can run shell commands as you can send the headers the web page and the terminal send, or delete the data folder itself, so give agents that you don't trust with your files MCP access only.
 
 ## What packs can do
 

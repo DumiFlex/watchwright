@@ -76,9 +76,14 @@ describe("server", () => {
     expect(foreign.statusCode).toBe(403);
     const res = await app.inject({ method: "POST", url: "/api/v1/stop", headers: { host: HOST, origin: `http://${HOST}` } });
     expect(res.json()).toEqual({ data: { stopping: true } });
+    // An empty body of any type is no body (PowerShell sends a form type).
+    for (const type of ["application/x-www-form-urlencoded", "application/json"]) {
+      const empty = await app.inject({ method: "POST", url: "/api/v1/stop", headers: { host: HOST, origin: `http://${HOST}`, "content-type": type }, payload: "" });
+      expect(empty.json(), type).toEqual({ data: { stopping: true } });
+    }
     expect(stopped).toBe(0);
     await new Promise((r) => setTimeout(r, 300));
-    expect(stopped).toBe(1);
+    expect(stopped).toBe(3);
     // Without a way to stop (built without the CLI), it says so.
     const other = await make();
     expect((await other.inject({ method: "POST", url: "/api/v1/stop", headers: { host: HOST, origin: `http://${HOST}` } })).json()).toMatchObject({ error: { code: "cant_stop" } });

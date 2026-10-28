@@ -108,6 +108,11 @@ async function main(argv: string[]): Promise<number> {
     console.log(HELP);
     return command === undefined ? EXIT.usage : EXIT.ok;
   }
+  // These parse their own options; --help after them shows the help above, where they are described.
+  if ((command === "serve" || command === "mcp" || command === "init-agent") && (argv.includes("--help") || argv.includes("-h"))) {
+    console.log(HELP);
+    return EXIT.ok;
+  }
   if (command === "serve") return serveCommand(argv.slice(1));
   if (command === "mcp") return mcpCommand(argv.slice(1));
   if (command === "init-agent") return guarded(processIo, false, () => Promise.resolve(initAgentCommand(processIo, argv.slice(1))));
@@ -203,8 +208,13 @@ async function main(argv: string[]): Promise<number> {
 
 main(process.argv.slice(2)).then(
   (code) => {
-    // Exit once stdout has drained, so piped JSON isn't cut off and idle connections don't hold the process.
-    if (code >= 0) process.stdout.write("", () => process.exit(code));
+    // Let the process end by itself once its work is done: process.exit() while fetch's sockets
+    // are still closing crashes Node on Windows (a libuv assertion). Should something still hold
+    // it, exit a moment later anyway; stdout has drained by then, so piped JSON isn't cut off.
+    if (code >= 0) {
+      process.exitCode = code;
+      setTimeout(() => process.exit(code), 2000).unref();
+    }
   },
   (err: unknown) => {
     console.error(err instanceof Error ? err.message : err);

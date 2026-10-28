@@ -49,7 +49,12 @@ export async function buildServer({ store, port, webRoot, plugins = BUILTIN_PLUG
     } else if (needsOriginCheck(req.method, upgrade) && !isAllowedOrigin(req.headers.origin, port)) {
       refused = errorBody("bad_origin", "Requests that change something must come from this server's own page.");
     }
-    if (!refused) return;
+    if (!refused) {
+      // An empty body is no body, whatever type it says it is (PowerShell and `curl -d ""` send a form type).
+      const length = req.headers["content-length"];
+      if (length === "0" || (length === undefined && req.headers["transfer-encoding"] === undefined)) delete req.headers["content-type"];
+      return;
+    }
     if (!upgrade) return reply.code(403).send(refused);
     // A refused upgrade gets a plain HTTP answer on the raw socket, which is then closed;
     // answering through `reply` leaves the socket open and blocks server shutdown.

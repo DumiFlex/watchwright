@@ -118,6 +118,10 @@ describe("approvals", () => {
     const id = body.data.approval.id;
     const quiet = (await req("GET", `/approvals/${id}/wait?timeout=0.05`)).json() as { data: Approval };
     expect(quiet.data.status).toBe("waiting");
+    // Asking again while it waits gets the same approval, not a second one.
+    const again = (await req("DELETE", "/things/z", { client: "Claude Code" })).json() as { data: { approval: Approval } };
+    expect(again.data.approval.id).toBe(id);
+    expect(((await req("GET", "/approvals?status=waiting")).json() as { data: Approval[] }).data).toHaveLength(1);
     const wait = req("GET", `/approvals/${id}/wait?timeout=10`);
     await req("POST", `/approvals/${id}/answer`, { page: true, body: { approve: true } });
     expect(((await wait).json() as { data: Approval }).data).toMatchObject({ status: "approved", result: { dropped: "z" } });

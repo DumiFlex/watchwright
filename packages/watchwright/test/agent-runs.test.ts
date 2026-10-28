@@ -174,6 +174,7 @@ run("following a run as an agent", { timeout: 90_000 }, () => {
       let waited = json(await call("wait_for_run", { id, timeout: 30 }));
       while (waited.reason === "timeout") waited = json(await call("wait_for_run", { id, after: waited.cursor, timeout: 30 }));
       expect(waited.reason).toBe("ended");
+      expect((waited.run as { live: unknown }).live).toBeNull();
       await engineOf(h).settled(id);
 
       const summary = json(await call("get_run", { id })) as unknown as RunDigest;
@@ -203,9 +204,8 @@ run("following a run as an agent", { timeout: 90_000 }, () => {
       expect(started.isError).toBeFalsy();
       const session = JSON.parse(text(started)) as { id: string; startedBy: string };
       expect(session.startedBy).toBe("Claude Code");
-      await h.waitFor((e) => e.runId === session.id && e.type === "record.status" && e.data.status === "recording", 30_000);
 
-      // The look: the page's facts, its snapshot with refs, and a screenshot when asked.
+      // The look, right after starting (it waits for the browser): the page's facts, its snapshot with refs, and a screenshot when asked.
       const look = await call("explore_look", { id: session.id, shot: true });
       expect(JSON.parse(text(look))).toMatchObject({ title: "Fixture home" });
       const ref = /button "Add one" \[ref=(e\d+)\]/.exec(text(look, 1))?.[1];

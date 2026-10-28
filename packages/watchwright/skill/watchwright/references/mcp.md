@@ -88,4 +88,4 @@ Refs last until the page changes; a ref that is gone answers with an error askin
 
 ## Asking the person
 
-Tools that delete something (`delete_run`, `delete_pack_file`, and any destructive action through `call_action`) don't run until the person approves them on the web page; see [Approvals](https://dumiflex.github.io/watchwright/guide/safety#approvals). The call waits up to a minute; after that it answers with the approval's id, and the agent waits on with `wait_for_approval`. A refused approval comes back as a `refused` error.
+Tools that delete something (`delete_run`, `delete_pack_file`, and any destructive action through `call_action`) don't run until the person approves them on the web page; see [Approvals](https://dumiflex.github.io/watchwright/guide/safety#approvals). The call waits up to 45 seconds; after that it answers with the approval's id, and the agent waits on with `wait_for_approval`. A refused approval comes back as a `refused` error.

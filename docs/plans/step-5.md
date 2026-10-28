@@ -1,6 +1,6 @@
 # Step 5 plan: a CLI, an MCP server and an agent skill
 
-Status: built (PRs #76 to #81, 2026-10-28); the check with a real agent in the sandbox passed (section 12), the PC check is next. Dumi's answers are in section 11. [docs/plan.md](../plan.md) holds the base design; this step builds its third rule ("one action registry feeds every door", section 3). The research behind this plan is in [docs/research/step-5-agents.md](../research/step-5-agents.md).
+Status: built (PRs #76 to #81, 2026-10-28); the checks with a real agent in the sandbox and on the PC passed (section 12). Dumi's answers are in section 11. [docs/plan.md](../plan.md) holds the base design; this step builds its third rule ("one action registry feeds every door", section 3). The research behind this plan is in [docs/research/step-5-agents.md](../research/step-5-agents.md).
 
 Steps 1 to 4 made Watchwright run, show, review and write tests from its web page and its HTTP API. This step gives a person's own AI agent the same reach: a CLI for agents with a shell, an MCP server for agents without one, and a skill that teaches either of them how to use Watchwright well. The person watches the agent work on the web page, as they watch a run, and can pause or take over at any time.
 
@@ -139,7 +139,7 @@ Without `--agent` it writes for the agents whose folders it finds, else for all 
 
 ## 6. Guardrails
 
-- **Deleting needs the person.** A destructive action called by anything other than the web page (the request's own `Origin`, which a browser sets and can't fake) doesn't run at once. It becomes an **approval**: the call waits up to 60 s for the person's answer, then answers `202` with `{ approval: { id, status: "waiting" } }`, and the caller waits on with `approvals.wait`. The skill tells agents to say on the chat that an approval is waiting. A person at a terminal answering the CLI's y/N counts as approval. This guards against an agent's mistake, not against code that sets out to fake a browser; the server is loopback only, and the docs say so.
+- **Deleting needs the person.** A destructive action called by anything other than the web page (the request's own `Origin`, which a browser sets and can't fake) doesn't run at once. It becomes an **approval**: the call waits up to 45 s for the person's answer (under MCP clients' 60 s timeout), then answers `202` with `{ approval: { id, status: "waiting" } }`, and the caller waits on with `approvals.wait`. The skill tells agents to say on the chat that an approval is waiting. A person at a terminal answering the CLI's y/N counts as approval. This guards against an agent's mistake, not against code that sets out to fake a browser; the server is loopback only, and the docs say so.
 - **The banner.** Every page of the web app shows the approvals waiting at the top: who asks, what (in words: "Delete run 3f2a… *Nightly* and its 41 files"), when, with **Approve** and **Refuse**. The tab's dot and title show it like a paused run. Approving runs the action as the person and records who asked and who approved; refusing answers the caller with `refused`. An approval nobody answers expires after 30 minutes (`expired`).
 - **The `approvals` plugin** owns this: its table (`approvals`: id, action, input, client, status, answered by, result, times), its actions (`approvals.list`, `approvals.wait`, `approvals.answer`), events (`approval.requested`, `approval.answered`) for the banner, and the gate. The gate is a new seam in the plugin contract: a plugin may provide the `ACTION_GATE` service, which the HTTP mounting calls before a destructive handler; core stays free of approval code.
 - The same banner and gate are what step 6's budgets will use for paid runs.
@@ -165,7 +165,7 @@ Without `--agent` it writes for the agents whose folders it finds, else for all 
 ## 9. How step 5 is tested
 
 - **Unit:** CLI argument parsing from schemas (types, arrays, objects, `--no-`, path parameters in order, `--input -`), exit codes, client detection, pack names to ids; tool generation from actions (names, descriptions, annotations, no destructive tools, `call_action` refusing them); the skill's front matter (name and description limits) and its references being current; `init-agent` merging settings files without losing entries.
-- **Approvals:** a destructive call from a non-web client waits, is approved and runs, is refused, expires; a call from the web page's origin runs at once; `approvals.wait` across the 60 s handover; the banner component.
+- **Approvals:** a destructive call from a non-web client waits, is approved and runs, is refused, expires; a call from the web page's origin runs at once; `approvals.wait` across the 45 s handover; the banner component.
 - **Server:** `runs.wait` (returns on pause, on end, on timeout, and early when the client goes away), `runs.summary`, `runs.control`, `runs.file` (image, text, too big); the MCP endpoint through the SDK client over real HTTP on a free port (initialize, list tools, call, image result, error result, the client's name as `startedBy`); `watchwright mcp` over stdio against a real server, and starting one when none runs.
 - **Engine (Chromium):** an agent-style flow end to end against the fixture site: explore (`record.do` with a ref, `record.look`), stop, write the steps to a YAML test, run it, wait, read the summary and a screenshot.
 - **Web:** component tests for Settings > Agents and the Runs page card.
@@ -200,4 +200,10 @@ What it showed, and what changed in the sign-off PR:
 - A ref like `f2e5` (an element inside a frame) was refused as not a ref. Refs inside frames are accepted now.
 - A `fill` with a `label` target missed a box that only has a placeholder; the agent read the error and used role and name instead. The error was clear enough, so nothing changed.
 
-**On the PC.** Still to do: Windows and Firefox, the CLI and MCP against a spare-port server, only while no bench runs.
+**On the PC (2026-10-28).** Windows 11, Node 24, Firefox 157, against a server on a spare port with its own data folder while no bench ran: the CLI (`status`, `run`, `wait`, `results`, `packs`, `actions`, `init-agent`), MCP over stdio and over HTTP (instructions and run links on the right port), exploring and a destructive call waiting for approval all worked. What it showed, fixed in the PR after:
+
+- `watchwright status` (and `run` without `--wait`) printed its answer, then Node crashed on exit on Windows (a libuv assertion from `process.exit()` while fetch's sockets close). The CLI now lets the process end by itself, with a late `process.exit` only if something holds it.
+- The approval hold (60 s) equalled MCP clients' default request timeout, so a client could time out before getting the approval to wait on. The hold is 45 s now.
+- `explore_look` right after `explore_start` failed while the browser started (about 3 s in Firefox). Looks and steps now wait up to 30 s for a starting browser.
+- Smaller: `serve --help` (and `mcp`, `init-agent`) show the help; an ended run's `live` is null in `wait_for_run`'s answer; the approval message names `wait_for_approval`; asking again for the same thing while its approval waits gets that approval back instead of a second one; an empty body of any content type counts as no body (PowerShell sent a form type and got 415).
+- Approvals stop agents that only use MCP, not an agent with a shell set on getting around them (it can send the page's and the terminal's headers, or delete the data folder). As planned (section 6); the safety guide says so plainly now.
