@@ -57,7 +57,7 @@ A recording's state is `{ id, packId, testId, status, message, window, viewport,
 | Method and path | Does |
 |---|---|
 | `GET /record` | `{ canWindow, recordings }`. `canWindow` says whether this machine has a screen for `window: true`. |
-| `POST /record` `{ packId, testId?, replay?, line?, url?, params?, window? }` | Starts a recording (201, its state). With `testId`, the pack's `beforeEach` runs first; with `replay`, also that YAML test's first `replay` steps; with `line`, also that code test's code up to that line (it stops at the first Playwright call below it). `url` is where to open (the site's base URL by default), `params` the parameter values for those steps. 400 `bad_test`, `bad_params`, `no_window`. |
+| `POST /record` `{ packId, testId?, replay?, line?, url?, params?, window?, signIn? }` | Starts a recording (201, its state). It starts with the site's saved sign-in when `signIn` (default: the pack's `site.signIn`) asks for one and one is saved. With `testId`, the pack's `beforeEach` runs first; with `replay`, also that YAML test's first `replay` steps; with `line`, also that code test's code up to that line (it stops at the first Playwright call below it). `url` is where to open (the site's base URL by default), `params` the parameter values for those steps. 400 `bad_test`, `bad_params`, `no_window`. |
 | `GET /record/:id` | The recording's state. |
 | `POST /record/:id/input` `{ type, … }` | Input for the active page, in page pixels: `click`, `dblclick`, `down`, `up` (`x`, `y`, `button?`, `clickCount?`), `move` (`x`, `y`), `wheel` (`x`, `y`, `deltaX`, `deltaY`), `key` (`key` in Playwright's form, `Shift+Tab`), `text` (`text`, typed into the focused field), `goto` (`url`), `back`, `reload`. A `move`, `up` or `wheel` answers with `hover`: the element now under the pointer (`box` in page pixels, `tag`, and its best `target`, not checked on the page), or null. 409 `not_recording` before recording starts or after it ends. |
 | `POST /record/:id/pick` `{ x, y }` | The element at a point: `{ info, targets, groups }`. `info` has its `tag`, `text`, `value` and `checked`; `targets` pick out only it, best first; `groups` are targets it shares with elements like it, with their `count`. 404 `nothing_there`. |
@@ -67,6 +67,7 @@ A recording's state is `{ id, packId, testId, status, message, window, viewport,
 | `DELETE /record/:id/steps/:step` | Removes a step. |
 | `GET /record/:id/look?shot=` | The active page as an agent reads it: `{ url, title, snapshot, shot? }`. `snapshot` is Playwright's aria snapshot for AI, where elements carry refs (`[ref=e4]`); `shot` (with `shot=true`) is a JPEG of the viewport, `{ mimeType, encoding: "base64", data }`. |
 | `POST /record/:id/do` `{ steps, shot? }` | Runs [YAML steps](./yaml-steps), written as JSON, on the active page one at a time and stops at the first that fails. A target may be `{ "ref": "e4" }` from the last look: it is swapped for the element's best target before the step runs. Each step that ran joins the steps. Answers `{ steps: [{ index, ok, step?, error? }], look }`. |
+| `POST /record/:id/sign-in` | Saves the recording browser's cookies and local storage as its site's sign-in, replacing the one saved before: `{ siteKey }`. From anything but the web page it waits for approval. |
 | `POST /record/:id/stop` | Ends the recording and closes its browser. Returns the state with the steps, and `yaml`: the steps as the list a test's `steps:` takes. |
 
 Events: `record.started`, `record.status` `{ status, message }`, `record.replay-step` `{ title }`, `record.agent-step` `{ title }` (a step of `do` running), `record.step` `{ step, index }`, `record.step-updated` `{ step }`, `record.step-removed` `{ id }`, `record.ended` `{ message, steps }` (`steps` is how many), and the `page.*` events of its pages.
@@ -85,6 +86,20 @@ The settings so far:
 - `settings.editor`: the editor that file links open in (`vscode`, `cursor`, `windsurf`, `idea`, `webstorm` or `none`; default `vscode`).
 - `runs.newRunFrom`: what the New run page fills in when it opens: `latest` (the pack's latest run, the default) or `defaults` (the pack's defaults).
 
+## Secrets and sign-ins
+
+Secrets are passwords and tokens tests read as `${secret.NAME}` or `h.secret("NAME")`; see [Secrets](../guide/yaml-tests#secrets). Saved sign-ins are one browser storage state (cookies and local storage) per site key, for runs that start signed in; see [Saved sign-ins](../guide/yaml-tests#saved-sign-ins). Both are kept in the data folder, not encrypted, and changing them from anything but the web page waits for approval.
+
+| Method and path | Does |
+|---|---|
+| `GET /secrets` | `[{ name, length, setAt }]`, never values. |
+| `POST /secrets` `{ name, value }` | Sets a secret, or a new value for one (201, `{ name, length, setAt }`). A name is letters, digits and `_`, starting with a letter or `_`. |
+| `DELETE /secrets/:name` | Deletes a secret. 404 `not_found`. |
+| `GET /signins` | `[{ siteKey, savedAt, source, cookies, origins }]`: when each was saved, from where (`record`, or `run <id>`), how many cookies and which sites' local storage it holds. |
+| `DELETE /signins/:siteKey` | Deletes a saved sign-in. 404 `not_found`. |
+
+Events: `signin.saved` `{ siteKey }`, on the run or recording that saved it.
+
 ## Folders
 
 A web page can't learn a folder's path from the browser, so the server lists folders on its machine for the web app's folder browser. It lists folder names and the marker files plugins ask about (a pack file), never other files or what's in them.
@@ -101,7 +116,7 @@ A web page can't learn a folder's path from the browser, so the server lists fol
 | Method and path | Does |
 |---|---|
 | `GET /runs?limit=&pack=&status=&before=&q=` | Runs, newest first, with counts. `pack` keeps one pack's runs, `status` a comma-separated list of statuses (`finished,stopped`). `q` searches: each word must appear in the run's id, label, pack name, values, facts or status, and a `name=value` word matches a value exactly (`lang=de`). For the next page, pass the `createdAt` of the last run as `before`. |
-| `POST /runs` `{ packId, tests?, params?, pauseOnBroken?, pauseLimitMinutes?, attempts?, trace?, video?, label?, preset?, kind? }` | Queues a run. `kind` is the job kind (default `test`; `GET /kinds` lists the loaded ones, and an unknown kind is a 400 `bad_input`). `tests` defaults to all; tests they need, and parents and children, join by themselves. `attempts` gives every test the same number of attempts instead of its own `runs`; `trace` (`problems`, `always`, `never`) and `video` override the pack's settings for this run. `label` names the run (up to 120 characters). `preset` starts from the pack's preset with that name; the other fields given override it (404 when the pack has no such preset). |
+| `POST /runs` `{ packId, tests?, params?, pauseOnBroken?, pauseLimitMinutes?, attempts?, trace?, video?, signIn?, label?, preset?, kind? }` | Queues a run. `kind` is the job kind (default `test`; `GET /kinds` lists the loaded ones, and an unknown kind is a 400 `bad_input`). `tests` defaults to all; tests they need, and parents and children, join by themselves. `attempts` gives every test the same number of attempts instead of its own `runs`; `trace` (`problems`, `always`, `never`) and `video` override the pack's settings for this run, and `signIn` starts it with (or without) the site's [saved sign-in](#secrets-and-sign-ins) instead of the pack's `site.signIn`; a run that should start signed in with none saved fails to start. `label` names the run (up to 120 characters). `preset` starts from the pack's preset with that name; the other fields given override it (404 when the pack has no such preset). |
 | `GET /kinds` | The job kinds the server has loaded, `[{ name, labels }]`. `labels` maps an outcome to the word the kind shows for it (an extraction could show `done` for `passed`); the outcome stays the value in every result. Runs and attempts carry their `kind`. |
 | `POST /runs/:id/again` | Queues a new run with the run's pack, tests, values, options and label (201). Queue edits made during the run aren't copied. |
 | `POST /runs/:id/label` `{ label }` | Names a run; an empty label takes the name away. Runs carry `label` (empty when none). |
@@ -188,7 +203,7 @@ Everything that happens is an event with a growing sequence number: `{ seq, time
 
 `GET /events?after=<seq>&wait=<seconds>&runId=&types=&limit=` returns `{ events, next, head }`. With `wait` (up to 110 seconds) it holds the request until a matching event arrives, so an agent can follow a run with one request at a time: call again with `after=next`.
 
-Event types (open set, more come with later plugins): `run.queued`, `run.started`, `run.planned`, `run.pausing`, `run.paused`, `run.resumed`, `run.decision`, `run.stopping`, `run.labeled`, `run.finished`, `run.interrupted`, `run.failed_to_start`, `run.log`, `run.info`, `run.tests-added`, `run.items-added` (items a job kind added to its running run, in batches, with `total` so far; a run's `options.added` lists them, and a resumed run keeps them), `attempt.started`, `attempt.step`, `attempt.log`, `attempt.flag`, `attempt.artifact`, `attempt.finished`, `page.opened`, `page.navigated`, `page.active`, `page.closed`, `video.unavailable`, `pack.added`, `pack.loaded`, `pack.reload_failed`, `pack.reloaded`, `pack.removed`, `editor.file_changed`, `review.saved`, `record.started`, `record.status`, `record.replay-step`, `record.agent-step`, `record.step`, `record.step-updated`, `record.step-removed`, `record.ended`, `approval.requested`, `approval.answered`.
+Event types (open set, more come with later plugins): `run.queued`, `run.started`, `run.planned`, `run.pausing`, `run.paused`, `run.resumed`, `run.decision`, `run.stopping`, `run.labeled`, `run.finished`, `run.interrupted`, `run.failed_to_start`, `run.log`, `run.info`, `run.tests-added`, `run.items-added` (items a job kind added to its running run, in batches, with `total` so far; a run's `options.added` lists them, and a resumed run keeps them), `attempt.started`, `attempt.step`, `attempt.log`, `attempt.flag`, `attempt.artifact`, `attempt.finished`, `page.opened`, `page.navigated`, `page.active`, `page.closed`, `video.unavailable`, `pack.added`, `pack.loaded`, `pack.reload_failed`, `pack.reloaded`, `pack.removed`, `editor.file_changed`, `review.saved`, `record.started`, `record.status`, `record.replay-step`, `record.agent-step`, `record.step`, `record.step-updated`, `record.step-removed`, `record.ended`, `signin.saved`, `approval.requested`, `approval.answered`.
 
 ## Live WebSocket
 

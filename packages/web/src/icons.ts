@@ -54,6 +54,7 @@ export {
   House,
   Info,
   Keyboard,
+  KeyRound,
   Layers,
   Lightbulb,
   ListChecks,

@@ -145,6 +145,8 @@ export interface PackRunDefaults {
   pauseLimitMinutes: number;
   trace: TraceMode;
   video: boolean;
+  /** Runs start with the site's saved sign-in (`site.signIn: saved`); older servers leave it out. */
+  signIn?: boolean;
 }
 
 /** What a run sets for itself; anything left out comes from the pack. */
@@ -154,6 +156,7 @@ export interface RunOptions {
   attempts?: number;
   trace?: TraceMode;
   video?: boolean;
+  signIn?: boolean;
 }
 
 /** What a run starts with apart from its pack: what a preset keeps. */

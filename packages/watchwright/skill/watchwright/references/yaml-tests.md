@@ -108,6 +108,19 @@ Passwords and tokens a test needs go on **Settings > Secrets** (or `watchwright 
 - Secrets are kept in Watchwright's database in its data folder, not encrypted. They stay out of packs, repos and results; they are not safe from someone who can read your data folder.
 - Screenshots and video show what the page shows. Type secrets into password fields so they appear as dots.
 
+### Saved sign-ins
+
+Logging in at the start of every test is slow and can trip a site's limits. Instead, sign in once and save it: Watchwright keeps the browser's cookies and local storage for the pack's site key, and later runs start with them.
+
+- **Save one** from a recording: sign in on the live view, then press **Save sign-in**. Or end a login test with the `saveSignIn` step (`h.saveSignIn()` in code).
+- **Use it** by setting `site.signIn: saved` in the pack, or with **Start signed in** on the New run page (`signIn: true` in the API). A run that should start signed in fails to start, saying so, when nothing is saved for its site. A saved sign-in that has expired is the pack's business: its first step sees the login page.
+- **See and delete them** on **Settings > Sign-ins**. Saved sign-ins live in the data folder like secrets, not encrypted: they can sign anyone who can read that folder into the site.
+
+```yaml
+# pack.yaml
+site: { key: shop, baseURL: "https://shop.example/", signIn: saved }
+```
+
 ## Branches and loops
 
 ```yaml

@@ -256,6 +256,7 @@ function checkOptions(o: PackOptions): void {
       problems.push("`site.baseURL` must be an absolute URL.");
     }
   }
+  if (o.site?.signIn !== undefined && o.site.signIn !== "saved") problems.push('`site.signIn` must be "saved" (or left out).');
   if (o.browser?.name !== undefined && !["chromium", "firefox", "webkit"].includes(o.browser.name)) problems.push("`browser.name` must be chromium, firefox or webkit.");
   for (const [name, kind] of Object.entries(o.flags ?? {})) if (!FLAG_KINDS.includes(kind)) problems.push(`Flag "${name}" must be robot, finding or info.`);
   problems.push(...rubricProblems(o.rubric, "rubric"));

@@ -45,6 +45,9 @@ const attemptsMode = ref<"pack" | "same">("pack");
 const attempts = ref(1);
 const trace = ref<TraceMode>("problems");
 const video = ref(true);
+const signIn = ref(false);
+// Site keys that have a saved sign-in (Settings > Sign-ins).
+const savedSignIns = ref<Set<string>>(new Set());
 const pauseOnBroken = ref(true);
 const pauseLimit = ref(20);
 
@@ -54,6 +57,7 @@ const startError = ref<string | null>(null);
 const starting = ref(false);
 
 const pack = computed(() => packs.value.find((p) => p.id === packId.value) ?? null);
+const hasSignIn = computed(() => pack.value?.siteKey != null && savedSignIns.value.has(pack.value.siteKey));
 const packOptions = computed(() => packs.value.map((p) => ({ value: p.id, label: p.status === "error" ? `${p.name} (doesn't load)` : p.name })));
 const testOptions = computed(() =>
   (pack.value?.tests ?? []).map((t) => {
@@ -94,6 +98,7 @@ function choices(): RunChoices {
     pauseLimitMinutes: pauseLimit.value,
     trace: trace.value,
     video: video.value,
+    signIn: signIn.value,
     ...(attemptsMode.value === "same" ? { attempts: attempts.value } : {}),
   };
 }
@@ -106,6 +111,7 @@ function applyPack(p: Pack) {
   attempts.value = 1;
   trace.value = p.run.trace;
   video.value = p.run.video;
+  signIn.value = p.run.signIn ?? false;
   pauseOnBroken.value = p.run.pauseOnBroken;
   pauseLimit.value = p.run.pauseLimitMinutes;
   copiedFrom.value = null;
@@ -148,6 +154,7 @@ function applyChoices(c: RunChoices, p: Pack) {
   }
   if (o.trace !== undefined) trace.value = o.trace;
   if (o.video !== undefined) video.value = o.video;
+  if (o.signIn !== undefined) signIn.value = o.signIn;
   if (o.pauseOnBroken !== undefined) pauseOnBroken.value = o.pauseOnBroken;
   if (o.pauseLimitMinutes !== undefined) pauseLimit.value = o.pauseLimitMinutes;
 }
@@ -166,6 +173,9 @@ function useDefaults() {
 }
 
 onMounted(async () => {
+  void getJson<{ siteKey: string }[]>("/api/v1/signins").then((r) => {
+    if (r.ok) savedSignIns.value = new Set(r.data.map((s) => s.siteKey));
+  });
   const [res, latest] = await Promise.all([getJson<Pack[]>("/api/v1/packs"), getJson<RunSummary[]>("/api/v1/runs?limit=1"), loadSettings()]);
   loaded.value = true;
   if (!res.ok) return void (loadError.value = res.error.message);
@@ -455,6 +465,12 @@ useShortcut("Mod+Enter", () => !namingOpen.value && void start());
                   <ToggleSwitch id="nr-video" v-model="video">Record a video of each attempt</ToggleSwitch>
                 </div>
                 <div class="opt">
+                  <span class="name">Sign-in</span>
+                  <ToggleSwitch id="nr-signin" v-model="signIn">Start signed in</ToggleSwitch>
+                  <span v-if="signIn && !hasSignIn" class="warn small">Nothing is saved for {{ pack?.siteKey }} yet, so the run won't start. Save one from a recording (Save sign-in) or a login test.</span>
+                  <span v-else class="muted small">With the cookies and local storage saved for {{ pack?.siteKey }} (Settings &gt; Sign-ins).</span>
+                </div>
+                <div class="opt">
                   <span class="name">When a test breaks</span>
                   <ToggleSwitch id="nr-pause" v-model="pauseOnBroken">Pause and wait for Retry or Skip</ToggleSwitch>
                   <div v-if="pauseOnBroken" class="inline">
@@ -519,6 +535,9 @@ useShortcut("Mod+Enter", () => !namingOpen.value && void start());
 </template>
 
 <style scoped>
+.warn {
+  color: var(--warn);
+}
 .skeleton-card {
   display: grid;
   gap: var(--space-3);

@@ -63,6 +63,7 @@ export default pack({
 | `name` | Shown on the web page. |
 | `site.key` | Runs of packs with the same key wait for each other, so two runs never change the same app at once. |
 | `site.baseURL` | Relative URLs in `h.goto()` resolve against it. |
+| `site.signIn` | `"saved"`: every run starts with the sign-in saved for this site key (see [Saved sign-ins](./yaml-tests#saved-sign-ins)). |
 | `browser` | `name` (`chromium`, `firefox`, `webkit`), `viewport`, `headless` (default `true`; you watch through the live view), and raw Playwright `launch` and `context` options. |
 | `params` | Values chosen per run. A param has a `default`, optional `choices` (with optional display `labels`: `{ q9: "Qwen3.5 9B" }`), and an optional `type` (`string`, `number`, `boolean`). Tests get them as `params`. |
 | `flags` | Flags tests may raise, with their kind: `robot` (the harness or test went wrong: the attempt is **broken**), `finding` (the site did something wrong: the attempt **failed**), `info` (changes nothing). |
@@ -142,6 +143,7 @@ Every `h` call is a pause point: Pause takes effect at the next one.
 | `h.metric(name, value, unit?)` | A number to keep with the result. |
 | `h.save(key, value)`, `h.load(key)` | State for later tests (see `needs`). A test's saves are kept from its last attempt, when it passed or failed. |
 | `h.info(key, value)` | Saves a fact about the whole run (the app's version, the model it runs on). Facts show on the run page, in Compare and in exports. |
+| `h.saveSignIn()` | Saves the browser's cookies and local storage as the sign-in for the pack's site key. Call it at the end of a login test. |
 | `h.secret(name)` | A secret set on Settings > Secrets (a password, a token). Its value is masked in everything the run records; see [Secrets](./yaml-tests#secrets). |
 | `h.skip(reason)` | Ends the attempt as skipped, with the reason (a file it needs isn't there, the feature is off). |
 

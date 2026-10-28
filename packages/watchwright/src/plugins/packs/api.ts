@@ -129,6 +129,11 @@ export interface Helpers {
    * kept texts, step titles and errors. Throws a step error when no secret has that name.
    */
   secret(name: string): string;
+  /**
+   * Saves the browser's cookies and local storage as the sign-in for the pack's site key, so runs
+   * that start signed in (`site.signIn: "saved"`) skip the login. Call it at the end of a login test.
+   */
+  saveSignIn(): Promise<void>;
   /** Ends the attempt as skipped, with the reason. */
   skip(reason: string): never;
   /**
@@ -201,7 +206,12 @@ export interface PackOptions {
   name: string;
   description?: string;
   /** Runs of packs with the same site key wait for each other. */
-  site: { key: string; baseURL?: string };
+  site: {
+    key: string;
+    baseURL?: string;
+    /** "saved": every run starts with the sign-in saved for this site key (Settings > Sign-ins). */
+    signIn?: "saved";
+  };
   browser?: {
     name?: BrowserName;
     viewport?: { width: number; height: number };

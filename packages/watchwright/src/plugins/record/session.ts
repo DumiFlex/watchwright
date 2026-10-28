@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { rmSync } from "node:fs";
 import path from "node:path";
 import type { BrowserContext, Page } from "playwright";
+import type { StorageState } from "../runs/engine.js";
 import { expect } from "playwright/test";
 import type { EventLog } from "../../events/log.js";
 import { RunControl } from "../../jobs/control.js";
@@ -66,6 +67,8 @@ export interface RecordOptions {
   dataDir: string;
   /** Who started it: `web` for the person, else a client's name (an agent exploring). */
   startedBy: string;
+  /** Start with the site's saved sign-in (default: the pack's `site.signIn`). */
+  signIn?: boolean | undefined;
 }
 
 export interface RecordHost {
@@ -75,6 +78,10 @@ export interface RecordHost {
   holdSite(siteKey: string): () => void;
   /** A secret's value by name, for steps that use `${secret.…}`. */
   secret(name: string): string | undefined;
+  /** The sign-in saved for a site key, if any. */
+  signIn(siteKey: string): StorageState | undefined;
+  /** Saves a sign-in for a site key ("Save sign-in", or `h.saveSignIn` in a step). */
+  saveSignIn(siteKey: string, state: StorageState, source: string): void;
 }
 
 /** Closes a recording nobody has touched for this long. */
@@ -195,13 +202,18 @@ export class RecordSession {
     this.setStatus("starting");
     const o = this.opts.pack.options;
     const id = this.id;
+    let signIn: StorageState | undefined;
+    if (this.opts.signIn ?? o.site.signIn === "saved") {
+      signIn = this.host.signIn(this.opts.siteKey);
+      if (!signIn) this.message = `No sign-in is saved for ${this.opts.siteKey} yet, so this browser starts signed out. Sign in, then press Save sign-in.`;
+    }
     this.session = await BrowserSession.launch(
       {
         browser: o.browser?.name ?? "chromium",
         headless: !this.opts.window,
         viewport: this.viewport,
         launch: o.browser?.launch,
-        context: o.browser?.context,
+        context: signIn ? { ...o.browser?.context, storageState: signIn } : o.browser?.context,
         size: o.run?.screencastSize,
         quality: o.run?.frameQuality ?? 70,
         showActions: false,
@@ -274,6 +286,14 @@ export class RecordSession {
     }
   }
 
+  /** Saves the browser's cookies and local storage as the site's sign-in; returns the site key. */
+  async saveSignIn(): Promise<string> {
+    if (!this.session || this.status === "ended") throw new ExploreError("The recording's browser isn't open.");
+    this.host.saveSignIn(this.opts.siteKey, await this.session.context.storageState(), "record");
+    this.emit("signin.saved", { siteKey: this.opts.siteKey });
+    return this.opts.siteKey;
+  }
+
   /** The `h` steps run with: the pack's helpers on this page, without a run around them. */
   private helpers(page: Page): Helpers {
     const o = this.opts.pack.options;
@@ -294,6 +314,7 @@ export class RecordSession {
         onStep: (title) => title && this.emit(this.stepEvent, { title }),
         onFlag: () => undefined,
         secret: (name) => this.host.secret(name),
+        saveSignIn: () => this.saveSignIn(),
       },
       o.helpers,
     );

@@ -7,7 +7,7 @@
 // exploring) instead of starting one: Close leaves it going, Stop ends it.
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, sendJson, type WwEvent } from "../api";
-import { AppWindow, ArrowLeft, Bot, Camera, CircleCheck, CircleDot, Crosshair, Hourglass, RotateCw, Send, StickyNote, Trash2 } from "../icons";
+import { AppWindow, ArrowLeft, Bot, Camera, CircleCheck, CircleDot, Crosshair, Hourglass, KeyRound, RotateCw, Send, StickyNote, Trash2 } from "../icons";
 import { LiveConnection } from "../live";
 import type { ViewInput } from "../liveinput";
 import { targetLabel, type RecordEntry, type RecordState } from "../recording";
@@ -205,6 +205,18 @@ const label = (step: RecordEntry) => {
   }
 };
 
+// Save sign-in: the browser's cookies and local storage become the site's sign-in (Settings > Sign-ins).
+const savingSignIn = ref(false);
+async function saveSignIn() {
+  const s = state.value;
+  if (!s) return;
+  savingSignIn.value = true;
+  const res = await sendJson<{ siteKey: string }>(`/api/v1/record/${s.id}/sign-in`);
+  savingSignIn.value = false;
+  if (!res.ok) return void toast(res.error.message, { tone: "bad" });
+  toast(`Saved the sign-in for ${res.data.siteKey}. Runs with Start signed in use it.`, { tone: "ok" });
+}
+
 // Tools: Check and Wait for point at an element; Shot and Note ask for a name or a text.
 type Tool = "check" | "waitFor" | null;
 const picking = ref<Tool>(null);
@@ -335,6 +347,7 @@ const recording = computed(() => state.value?.status === "recording");
           <button type="button" class="btn" :class="{ on: picking === 'waitFor' }" :disabled="!recording || state?.window" @click="picking = picking === 'waitFor' ? null : 'waitFor'"><Hourglass :size="15" /> Wait for</button>
           <button type="button" class="btn" :disabled="!state || state.status === 'ended'" @click="startAsk('shot')"><Camera :size="15" /> Shot</button>
           <button type="button" class="btn" :disabled="!state || state.status === 'ended'" @click="startAsk('note')"><StickyNote :size="15" /> Note</button>
+          <button v-tip="'Save the cookies and local storage, so runs can start signed in'" type="button" class="btn" :disabled="!recording || savingSignIn" @click="saveSignIn"><KeyRound :size="15" /> Save sign-in</button>
         </div>
         <form v-if="!state?.window" class="typebox" @submit.prevent="sendTyped(false)">
           <label class="sr-only" for="rec-type">Type into the page</label>

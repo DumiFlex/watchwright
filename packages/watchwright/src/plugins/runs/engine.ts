@@ -1,7 +1,7 @@
 import { writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import path from "node:path";
-import type { Page } from "playwright";
+import type { BrowserContext, Page } from "playwright";
 import type { EventLog } from "../../events/log.js";
 import { AttemptAborted, RunControl, type BrokenDecision } from "../../jobs/control.js";
 import type { AttemptEnv, JobKind, KindPlan, PlanItem } from "../../jobs/kind.js";
@@ -166,6 +166,8 @@ export interface EngineOptions {
   kinds: JobKinds;
   /** Secrets for `h.secret` and `${secret.…}`; every value is masked in what runs record and announce. */
   secrets?: { get(name: string): string | undefined; mask(text: string): string } | undefined;
+  /** Saved sign-ins: runs that start signed in get the site's storage state, and `h.saveSignIn` saves one. */
+  signIns?: { get(siteKey: string): StorageState | undefined; save(siteKey: string, state: StorageState, source: string): unknown } | undefined;
 }
 
 /** A copy of `value` with `mask` applied to every string in it (event data, attempt results). */
@@ -175,6 +177,9 @@ export function maskDeep<T>(value: T, mask: (s: string) => string): T {
   if (value !== null && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, maskDeep(v, mask)])) as T;
   return value;
 }
+
+/** A browser context's cookies and local storage, as Playwright saves them. */
+export type StorageState = Awaited<ReturnType<BrowserContext["storageState"]>>;
 
 export class Engine {
   private readonly active = new Map<string, ActiveRun>();
@@ -706,6 +711,14 @@ export class Engine {
     this.emit("run.planned", { plan: entries }, row.id);
 
     const o = pack.options;
+    let signIn: StorageState | undefined;
+    if (options.signIn ?? o.site.signIn === "saved") {
+      signIn = this.o.signIns?.get(o.site.key);
+      if (!signIn) {
+        failStart(`No saved sign-in for the site "${o.site.key}". Sign in on a Record session and press Save sign-in, or call h.saveSignIn() at the end of a login test.`);
+        return;
+      }
+    }
     let session: BrowserSession;
     try {
       session = await BrowserSession.launch(
@@ -714,7 +727,7 @@ export class Engine {
           headless: o.browser?.headless ?? true,
           viewport: o.browser?.viewport ?? { width: 1280, height: 800 },
           launch: o.browser?.launch,
-          context: o.browser?.context,
+          context: signIn ? { ...o.browser?.context, storageState: signIn } : o.browser?.context,
           size: o.run?.screencastSize,
           quality: o.run?.frameQuality ?? 70,
           showActions: o.run?.showActions ?? true,
@@ -906,6 +919,14 @@ export class Engine {
       load: (k) => (saves.has(k) ? saves.get(k) : run.state[k]),
       info: (k, v) => this.setInfo(run, k, v),
       secret: (name) => this.o.secrets?.get(name),
+      saveSignIn: async () => {
+        const signIns = this.o.signIns;
+        if (!signIns) throw new StepError("Saved sign-ins aren't available on this server.");
+        const key = pack.options.site.key;
+        signIns.save(key, await run.session!.context.storageState(), `run ${run.id}`);
+        this.emit("signin.saved", { siteKey: key }, run.id, attemptId);
+        return key;
+      },
       onStep: (title) => {
         run.step = title;
         if (attemptId) this.emit("attempt.step", { title }, run.id, attemptId);
