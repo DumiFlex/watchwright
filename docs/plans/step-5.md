@@ -1,6 +1,6 @@
 # Step 5 plan: a CLI, an MCP server and an agent skill
 
-Status: planned (2026-10-28); Dumi's answers are in section 11. [docs/plan.md](../plan.md) holds the base design; this step builds its third rule ("one action registry feeds every door", section 3). The research behind this plan is in [docs/research/step-5-agents.md](../research/step-5-agents.md).
+Status: built (PRs #76 to #81, 2026-10-28); the check with a real agent in the sandbox passed (section 12), the PC check is next. Dumi's answers are in section 11. [docs/plan.md](../plan.md) holds the base design; this step builds its third rule ("one action registry feeds every door", section 3). The research behind this plan is in [docs/research/step-5-agents.md](../research/step-5-agents.md).
 
 Steps 1 to 4 made Watchwright run, show, review and write tests from its web page and its HTTP API. This step gives a person's own AI agent the same reach: a CLI for agents with a shell, an MCP server for agents without one, and a skill that teaches either of them how to use Watchwright well. The person watches the agent work on the web page, as they watch a run, and can pause or take over at any time.
 
@@ -189,3 +189,15 @@ Dumi answered on 2026-10-28:
 
 1. **npm**: get the package ready (no `private`, a clean `files` list, the skill inside), but don't publish it in this step; Dumi decides when.
 2. **Approvals**: build the approval banner in this step (section 6), so agents can ask to delete things and the person approves on the web page.
+
+## 12. Sign-off
+
+**With a real agent (2026-10-28).** Claude Code ran headless in the cloud sandbox against a server on a spare port (7491), set up by `watchwright init-agent --agent claude --server 7491` in an empty project and allowed only the Watchwright MCP tools, the skill and reading files. Asked to write and run a test for the TodoMVC fixture site, it loaded the skill, explored the page (`explore_start`, `explore_look`, `explore_do`), stopped the session, checked its YAML with `check_test`, wrote it with `write_pack_file`, started the run and waited on it. The run passed on the first try.
+
+What it showed, and what changed in the sign-off PR:
+
+- It told the person the run's page was on port 7420, though the server ran on 7491: the skill and the MCP server's instructions only named the default. The instructions now carry the server's real web page address (each door knows it: the HTTP door from the request, the stdio bridge from `--server`), `start_run`'s answer ends with "Watch it live: <the run's page>", and the skill says not to assume 7420.
+- A ref like `f2e5` (an element inside a frame) was refused as not a ref. Refs inside frames are accepted now.
+- A `fill` with a `label` target missed a box that only has a placeholder; the agent read the error and used role and name instead. The error was clear enough, so nothing changed.
+
+**On the PC.** Still to do: Windows and Firefox, the CLI and MCP against a spare-port server, only while no bench runs.

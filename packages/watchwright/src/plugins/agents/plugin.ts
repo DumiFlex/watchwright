@@ -104,7 +104,7 @@ export const agentsPlugin = definePlugin({
       },
     };
     const note = (client: string, tool: string) => seen(ctx.store).note(client, tool);
-    const build = (req: Request | undefined) => buildMcpServer({ version: VERSION, actions: actions().map(describeAction), door, caller: (info) => callerOf(req, info), onCall: note });
+    const build = (req: Request | undefined) => buildMcpServer({ version: VERSION, actions: actions().map(describeAction), door, caller: (info) => callerOf(req, info), onCall: note, ...(req ? { page: new URL("/", req.url).href } : {}) });
 
     // `watchwright mcp` (the stdio bridge) calls actions over HTTP and says here which tool it ran.
     app.post<{ Body: { client?: unknown; tool?: unknown } }>("/agents/seen", (req, reply) => {

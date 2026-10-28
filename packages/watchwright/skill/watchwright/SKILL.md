@@ -5,12 +5,12 @@ description: Write, run and fix browser tests with Watchwright, a Playwright tes
 
 # Watchwright
 
-Watchwright runs browser test packs on a local server (`http://127.0.0.1:7420/`) and shows every run live on its web page. A **pack** is a folder: `pack.yaml` (or `watchwright.pack.ts`) for the site and options, and tests under `tests/`, in YAML (a list of steps) or TypeScript. You reach it through the MCP tools (`list_packs`, `start_run`, …) or the `watchwright` command; both do the same.
+Watchwright runs browser test packs on a local server (by default `http://127.0.0.1:7420/`; the MCP server's instructions give its real address) and shows every run live on its web page. A **pack** is a folder: `pack.yaml` (or `watchwright.pack.ts`) for the site and options, and tests under `tests/`, in YAML (a list of steps) or TypeScript. You reach it through the MCP tools (`list_packs`, `start_run`, …) or the `watchwright` command; both do the same.
 
 ## Start
 
 1. Check the server: `list_packs`, or `watchwright status`. When nothing answers, start it with `watchwright serve --no-open` (it keeps running; the MCP bridge starts one by itself).
-2. Tell the person the web page's address (`http://127.0.0.1:7420/`, or the run's own page from `start_run`) so they can watch what you do.
+2. Tell the person the web page's address so they can watch what you do: the run's own page, which `start_run` gives as "Watch it live: …", or the address in the MCP server's instructions. Don't assume port 7420; a server can run on another.
 3. Read the pack: `get_pack` (tests, parameters, flags), `list_pack_files` and `read_pack_file`.
 
 ## The loop
