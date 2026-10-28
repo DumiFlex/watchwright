@@ -61,6 +61,12 @@ export interface AttemptEnv<H = unknown> {
   helpers(): H;
   /** Runs a child item inside this attempt, as its own attempt record. */
   runChild(itemId: string): Promise<Outcome>;
+  /**
+   * Adds an item to the run while it runs (a crawl that found a page), with `attempts` attempts
+   * (default 1), at the end of the queue. False when the run already has the item, has gone
+   * through its queue, or has reached its limit of added items. Added items survive a resume.
+   */
+  addItem(itemId: string, options?: { attempts?: number }): boolean;
 }
 
 export interface SetupEnv<H = unknown> {

@@ -36,6 +36,29 @@ const echoPlugin = definePlugin({
   },
 });
 
+/** A kind whose items find more items: "start" adds p1 and p2, p1 adds p3; "slow" adds one item, then waits (for a restart). */
+const crawlKind: JobKind<null> = {
+  name: "crawl",
+  helpers: () => null,
+  classify: ({ error, stopped }) => (stopped ? { status: "stopped", error: null } : error === undefined ? { status: "passed", error: null } : { status: "broken", error: { kind: "exception", message: String(error), stack: null } }),
+  plan: (_pack, _params, chosen) => ({ items: (chosen.length > 0 ? chosen : ["start"]).map((itemId) => ({ itemId, number: 1, of: 1 })), needs: new Map(), children: new Map() }),
+  describe: (_pack, itemId) => ({ title: `Page ${itemId}`, timeout: null }),
+  setup: async () => undefined,
+  async execute(env) {
+    const found: Record<string, string[]> = { start: ["p1", "p2", "p1"], p1: ["p3", "start"], slow: ["after-slow"] };
+    const results = (found[env.itemId] ?? []).map((id) => env.addItem(id));
+    env.recorder.addLog("info", `added ${JSON.stringify(results)}`);
+    if (env.itemId === "slow") await env.page.waitForTimeout(20_000);
+  },
+};
+
+const crawlPlugin = definePlugin({
+  name: "crawl",
+  setup({ services }) {
+    services.get(JOB_KINDS).register(crawlKind);
+  },
+});
+
 const harnesses: Harness[] = [];
 afterEach(async () => {
   for (const h of harnesses.splice(0)) await h.close();
@@ -112,5 +135,66 @@ engine("a job kind from another plugin", () => {
 
     const doc = await h.api<{ log: { message: string }[] }>("GET", `/runs/${runId}/attempts/${byItem.one!.id}`);
     expect(doc.data.log.map((l) => l.message)).toContain("echo: one");
+  });
+});
+
+engine("a run that grows", () => {
+  let site: { url: string; close(): Promise<void> };
+  beforeAll(async () => {
+    site = await startSite();
+  });
+  afterAll(async () => {
+    await site.close();
+  });
+
+  async function crawlPack(h: Harness): Promise<string> {
+    const packDir = tempDir("ww-pack-");
+    writeFiles(packDir, {
+      "pack.ts": `import { pack } from "watchwright"; export default pack({ name: "Crawl", site: { key: "crawl-site", baseURL: ${JSON.stringify(site.url)} }, run: { video: false }, tests: [] });`,
+    });
+    return (await h.api<{ id: string }>("POST", "/packs", { path: packDir })).data.id;
+  }
+
+  it("runs the items a kind adds, once each, at the end of the queue", async () => {
+    const h = await startHarness(tempDir("ww-data-"), { plugins: [crawlPlugin] });
+    harnesses.push(h);
+    const packId = await crawlPack(h);
+    const runId = (await h.api<{ id: string }>("POST", "/runs", { packId, kind: "crawl", video: false })).data.id;
+    await h.waitFor((e) => e.runId === runId && e.type === "run.finished", 45_000);
+
+    const detail = (await h.api<RunDetail>("GET", `/runs/${runId}`)).data;
+    expect(detail.attempts.map((a) => `${a.testId}:${a.status}`)).toEqual(["start:passed", "p1:passed", "p2:passed", "p3:passed"]);
+    expect(detail.plan.map((p) => p.testId)).toEqual(["start", "p1", "p2", "p3"]);
+    expect(detail.options.added).toEqual([
+      { itemId: "p1", of: 1 },
+      { itemId: "p2", of: 1 },
+      { itemId: "p3", of: 1 },
+    ]);
+    const start = await h.api<{ log: { message: string }[] }>("GET", `/runs/${runId}/attempts/${detail.attempts[0]!.id}`);
+    expect(start.data.log.map((l) => l.message)).toContain("added [true,true,false]");
+    const announced = h.app.watchwright.events.after(0).filter((e) => e.runId === runId && e.type === "run.items-added");
+    expect(announced.flatMap((e) => e.data.items as string[])).toEqual(["p1", "p2", "p3"]);
+  });
+
+  it("keeps added items when an interrupted run resumes", async () => {
+    const dataDir = tempDir("ww-data-");
+    const first = await startHarness(dataDir, { plugins: [crawlPlugin] });
+    harnesses.push(first);
+    const packId = await crawlPack(first);
+    const runId = (await first.api<{ id: string }>("POST", "/runs", { packId, kind: "crawl", tests: ["slow"], video: false })).data.id;
+    await first.waitFor((e) => e.runId === runId && e.type === "run.items-added", 30_000);
+    await first.close(); // the server goes down while "slow" runs
+
+    const second = await startHarness(dataDir, { plugins: [crawlPlugin] });
+    harnesses.push(second);
+    expect((await second.api<RunDetail>("GET", `/runs/${runId}`)).data.status).toBe("interrupted");
+    const head = second.app.watchwright.events.head();
+    expect((await second.api("POST", `/runs/${runId}/resume`)).status).toBe(200);
+    // "slow" runs again (and waits); the item it added before the restart is still in the plan.
+    await second.waitFor((e) => e.runId === runId && e.type === "run.planned", 30_000, head);
+    const detail = (await second.api<RunDetail>("GET", `/runs/${runId}`)).data;
+    expect(detail.plan.map((p) => p.testId)).toEqual(["slow", "after-slow"]);
+    await second.api("POST", `/runs/${runId}/stop`, { when: "now" });
+    await second.waitFor((e) => e.runId === runId && e.type === "run.finished", 30_000, head);
   });
 });

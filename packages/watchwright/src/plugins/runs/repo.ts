@@ -165,6 +165,8 @@ export interface RunOptions {
   video?: boolean;
   /** Queue edits made while the run went (order, skipped attempts). */
   queue?: QueueEdits;
+  /** Items the job kind added while the run went (`AttemptEnv.addItem`), in the order added. */
+  added?: { itemId: string; of: number }[];
 }
 
 /** What a run is started with, apart from the pack: what a preset keeps and "Run again" repeats. */
