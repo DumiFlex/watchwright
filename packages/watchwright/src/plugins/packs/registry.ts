@@ -206,11 +206,13 @@ export class PackRegistry {
 
   /**
    * Before each attempt: rebuild when a source file changed. A build that fails keeps the old code
-   * (and logs why), so a typo saved mid-run doesn't stop the run.
+   * (and logs why), so a typo saved mid-run doesn't stop the run. `held` is the build the caller
+   * runs now: when something else rebuilt the pack since (a save in the editor), that newer build
+   * counts as reloaded too.
    */
-  async refresh(id: string): Promise<{ pack: LoadedPack; reloaded: boolean; error?: string }> {
+  async refresh(id: string, held?: LoadedPack): Promise<{ pack: LoadedPack; reloaded: boolean; error?: string }> {
     const old = await this.current(id);
-    if (!packChanged(old)) return { pack: old, reloaded: false };
+    if (!packChanged(old)) return { pack: old, reloaded: held !== undefined && !sameBuild(held, old) };
     try {
       return { pack: await this.reload(id), reloaded: true };
     } catch (err) {
@@ -316,3 +318,8 @@ export function discoverPacks(root: string, depth: number, known: (dir: string) 
 }
 
 export const PACKS = serviceKey<PackRegistry>("packs.registry");
+
+/** The same build (a failed rebuild copies the build with a new stamp, which is still the same code). */
+function sameBuild(a: LoadedPack, b: LoadedPack): boolean {
+  return a.buildFile === b.buildFile && a.builtAt === b.builtAt;
+}

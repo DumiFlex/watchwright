@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { listFiles, resolveIn, savePackFile, stampOf } from "../src/plugins/editor/files.js";
 import { cleanTempDirs, tempDir, writeFiles } from "./helpers/fixtures.js";
 import { startHarness, type Harness } from "./helpers/harness.js";
+import { PACKS } from "../src/plugins/packs/registry.js";
 
 const PACK = {
   "pack.yaml": "name: Edit me\nsite: { key: edit-me, baseURL: http://127.0.0.1:9/ }\n",
@@ -95,6 +96,30 @@ describe("the editor's actions", () => {
       expect(fixed.data.pack.status).toBe("ok");
       const changed = await h.waitFor((e) => e.type === "editor.file_changed");
       expect(changed.data).toMatchObject({ packId: id, action: "save", path: "tests/home.yaml" });
+    } finally {
+      await h.close();
+    }
+  });
+
+  it("hands a run the build a save made, before its next attempt", async () => {
+    await setup();
+    try {
+      const packs = h.app.watchwright.services.get(PACKS);
+      const held = await packs.current(id);
+      expect(await packs.refresh(id, held)).toMatchObject({ reloaded: false });
+      // The editor's save rebuilds the pack, so the files match the newest build: a run still on
+      // the old build must get the new one all the same.
+      const file = await h.api<{ text: string; stamp: string }>("GET", `/packs/${id}/file?path=tests/home.yaml`);
+      await h.api("POST", `/packs/${id}/file`, { path: "tests/home.yaml", text: file.data.text.replace("Home", "Start"), stamp: file.data.stamp });
+      const r = await packs.refresh(id, held);
+      expect(r.reloaded).toBe(true);
+      expect(r.pack.tests[0]!.meta.title).toBe("Start");
+      expect((await packs.refresh(id, r.pack)).reloaded).toBe(false);
+      // A broken save keeps the build; it isn't a reload, before or after the failed rebuild.
+      writeFileSync(path.join(dir, "tests/home.yaml"), file.data.text.replace("goto", "gotoo"));
+      const broken = await packs.refresh(id, r.pack);
+      expect(broken).toMatchObject({ reloaded: false, error: expect.any(String) as string });
+      expect((await packs.refresh(id, r.pack)).reloaded).toBe(false);
     } finally {
       await h.close();
     }
