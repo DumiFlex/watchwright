@@ -10,6 +10,8 @@ A browser test harness built on [Playwright](https://playwright.dev) that you wa
 
 > **Status: early.** The run engine, test packs, the live view and the HTTP API work. The CLI, MCP server, agent skill and richer review pages come next; see [docs/plan.md](docs/plan.md) for the plan and what is built so far.
 
+**Docs:** [dumiflex.github.io/watchwright](https://dumiflex.github.io/watchwright/)
+
 ![A run in progress, with the live browser picture](docs/screenshots/run-live-light.png)
 
 ## Requirements
