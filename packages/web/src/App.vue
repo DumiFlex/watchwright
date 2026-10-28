@@ -118,7 +118,7 @@ onMounted(async () => {
     </div>
   </header>
   <RunView v-if="route.name === 'run'" :id="route.id" />
-  <AttemptView v-else-if="route.name === 'attempt'" :run-id="route.runId" :attempt-id="route.attemptId" />
+  <AttemptView v-else-if="route.name === 'attempt'" :run-id="route.runId" :attempt-id="route.attemptId" :line="route.line ?? null" />
   <NewRunView v-else-if="route.name === 'new'" :query="route.query" />
   <PacksView v-else-if="route.name === 'packs'" :query="route.query" />
   <PackView v-else-if="route.name === 'pack'" :id="route.id" />

@@ -7,6 +7,7 @@
 export {
   AppWindow,
   ArrowDown,
+  ArrowDownToLine,
   ArrowLeft,
   ArrowRight,
   ArrowUp,
@@ -94,6 +95,7 @@ export {
   TriangleAlert,
   Undo2,
   UnfoldVertical,
+  WrapText,
   X,
   ZoomIn,
   ZoomOut,

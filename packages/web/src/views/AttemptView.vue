@@ -10,6 +10,7 @@ import { attemptOrder, attemptSteps, cellOf, logMarks, plainText, recordColumns,
 import { clock, type TimelineStep } from "../timeline";
 import { duration, fileSize, when } from "../format";
 import { firstOwnFrame } from "../editor";
+import { levelOf, type LogLine } from "../logview";
 import { aroundStep, openFrames } from "../frames";
 import { relativeTo, tildify } from "../paths";
 import { href } from "../router";
@@ -22,6 +23,7 @@ import FileLink from "../components/FileLink.vue";
 import FilmStrip from "../components/FilmStrip.vue";
 import ImageDiff, { type DiffImage } from "../components/ImageDiff.vue";
 import ImageViewer from "../components/ImageViewer.vue";
+import LogViewer from "../components/LogViewer.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import PageSkeleton from "../components/PageSkeleton.vue";
 import ReviewPanel from "../components/ReviewPanel.vue";
@@ -32,7 +34,7 @@ import TabBar from "../components/TabBar.vue";
 import TimelineScrubber from "../components/TimelineScrubber.vue";
 import VideoPlayer from "../components/VideoPlayer.vue";
 
-const props = defineProps<{ runId: string; attemptId: string }>();
+const props = defineProps<{ runId: string; attemptId: string; line?: number | null }>();
 /** Text files bigger than this open in a new tab instead of the code view. */
 const TEXT_LIMIT = 2 * 1024 * 1024;
 
@@ -99,7 +101,7 @@ const files = computed(() => artifacts.value.filter((a) => !["shot", "mark", "vi
 const texts = computed(() => Object.entries(doc.value?.texts ?? {}));
 
 type Tab = "shots" | "texts" | "log" | "collectors" | "files" | "video" | "trace";
-const tab = ref<Tab>("shots");
+const tab = ref<Tab>(props.line ? "log" : "shots");
 const tabs = computed(() => {
   const t: { value: Tab; label: string; count?: number }[] = [];
   if (images.value.length) t.push({ value: "shots", label: "Shots", count: images.value.length });
@@ -200,13 +202,15 @@ const openShot = (a: Artifact) => (open.value = images.value.indexOf(a));
 const viewerImages = computed(() => images.value.map((a) => ({ url: a.url, name: a.name, note: a.kind === "mark" ? "mark" : a.set ? `scroll set ${a.set}` : undefined })));
 
 // Log, filtered by level.
-const logLevel = ref<"all" | "problems">("all");
-const levelOptions = [
-  { value: "all" as const, label: "Every line" },
-  { value: "problems" as const, label: "Warnings and errors" },
-];
-const shownLog = computed(() => (doc.value?.log ?? []).filter((l) => logLevel.value === "all" || l.level !== "info"));
-const time = (iso: string) => new Date(iso).toLocaleTimeString();
+const logLines = computed<LogLine[]>(() => (doc.value?.log ?? []).map((l, i) => ({ key: i, n: i + 1, time: l.time, level: levelOf(l.level), message: l.message })));
+const lineHref = (n: number) => href({ name: "attempt", runId: props.runId, attemptId: props.attemptId, line: n });
+// A link to a log line opens the Log tab there.
+watch(
+  () => props.line,
+  (n) => {
+    if (n) tab.value = "log";
+  },
+);
 
 // Collectors load their records when their tab opens.
 const collectorPath = ref("");
@@ -425,14 +429,7 @@ watch(
           </div>
 
           <div v-else-if="tab === 'log'" id="att-panel-log" role="tabpanel" aria-labelledby="att-tab-log" class="panel">
-            <div class="filters">
-              <label for="att-log-level" class="sr-only">Which lines</label>
-              <SelectMenu id="att-log-level" v-model="logLevel" :options="levelOptions" />
-            </div>
-            <ol v-if="shownLog.length" class="log">
-              <li v-for="(l, i) in shownLog" :key="i" :class="l.level"><time>{{ time(l.time) }}</time> {{ l.message }}</li>
-            </ol>
-            <p v-else class="muted">{{ doc.log.length ? "No lines match." : "Nothing was logged." }}</p>
+            <LogViewer :lines="logLines" :label="`Log of ${doc.test.id}`" :line-href="lineHref" :focus-line="line ?? null" />
           </div>
 
           <div v-else-if="tab === 'collectors'" id="att-panel-collectors" role="tabpanel" aria-labelledby="att-tab-collectors" class="panel">
@@ -867,29 +864,6 @@ watch(
 }
 .file-bar > :nth-child(2) {
   width: min(420px, 100%);
-}
-.log {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  max-height: 520px;
-  overflow-y: auto;
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-}
-.log li {
-  padding: 1px 0;
-  overflow-wrap: anywhere;
-}
-.log li.warn {
-  color: var(--warn);
-}
-.log li.error {
-  color: var(--bad);
-}
-.log time {
-  color: var(--muted);
-  margin-right: 6px;
 }
 .videos {
   max-width: 960px;
