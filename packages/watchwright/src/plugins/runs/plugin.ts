@@ -126,6 +126,10 @@ function filesRoot(dataDir: string): string {
 /** Runs: starting, controlling and reading them, and the files they save. */
 export const runsPlugin = definePlugin({
   name: "runs",
+  pages: [
+    { name: "runs", title: "Runs", path: "/", icon: "ListChecks", menu: "main", order: 10, words: "history list" },
+    { name: "new-run", title: "New run", path: "/new", icon: "Plus", menu: "more", order: 40, words: "start" },
+  ],
   migrations: [
     { id: 1, name: "init", sql: RUNS_MIGRATION_SQL },
     { id: 2, name: "artifact-set", sql: RUNS_ARTIFACT_SET_SQL },

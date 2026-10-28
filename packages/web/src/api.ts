@@ -5,6 +5,22 @@ export interface HealthData {
   version: string;
   dataDir: string;
   plugins: { name: string; schemaVersion: number }[];
+  /** The web app's pages the loaded plugins bring, in menu order. */
+  pages: HealthPage[];
+}
+
+/** A page a plugin brings (`PluginPage` on the server). */
+export interface HealthPage {
+  plugin: string;
+  name: string;
+  title: string;
+  /** The address after `#`. */
+  path: string;
+  /** A Lucide icon name from src/icons.ts. */
+  icon: string;
+  menu: "main" | "more";
+  order: number;
+  words?: string;
 }
 
 export interface ApiError {
