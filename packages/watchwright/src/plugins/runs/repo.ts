@@ -163,6 +163,8 @@ export interface RunOptions {
   trace?: "problems" | "always" | "never";
   /** Record video, instead of the pack's setting. */
   video?: boolean;
+  /** Start with the site's saved sign-in (true) or without it (false), instead of the pack's `site.signIn`. */
+  signIn?: boolean;
   /** Queue edits made while the run went (order, skipped attempts). */
   queue?: QueueEdits;
   /** Items the job kind added while the run went (`AttemptEnv.addItem`), in the order added. */
@@ -178,6 +180,7 @@ export interface RunChoices {
   attempts?: number;
   trace?: "problems" | "always" | "never";
   video?: boolean;
+  signIn?: boolean;
 }
 
 export interface Preset {

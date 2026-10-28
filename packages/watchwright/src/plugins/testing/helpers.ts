@@ -261,6 +261,12 @@ export function createHelpers(rt: HelperRuntime, extend?: (h: Helpers) => Record
       return value;
     },
 
+    async saveSignIn() {
+      await enter();
+      const key = await rt.saveSignIn();
+      recorder.addLog("info", `Saved the sign-in for ${key}.`);
+    },
+
     skip(reason): never {
       throw new SkipTest(reason);
     },

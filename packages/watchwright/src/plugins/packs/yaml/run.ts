@@ -275,6 +275,9 @@ async function runOne(step: Step, env: StepEnv, secrets: Secrets): Promise<void>
     case "keepText":
       await h.keepText(str(a.name), a.target !== undefined ? at(a.target) : { text: secrets.mask(str(a.text)) });
       return;
+    case "saveSignIn":
+      await h.saveSignIn();
+      return;
     case "note":
       return h.note(secrets.mask(str(a.text)));
     case "log":

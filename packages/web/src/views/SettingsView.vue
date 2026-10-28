@@ -14,6 +14,7 @@ import { notify, notifySupport, turnOffNotify, turnOnNotify, type NotifySupport 
 import { toast } from "../toasts";
 import AgentsSettings from "../components/AgentsSettings.vue";
 import SecretsSettings from "../components/SecretsSettings.vue";
+import SigninsSettings from "../components/SigninsSettings.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import RadioGroup from "../components/RadioGroup.vue";
 import SelectMenu from "../components/SelectMenu.vue";
@@ -140,6 +141,7 @@ onMounted(() => {
     </section>
 
     <SecretsSettings />
+    <SigninsSettings />
 
     <AgentsSettings />
 

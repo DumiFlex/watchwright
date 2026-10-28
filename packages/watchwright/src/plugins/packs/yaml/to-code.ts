@@ -195,6 +195,8 @@ export function stepCode(step: Step): string[] {
       return lines(`await h.scrollShots(${lit(a.name)}${named({ target: a.target === undefined ? undefined : loc(a.target), max: a.max })});`);
     case "keepText":
       return lines(`await h.keepText(${lit(a.name)}, ${a.target !== undefined ? loc(a.target) : `{ text: ${lit(a.text)} }`});`);
+    case "saveSignIn":
+      return lines("await h.saveSignIn();");
     case "note":
       return lines(`h.note(${lit(a.text)});`);
     case "log":

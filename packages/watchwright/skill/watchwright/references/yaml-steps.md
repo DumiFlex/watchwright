@@ -255,6 +255,12 @@ Saves an element's text (or the given text) with the attempt.
 | `target` | [target](#targets) | The element to read. |
 | `text` | text | Text to keep instead of an element's. |
 
+### saveSignIn
+
+Saves the browser's cookies and local storage as the site's sign-in, for runs that start signed in (`site.signIn: saved`). Put it at the end of a login test.
+
+Also written as `- saveSignIn`.
+
 ### note
 
 A note for the people who review the result.

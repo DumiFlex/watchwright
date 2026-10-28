@@ -38,6 +38,7 @@ Some elements don't have a meaningful middle: a canvas, a map, a color or image 
 - **Wait for**: click an element to add a `waitFor` step that waits until it is visible or hidden.
 - **Shot**: adds a `shot` step with a name.
 - **Note**: adds a `note` step, a message for the people who review the result.
+- **Save sign-in**: saves the browser's cookies and local storage as the site's sign-in, so runs can start signed in (see [Saved sign-ins](./yaml-tests#saved-sign-ins)). A recording of a pack with `site.signIn: saved` starts signed in too.
 
 Remove a step with its bin button. Steps added with Check and Wait for get the same target menu.
 

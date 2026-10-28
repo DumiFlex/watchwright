@@ -60,9 +60,11 @@ export interface PackRunDefaults {
   pauseLimitMinutes: number;
   trace: "problems" | "always" | "never";
   video: boolean;
+  /** Runs start with the site's saved sign-in (`site.signIn: "saved"`). */
+  signIn: boolean;
 }
 
-const RUN_DEFAULTS: PackRunDefaults = { pauseOnBroken: true, pauseLimitMinutes: 20, trace: "problems", video: true };
+const RUN_DEFAULTS: PackRunDefaults = { pauseOnBroken: true, pauseLimitMinutes: 20, trace: "problems", video: true, signIn: false };
 
 interface Row {
   id: string;
@@ -242,6 +244,7 @@ export class PackRegistry {
         pauseLimitMinutes: o.run?.pauseLimitMinutes ?? RUN_DEFAULTS.pauseLimitMinutes,
         trace: o.run?.trace ?? RUN_DEFAULTS.trace,
         video: o.run?.video ?? RUN_DEFAULTS.video,
+        signIn: o.site.signIn === "saved",
       },
       rubric: rubricFor(o.rubric, undefined),
       tests: pack.tests.map((t) => testSummary(t, o.rubric)),
