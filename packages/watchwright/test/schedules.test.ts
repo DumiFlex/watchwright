@@ -62,7 +62,7 @@ afterEach(async () => {
   }
   for (const h of harnesses.splice(0)) await h.close();
   cleanTempDirs();
-});
+}, 30_000);
 function make(start = T0) {
   const w = world(start);
   worlds.push(w);
@@ -247,7 +247,8 @@ describe("start at sign-in", () => {
     await expect(setStartup(p, 7421, "/data", true)).rejects.toThrow(/only built in on Windows/);
   });
 
-  it("answers through the API with this server's port and data folder", async () => {
+  // Starting a whole server can take longer than the default 5 s on a busy Windows runner.
+  it("answers through the API with this server's port and data folder", { timeout: 30_000 }, async () => {
     const h = await startHarness(tempDir("ww-data-"));
     harnesses.push(h);
     const info = await h.api<{ command: string }>("GET", "/startup");
