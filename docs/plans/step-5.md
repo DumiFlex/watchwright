@@ -82,7 +82,7 @@ A new built-in plugin, `agents`, mounts the MCP endpoint and owns sections 4 and
 
 **Doors.**
 
-- **Streamable HTTP** at `/api/v1/mcp` on the server itself, through `@modelcontextprotocol/server` 2.x and `@modelcontextprotocol/node`. This is the default way to connect: it needs no path on disk, only the address. The request guard applies as for every request (a loopback `Host`, and an own `Origin` or none; MCP clients send none). Sessions (`Mcp-Session-Id`) live in memory and keep the client's name.
+- **Streamable HTTP** at `/api/v1/mcp` on the server itself, through `@modelcontextprotocol/server` 2.x and `@modelcontextprotocol/node`. This is the default way to connect: it needs no path on disk, only the address. The request guard applies as for every request (a loopback `Host`, and an own `Origin` or none; MCP clients send none). Clients of the 2025 protocol get a session (`Mcp-Session-Id`, in memory) that keeps their name from `initialize`; clients of the 2026-07-28 protocol send each request on its own, with their name in it, and the SDK's `createMcpHandler` serves them.
 - **stdio**: `watchwright mcp` for clients that only start processes (Claude Desktop's local servers). It is a bridge: its tools come from the server's `GET /actions` and its calls go to the server over HTTP, so both doors behave the same. When no server answers, it starts `watchwright serve --no-open` in the background (detached, so the server outlives the bridge and its runs keep going) and prints the address to stderr; `--no-start` turns that off.
 
 **Tools.** The tools are the actions with `agent.tool`, plus two that reach the rest:

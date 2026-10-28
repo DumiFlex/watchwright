@@ -13,6 +13,7 @@ watchwright run <pack> [test…] [--param key=value]… [--preset <name>] [--lab
 watchwright wait <run> [--after <cursor>] [--timeout <seconds>]
 watchwright results <run> [--attempt <id>]
 watchwright actions
+watchwright mcp [--no-start]
 watchwright <plugin> <verb> [args] [--options]
 ```
 
@@ -56,6 +57,10 @@ Waits until a run ends or pauses, at most `--timeout` seconds (default 100), and
 ### results
 
 A run's attempts in brief: each with its outcome, the first line of its error, and its robot problems and findings. With `--attempt <id>`, one attempt's result: its error, flags, notes, metrics and files (pass a file's path to `watchwright runs file <run> --path <path>`).
+
+### mcp
+
+The [MCP server](./mcp) over stdio, for agents that start a process instead of connecting to `http://127.0.0.1:7420/api/v1/mcp`. It passes every call to the server at `--server`, and starts one in the background when none answers, unless `--no-start` is given. `--as <name>` names the caller.
 
 ### actions
 

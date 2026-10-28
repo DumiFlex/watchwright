@@ -111,6 +111,7 @@ export const editorPlugin = definePlugin({
       }),
       defineAction<{ id: string; path: string }>({
         name: "packs.file-delete",
+        agent: { tool: "delete_pack_file" },
         destructive: true,
         explain: ({ id, path }: { id: string; path: string }) => `Delete ${path} from the pack "${registry.get(id)?.name ?? id}"`,
         title: "Delete a file from a pack",

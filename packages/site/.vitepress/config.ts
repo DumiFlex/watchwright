@@ -39,6 +39,7 @@ export default defineConfig({
         items: [
           { text: "Command line", link: "/reference/cli" },
           { text: "HTTP and WebSocket API", link: "/reference/http-api" },
+          { text: "MCP tools", link: "/reference/mcp" },
           { text: "YAML steps", link: "/reference/yaml-steps" },
         ],
       },

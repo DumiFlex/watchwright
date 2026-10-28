@@ -5,6 +5,7 @@ import { VERSION } from "../version.js";
 import { UsageError } from "./args.js";
 import { Client, clientName, DEFAULT_SERVER, serverUrl } from "./client.js";
 import { actionCommand, actionsCommand, EXIT, guarded, processIo, resultsCommand, runCommand, statusCommand, waitCommand, type RunOpts } from "./commands.js";
+import { mcpCommand } from "./mcp.js";
 import { serveCommand } from "./serve.js";
 
 const HELP = `Watchwright ${VERSION}
@@ -16,6 +17,7 @@ Usage:
   watchwright wait <run> [--after <cursor>] [--timeout <seconds>]
   watchwright results <run> [--attempt <id>]
   watchwright actions
+  watchwright mcp [--no-start]
   watchwright <plugin> <verb> [args] [--options]     any action, such as: watchwright runs pause 0a1b2c3d
   watchwright --version
 
@@ -36,6 +38,9 @@ run        Starts a run of a pack (its id, name or folder): every test, or the t
 wait       Waits until a run ends or pauses, at most --timeout seconds (default 100), printing what
            happened. Exit code 6 means it still runs: wait again with --after <cursor>.
 results    A run's attempts in brief, or one attempt's result with --attempt.
+mcp        The MCP server over stdio, for agents that start a process (Claude Desktop). It calls the
+           server at --server, and starts one in the background when none answers (not with
+           --no-start). Agents that connect to an address use ${DEFAULT_SERVER}api/v1/mcp instead.
 actions    Every action the server has. Each one is a command: its name's words, path parameters
            in order, the rest as --options (--help after it lists them). Prints the data as JSON.
 
@@ -98,6 +103,7 @@ async function main(argv: string[]): Promise<number> {
     return command === undefined ? EXIT.usage : EXIT.ok;
   }
   if (command === "serve") return serveCommand(argv.slice(1));
+  if (command === "mcp") return mcpCommand(argv.slice(1));
 
   const args = argv.slice(1);
   const io = processIo;
