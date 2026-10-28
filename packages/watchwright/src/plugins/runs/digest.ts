@@ -50,7 +50,8 @@ export function digest(run: RunDetail): RunDigest {
     status: run.status,
     startedBy: run.startedBy,
     page: `/#/runs/${run.id}`,
-    live: run.live
+    // An ended run's live state can linger a moment while the engine tears it down.
+    live: run.live && (ACTIVE_STATUSES as readonly string[]).includes(run.status)
       ? { state: run.live.state, pauseReason: run.live.pauseReason, pausedBy: run.live.pausedBy, deadline: run.live.deadline, stopping: run.live.stopping, testId: run.live.testId, step: run.live.step }
       : null,
     counts: Object.fromEntries(Object.entries(run.counts).filter(([, n]) => n > 0)),

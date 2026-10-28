@@ -81,6 +81,8 @@ export const IDLE_LIMIT_MS = 30 * 60_000;
 export const AGENT_IDLE_LIMIT_MS = 15 * 60_000;
 /** Recorder actions this soon after an agent's step are the step's own echo, not the person's. */
 const ECHO_MS = 500;
+/** How long an agent's look or steps wait for a browser that is still starting. */
+const READY_MS = 30_000;
 
 interface Pending {
   snapshot: Snapshot;
@@ -388,6 +390,12 @@ export class RecordSession {
     return true;
   }
 
+  /** Waits a while for a browser that is starting (or running the steps above) to record, so an agent's first look right after starting works. */
+  private async ready(ms = READY_MS): Promise<void> {
+    const until = Date.now() + ms;
+    while ((this.status === "starting" || this.status === "replaying") && Date.now() < until) await new Promise((r) => setTimeout(r, 100));
+  }
+
   private page(): Page {
     if (this.status !== "recording" || !this.session) throw new RecordNotReady(this.status);
     const id = this.session.activePage;
@@ -485,6 +493,7 @@ export class RecordSession {
 
   private async drive(raw: readonly unknown[], shot: boolean): Promise<{ steps: StepOutcome[]; look: Look }> {
     this.touched = Date.now();
+    await this.ready();
     const page = this.page();
     const h = this.helpers(page);
     const file = path.join(this.opts.pack.dir, "(explore).yaml");
@@ -518,6 +527,7 @@ export class RecordSession {
   /** What an agent sees: the active page's address, title, aria snapshot with refs and, when asked, a screenshot. */
   async look(shot: boolean): Promise<Look> {
     this.touched = Date.now();
+    await this.ready();
     return lookAt(this.page(), shot);
   }
 
@@ -555,7 +565,7 @@ export type StepOutcome = { index: number; ok: true; step: RecordEntry } | { ind
 
 export class RecordNotReady extends Error {
   constructor(readonly status: RecordStatus) {
-    super(status === "ended" ? "This recording has ended." : "The recording browser isn't ready yet.");
+    super(status === "ended" ? "This recording has ended." : status === "waiting" ? "The recording waits for a run of this site to end." : "The recording browser isn't ready yet. Try again in a few seconds.");
   }
 }
 

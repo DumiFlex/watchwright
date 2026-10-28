@@ -33,7 +33,7 @@ export interface Approval {
 }
 
 /** How long the asking call is held before it gets the approval to wait on. */
-export const HOLD_MS = 60_000;
+export const HOLD_MS = 45_000;
 /** An approval nobody answers expires after this. */
 export const EXPIRE_MS = 30 * 60_000;
 const MAX_WAIT_S = 110;
@@ -115,6 +115,10 @@ export class Approvals {
 
   /** Files a request and tells the web page. */
   async request(action: Action, input: Record<string, unknown>, client: string): Promise<Approval> {
+    // Asking again for the same thing while the first is still waiting gets the first one back.
+    this.expire();
+    const same = this.db.prepare("SELECT id FROM approvals WHERE status = 'waiting' AND action = ? AND input = ? AND client = ?").get(action.name, JSON.stringify(input), client) as { id: string } | undefined;
+    if (same) return this.get(same.id)!;
     const summary = (await Promise.resolve(action.explain?.(input)).catch(() => undefined)) ?? `${action.title}: ${Object.entries(input).map(([k, v]) => `${k} ${typeof v === "string" ? v : JSON.stringify(v)}`).join(", ")}`;
     const id = randomBytes(4).toString("hex");
     const t = this.now();
@@ -183,7 +187,7 @@ export class Approvals {
     if (a?.status === "refused") throw new ActionError("refused", `The person refused: ${a.summary}.`, 403, { approval: a });
     if (a?.status === "expired") throw new ActionError("expired", "Nobody answered the approval in time.", 403, { approval: a });
     if (a?.status === "failed") throw new ActionError(a.error?.code ?? "failed", a.error?.message ?? "The action failed.", 409, { approval: a });
-    return { status: 202, data: { approval: a ?? asked, message: `Waiting for the person to approve on the web page: ${asked.summary}. Wait with approvals.wait (id ${asked.id}).` } };
+    return { status: 202, data: { approval: a ?? asked, message: `Waiting for the person to approve on the web page: ${asked.summary.replace(/\.$/, "")}. Wait with approvals.wait, or the MCP tool wait_for_approval (id ${asked.id}).` } };
   };
 
   private settle(id: string, fields: Record<string, string | null>): void {

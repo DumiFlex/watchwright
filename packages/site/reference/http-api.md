@@ -164,7 +164,7 @@ Run statuses: `queued`, `running`, `pausing`, `paused`, `finished`, `stopped`, `
 
 ## Approvals
 
-Actions marked `destructive` in `GET /actions` (deleting a run, a pack, a pack file or a preset, and `POST /stop`) run at once only when the request comes from the web page. From anything else they wait for the person to [approve them on the web page](../guide/safety#approvals). The request is held for up to 60 seconds: approved in that time, it answers as the action does; refused, it fails with 403 `refused`. Still waiting after that, it answers `202` with `{ approval, message }`; wait on the approval by its id.
+Actions marked `destructive` in `GET /actions` (deleting a run, a pack, a pack file or a preset, and `POST /stop`) run at once only when the request comes from the web page. From anything else they wait for the person to [approve them on the web page](../guide/safety#approvals). The request is held for up to 45 seconds (less than MCP clients' 60 second timeout): approved in that time, it answers as the action does; refused, it fails with 403 `refused`. Still waiting after that, it answers `202` with `{ approval, message }`; wait on the approval by its id.
 
 An approval is `{ id, action, input, client, summary, status, answeredBy, result, error, createdAt, answeredAt, expiresAt }`. `status` is `waiting`, `approved` (it ran; `result` is the action's data), `refused`, `expired` (nobody answered in 30 minutes) or `failed` (approved, but the action failed; `error` says why).
 
