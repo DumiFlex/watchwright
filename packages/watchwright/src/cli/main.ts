@@ -5,6 +5,7 @@ import { VERSION } from "../version.js";
 import { UsageError } from "./args.js";
 import { Client, clientName, DEFAULT_SERVER, serverUrl } from "./client.js";
 import { actionCommand, actionsCommand, EXIT, guarded, processIo, resultsCommand, runCommand, statusCommand, waitCommand, type RunOpts } from "./commands.js";
+import { initAgentCommand } from "./init-agent.js";
 import { mcpCommand } from "./mcp.js";
 import { serveCommand } from "./serve.js";
 
@@ -18,6 +19,7 @@ Usage:
   watchwright results <run> [--attempt <id>]
   watchwright actions
   watchwright mcp [--no-start]
+  watchwright init-agent [folder] [--agent claude,codex,cursor] [--no-mcp]
   watchwright <plugin> <verb> [args] [--options]     any action, such as: watchwright runs pause 0a1b2c3d
   watchwright --version
 
@@ -41,6 +43,10 @@ results    A run's attempts in brief, or one attempt's result with --attempt.
 mcp        The MCP server over stdio, for agents that start a process (Claude Desktop). It calls the
            server at --server, and starts one in the background when none answers (not with
            --no-start). Agents that connect to an address use ${DEFAULT_SERVER}api/v1/mcp instead.
+init-agent Sets up a project (default: this folder) for AI agents: the Watchwright skill where
+           Claude Code, Codex or Cursor look for skills, and the MCP server in the project's
+           settings (merged; Codex gets a command to run). Without --agent: the agents whose
+           folders the project has, else all three. --no-mcp writes only the skill.
 actions    Every action the server has. Each one is a command: its name's words, path parameters
            in order, the rest as --options (--help after it lists them). Prints the data as JSON.
 
@@ -104,6 +110,7 @@ async function main(argv: string[]): Promise<number> {
   }
   if (command === "serve") return serveCommand(argv.slice(1));
   if (command === "mcp") return mcpCommand(argv.slice(1));
+  if (command === "init-agent") return guarded(processIo, false, () => Promise.resolve(initAgentCommand(processIo, argv.slice(1))));
 
   const args = argv.slice(1);
   const io = processIo;

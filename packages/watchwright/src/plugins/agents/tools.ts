@@ -153,6 +153,8 @@ export interface McpServerOptions {
   door: ToolDoor;
   /** Who calls, given the name the MCP client calls itself (null when it gives none): an explicit name wins over it. */
   caller: (clientInfo: string | null) => string;
+  /** Told about each tool call, for Settings > Agents (who called lately). */
+  onCall?: (client: string, tool: string) => void;
 }
 
 const MAX_TEXT = 200_000;
@@ -180,8 +182,13 @@ export function buildMcpServer(opts: McpServerOptions): McpServer {
     return { ...input, [field!]: packIdOf(packs, ref) };
   };
 
-  const run = async (a: ActionInfo, raw: Record<string, unknown>, ctx: ServerContext): Promise<CallToolResult> => {
+  const run = async (tool: string, a: ActionInfo, raw: Record<string, unknown>, ctx: ServerContext): Promise<CallToolResult> => {
     const client = caller(ctx);
+    try {
+      opts.onCall?.(client, tool);
+    } catch {
+      // Keeping track of callers never stops a call.
+    }
     const signal = ctx.mcpReq.signal;
     try {
       const input = await resolvePack(a, withDefaults(a.input, raw), client, signal);
@@ -203,13 +210,13 @@ export function buildMcpServer(opts: McpServerOptions): McpServer {
     };
     if (tool.action) {
       const a = tool.action;
-      server.registerTool(tool.name, config, (input, ctx) => run(a, input, ctx));
+      server.registerTool(tool.name, config, (input, ctx) => run(tool.name, a, input, ctx));
     } else {
       server.registerTool(tool.name, config, (input, ctx) => {
         const name = String(input.name);
         const a = byName.get(name);
         if (!a) return errorResult("unknown_action", `There is no action ${name}. list_actions lists them.`);
-        return run(a, record(input.input) ?? {}, ctx);
+        return run(tool.name, a, record(input.input) ?? {}, ctx);
       });
     }
   }

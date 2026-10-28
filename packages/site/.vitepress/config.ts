@@ -30,6 +30,7 @@ export default defineConfig({
           { text: "YAML tests", link: "/guide/yaml-tests" },
           { text: "Editing a pack", link: "/guide/editing" },
           { text: "Recording", link: "/guide/recording" },
+          { text: "Agents", link: "/guide/agents" },
           { text: "Reviewing results", link: "/guide/reviewing" },
           { text: "Safety", link: "/guide/safety" },
         ],

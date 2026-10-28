@@ -14,6 +14,7 @@ watchwright wait <run> [--after <cursor>] [--timeout <seconds>]
 watchwright results <run> [--attempt <id>]
 watchwright actions
 watchwright mcp [--no-start]
+watchwright init-agent [folder] [--agent claude,codex,cursor] [--no-mcp]
 watchwright <plugin> <verb> [args] [--options]
 ```
 
@@ -61,6 +62,18 @@ A run's attempts in brief: each with its outcome, the first line of its error, a
 ### mcp
 
 The [MCP server](./mcp) over stdio, for agents that start a process instead of connecting to `http://127.0.0.1:7420/api/v1/mcp`. It passes every call to the server at `--server`, and starts one in the background when none answers, unless `--no-start` is given. `--as <name>` names the caller.
+
+### init-agent
+
+Sets up a project for AI agents, on this machine (no server needed): the Watchwright skill where each agent looks for skills, and the MCP server in the project's settings. The folder is the current one unless given.
+
+| Agent | Skill | MCP server |
+|---|---|---|
+| Claude Code | `.claude/skills/watchwright/` | `.mcp.json` |
+| Codex | `.agents/skills/watchwright/` | Printed: a `codex mcp add` line to run once (Codex keeps MCP servers in its own settings) |
+| Cursor | `.agents/skills/watchwright/` | `.cursor/mcp.json` |
+
+Without `--agent`, it sets up the agents whose folders the project has (`.claude`, `.codex` or `.agents`, `.cursor`), else all three. Settings files are merged: other servers and keys stay, and a file that isn't valid JSON is left alone and named in a message. The skill's folder is replaced, so running it again updates the skill. `--no-mcp` writes only the skill; `--server` sets the address written into the settings. See [Agents](../guide/agents).
 
 ### actions
 

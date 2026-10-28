@@ -1,10 +1,26 @@
 {
   "name": "watchwright",
   "version": "0.4.0",
-  "private": true,
   "description": "A browser test harness on Playwright that you watch work live, control from its own website, and drive from your own AI agents.",
   "license": "Apache-2.0",
   "author": "DumiFlex",
+  "homepage": "https://dumiflex.github.io/watchwright/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DumiFlex/watchwright.git",
+    "directory": "packages/watchwright"
+  },
+  "bugs": {
+    "url": "https://github.com/DumiFlex/watchwright/issues"
+  },
+  "keywords": [
+    "playwright",
+    "testing",
+    "browser",
+    "e2e",
+    "mcp",
+    "ai-agents"
+  ],
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -21,13 +37,15 @@
     "./schema/pack.json": "./dist/schema/pack.json"
   },
   "files": [
-    "dist"
+    "dist",
+    "skill"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json && node scripts/write-schemas.mjs",
     "dev": "tsx watch src/cli/main.ts serve",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "steps-reference": "tsx scripts/steps-reference.ts"
+    "steps-reference": "tsx scripts/steps-reference.ts",
+    "skill-references": "tsx scripts/skill-references.ts"
   },
   "dependencies": {
     "@fastify/static": "^10.1.7",
