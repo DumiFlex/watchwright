@@ -25,7 +25,7 @@ const view = ref<HTMLElement | null>(null);
 const track = ref<HTMLElement | null>(null);
 const viewWidth = ref(0);
 const zoom = ref(1);
-const zoomed = ref(false); // set once the opening zoom is picked or the person zooms
+const zoomedByHand = ref(false); // once the person zooms, the fit below leaves the zoom alone
 const hoverX = ref<number | null>(null); // on the whole axis, in px
 // Room at the sides of the scrolling part for the playhead's knob at either end.
 const PAD = 8;
@@ -97,14 +97,18 @@ onMounted(() => {
 });
 onBeforeUnmount(() => observer?.disconnect());
 
-/** Opens zoomed in far enough for most steps to show their label, with the playhead in view. */
+/**
+ * Zooms in far enough for most steps to show their whole label, with the playhead in view. It
+ * runs again when the steps, the width or the length change (the video's length is known only
+ * once it loads), until the person zooms themselves.
+ */
 function openZoom() {
-  if (zoomed.value || !viewWidth.value || !props.steps.length || !(props.duration > 0)) return;
-  zoomed.value = true;
-  const z = fitTimelineZoom(props.steps, props.duration, viewWidth.value);
+  if (zoomedByHand.value || !viewWidth.value || !props.steps.length || !(props.duration > 0)) return;
+  // A phone shows a sixteenth of the run as readily as a desktop shows an eighth.
+  const z = fitTimelineZoom(props.steps, props.duration, viewWidth.value, viewWidth.value < 480 ? 16 : 8);
   if (z !== zoom.value) setZoom(z, null);
 }
-watch(() => props.steps.length, openZoom);
+watch([() => props.steps, () => props.duration], openZoom);
 
 /** Zooms to `z`, keeping the time under `anchor` (px from the left of the view) where it is; the playhead when null. */
 function setZoom(z: number, anchor: number | null) {
@@ -118,12 +122,12 @@ function setZoom(z: number, anchor: number | null) {
   const x = anchor ?? Math.min(Math.max(PAD, PAD + px(at.value) - v.scrollLeft), PAD + viewWidth.value);
   const t = width.value ? Math.min(Math.max(0, (v.scrollLeft + x - PAD) / width.value), 1) * props.duration : 0;
   zoom.value = next;
-  zoomed.value = true;
   void nextTick(() => {
     if (view.value) view.value.scrollLeft = Math.max(0, PAD + px(t) - x);
   });
 }
 function zoomBy(dir: 1 | -1, anchor: number | null = null) {
+  zoomedByHand.value = true;
   setZoom(stepTimelineZoom(zoom.value, dir), anchor);
 }
 function wheel(e: WheelEvent) {

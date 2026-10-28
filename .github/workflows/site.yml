@@ -4,11 +4,9 @@ name: Site
 # fail like a failing test. The build is uploaded as the `github-pages` artifact,
 # which you can download from the run and open locally.
 #
-# Publishing to GitHub Pages is off until the repository variable PAGES_ENABLED
-# is "true" (Settings > Secrets and variables > Actions > Variables), because a
-# Pages site is public even while the repository is private. Once it is on, the
-# release workflow publishes the site for every new release tag, and "Run
-# workflow" here publishes the current main by hand.
+# The release workflow publishes the site to GitHub Pages for every new release
+# tag, and "Run workflow" here publishes the current main by hand. Pages must use
+# "GitHub Actions" as its source (Settings > Pages).
 
 on:
   pull_request:
@@ -43,7 +41,7 @@ jobs:
 
   deploy:
     needs: build
-    if: github.event_name != 'pull_request' && vars.PAGES_ENABLED == 'true'
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       pages: write

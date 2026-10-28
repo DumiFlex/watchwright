@@ -5,17 +5,21 @@ import { Ellipsis, Package, Play, SearchX } from "../icons";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, sendJson, type Pack, type RunSummary } from "../api";
 import { ago, countsText, done, duration, isActive, runDuration, when } from "../format";
+import { PERIODS, SERIES, anything, bars, tiles, type RunStats } from "../runstats";
 import { LiveConnection } from "../live";
 import { offerNotify } from "../notify";
 import { replaceRoute } from "../router";
+import { browserStore } from "../theme";
 import { toast } from "../toasts";
 import EmptyState from "../components/EmptyState.vue";
 import MenuButton from "../components/MenuButton.vue";
+import BarChart from "../components/BarChart.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import ProgressBar from "../components/ProgressBar.vue";
 import SelectMenu from "../components/SelectMenu.vue";
 import SkeletonBlock from "../components/SkeletonBlock.vue";
 import TextField from "../components/TextField.vue";
+import StatTile from "../components/StatTile.vue";
 import StatusChip from "../components/StatusChip.vue";
 import { vTip } from "../tooltip";
 
@@ -42,6 +46,36 @@ const statusFilter = ref(statusOptions.some((o) => o.value === props.query.statu
 const search = ref(props.query.q ?? "");
 const now = ref(Date.now());
 
+// At a glance: tiles and attempts per day for the last days, following the pack filter.
+const store = browserStore();
+const stats = ref<RunStats | null>(null);
+const periodOptions = PERIODS.map((d) => ({ value: String(d), label: `Last ${d} days` }));
+const period = ref(((): string => {
+  try {
+    const v = store?.getItem("ww.runs.period");
+    return v && periodOptions.some((o) => o.value === v) ? v : "14";
+  } catch {
+    return "14";
+  }
+})());
+const glanceTiles = computed(() => (stats.value ? tiles(stats.value) : []));
+const glanceBars = computed(() => (stats.value ? bars(stats.value) : []));
+const showGlance = computed(() => stats.value !== null && anything(stats.value));
+async function loadStats() {
+  const q = new URLSearchParams({ days: period.value, tz: String(new Date().getTimezoneOffset()) });
+  if (packFilter.value) q.set("pack", packFilter.value);
+  const res = await getJson<RunStats>(`/api/v1/runs/stats?${q}`);
+  if (res.ok) stats.value = res.data;
+}
+watch(period, (v) => {
+  try {
+    store?.setItem("ww.runs.period", v);
+  } catch {
+    // remembered only when the browser allows it
+  }
+  void loadStats();
+});
+
 const packOptions = computed(() => [{ value: "", label: "All packs" }, ...packs.value.map((p) => ({ value: p.id, label: p.name }))]);
 const filtered = computed(() => packFilter.value !== "" || statusFilter.value !== "" || search.value.trim() !== "");
 
@@ -54,6 +88,7 @@ function listUrl(before?: string) {
 }
 
 async function load() {
+  void loadStats();
   const [p, a, r] = await Promise.all([
     getJson<Pack[]>("/api/v1/packs"),
     getJson<RunSummary[]>("/api/v1/runs?status=queued,running,pausing,paused&limit=50"),
@@ -202,6 +237,30 @@ onBeforeUnmount(() => {
       </ul>
     </section>
 
+    <section v-if="showGlance" class="card glance" aria-labelledby="glance-title">
+      <div class="list-head">
+        <h2 id="glance-title" class="display">At a glance<template v-if="packFilter && packName(packFilter)">: {{ packName(packFilter) }}</template></h2>
+        <label class="sr-only" for="glance-period">Period</label>
+        <SelectMenu id="glance-period" v-model="period" class="period" :options="periodOptions" />
+      </div>
+      <div class="tiles">
+        <StatTile
+          v-for="t in glanceTiles"
+          :key="t.key"
+          :label="t.label"
+          :value="t.value"
+          :unit="t.unit"
+          :delta="t.delta"
+          :period="t.delta === undefined ? undefined : `the ${period} days before`"
+          :good-when="t.goodWhen"
+          v-bind="t.formatDelta ? { formatDelta: t.formatDelta } : {}"
+          :trend="t.trend"
+          :trend-labels="t.trendLabels"
+        />
+      </div>
+      <BarChart :items="glanceBars" :series="SERIES" label="Attempts per day, by outcome" :height="200" />
+    </section>
+
     <section class="card" aria-labelledby="runs-title">
       <div class="list-head">
         <h2 id="runs-title" class="display">Earlier runs</h2>
@@ -343,6 +402,16 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-sm);
   background: var(--raised);
   color: var(--muted);
+}
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.period {
+  flex: none;
+  width: 170px;
 }
 .list-head {
   display: flex;

@@ -19,14 +19,14 @@ There are four ways, and they all end the same: the server loads the pack and li
 
 - **On the Packs page**, type or paste the folder's path. The field suggests folders as you type (Tab completes, like a terminal) and says when the folder has a pack file. A path pasted with quotes (Windows Explorer's "Copy as path"), a `file://` address and `~` all work.
 - **Browse…** opens a folder browser of the server's machine: your home folder, the drives, the folders of packs already added and the folders you used recently on the side. Open the folder with the pack file and press **Add this pack**. Type to filter the list, or type a whole path and press Enter to jump there.
-- **Find packs in a folder…** searches a folder and the four levels below it for pack files (skipping `node_modules`, build output and hidden folders) and adds the ones you tick. Handy for a folder of projects.
+- In the folder browser, **Find packs here** searches the open folder and the four levels below it for pack files (skipping `node_modules`, build output and hidden folders) and adds the ones you tick. Handy for a folder of projects. The Ctrl+K command **Find packs in a folder** opens the browser ready to search.
 - **When you start the server**: `watchwright serve ./watchwright` adds that folder (or reloads it when it's already added). When the server is already running, the same command adds the pack there and opens the page.
 
 Through the [API](../reference/http-api#packs) it's `POST /api/v1/packs` with `{ "path": "/abs/path/to/my-site/watchwright" }`.
 
 **Starting from nothing?** In the folder browser, open the folder the pack should live in and press **New pack here…**. Give it a name and the site's address, pick YAML or TypeScript, and Watchwright writes a small pack that works (a pack file, a first test that opens the site and takes a screenshot, and a `README.md`) and adds it. It never overwrites a file that's already there.
 
-A pack's page lists its tests, parameters, flags, rubric and recent runs. When the pack's folder has a `README.md` at its top (or `README`, `readme.markdown` and the like), the page shows it below, rendered as on a code host, with a pencil to edit it. Links in it to other pack files open them in the [editor](./editing).
+A pack's page lists its tests, parameters, flags, rubric and recent runs. Once the pack has run, each test shows its last 20 attempts as a row of ticks (newest on the right, green passed, red failed, amber broken, grey skipped or stopped), its pass rate and its typical time. Point at a tick to see its run, date, time and values; click it to open the attempt. A tick with a notch passed only on a later try. A test is marked **flaky** when it went from passing to failing and back with the same parameter values, or passed only when it was run again; a test that started failing once and stayed that way isn't flaky, it broke. When the pack's folder has a `README.md` at its top (or `README`, `readme.markdown` and the like), the page shows it below, rendered as on a code host, with a pencil to edit it. Links in it to other pack files open them in the [editor](./editing).
 
 If a pack's folder moves, its card says the folder is gone; **Locate…** points it at the new folder and keeps its runs. **Remove** in the card's menu takes a pack off the list without touching its files or runs.
 
