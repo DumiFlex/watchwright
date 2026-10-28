@@ -15,7 +15,7 @@ At the end of step 1 a person can:
 7. Kill the server mid-run, start it again, and resume the run where it stopped. Redo only the attempts that broke.
 8. Read every result through the API: status, findings, flags, metrics, kept texts, screenshots, collector files, video and trace, in a versioned JSON shape.
 
-Not in step 1 (each has its own step): the full web app (results, review, compare, export: step 2), the Wildcard pack (step 3), quality of life: adding packs without typing paths, remembered choices, notifications and more (the QoL step, after step 3, [docs/plans/step-qol.md](plans/step-qol.md)), YAML tests, editor, record (step 4, [docs/plans/step-4.md](plans/step-4.md)), CLI beyond `serve`, MCP, skill (step 5), cost and budgets (step 6). The API is shaped for steps 2 and 5 from the start so they add no new engine concepts.
+Not in step 1 (each has its own step): the full web app (results, review, compare, export: step 2), the Wildcard pack (step 3), quality of life: adding packs without typing paths, remembered choices, notifications and more (the QoL step, after step 3, [docs/plans/step-qol.md](plans/step-qol.md)), YAML tests, editor, record (step 4, [docs/plans/step-4.md](plans/step-4.md)), CLI beyond `serve`, MCP, skill (step 5, [docs/plans/step-5.md](plans/step-5.md)), cost and budgets (step 6). The API is shaped for steps 2 and 5 from the start so they add no new engine concepts.
 
 ## 2. Changes to the research design
 

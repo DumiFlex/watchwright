@@ -4,7 +4,7 @@ Guidance for AI coding agents (and people) working in this repository. Keep it s
 
 ## What this is
 
-Watchwright is a browser test harness on the Playwright library. A long-lived server runs test packs in its own run engine (not `npx playwright test`), streams a live screencast to its web page, and exposes every action through an HTTP API (later also a CLI and an MCP server). The base design (plugins, engine, store, API) is [docs/plan.md](docs/plan.md); the plan for the current step is [docs/plans/step-4.md](docs/plans/step-4.md). Read both before adding a feature.
+Watchwright is a browser test harness on the Playwright library. A long-lived server runs test packs in its own run engine (not `npx playwright test`), streams a live screencast to its web page, and exposes every action through an HTTP API (later also a CLI and an MCP server). The base design (plugins, engine, store, API) is [docs/plan.md](docs/plan.md); the plan for the current step is [docs/plans/step-5.md](docs/plans/step-5.md). Read both before adding a feature.
 
 ## Commands
 
