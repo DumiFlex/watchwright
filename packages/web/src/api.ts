@@ -211,6 +211,8 @@ export interface RunSummary {
   packId: string;
   packName: string;
   siteKey: string;
+  /** The job kind (`test`, or one a plugin adds). */
+  kind: string;
   tests: string[];
   params: Record<string, ParamValue>;
   /** Facts the run saved while it ran (the app's version, the model it used). */
@@ -230,6 +232,8 @@ export interface RunSummary {
 
 export interface Attempt {
   id: string;
+  /** The job kind (`test`, or one a plugin adds). */
+  kind: string;
   testId: string;
   title: string;
   number: number;
@@ -276,6 +280,7 @@ export interface ResultDocument {
   schemaVersion: 1;
   runId: string;
   attemptId: string;
+  kind: string;
   test: { id: string; title: string };
   attempt: { number: number; of: number; try: number; current: boolean; parentId: string | null };
   status: AttemptStatus;

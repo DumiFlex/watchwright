@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { loadKinds, outcomeLabel } from "../kinds";
 
-const props = defineProps<{ status: string }>();
+// `kind` (a run's or attempt's job kind) shows the kind's word for an outcome ("done" for "passed").
+const props = defineProps<{ status: string; kind?: string }>();
+if (props.kind) void loadKinds();
 const LABELS: Record<string, string> = {
   failed_to_start: "failed to start",
   pending: "waiting",
@@ -30,7 +33,7 @@ const tone = computed(() => {
 </script>
 
 <template>
-  <span class="chip-s" :class="tone">{{ LABELS[status] ?? status }}</span>
+  <span class="chip-s" :class="tone">{{ LABELS[status] ?? outcomeLabel(status, kind) }}</span>
 </template>
 
 <style scoped>

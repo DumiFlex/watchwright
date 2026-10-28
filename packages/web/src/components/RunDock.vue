@@ -124,7 +124,7 @@ async function act(path: string, body: unknown = {}) {
       <template v-else>Starting…</template>
     </p>
     <p v-else-if="run" class="done small">
-      <StatusChip v-if="lastAttempt" :status="lastAttempt.status" />
+      <StatusChip v-if="lastAttempt" :status="lastAttempt.status" :kind="lastAttempt.kind" />
       {{ countsText(run.counts) }}.
       <a v-if="lastAttempt" :href="href({ name: 'attempt', runId, attemptId: lastAttempt.id })">See the attempt</a>
     </p>
