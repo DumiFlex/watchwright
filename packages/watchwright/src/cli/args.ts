@@ -7,7 +7,12 @@ import type { ActionInfo, JsonSchema } from "../actions/registry.js";
 export class UsageError extends Error {}
 
 const camel = (s: string) => s.replace(/-([a-z0-9])/g, (_, c: string) => c.toUpperCase());
-export const kebab = (s: string) => s.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+/** `packId` → `pack-id`, `baseURL` → `base-url`: a run of capitals is one word. */
+export const kebab = (s: string) =>
+  s
+    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1-$2")
+    .toLowerCase();
 
 /** The `:name` parameters of an action's path, in order. */
 export function pathParamsOf(a: ActionInfo): string[] {
