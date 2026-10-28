@@ -18,7 +18,14 @@ afterEach(async () => {
   for (const c of clients.splice(0)) await c.close();
   for (const h of harnesses.splice(0)) await h.close();
   // Servers the bridge started stop as the web page would stop them.
-  for (const host of started.splice(0)) await fetch(`http://${host}/api/v1/stop`, { method: "POST", headers: { origin: `http://${host}` } }).catch(() => undefined);
+  for (const host of started.splice(0)) {
+    await fetch(`http://${host}/api/v1/stop`, { method: "POST", headers: { origin: `http://${host}` } }).catch(() => undefined);
+    // It answers before it closes; its database stays open (and locked on Windows) until it is gone.
+    for (let i = 0; i < 100; i++) {
+      if (!(await fetch(`http://${host}/api/v1/health`).then(() => true, () => false))) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  }
   cleanTempDirs();
 });
 
