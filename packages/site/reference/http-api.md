@@ -50,9 +50,9 @@ Every change returns the pack's state after it loads again, `pack: { status, err
 
 ## Recording
 
-[Recording](../guide/recording) opens a browser for a pack and turns what is done on its page into YAML steps. A recording has an 8-character id. Its events carry that id as `runId`, and its screencast goes through the [live WebSocket](#live-websocket) the same way, so a viewer subscribes to a recording as to a run. A recording holds its pack's site: runs of the site wait for it, and it waits (status `waiting`) for a run of the site to end. It ends by itself after 30 minutes without input.
+[Recording](../guide/recording) opens a browser for a pack and turns what is done on its page into YAML steps. A recording has an 8-character id. Its events carry that id as `runId`, and its screencast goes through the [live WebSocket](#live-websocket) the same way, so a viewer subscribes to a recording as to a run. A recording holds its pack's site: runs of the site wait for it, and it waits (status `waiting`) for a run of the site to end. It ends by itself after 30 minutes without input (15 minutes without a call when an agent started it).
 
-A recording's state is `{ id, packId, testId, status, message, window, viewport, pages, activePage, steps }`. `status` is `waiting`, `starting`, `replaying` (running the steps before the cursor), `recording` or `ended`. Each step is `{ id, name, args, targets, spot }`: `args` are the YAML step's fields, `targets` every target that picks out the same element (the one in use first), and `spot` where a click landed inside the element, for `position`.
+A recording's state is `{ id, packId, testId, status, message, window, viewport, pages, activePage, steps, startedBy }`. `startedBy` is `web` for the person, else the client that started it (an agent's name). `status` is `waiting`, `starting`, `replaying` (running the steps before the cursor), `recording` or `ended`. Each step is `{ id, name, args, targets, spot }`: `args` are the YAML step's fields, `targets` every target that picks out the same element (the one in use first), and `spot` where a click landed inside the element, for `position`.
 
 | Method and path | Does |
 |---|---|
@@ -65,9 +65,11 @@ A recording's state is `{ id, packId, testId, status, message, window, viewport,
 | `POST /record/:id/steps` `{ name, args?, targets?, index? }` | Adds a step (201), at the end or at `index`. `targets` are other targets to offer for it. 400 `bad_step`. |
 | `POST /record/:id/steps/:step` `{ name?, args? }` | Changes a step. A new `args.target` is added to its `targets`. |
 | `DELETE /record/:id/steps/:step` | Removes a step. |
-| `POST /record/:id/stop` | Ends the recording and closes its browser. Returns the state with the steps. |
+| `GET /record/:id/look?shot=` | The active page as an agent reads it: `{ url, title, snapshot, shot? }`. `snapshot` is Playwright's aria snapshot for AI, where elements carry refs (`[ref=e4]`); `shot` (with `shot=true`) is a JPEG of the viewport, `{ mimeType, encoding: "base64", data }`. |
+| `POST /record/:id/do` `{ steps, shot? }` | Runs [YAML steps](./yaml-steps), written as JSON, on the active page one at a time and stops at the first that fails. A target may be `{ "ref": "e4" }` from the last look: it is swapped for the element's best target before the step runs. Each step that ran joins the steps. Answers `{ steps: [{ index, ok, step?, error? }], look }`. |
+| `POST /record/:id/stop` | Ends the recording and closes its browser. Returns the state with the steps, and `yaml`: the steps as the list a test's `steps:` takes. |
 
-Events: `record.started`, `record.status` `{ status, message }`, `record.replay-step` `{ title }`, `record.step` `{ step, index }`, `record.step-updated` `{ step }`, `record.step-removed` `{ id }`, `record.ended` `{ message, steps }` (`steps` is how many), and the `page.*` events of its pages.
+Events: `record.started`, `record.status` `{ status, message }`, `record.replay-step` `{ title }`, `record.agent-step` `{ title }` (a step of `do` running), `record.step` `{ step, index }`, `record.step-updated` `{ step }`, `record.step-removed` `{ id }`, `record.ended` `{ message, steps }` (`steps` is how many), and the `page.*` events of its pages.
 
 ## Settings
 
@@ -178,7 +180,7 @@ Everything that happens is an event with a growing sequence number: `{ seq, time
 
 `GET /events?after=<seq>&wait=<seconds>&runId=&types=&limit=` returns `{ events, next, head }`. With `wait` (up to 110 seconds) it holds the request until a matching event arrives, so an agent can follow a run with one request at a time: call again with `after=next`.
 
-Event types (open set, more come with later plugins): `run.queued`, `run.started`, `run.planned`, `run.pausing`, `run.paused`, `run.resumed`, `run.decision`, `run.stopping`, `run.labeled`, `run.finished`, `run.interrupted`, `run.failed_to_start`, `run.log`, `run.info`, `run.tests-added`, `attempt.started`, `attempt.step`, `attempt.log`, `attempt.flag`, `attempt.artifact`, `attempt.finished`, `page.opened`, `page.navigated`, `page.active`, `page.closed`, `video.unavailable`, `pack.added`, `pack.loaded`, `pack.reload_failed`, `pack.reloaded`, `pack.removed`, `editor.file_changed`, `review.saved`, `record.started`, `record.status`, `record.replay-step`, `record.step`, `record.step-updated`, `record.step-removed`, `record.ended`, `approval.requested`, `approval.answered`.
+Event types (open set, more come with later plugins): `run.queued`, `run.started`, `run.planned`, `run.pausing`, `run.paused`, `run.resumed`, `run.decision`, `run.stopping`, `run.labeled`, `run.finished`, `run.interrupted`, `run.failed_to_start`, `run.log`, `run.info`, `run.tests-added`, `attempt.started`, `attempt.step`, `attempt.log`, `attempt.flag`, `attempt.artifact`, `attempt.finished`, `page.opened`, `page.navigated`, `page.active`, `page.closed`, `video.unavailable`, `pack.added`, `pack.loaded`, `pack.reload_failed`, `pack.reloaded`, `pack.removed`, `editor.file_changed`, `review.saved`, `record.started`, `record.status`, `record.replay-step`, `record.agent-step`, `record.step`, `record.step-updated`, `record.step-removed`, `record.ended`, `approval.requested`, `approval.answered`.
 
 ## Live WebSocket
 

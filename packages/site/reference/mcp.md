@@ -57,11 +57,32 @@ The tools are the [actions](./http-api) marked for agents; a tool's description 
 | `delete_run` | `runs.delete` | Deletes a run, after the person approves. |
 | `get_rubric` | `reviews.rubric` | What each test of a run is scored on. |
 | `save_review` | `reviews.save` | Scores an attempt, filed under the agent's name. |
+| `explore_start` | `record.start` | Opens the site in a browser the person can watch, for exploring before writing a test. |
+| `explore_look` | `record.look` | The page: address, title, aria snapshot with refs (`e4`), and a screenshot as an image when asked. |
+| `explore_do` | `record.do` | Runs test steps on the page until one fails; a target can be a ref from the snapshot. Answers each step's outcome and a fresh look. |
+| `explore_stop` | `record.stop` | Ends the session and answers its steps as YAML for a test. |
 | `wait_for_approval` | `approvals.wait` | Waits for the person to answer an approval. |
 | `list_actions` | `core.actions` | Every action, for `call_action`. |
 | `call_action` | any | Calls an action by name with its input. |
 
 Answers are the action's data as JSON text. An error comes back as a tool error with its code and message (`not_found: No run with id …`), so the agent can read and fix it.
+
+## Exploring
+
+Before writing a test, an agent can try the site in an explore session. It is a [recording](../guide/recording) the agent drives: the person sees it on the web page (the Runs page shows it with **Watch**) and can click and type in it too.
+
+1. `explore_start` opens the site (`{ "packId": "Shop" }`; with `testId` and `replay`, a test's first steps run first).
+2. `explore_look` reads the page as an aria snapshot. Each element there carries a ref:
+
+   ```yaml
+   - heading "Fixture home" [level=1] [ref=e2]
+   - button "Add one" [ref=e3]
+   ```
+
+3. `explore_do` runs steps, written as in [YAML tests](./yaml-steps) but as JSON. A target can be a ref: `{ "click": { "ref": "e3" } }`. The ref is swapped for the element's own target (`{ role: button, name: Add one }`), checked to pick out that element alone, before the step runs, so the steps it keeps are ones a test can use. It stops at the first step that fails and answers with each step's outcome and a fresh look.
+4. `explore_stop` ends the session and answers its steps as `yaml`, ready to go under a test's `steps:` with `write_pack_file`.
+
+Refs last until the page changes; a ref that is gone answers with an error asking for a fresh look. A session closes after 15 minutes without a call.
 
 ## Asking the person
 

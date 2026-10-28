@@ -128,7 +128,7 @@ onMounted(async () => {
   <NewRunView v-else-if="route.name === 'new'" :query="route.query" />
   <PacksView v-else-if="route.name === 'packs'" :query="route.query" />
   <PackView v-else-if="route.name === 'pack'" :id="route.id" />
-  <EditView v-else-if="route.name === 'edit'" :id="route.id" :file="route.file" :line="route.line" :record="route.record ?? false" />
+  <EditView v-else-if="route.name === 'edit'" :id="route.id" :file="route.file" :line="route.line" :record="route.record ?? false" :explore="route.watch ?? null" />
   <CompareView v-else-if="route.name === 'compare'" :query="route.query" />
   <KitView v-else-if="route.name === 'kit'" />
   <SettingsView v-else-if="route.name === 'settings'" />

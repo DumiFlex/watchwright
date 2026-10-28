@@ -2,7 +2,8 @@ import { chromium } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { WwEvent } from "../src/events/log.js";
 import { keyWithModifiers, relativeUrl, stepOfAction, targetOfLocator } from "../src/plugins/record/actions.js";
-import { candidatesOf, roleOf, sameTarget, withAlternatives, type ElementInfo } from "../src/plugins/record/candidates.js";
+import { candidatesOf, containerTarget, roleOf, sameTarget, withAlternatives, type ElementInfo } from "../src/plugins/record/candidates.js";
+import { parseStep, plainArgs, stepsYaml, targetsOf } from "../src/plugins/record/explore.js";
 import { canOpenWindow } from "../src/plugins/record/plugin.js";
 import type { RecordEntry } from "../src/plugins/record/session.js";
 import { outermostLine } from "../src/plugins/record/upto.js";
@@ -51,6 +52,34 @@ describe("recorder actions as steps", () => {
     expect(relativeUrl("http://a.test/x#y", "http://a.test/app/")).toBe("/x#y");
     expect(relativeUrl("http://b.test/x", "http://a.test/")).toBe("http://b.test/x");
     expect(relativeUrl("http://b.test/x", null)).toBe("http://b.test/x");
+  });
+});
+
+describe("an agent's steps", () => {
+  it("reads steps as test files do and says what is wrong", () => {
+    expect(parseStep({ click: { role: "button", name: "Save" } })).toMatchObject({ name: "click", args: { target: { role: "button", name: "Save" } } });
+    expect(parseStep("reload")).toMatchObject({ name: "reload", args: {} });
+    expect(() => parseStep({ clik: "#a" })).toThrow(/Did you mean "click"/);
+    expect(() => parseStep([1])).toThrow(/A step is a name/);
+  });
+
+  it("writes them back as the YAML a test's steps take, nested steps too", () => {
+    const repeat = parseStep({ repeat: { times: 2, steps: [{ click: "#inc" }, "reload"] } });
+    const args = plainArgs(repeat.name, repeat.args);
+    expect(args).toEqual({ times: 2, steps: [{ click: "#inc" }, "reload"] });
+    expect(stepsYaml([{ name: "click", args: { target: "#a" } }, { name: "fill", args: { target: { label: "Email" }, value: "x" } }, { name: "reload", args: {} }, { name: "repeat", args }])).toBe(
+      ["- click: \"#a\"", "- fill:", "    target:", "      label: Email", "    value: x", "- reload", "- repeat:", "    times: 2", "    steps:", "      - click: \"#inc\"", "      - reload", ""].join("\n"),
+    );
+    // A target map goes right under the step name when none of its keys is one of the step's fields.
+    expect(stepsYaml([{ name: "click", args: { target: { text: "Go" } } }])).toBe("- click:\n    text: Go\n");
+    expect(stepsYaml([])).toBe("[]\n");
+  });
+
+  it("keeps the element's other targets when its target came from a ref", () => {
+    const found = [[{ role: "button", name: "Add one" }, "#inc"]];
+    expect(targetsOf({ target: { name: "Add one", role: "button" } }, found)).toEqual(found[0]);
+    expect(targetsOf({ target: "#x" }, found)).toEqual(["#x"]);
+    expect(targetsOf({ url: "/" }, found)).toEqual([]);
   });
 });
 
@@ -111,6 +140,13 @@ describe("candidate targets", () => {
     ]);
     // Long text and generated ids aren't offered.
     expect(candidatesOf(info({ text: "x".repeat(80), id: "ember12345" }))).toEqual([]);
+  });
+
+  it("names the list item or row an element is in by its text", () => {
+    expect(containerTarget({ tag: "li", role: null, text: "Buy milk" })).toEqual({ role: "listitem", hasText: "Buy milk" });
+    expect(containerTarget({ tag: "div", role: "row", text: "Ada" })).toEqual({ role: "row", hasText: "Ada" });
+    expect(containerTarget({ tag: "section", role: null, text: "Ada" })).toEqual({ css: "section", hasText: "Ada" });
+    expect(containerTarget({ tag: "li", role: null, text: "x".repeat(80) })).toBeNull();
   });
 
   it("keeps the first target and adds the others once", () => {

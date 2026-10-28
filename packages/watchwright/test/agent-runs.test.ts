@@ -185,4 +185,57 @@ run("following a run as an agent", { timeout: 90_000 }, () => {
       await mcp.close();
     }
   });
+
+  it("explores a site through the MCP tools, then saves and runs what it did as a test", async () => {
+    const h = await startHarness(tempDir("ww-data-"), { listen: true });
+    harnesses.push(h);
+    const dir = pack();
+    await h.api("POST", "/packs", { path: dir });
+    const mcp = new McpClient({ name: "claude-code", version: "1.0.0" });
+    await mcp.connect(new StreamableHTTPClientTransport(new URL(`http://${h.host}/api/v1/mcp`)));
+    try {
+      const call = async (name: string, args: Record<string, unknown>) => (await mcp.callTool({ name, arguments: args })) as CallToolResult;
+      const text = (r: CallToolResult, i = 0) => (r.content[i]?.type === "text" ? (r.content[i] as { text: string }).text : "");
+
+      const started = await call("explore_start", { packId: "Agent fixture" });
+      expect(started.isError).toBeFalsy();
+      const session = JSON.parse(text(started)) as { id: string; startedBy: string };
+      expect(session.startedBy).toBe("Claude Code");
+      await h.waitFor((e) => e.runId === session.id && e.type === "record.status" && e.data.status === "recording", 30_000);
+
+      // The look: the page's facts, its snapshot with refs, and a screenshot when asked.
+      const look = await call("explore_look", { id: session.id, shot: true });
+      expect(JSON.parse(text(look))).toMatchObject({ title: "Fixture home" });
+      const ref = /button "Add one" \[ref=(e\d+)\]/.exec(text(look, 1))?.[1];
+      expect(ref).toBeTruthy();
+      expect(look.content[2]).toMatchObject({ type: "image", mimeType: "image/jpeg" });
+
+      // Steps by ref and by target; the ref is kept as the element's own target.
+      const done = await call("explore_do", { id: session.id, steps: [{ click: { ref } }, { expect: { target: "#n", text: "1" } }, { click: { target: "#gone", timeout: 200 } }, "reload"] });
+      const outcome = JSON.parse(text(done)) as { steps: { ok: boolean; step?: { name: string; args: Record<string, unknown>; targets: unknown[] }; error?: string }[]; look: { url: string } };
+      expect(outcome.steps.map((s) => s.ok)).toEqual([true, true, false]);
+      expect(outcome.steps[0]!.step).toMatchObject({ name: "click", args: { target: { role: "button", name: "Add one" } } });
+      expect(outcome.steps[0]!.step!.targets).toContainEqual("#inc");
+      expect(outcome.steps[2]!.error).toContain("#gone");
+      expect(text(done, 1)).toContain("Count:");
+      const stale = await call("explore_do", { id: session.id, steps: [{ click: { ref: "e999" } }] });
+      expect(JSON.parse(text(stale))).toMatchObject({ steps: [{ ok: false, error: expect.stringContaining("Look again") as string }] });
+      const bad = await call("explore_do", { id: session.id, steps: [{ clik: "#inc" }] });
+      expect(JSON.parse(text(bad))).toMatchObject({ steps: [{ ok: false, error: expect.stringContaining('Did you mean "click"') as string }] });
+
+      const stopped = JSON.parse(text(await call("explore_stop", { id: session.id }))) as { status: string; yaml: string };
+      expect(stopped.status).toBe("ended");
+      expect(stopped.yaml).toBe("- click:\n    role: button\n    name: Add one\n- expect:\n    target: \"#n\"\n    text: \"1\"\n");
+
+      // The steps make a test that passes.
+      const steps = stopped.yaml.replace(/^/gm, "  ").trimEnd();
+      const saved = await call("write_pack_file", { id: "Agent fixture", path: "tests/explored.yaml", text: `id: X1\ntitle: Explored\nsteps:\n  - goto: /\n${steps}\n` });
+      expect(saved.isError).toBeFalsy();
+      const run = JSON.parse(text(await call("start_run", { packId: "Agent fixture", tests: ["X1"] }))) as { id: string };
+      await engineOf(h).settled(run.id);
+      expect(JSON.parse(text(await call("get_run", { id: run.id })))).toMatchObject({ status: "finished", counts: { passed: 1 } });
+    } finally {
+      await mcp.close();
+    }
+  });
 });

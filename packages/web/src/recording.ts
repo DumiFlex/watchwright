@@ -28,6 +28,19 @@ export interface RecordState {
   pages: { id: string; url: string }[];
   activePage: string | null;
   steps: RecordEntry[];
+  startedAt: string;
+  /** `web` for the person, else the agent that started it (an explore session). */
+  startedBy: string;
+}
+
+/** Explore sessions agents have open, oldest first. */
+export function agentSessions(list: readonly RecordState[]): RecordState[] {
+  return list.filter((r) => r.startedBy !== "web" && r.status !== "ended").sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+}
+
+/** The address of the page a recording shows. */
+export function activeUrl(r: Pick<RecordState, "pages" | "activePage">): string | null {
+  return r.pages.find((p) => p.id === r.activePage)?.url ?? r.pages[0]?.url ?? null;
 }
 
 /** Where recorded steps go in a YAML test file. */
