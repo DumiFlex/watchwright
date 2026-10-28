@@ -3,7 +3,7 @@ import { createServer as netServer } from "node:net";
 import type { FastifyInstance } from "fastify";
 import { chromium, firefox } from "playwright";
 import { BUILTIN_PLUGINS } from "../../src/core/builtin.js";
-import { migrationsOf } from "../../src/core/plugin.js";
+import { migrationsOf, type WatchwrightPlugin } from "../../src/core/plugin.js";
 import type { WwEvent } from "../../src/events/log.js";
 import { ENGINE } from "../../src/plugins/runs/plugin.js";
 import { buildServer } from "../../src/server/app.js";
@@ -37,10 +37,11 @@ export interface Harness {
   close(): Promise<void>;
 }
 
-export async function startHarness(dataDir: string, opts: { listen?: boolean } = {}): Promise<Harness> {
+export async function startHarness(dataDir: string, opts: { listen?: boolean; plugins?: WatchwrightPlugin[] } = {}): Promise<Harness> {
   const port = await freePort();
-  const store = openStore(dataDir, migrationsOf(BUILTIN_PLUGINS));
-  const app = await buildServer({ store, port, plugins: BUILTIN_PLUGINS });
+  const plugins = [...BUILTIN_PLUGINS, ...(opts.plugins ?? [])];
+  const store = openStore(dataDir, migrationsOf(plugins));
+  const app = await buildServer({ store, port, plugins });
   if (opts.listen) await app.listen({ port, host: "127.0.0.1" });
   const host = `127.0.0.1:${port}`;
   let closed = false;

@@ -305,7 +305,7 @@ watch(
         <div class="title">
           <h1 class="display"><code>{{ doc.test.id }}</code> {{ doc.test.title !== doc.test.id ? doc.test.title : "" }}</h1>
           <p class="muted meta">
-            <StatusChip :status="doc.status" />
+            <StatusChip :status="doc.status" :kind="doc.kind" />
             <span>attempt {{ doc.attempt.number }} of {{ doc.attempt.of }}</span>
             <span v-if="doc.attempt.try > 1">try {{ doc.attempt.try }}</span>
             <span v-if="doc.attempt.parentId">ran inside <a :href="linkTo(doc.attempt.parentId)">its parent</a></span>

@@ -79,6 +79,7 @@ export async function buildServer({ store, port, webRoot, plugins = BUILTIN_PLUG
   prepare?.(ctx);
   app.decorate("watchwright", ctx);
   for (const plugin of plugins) await plugin.setup?.(ctx);
+  for (const plugin of plugins) await plugin.ready?.(ctx);
   app.addHook("onClose", async () => {
     for (const plugin of [...plugins].reverse()) await plugin.close?.(ctx);
   });

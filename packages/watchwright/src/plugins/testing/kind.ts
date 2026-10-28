@@ -1,11 +1,23 @@
 import { expect } from "playwright/test";
 import type { AttemptEnv, JobKind } from "../../jobs/kind.js";
-import type { AttemptHookContext, TestDefinition, TestMeta } from "../packs/api.js";
+import type { AttemptHookContext, Helpers, TestDefinition, TestMeta } from "../packs/api.js";
 import { attemptsFor, planTests } from "../packs/order.js";
+import { createHelpers } from "./helpers.js";
+import { classify } from "./outcome.js";
 
 /** The `test` job kind: a pack's tests, their attempts, `needs` and `inside` children. */
-export const testKind: JobKind = {
+export const testKind: JobKind<Helpers> = {
   name: "test",
+
+  helpers(rt, pack) {
+    const o = pack.options;
+    return createHelpers(
+      { ...rt, baseURL: o.site.baseURL, flagKinds: { ...(o.flags ?? {}) }, idleCheck: o.idle, chapters: o.run?.chapters ?? false },
+      o.helpers,
+    );
+  },
+
+  classify,
 
   plan(pack, params, chosen, options) {
     const { order, children } = planTests(pack.tests, chosen);
@@ -65,7 +77,7 @@ export const testKind: JobKind = {
   },
 };
 
-function hookContext(env: AttemptEnv, t: TestDefinition): AttemptHookContext {
+function hookContext(env: AttemptEnv<Helpers>, t: TestDefinition): AttemptHookContext {
   return {
     page: env.page,
     h: env.helpers(),
