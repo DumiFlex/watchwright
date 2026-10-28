@@ -21,6 +21,7 @@ import {
   runSummary,
   type AttemptStatus,
   type AttemptSummary,
+  type HistoryEntry,
   type PlanEntry,
   type RunMode,
   type RunOptions,
@@ -30,6 +31,7 @@ import {
   type RunSummary,
 } from "./repo.js";
 import { QueueError, RunQueue } from "./queue.js";
+import { dayList, dayOf, dayStart, runStats, type RunStats } from "./stats.js";
 import { fileUrl, resultDocument, type ResultDocument } from "./results.js";
 
 // The job runner: queue and site locks, one browser session per run, attempts with pause, retry,
@@ -164,6 +166,17 @@ export class Engine {
     for (const id of this.o.repo.interruptLeftovers()) this.o.events.append("run.interrupted", { reason: "server_stopped" }, { runId: id });
   }
 
+  /** Runs and outcomes per day for the `days` days ending today, in a time zone `offset` minutes behind UTC. */
+  stats(o: { days: number; offset: number; packId?: string | undefined; until?: string | undefined }): RunStats {
+    const until = o.until ?? dayOf(new Date().toISOString(), o.offset);
+    const from = dayStart(dayList(until, o.days * 2)[0]!, o.offset);
+    return runStats(this.o.repo.statsRows(from, o.packId), { until, days: o.days, offset: o.offset });
+  }
+
+  testHistory(packId: string, limit: number): Record<string, HistoryEntry[]> {
+    return this.o.repo.history(packId, limit);
+  }
+
   list(filter: RunFilter = {}): RunSummary[] {
     return this.o.repo.runs(filter).map((r) => runSummary(r, this.o.repo.counts(r.id)));
   }
@@ -218,7 +231,7 @@ export class Engine {
     if (!ctx) throw new EngineError("not_running", "The run is still setting up; try again in a moment.", 409);
     if (ctx.ended) throw new EngineError("not_running", "The run has gone through its queue.", 409);
     // A test written since the run started can be added, so take the pack as it is now.
-    const r = await this.o.packs.refresh(ctx.row.pack_id);
+    const r = await this.o.packs.refresh(ctx.row.pack_id, ctx.pack);
     if (r.reloaded) {
       ctx.pack = r.pack;
       this.emit("pack.reloaded", { packId: ctx.row.pack_id }, id);
@@ -714,7 +727,7 @@ export class Engine {
           continue;
         }
 
-        const r = await packs.refresh(row.pack_id);
+        const r = await packs.refresh(row.pack_id, ctx.pack);
         if (r.reloaded) {
           ctx.pack = r.pack;
           this.emit("pack.reloaded", { packId: row.pack_id }, row.id);
@@ -1122,7 +1135,7 @@ export class Engine {
       const d = await this.pauseOnBroken(ctx, childId, attemptId);
       this.emit("run.decision", { decision: d, testId: childId, number: parent.number }, ctx.row.id);
       if (d !== "retry") return outcome;
-      const r = await this.o.packs.refresh(ctx.row.pack_id);
+      const r = await this.o.packs.refresh(ctx.row.pack_id, ctx.pack);
       if (r.reloaded) ctx.pack = r.pack;
     }
   }

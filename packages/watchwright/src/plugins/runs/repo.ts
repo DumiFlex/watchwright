@@ -4,6 +4,7 @@ import type { ArtifactInfo, FlagRecord, LogLine, MetricRecord, StepRecord } from
 import type { Outcome, ParamValues } from "../packs/api.js";
 import type { AttemptError } from "../testing/outcome.js";
 import type { QueueEdits } from "./queue.js";
+import type { StatsRows } from "./stats.js";
 
 // Rows of the runs plugin: runs, their attempts (with retry history) and artifacts.
 
@@ -251,6 +252,21 @@ export interface RunSummary {
   counts: Record<AttemptStatus, number> & { planned: number };
 }
 
+/** One finished attempt of a test, for the test's history strip on the pack page. */
+export interface HistoryEntry {
+  attemptId: string;
+  runId: string;
+  runLabel: string;
+  /** Which attempt of the test in its run (a test can run several times). */
+  number: number;
+  /** The try that counts: above 1 when the attempt was run again after it broke. */
+  try: number;
+  status: AttemptStatus;
+  startedAt: string;
+  durationMs: number | null;
+  params: ParamValues;
+}
+
 export const newId = (bytes: number) => randomBytes(bytes).toString("hex");
 
 const EMPTY_COUNTS = (): RunSummary["counts"] => ({ passed: 0, failed: 0, broken: 0, skipped: 0, stopped: 0, running: 0, interrupted: 0, planned: 0 });
@@ -427,6 +443,60 @@ export class RunsRepo {
     const run = this.run(runId);
     c.planned = run ? (JSON.parse(run.plan) as PlanEntry[]).length : 0;
     return c;
+  }
+
+  /** Runs made and top-level attempts started from `from` on, for the runs page's numbers. */
+  statsRows(from: string, packId?: string): StatsRows {
+    const pack = packId ? " AND r.pack_id = ?" : "";
+    const args = packId ? [from, packId] : [from];
+    return {
+      runs: this.db.prepare(`SELECT r.created_at FROM runs r WHERE r.created_at >= ?${pack}`).all(...args) as StatsRows["runs"],
+      attempts: this.db
+        .prepare(
+          `SELECT a.status, a.started_at, a.finished_at FROM runs_attempts a JOIN runs r ON r.id = a.run_id
+           WHERE a.started_at >= ? AND a.current = 1 AND a.parent_id IS NULL${pack}`,
+        )
+        .all(...args) as StatsRows["attempts"],
+    };
+  }
+
+  /** Each test's last `limit` finished attempts in a pack's runs, oldest first. */
+  history(packId: string, limit: number): Record<string, HistoryEntry[]> {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM (
+           SELECT a.id, a.run_id, a.item_id, a.number, a.try, a.status, a.started_at, a.finished_at, r.label, r.params,
+             ROW_NUMBER() OVER (PARTITION BY a.item_id ORDER BY a.started_at DESC, a.rowid DESC) AS rn
+           FROM runs_attempts a JOIN runs r ON r.id = a.run_id
+           WHERE r.pack_id = ? AND a.current = 1 AND a.status NOT IN ('running', 'interrupted')
+         ) WHERE rn <= ? ORDER BY item_id, started_at, rn DESC`,
+      )
+      .all(packId, limit) as {
+      id: string;
+      run_id: string;
+      item_id: string;
+      number: number;
+      try: number;
+      status: AttemptStatus;
+      started_at: string;
+      finished_at: string | null;
+      label: string;
+      params: string;
+    }[];
+    const out: Record<string, HistoryEntry[]> = {};
+    for (const r of rows)
+      (out[r.item_id] ??= []).push({
+        attemptId: r.id,
+        runId: r.run_id,
+        runLabel: r.label ?? "",
+        number: r.number,
+        try: r.try,
+        status: r.status,
+        startedAt: r.started_at,
+        durationMs: r.finished_at ? Date.parse(r.finished_at) - Date.parse(r.started_at) : null,
+        params: JSON.parse(r.params) as ParamValues,
+      });
+    return out;
   }
 
   presets(packId?: string): Preset[] {

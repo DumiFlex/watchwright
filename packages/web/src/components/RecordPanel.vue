@@ -433,6 +433,11 @@ const recording = computed(() => state.value?.status === "recording");
   gap: var(--space-2);
   min-width: 0;
 }
+/* The picture gives up height first, so Done stays on screen in a short window. */
+.view :deep(.screen) {
+  width: 100%;
+  max-height: max(240px, calc(100dvh - 2 * var(--space-8) - 330px));
+}
 .status {
   display: flex;
   flex-wrap: wrap;

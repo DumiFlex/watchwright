@@ -189,6 +189,34 @@ export const runsPlugin = definePlugin({
         handler: ({ limit, pack, status, before, q }) =>
           engine.list({ limit, packId: pack, statuses: status ? (status.split(",") as RunStatus[]) : undefined, before, q }),
       }),
+      defineAction<{ days?: number; pack?: string; tz?: number; until?: string }>({
+        name: "runs.stats",
+        title: "Runs and attempt outcomes per day for the last days, with the totals of the period before",
+        method: "GET",
+        path: "/runs/stats",
+        input: {
+          type: "object",
+          properties: {
+            days: { type: "integer", minimum: 1, maximum: 90, default: 14 },
+            pack: { type: "string", pattern: "^[0-9a-f]{8}$", description: "Only runs of this pack." },
+            tz: { type: "integer", minimum: -840, maximum: 840, default: 0, description: "Minutes the caller's time zone is behind UTC, as Date.getTimezoneOffset() gives it." },
+            until: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$", description: "The last day, YYYY-MM-DD. Default: today in the caller's time zone." },
+          },
+        },
+        handler: ({ days, pack, tz, until }) => engine.stats({ days: days ?? 14, offset: tz ?? 0, packId: pack, until }),
+      }),
+      defineAction<{ id: string; limit?: number }>({
+        name: "runs.history",
+        title: "Each test's last finished attempts in a pack's runs, oldest first, keyed by test id",
+        method: "GET",
+        path: "/packs/:id/history",
+        input: {
+          type: "object",
+          properties: { id: { type: "string", pattern: "^[0-9a-f]{8}$" }, limit: { type: "integer", minimum: 1, maximum: 100, default: 20 } },
+          required: ["id"],
+        },
+        handler: ({ id, limit }) => engine.testHistory(id, limit ?? 20),
+      }),
       defineAction<{ id: string }>({
         name: "runs.delete",
         title: "Delete a run that isn't going, with its results and files",

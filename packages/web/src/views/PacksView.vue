@@ -3,7 +3,7 @@
 // that completes folders as you type, a folder browser, and a search for packs in a folder.
 // The server lists the folders (a page can't learn a folder's path; docs/plans/step-qol.md).
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { Ellipsis, FolderSearch, FolderOpen, Package, TriangleAlert } from "../icons";
+import { Ellipsis, FolderOpen, Package, TriangleAlert } from "../icons";
 import { getJson, sendJson, type FolderPlaces, type Pack } from "../api";
 import { ago, when } from "../format";
 import { LiveConnection } from "../live";
@@ -175,10 +175,9 @@ onBeforeUnmount(() => live?.close());
     </ul>
     <section v-else-if="!loadError" class="card">
       <EmptyState :icon="Package" heading="No packs yet">
-        <p>A pack is a folder with a pack file (<code>pack.ts</code> or <code>pack.yaml</code>) and its tests, usually in the repository of the site it tests. Add one you have, or pick a folder and choose <strong>New pack here</strong> for a small starter pack.</p>
+        <p>A pack is a folder with a pack file (<code>pack.ts</code> or <code>pack.yaml</code>) and its tests, usually in the repository of the site it tests. Add one you have (the folder browser can also search a folder and the ones below it), or pick a folder and choose <strong>New pack here</strong> for a small starter pack.</p>
         <template #actions>
           <button type="button" class="btn primary" @click="browse('add')"><FolderOpen :size="15" /> Add a pack…</button>
-          <button type="button" class="btn" @click="browse('find')"><FolderSearch :size="15" /> Find packs in a folder…</button>
         </template>
       </EmptyState>
     </section>
@@ -202,10 +201,6 @@ onBeforeUnmount(() => live?.close());
         <button class="btn primary" type="submit" :disabled="!newPath.trim() || adding">{{ adding ? "Adding…" : "Add pack" }}</button>
       </form>
       <p v-if="addError" class="error small" role="alert">{{ addError }}</p>
-      <div class="more-ways">
-        <button type="button" class="btn" @click="browse('find')"><FolderSearch :size="15" /> Find packs in a folder…</button>
-        <span class="muted small">Searches a folder and the ones below it for pack files.</span>
-      </div>
       <p class="muted small hint">Pack code runs on this machine with your rights, so add only packs you trust.</p>
     </section>
 
@@ -298,13 +293,6 @@ onBeforeUnmount(() => live?.close());
 .grow {
   flex: 1;
 }
-.more-ways {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-  margin-top: var(--space-3);
-}
 .hint {
   margin: var(--space-2) 0 0;
 }
@@ -312,6 +300,9 @@ onBeforeUnmount(() => live?.close());
   .add {
     flex-direction: column;
     align-items: stretch;
+  }
+  .add .btn {
+    justify-content: center;
   }
 }
 </style>

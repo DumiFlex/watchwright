@@ -5,7 +5,7 @@ name: Release
 # This workflow turns on auto-merge for that PR, so it merges itself once CI
 # passes. When it merges, release-please tags vX.Y.Z, publishes the GitHub
 # release, and this workflow opens a PR that syncs main back into dev and
-# publishes the docs site for the new tag (site.yml; off until PAGES_ENABLED).
+# publishes the docs site for the new tag (site.yml).
 #
 # RELEASE_TOKEN is a fine-grained personal access token (contents, pull
 # requests and workflows: read and write on this repository). The built-in
