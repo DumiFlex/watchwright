@@ -38,14 +38,17 @@
   },
   "files": [
     "dist",
-    "skill"
+    "skill",
+    "NOTICE"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json && node scripts/write-schemas.mjs",
     "dev": "tsx watch src/cli/main.ts serve",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "steps-reference": "tsx scripts/steps-reference.ts",
-    "skill-references": "tsx scripts/skill-references.ts"
+    "skill-references": "tsx scripts/skill-references.ts",
+    "prepack": "node scripts/copy-legal.mjs",
+    "check-package": "tsx scripts/check-package.ts"
   },
   "dependencies": {
     "@fastify/static": "^10.1.7",
