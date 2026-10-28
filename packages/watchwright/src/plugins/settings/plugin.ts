@@ -83,6 +83,7 @@ export const EDITORS = ["vscode", "cursor", "windsurf", "idea", "webstorm", "non
 /** Machine-wide preferences: defined by plugins, read and changed through two actions. */
 export const settingsPlugin = definePlugin({
   name: "settings",
+  pages: [{ name: "settings", title: "Settings", path: "/settings", icon: "Settings", menu: "more", order: 90, words: "preferences editor folders" }],
   migrations: [{ id: 1, name: "init", sql: "CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);" }],
   setup({ store, services }) {
     const settings = new SettingsService(store.db);

@@ -23,7 +23,7 @@ Run `pnpm lint && pnpm typecheck && pnpm test` before every commit.
 
 ## Layout
 
-- `packages/watchwright/src/core/` — the plugin contract (`definePlugin` with `setup`, then `ready` once every plugin is set up; typed services through `serviceKey`), the built-in plugin list and the `core` plugin (`/health`, `GET /actions`, `GET /events`, `POST /stop`).
+- `packages/watchwright/src/core/` — the plugin contract (`definePlugin` with `setup`, then `ready` once every plugin is set up; typed services through `serviceKey`; `pages` a plugin brings to the web app's menu), the built-in plugin list and the `core` plugin (`/health`, `GET /actions`, `GET /events`, `POST /stop`).
 - `packages/watchwright/src/actions/` — the action registry: an action declares name, method, path and JSON Schema input, and for agents `agent: { tool, say }` (an MCP tool) and `destructive`; HTTP routes, CLI commands and MCP tools are generated from it.
 - `packages/watchwright/src/events/` — the event log (cursor, bounded wait, subscribe).
 - `packages/watchwright/src/session/` — browser sessions (launch, contexts, screencast).
@@ -32,7 +32,7 @@ Run `pnpm lint && pnpm typecheck && pnpm test` before every commit.
 - `packages/watchwright/src/server/` — Fastify app: mounts plugins under `/api/v1`, the request guard, the web app with SPA fallback.
 - `packages/watchwright/src/store/` — SQLite through better-sqlite3, migrations per plugin.
 - `packages/watchwright/src/cli/` — the `watchwright` command: `serve`, the commands for people and agents (`status`, `run`, `wait`, `results`), `mcp` (the stdio MCP bridge), `init-agent` (the skill and MCP settings into a project, locally), and one generated command per action, talking to the server over HTTP.
-- `packages/web/` — Vue 3 + Vite web app; `vite build` writes into `packages/watchwright/dist/web`.
+- `packages/web/` — Vue 3 + Vite web app; `vite build` writes into `packages/watchwright/dist/web`. The menu comes from the pages in `GET /health` (`src/pages.ts`); a new page needs its view in `App.vue` and its `pages` entry on the plugin.
 - `packages/watchwright/skill/watchwright/` — the agent skill shipped in the package: `SKILL.md` by hand, `references/` made from the docs site's pages by `pnpm --filter watchwright skill-references` (a test fails when they are stale; rerun it after changing those pages).
 - `packages/site/` — the docs site (VitePress): landing page, `guide/`, `reference/`. Built on every PR by `.github/workflows/site.yml`.
 
