@@ -276,7 +276,8 @@ run("the TodoMVC example pack", { timeout: 120_000 }, () => {
     expect(pack.tests.map((t) => t.id)).toEqual(["A1", "A2", "A3", "A4", "E1", "E2", "E3", "E4", "F1", "F2", "F3"]);
     const d = await runToEnd(h, { packId: pack.id, pauseOnBroken: false });
     const statuses = byTest(d);
-    expect(Object.entries(statuses).filter(([, s]) => s !== "passed")).toEqual([]);
+    const failed = await Promise.all(d.attempts.filter((a) => a.status !== "passed").map(async (a) => `${a.testId}: ${(await docOf(h, d, a.testId)).error?.message ?? a.status}`));
+    expect(failed).toEqual([]);
     expect(Object.keys(statuses)).toHaveLength(11);
     expect((await docOf(h, d, "A2")).metrics["Items left"]).toEqual({ value: 3, unit: null });
   });
