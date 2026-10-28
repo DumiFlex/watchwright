@@ -82,17 +82,26 @@ export function stepTimelineZoom(zoom: number, dir: 1 | -1): number {
   return [...TIMELINE_ZOOMS].reverse().find((z) => z < zoom) ?? 1;
 }
 
+/** About how wide a step must be to show its whole label (12 px text, padding and border). */
+export const labelWidth = (label: string) => Math.max(56, Math.ceil(label.length * 6.5) + 16);
+
 /**
- * The zoom to open at: the least that gives the median step `minPx` px, so most steps are wide
- * enough for their label, but at most `max` so the run doesn't open as a sliver of itself.
+ * The zoom to open at: the least that gives the median step room for its whole label (step by
+ * step, so a long label on a long step and a short one on a short step both count as fitting),
+ * but at most `max` so the run doesn't open as a sliver of itself.
  */
-export function fitTimelineZoom(steps: readonly TimelineStep[], duration: number, width: number, minPx = 56, max = 8): number {
+export function fitTimelineZoom(steps: readonly TimelineStep[], duration: number, width: number, max = 8): number {
   if (!steps.length || !(duration > 0) || !(width > 0)) return 1;
-  const lengths = steps.map((s) => Math.max(0, s.end - s.start)).sort((a, b) => a - b);
-  const median = lengths[Math.floor(lengths.length / 2)]!;
-  const px = (median / duration) * width;
-  if (px >= minPx) return 1;
-  return TIMELINE_ZOOMS.find((z) => z <= max && px * z >= minPx) ?? TIMELINE_ZOOMS.filter((z) => z <= max).pop()!;
+  // How many times wider each step needs to be; Infinity for a step of no length.
+  const needs = steps
+    .map((s) => {
+      const px = (Math.max(0, s.end - s.start) / duration) * width;
+      return px > 0 ? labelWidth(s.label) / px : Infinity;
+    })
+    .sort((a, b) => a - b);
+  const need = needs[Math.floor(needs.length / 2)]!;
+  if (need <= 1) return 1;
+  return TIMELINE_ZOOMS.find((z) => z <= max && z >= need) ?? TIMELINE_ZOOMS.filter((z) => z <= max).pop()!;
 }
 
 /**
