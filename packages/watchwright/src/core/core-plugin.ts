@@ -1,8 +1,8 @@
 import { ActionError, describeAction, defineAction } from "../actions/registry.js";
 import { EVENTS_MIGRATION_SQL } from "../events/log.js";
-import { ACTIONS } from "./keys.js";
+import { ACTIONS, PAGES } from "./keys.js";
 import { VERSION } from "../version.js";
-import { definePlugin } from "./plugin.js";
+import { definePlugin, type PluginPage } from "./plugin.js";
 
 export interface HealthData {
   name: "watchwright";
@@ -10,6 +10,8 @@ export interface HealthData {
   dataDir: string;
   /** Loaded plugins with the newest store migration each one applied. */
   plugins: { name: string; schemaVersion: number }[];
+  /** The web app's pages the loaded plugins bring, in menu order. */
+  pages: (PluginPage & { plugin: string })[];
 }
 
 /** Longest wait `GET /events` accepts, in seconds; under common proxy and client timeouts. */
@@ -76,13 +78,14 @@ export const corePlugin = definePlugin({
       },
     }),
   ],
-  routes(app, { store, plugins }) {
+  routes(app, { store, plugins, services }) {
     app.get("/health", async () => {
       const data: HealthData = {
         name: "watchwright",
         version: VERSION,
         dataDir: store.dataDir,
         plugins: plugins.map((name) => ({ name, schemaVersion: store.schemaVersion(name) })),
+        pages: [...services.get(PAGES)],
       };
       return { data };
     });

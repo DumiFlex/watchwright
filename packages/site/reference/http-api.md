@@ -12,7 +12,7 @@ Everything the web page does goes through this API, so scripts and AI agents can
 
 | Method and path | Does |
 |---|---|
-| `GET /health` | Whether the server is up, its version, its data folder and the loaded plugins with the newest store migration each one applied. |
+| `GET /health` | Whether the server is up, its version, its data folder, the loaded plugins with the newest store migration each one applied, and `pages`: the web app pages the plugins bring (`{ plugin, name, title, path, icon, menu, order, words? }`, in menu order), which the web app builds its menu from. |
 | `GET /actions` | Every action: `name`, `title`, `method`, `path`, JSON Schema `input`, and where set `output` (the JSON Schema of its data), `agent` (`{ tool, say? }`: the MCP tool it is offered as, and a hint for agents) and `destructive: true` (it deletes data or stops the server). |
 | `POST /stop` | Stops the server, as Ctrl+C in its terminal does. It answers `{ stopping: true }` first. Runs going at the time become `interrupted` and can be resumed after it starts again. 409 `cant_stop` for a server that wasn't started by the `watchwright` command. |
 

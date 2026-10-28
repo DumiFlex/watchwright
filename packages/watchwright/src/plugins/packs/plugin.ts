@@ -32,6 +32,7 @@ async function packCall<T>(fn: () => Promise<T> | T): Promise<T> {
 /** Test packs: adding them by path, building them, listing their tests. */
 export const packsPlugin = definePlugin({
   name: "packs",
+  pages: [{ name: "packs", title: "Packs", path: "/packs", icon: "FolderOpen", menu: "main", order: 20, words: "tests suites" }],
   migrations: [{ id: 1, name: "init", sql: PACKS_MIGRATION_SQL }],
   setup({ store, events, services }) {
     const cache = store.dataDir === ":memory:" ? path.join(tmpdir(), `watchwright-cache-${process.pid}`) : path.join(store.dataDir, "cache", "packs");

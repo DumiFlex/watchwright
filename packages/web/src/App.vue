@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
-import { Columns2, FolderOpen, ListChecks, Moon, Palette, Plus, Search, Settings, Sun, SunMoon } from "./icons";
+import { Moon, Palette, Plus, Search, Settings, Sun, SunMoon } from "./icons";
 import { getJson, sendJson, type HealthData, type Pack, type RunSummary } from "./api";
 import { finderCommands } from "./finder";
 import ApprovalBar from "./components/ApprovalBar.vue";
@@ -13,7 +13,8 @@ import ToastHost from "./components/ToastHost.vue";
 import { useApprovals } from "./approvals";
 import { offerNotify, startNotifier } from "./notify";
 import { toast } from "./toasts";
-import { sectionOf, useRoute } from "./router";
+import { useRoute } from "./router";
+import { DEFAULT_PAGES, hasPage, navFrom, pageIcon } from "./pages";
 import { vTip } from "./tooltip";
 import { useShortcut } from "./keys";
 import { applyTheme, browserStore, loadTheme, LOOKS, saveTheme, type Theme } from "./theme";
@@ -41,17 +42,14 @@ watch(
 provide("theme", theme);
 
 const route = useRoute();
-const section = computed(() => sectionOf(route.value));
 const health = ref<HealthData | null>(null);
 const down = ref(false);
 
-const nav = computed(() => [
-  { value: "runs", label: "Runs", href: "#/", current: section.value === "runs" && route.value.name !== "new" },
-  { value: "packs", label: "Packs", href: "#/packs", current: section.value === "packs" },
-  { value: "compare", label: "Compare", href: "#/compare", current: section.value === "compare" },
-  { value: "new", label: "New run", href: "#/new", current: route.value.name === "new" },
-  { value: "settings", label: "Settings", href: "#/settings", current: route.value.name === "settings" },
-]);
+// The menu comes from the pages the server's plugins bring; a page of a plugin that isn't loaded
+// doesn't show, and its address shows the runs list.
+const pages = computed(() => health.value?.pages ?? DEFAULT_PAGES);
+const nav = computed(() => navFrom(pages.value, route.value));
+const shown = computed(() => (hasPage(pages.value, route.value) ? route.value : ({ name: "runs", query: {} } as const)));
 
 // Mod+K anywhere opens the command palette: go to a page or switch the look and mode.
 const palette = ref(false);
@@ -72,11 +70,7 @@ async function runAgain(id: string) {
 }
 const commands = computed<PaletteCommand[]>(() => [
   ...finderCommands(found.value.packs, found.value.runs, { go: (hash) => (location.hash = hash), again: (id) => void runAgain(id) }),
-  { id: "go-runs", label: "Runs", group: "Go to", words: "history list", icon: ListChecks, run: go("#/") },
-  { id: "go-packs", label: "Packs", group: "Go to", words: "tests suites", icon: FolderOpen, run: go("#/packs") },
-  { id: "go-new", label: "New run", group: "Go to", words: "start", icon: Plus, run: go("#/new") },
-  { id: "go-compare", label: "Compare", group: "Go to", words: "side by side matrix export", icon: Columns2, run: go("#/compare") },
-  { id: "go-settings", label: "Settings", group: "Go to", words: "preferences editor folders", icon: Settings, run: go("#/settings") },
+  ...pages.value.map((p) => ({ id: `go-${p.name}`, label: p.title, group: "Go to", words: p.words ?? "", icon: pageIcon(p.icon), run: go(`#${p.path}`) })),
   ...LOOKS.map((l) => ({ id: `look-${l.id}`, label: `Look: ${l.name}`, group: "Theme", words: l.note, icon: Palette, run: () => (theme.value = { ...theme.value, look: l.id }) })),
   { id: "mode-light", label: "Mode: Light", group: "Theme", icon: Sun, run: () => (theme.value = { ...theme.value, mode: "light" }) },
   { id: "mode-dark", label: "Mode: Dark", group: "Theme", icon: Moon, run: () => (theme.value = { ...theme.value, mode: "dark" }) },
@@ -106,10 +100,10 @@ onMounted(async () => {
     <span v-if="health" v-tip="`Data folder: ${health.dataDir}`" class="version num">v{{ health.version }}</span>
     <span v-else-if="down" class="down" role="alert">Server unreachable</span>
     <nav class="nav" aria-label="Main">
-      <a v-for="n in nav.slice(0, 3)" :key="n.value" :href="n.href" class="link" :aria-current="n.current ? 'page' : undefined">{{ n.label }}</a>
+      <a v-for="n in nav.filter((x) => x.main)" :key="n.value" :href="n.href" class="link" :aria-current="n.current ? 'page' : undefined">{{ n.label }}</a>
     </nav>
     <div class="end">
-      <a class="btn primary new" href="#/new" :aria-current="route.name === 'new' ? 'page' : undefined">
+      <a v-if="pages.some((p) => p.name === 'new-run')" class="btn primary new" href="#/new" :aria-current="route.name === 'new' ? 'page' : undefined">
         <Plus :size="15" />
         New run
       </a>
@@ -118,21 +112,21 @@ onMounted(async () => {
         <KeyHint keys="Mod+K" class="cmd-keys" />
       </button>
       <ThemePicker v-model="theme" />
-      <a v-tip="'Settings'" class="cmd gear" href="#/settings" aria-label="Settings" :aria-current="route.name === 'settings' ? 'page' : undefined"><Settings :size="16" /></a>
+      <a v-if="pages.some((p) => p.name === 'settings')" v-tip="'Settings'" class="cmd gear" href="#/settings" aria-label="Settings" :aria-current="route.name === 'settings' ? 'page' : undefined"><Settings :size="16" /></a>
       <MenuButton class="navmenu" :items="nav" label="Menu" />
     </div>
   </header>
   <ApprovalBar :approvals="approvals.waiting.value" :busy="approvals.busy.value" @answer="(id, ok) => approvals.answer(id, ok)" />
-  <RunView v-if="route.name === 'run'" :id="route.id" />
-  <AttemptView v-else-if="route.name === 'attempt'" :run-id="route.runId" :attempt-id="route.attemptId" :line="route.line ?? null" />
-  <NewRunView v-else-if="route.name === 'new'" :query="route.query" />
-  <PacksView v-else-if="route.name === 'packs'" :query="route.query" />
-  <PackView v-else-if="route.name === 'pack'" :id="route.id" />
-  <EditView v-else-if="route.name === 'edit'" :id="route.id" :file="route.file" :line="route.line" :record="route.record ?? false" :explore="route.watch ?? null" />
-  <CompareView v-else-if="route.name === 'compare'" :query="route.query" />
-  <KitView v-else-if="route.name === 'kit'" />
-  <SettingsView v-else-if="route.name === 'settings'" />
-  <RunsView v-else :query="route.query" />
+  <RunView v-if="shown.name === 'run'" :id="shown.id" />
+  <AttemptView v-else-if="shown.name === 'attempt'" :run-id="shown.runId" :attempt-id="shown.attemptId" :line="shown.line ?? null" />
+  <NewRunView v-else-if="shown.name === 'new'" :query="shown.query" />
+  <PacksView v-else-if="shown.name === 'packs'" :query="shown.query" />
+  <PackView v-else-if="shown.name === 'pack'" :id="shown.id" />
+  <EditView v-else-if="shown.name === 'edit'" :id="shown.id" :file="shown.file" :line="shown.line" :record="shown.record ?? false" :explore="shown.watch ?? null" />
+  <CompareView v-else-if="shown.name === 'compare'" :query="shown.query" />
+  <KitView v-else-if="shown.name === 'kit'" />
+  <SettingsView v-else-if="shown.name === 'settings'" />
+  <RunsView v-else :query="shown.query" />
   <CommandPalette v-model:open="palette" :commands="commands" />
   <ToastHost />
 </template>

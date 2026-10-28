@@ -85,14 +85,6 @@ export function href(route: Route): string {
   }
 }
 
-/** Which top bar section a route belongs to. */
-export function sectionOf(route: Route): "runs" | "packs" | "compare" | null {
-  if (route.name === "runs" || route.name === "run" || route.name === "attempt" || route.name === "new") return "runs";
-  if (route.name === "packs" || route.name === "pack" || route.name === "edit") return "packs";
-  if (route.name === "compare") return "compare";
-  return null;
-}
-
 /** The current route, kept in step with the address. */
 export function useRoute(): Ref<Route> {
   const route = ref<Route>(parseRoute(window.location.hash));
