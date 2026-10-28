@@ -1,6 +1,6 @@
 # Step 4 plan: YAML tests, an editor and Record
 
-Status: agreed (2026-10-27), being built. [docs/plan.md](../plan.md) holds the base design, [step-2.md](step-2.md) the web app, [step-qol.md](step-qol.md) the quality-of-life step. The research behind this plan is in [docs/research/step-4-authoring.md](../research/step-4-authoring.md).
+Status: built (2026-10-27), in PRs #51 (this plan), #52, #53, #54, and fixes from trying it: #56 (Record's outline, icon buttons), #59 (Stop button), #65 (a save reaches a running run; Record fits short windows) and the sign-off. The PC check passed on Windows in Firefox (section 7). [docs/plan.md](../plan.md) holds the base design, [step-2.md](step-2.md) the web app, [step-qol.md](step-qol.md) the quality-of-life step. The research behind this plan is in [docs/research/step-4-authoring.md](../research/step-4-authoring.md).
 
 Steps 1 to 3 made Watchwright run, show and review tests written in TypeScript. This step lets people write tests without code, edit a pack on the web page, and record steps by clicking through their site in the live view. A second pack, for a public demo app and written entirely in YAML, shows that none of it is tied to one site.
 
@@ -135,6 +135,18 @@ As built (PR 4): "New recording" on the pack page makes a YAML test with no step
 - **Web:** component tests for the Steps view, the target form and the record step list.
 - **Screenshots** in light, dark and phone width for the editor, the Steps view, problems, Run this test, Record (live view with the step list, Check), and Convert to code, checked for spacing before they go in the PR.
 - **On the PC:** Record in Firefox (the live view and the window), the TodoMVC pack against the real demo app, and editing a file while a run uses it. Only when no bench is running, on a spare port with a temporary data folder.
+
+PC check (2026-10-27, Windows, Firefox, a fresh build of `dev` on a spare port):
+
+| Check | Result |
+|---|---|
+| TodoMVC pack against the real demo app | Pass, 11 of 11 in 32 s |
+| Record on the live view | Pass: the outline follows the pointer, clears when it leaves and turns green for Check; recorded steps landed in the file and the test passed |
+| New recording from the pack page | Pass |
+| Record in a window | Pass: the steps show in the panel and go into the editor |
+| Editing a file while a run uses it | The save and the run were fine, but the run kept the old build; fixed in #65 |
+| Record dialog in a 1400×900 window | Done needed scrolling; fixed in #65 |
+| Stop Watchwright (#59) | Pass |
 
 ## 8. Pull requests within step 4
 
