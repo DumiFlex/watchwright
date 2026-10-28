@@ -46,6 +46,9 @@ describe("compare", () => {
         artifacts: [
           { kind: "shot", name: "home", contentType: "image/png", path: "runs/aaaa0001/a00000000001/home.png", size: 1, url: "/api/v1/files/runs/aaaa0001/a00000000001/home.png" },
           { kind: "trace", name: "trace", contentType: "application/zip", path: "runs/aaaa0001/a00000000001/trace.zip", size: 1, url: "/x" },
+          { kind: "text", name: "answer", contentType: "text/plain", path: "runs/aaaa0001/a00000000001/02-answer.txt", size: 5, url: "/api/v1/files/runs/aaaa0001/a00000000001/02-answer.txt" },
+          { kind: "file", name: "ai: calls/01 ask.md", contentType: "text/markdown", path: "runs/aaaa0001/a00000000001/collectors/ai/calls/01 ask.md", size: 9, url: "/api/v1/files/runs/aaaa0001/a00000000001/collectors/ai/calls/01%20ask.md" },
+          { kind: "video", name: "video", contentType: "video/webm", path: "runs/aaaa0001/a00000000001/video.webm", size: 1, url: "/v" },
         ],
       }),
       docOf("aaaa0001", "a00000000002", "S1", 2, { status: "failed", error: { kind: "assertion", message: "expected 3\nreceived 2" } as ResultDocument["error"] }),
@@ -80,6 +83,8 @@ describe("compare", () => {
     expect(cell.shots.map((s) => s.name)).toEqual(["home"]);
     expect(c.shotNames).toEqual(["home"]);
     expect(c.textNames).toEqual(["answer"]);
+    expect(cell.files.map((f) => f.at)).toEqual(["02-answer.txt", "collectors/ai/calls/01 ask.md"]);
+    expect(c.rows[1]!.cells[0]!.files).toEqual([]);
     expect(c.rows[0]!.cells[1]!.score).toBe(3);
     expect(c.rows[2]!.cells[0]!.score).toBeNull();
     expect(onFive(10, 10)).toBe(5);
@@ -100,10 +105,15 @@ describe("compare", () => {
     expect(one).toContain("| Tone | warm | – |");
     expect(one).toContain("> **web**: Reads well.");
     expect(one).toContain("Screenshots: [home](http://h/api/v1/files/runs/aaaa0001/a00000000001/home.png)");
+    expect(one).toContain("Files: [02-answer.txt](/api/v1/files/runs/aaaa0001/a00000000001/02-answer.txt), [collectors/ai/calls/01 ask.md](/api/v1/files/runs/aaaa0001/a00000000001/collectors/ai/calls/01%20ask.md)");
+    expect(one).not.toContain("video.webm");
     expect(one).toContain("Error: expected 3");
     expect(one).not.toContain("received 2");
     expect(one).toContain("Not reviewed.");
     expect(one).not.toMatch(/\n{3}/);
+
+    const zipped = toMarkdown(compare([a]), { link: (s) => s.path, fileLink: (f, cell) => `files/${cell.attemptId}/${f.at}`, now: "2026-10-27T12:30:00.000Z" });
+    expect(zipped).toContain("[collectors/ai/calls/01 ask.md](files/a00000000001/collectors/ai/calls/01 ask.md)");
 
     const two = toMarkdown(compare([a, b]), { link: (s) => s.path, now: "2026-10-27T12:30:00.000Z" });
     expect(two).toContain("# Shop \\| checks: 2 runs compared");

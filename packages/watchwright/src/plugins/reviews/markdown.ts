@@ -1,13 +1,15 @@
 import type { Criterion, Score } from "../packs/rubric.js";
-import { mean, type CompareCell, type CompareShot, type Comparison } from "./compare.js";
+import { mean, type CompareCell, type CompareFile, type CompareShot, type Comparison } from "./compare.js";
 
 // Writes a comparison (one run or several) as Markdown: the runs, then one section per test with
 // its mean score, then per attempt: status, flags, metrics, the scores as a small table, the
-// reviewers' notes and links to the screenshots. `link` decides where a screenshot link points:
-// the server for a plain export, a file next to the Markdown in a zip.
+// reviewers' notes and links to the screenshots and files. `link` and `fileLink` decide where a
+// link points: the server for a plain export, a file next to the Markdown in a zip.
 
 export interface MarkdownOptions {
   link: (shot: CompareShot, cell: CompareCell) => string;
+  /** Where a kept file's link points (default: its url on the server). */
+  fileLink?: (file: CompareFile, cell: CompareCell) => string;
   /** When the export was made (ISO); shown under the title. */
   now: string;
 }
@@ -62,6 +64,10 @@ function cellLines(cell: CompareCell, criteria: Criterion[], o: MarkdownOptions)
   } else out.push("Not reviewed.", "");
   if (cell.shots.length) {
     out.push(`Screenshots: ${cell.shots.map((s) => `[${esc(s.name)}](${o.link(s, cell)})`).join(", ")}`, "");
+  }
+  if (cell.files.length) {
+    const link = o.fileLink ?? ((f: CompareFile) => f.url);
+    out.push(`Files: ${cell.files.map((f) => `[${esc(f.at)}](${link(f, cell)})`).join(", ")}`, "");
   }
   return out;
 }

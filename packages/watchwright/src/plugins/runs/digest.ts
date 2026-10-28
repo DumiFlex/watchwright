@@ -213,7 +213,7 @@ export function readRunFile(dataDir: string, runId: string, rel: string): RunFil
     if (dims && Math.max(dims.width, dims.height) > MAX_IMAGE_SIDE) return { ...base, ...dims, encoding: null, data: null, note: `The image is ${dims.width}×${dims.height} px, larger than clients take; open its url.` };
     return { ...base, ...dims, encoding: "base64", data: buf.toString("base64") };
   }
-  if (mimeType.startsWith("text/") || mimeType === "application/json") {
+  if (mimeType.startsWith("text/") || mimeType === "application/json" || mimeType === "application/xml") {
     if (size > MAX_TEXT_BYTES) return { ...base, encoding: null, data: null, note: `The file is ${Math.round(size / 1024)} KB; open its url.` };
     return { ...base, encoding: "utf8", data: readFileSync(abs, "utf8") };
   }
