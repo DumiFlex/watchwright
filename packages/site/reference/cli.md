@@ -2,7 +2,7 @@
 
 The `watchwright` command starts the server, and talks to a running one for everything else. It is made for people at a terminal and for AI coding agents with a shell (Claude Code, Codex, Cursor): the output is short text by default and JSON with `--json`, and the exit code says how a run went.
 
-Watchwright isn't published to npm yet. From a clone, run it as `node packages/watchwright/dist/cli/main.js` after `pnpm build`, or put it on your `PATH` with `pnpm link --global` in `packages/watchwright`.
+It comes with the [`watchwright` npm package](https://www.npmjs.com/package/watchwright): run it with `npx watchwright …`, or install the package (in a project or with `--global`) to have `watchwright` itself. From a clone of the repository, run it as `node packages/watchwright/dist/cli/main.js` after `pnpm build`, or put it on your `PATH` with `pnpm link --global` in `packages/watchwright`.
 
 ## Commands
 

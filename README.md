@@ -17,16 +17,21 @@ A browser test harness built on [Playwright](https://playwright.dev) that you wa
 ## Requirements
 
 - Node.js 22 or newer
-- pnpm 9 (`corepack enable` sets it up from `package.json`)
 - Windows, macOS or Linux. Windows is the first platform the run engine is checked on.
 
 ## Getting started
 
 ```bash
+npx playwright install chromium firefox
+npx watchwright serve     # starts the server at http://127.0.0.1:7420/ and opens it
+```
+
+The package is [`watchwright` on npm](https://www.npmjs.com/package/watchwright). To run it from a clone instead (pnpm 9; `corepack enable` sets it up from `package.json`):
+
+```bash
 pnpm install
 pnpm --filter watchwright exec playwright install chromium firefox
-pnpm build
-pnpm serve            # builds, starts the server at http://127.0.0.1:7420/ and opens it
+pnpm serve            # builds, starts the server and opens it
 ```
 
 Then add a test pack on the Packs page (browse to a folder with a `pack.ts` or `pack.yaml` file, or start a new one from a starter) and start a run. The [TodoMVC example](examples/todomvc) is a small pack to try first. [Writing a test pack](packages/site/guide/test-packs.md) explains how to write a pack, and the [HTTP and WebSocket API](packages/site/reference/http-api.md) lists every route, event and the live WebSocket.

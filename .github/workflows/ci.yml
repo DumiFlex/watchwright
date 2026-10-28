@@ -43,3 +43,5 @@ jobs:
         env:
           WATCHWRIGHT_REQUIRE_BROWSERS: "1"
       - run: pnpm build
+      - name: Check what the npm package would contain
+        run: pnpm --filter watchwright check-package
