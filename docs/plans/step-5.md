@@ -1,6 +1,6 @@
 # Step 5 plan: a CLI, an MCP server and an agent skill
 
-Status: planned (2026-10-28). [docs/plan.md](../plan.md) holds the base design; this step builds its third rule ("one action registry feeds every door", section 3). The research behind this plan is in [docs/research/step-5-agents.md](../research/step-5-agents.md).
+Status: planned (2026-10-28); Dumi's answers are in section 11. [docs/plan.md](../plan.md) holds the base design; this step builds its third rule ("one action registry feeds every door", section 3). The research behind this plan is in [docs/research/step-5-agents.md](../research/step-5-agents.md).
 
 Steps 1 to 4 made Watchwright run, show, review and write tests from its web page and its HTTP API. This step gives a person's own AI agent the same reach: a CLI for agents with a shell, an MCP server for agents without one, and a skill that teaches either of them how to use Watchwright well. The person watches the agent work on the web page, as they watch a run, and can pause or take over at any time.
 
@@ -14,9 +14,10 @@ At the end of step 5:
 2. **An MCP client** connects to `http://127.0.0.1:7420/api/v1/mcp` (or starts `watchwright mcp` over stdio) and gets about twenty tools: packs, files, runs, waits, results with screenshots as images, reviews and exploring.
 3. **An agent explores a page** in a browser the person sees on the live view: it sends steps, gets back an aria snapshot with element refs and a screenshot, and the steps that worked come back as YAML for a test.
 4. **An agent learns the rules from a skill**: `watchwright init-agent` (or Settings > Agents on the web page) writes the Watchwright skill into a project for Claude Code and Codex, plus the MCP setting for the agents that read one from the project.
-5. **The person sees who does what**: runs and explore sessions show the agent that started them, an agent's explore session shows on the Runs page with a Watch button, and Settings > Agents shows how to connect each agent and which ones called lately.
+5. **Deleting asks the person**: when an agent asks to delete a run, a pack or a file (or to stop the server), a banner on the web page shows what it wants, and nothing happens until the person approves.
+6. **The person sees who does what**: runs and explore sessions show the agent that started them, an agent's explore session shows on the Runs page with a Watch button, and Settings > Agents shows how to connect each agent and which ones called lately.
 
-Not in step 5: an AI of Watchwright's own (never), MCP Tasks (too few clients support them; bounded waits do the job, research section 2), approving agent actions on the web page (section 6), taking over a *running test* from the live view (docs/plan.md step 7), and publishing to npm (section 9).
+Not in step 5: an AI of Watchwright's own (never), MCP Tasks (too few clients support them; bounded waits do the job, research section 2), taking over a *running test* from the live view (docs/plan.md step 7), and publishing to npm (section 9).
 
 ## 2. The action contract grows
 
@@ -33,7 +34,7 @@ defineAction({
 ```
 
 - `agent.tool`: the action is an MCP tool under this name (snake_case, checked unique like names and routes). `agent.say` is extra text for agents, added to the title in the tool's description and in CLI help.
-- `destructive`: `runs.delete`, `runs.presets.delete`, `packs.remove`, `packs.file-delete`, `core.stop`. MCP never offers these (section 6); the CLI asks first, or takes `--yes`.
+- `destructive`: `runs.delete`, `runs.presets.delete`, `packs.remove`, `packs.file-delete`, `core.stop`. Called by anything but the web page, they wait for the person's approval (section 6).
 - `output`: where given, MCP sends it as the tool's `outputSchema` with `structuredContent`; it is optional because most clients read the text.
 - `GET /actions` returns the new fields, so the CLI and the stdio MCP bridge build themselves from a running server and see every plugin's actions.
 - MCP tool annotations come from the method and the flag: `GET` is `readOnlyHint`, `destructive` is `destructiveHint`.
@@ -46,8 +47,10 @@ New actions this step needs, useful from every door:
 | `runs.summary` | `GET /runs/:id/summary` | A run in a few lines an agent can read: status, counts by outcome, and per attempt its test, outcome, first error line, flags and findings counts, score and result address. `runs.get` stays the full document. |
 | `runs.control` | `POST /runs/:id/control` | One door for `pause`, `resume`, `retry`, `skip`, `stop` (after this test) and `stop-now`, so agents get one tool instead of six. The existing per-verb routes stay. |
 | `runs.file` | `GET /runs/:id/file` | One file of a run by its path in the results (a screenshot, kept text, log, collector file): `{ mimeType, size, encoding, data }`. Images over 5 MB, or taller than 8000 px, come back as their size and address instead of the bytes. |
-| `packs.write` | `POST /packs/:id/write` | Write a pack file whether it exists or not (create or save without the stale check), then rebuild and return the pack's load problems and, for a YAML test, its check. The editor keeps its own careful routes. |
+| `approvals.*` | section 6 | The approvals waiting, waiting for one, and answering one. |
 | `agents.*` | section 5 | The skill, installing it, and the agents seen lately. |
+
+`packs.file-save` without a stamp already creates a missing file and answers with the pack's load problems, so agents write files through it.
 
 ## 3. The CLI
 
@@ -67,10 +70,10 @@ watchwright init-agent [folder]              # the skill and MCP settings for ag
 - **Generated commands.** `watchwright runs presets save …` is the action `runs.presets.save`. Path parameters can be given in order (`watchwright runs pause 42`); every input property is a flag, typed from its JSON Schema (`--tests a,b` for arrays, `--params '{"lang":"de"}'` or `--param lang=de` for objects, `--no-x` for false). `--input file.json` or `--input -` sends a whole body. `watchwright <plugin> <verb> --help` prints the action's title, `agent.say` and flags from its schema.
 - **Packs by name.** Wherever an action wants a pack id, the CLI also takes the pack's name or its folder, and says which pack it picked.
 - **Output.** Generated commands print the `data` as JSON on stdout. `status`, `run`, `wait` and `results` print short readable text, and `--json` prints the data instead. Errors go to stderr (as the error envelope with `--json`).
-- **Exit codes.** 0 done; 1 the action failed (the error says why); 2 bad usage; 3 no server answers. `wait` and `run --wait`: 0 the run ended with every attempt passed, 4 it ended with a failure or broken attempt, 5 it paused (on a broken test, or a person paused it), 6 the wait timed out while it still runs. An agent loops on 6.
+- **Exit codes.** 0 done; 1 the action failed (the error says why); 2 bad usage; 3 no server answers. `wait` and `run --wait`: 0 the run ended with every attempt passed, 4 it ended with a failure or broken attempt, 5 it paused (on a broken test, or a person paused it), 6 the wait timed out while it still runs. An agent loops on 6. 7: a destructive action is still waiting for the person's approval (`watchwright approvals wait <id>` waits on).
 - **Which server.** `--server <address>`, else `WATCHWRIGHT_URL`, else `http://127.0.0.1:7420/`. A command that finds no server says how to start one and exits 3; it doesn't start one by itself, since a CLI call should not leave a server behind.
 - **Who is calling.** The CLI sends `x-watchwright-client`: `--as <name>`, else `WATCHWRIGHT_CLIENT`, else the agent it finds in the environment (Claude Code sets `CLAUDECODE`; Codex and Cursor are checked during the build), else `cli`.
-- **Destructive actions** ask "Delete run 42 and its files? [y/N]" on a terminal and need `--yes` otherwise.
+- **Destructive actions** ask "Delete run 42 and its files? [y/N]" when a person runs them on a terminal. Without a terminal (an agent's shell) they ask for the person's approval on the web page and wait for it (section 6). There is no `--yes`: a flag an agent can pass is no guard.
 - **`run --wait`** prints one line per finished attempt and the pause or end, and waits in bounded steps, so a long run never blocks longer than one wait.
 
 ## 4. The MCP server
@@ -87,7 +90,7 @@ A new built-in plugin, `agents`, mounts the MCP endpoint and owns sections 4 and
 | Tool | Action | Notes |
 |---|---|---|
 | `list_packs`, `get_pack` | `packs.list`, `packs.get` | Tests with metadata, parameters, flag kinds, load errors. |
-| `list_pack_files`, `read_pack_file`, `write_pack_file` | `packs.files`, `packs.file`, `packs.write` | Writing returns load problems at once. |
+| `list_pack_files`, `read_pack_file`, `write_pack_file` | `packs.files`, `packs.file`, `packs.file-save` | Writing returns load problems at once. |
 | `check_test` | `packs.check-yaml` | Checks a YAML test's text without saving it. |
 | `test_format` | `packs.yaml-schema` | The YAML test format's JSON Schema. |
 | `start_run` | `runs.start` | Packs by id or name (the tool resolves names). |
@@ -98,9 +101,11 @@ A new built-in plugin, `agents`, mounts the MCP endpoint and owns sections 4 and
 | `get_file` | `runs.file` | Screenshots come back as **image content**, so a model sees them; texts as text. |
 | `get_rubric`, `save_review` | `reviews.rubric`, `reviews.save` | Reviews are filed under the agent's name. |
 | `explore_start`, `explore_do`, `explore_look`, `explore_stop` | `record.start`, `record.do`, `record.look`, `record.stop` | Section 4.1. |
-| `list_actions`, `call_action` | `core.actions`, any | Every other action that isn't destructive, so a plugin's actions are reachable before anyone gives them a tool. |
+| `delete_run`, `delete_pack_file` | `runs.delete`, `packs.file-delete` | Ask the person (section 6). |
+| `wait_for_approval` | `approvals.wait` | |
+| `list_actions`, `call_action` | `core.actions`, any | Every other action, so a plugin's actions are reachable before anyone gives them a tool. Destructive ones ask the person as their tools do. |
 
-That is 24 tools, in the range of Playwright MCP's own. Each description is the action's title plus `agent.say`, so the docs site, `GET /actions`, CLI help and MCP all say the same thing.
+That is 27 tools, in the range of Playwright MCP's own. Each description is the action's title plus `agent.say`, so the docs site, `GET /actions`, CLI help and MCP all say the same thing.
 
 **Results.** Text content is the `data` as compact JSON; tools with an `output` schema also send `structuredContent`. Errors come back as `isError` with the error's message and code, so the agent can read and fix them. A run paused by a person reads as `"status": "paused", "pausedBy": "Dumi"` in the next wait, so the agent knows to stop and ask, not to retry.
 
@@ -134,14 +139,18 @@ Without `--agent` it writes for the agents whose folders it finds, else for all 
 
 ## 6. Guardrails
 
-- **Deleting needs the person.** MCP never offers destructive actions, `call_action` refuses them, and the CLI asks first or needs `--yes`. The skill says not to delete. An approval banner on the web page (agent asks, person approves) waits for step 6, where budgets give it more to approve (question 2).
+- **Deleting needs the person.** A destructive action called by anything other than the web page (the request's own `Origin`, which a browser sets and can't fake) doesn't run at once. It becomes an **approval**: the call waits up to 60 s for the person's answer, then answers `202` with `{ approval: { id, status: "waiting" } }`, and the caller waits on with `approvals.wait`. The skill tells agents to say on the chat that an approval is waiting. A person at a terminal answering the CLI's y/N counts as approval. This guards against an agent's mistake, not against code that sets out to fake a browser; the server is loopback only, and the docs say so.
+- **The banner.** Every page of the web app shows the approvals waiting at the top: who asks, what (in words: "Delete run 3f2a… *Nightly* and its 41 files"), when, with **Approve** and **Refuse**. The tab's dot and title show it like a paused run. Approving runs the action as the person and records who asked and who approved; refusing answers the caller with `refused`. An approval nobody answers expires after 30 minutes (`expired`).
+- **The `approvals` plugin** owns this: its table (`approvals`: id, action, input, client, status, answered by, result, times), its actions (`approvals.list`, `approvals.wait`, `approvals.answer`), events (`approval.requested`, `approval.answered`) for the banner, and the gate. The gate is a new seam in the plugin contract: a plugin may provide the `ACTION_GATE` service, which the HTTP mounting calls before a destructive handler; core stays free of approval code.
+- The same banner and gate are what step 6's budgets will use for paid runs.
 - **The person stays in charge.** Runs and explore sessions show the agent that started them; the person can pause, stop or take over from the page; a pause made by a person tells the agent in its next wait.
-- **Bounded everything.** No call waits longer than 110 s. Explore sessions time out.
+- **Bounded everything.** No call waits longer than 110 s. Explore sessions and approvals time out.
 - **Same server rules.** The MCP endpoint is behind the same request guard, loopback only. Nothing in a tool result is a secret the web page wouldn't show; parameters marked secret stay masked as they are today.
 
 ## 7. The web page
 
 - **Settings > Agents**: the MCP address with a copy button; for Claude Code, Codex, Cursor and Claude Desktop the exact line or JSON to connect, each with a copy button; **Add to a project…**, which picks a folder with the folder browser and runs `agents.install` with the agents ticked; and **Seen lately**: each agent that called in the last days, with its last call and what it started.
+- **The approval banner** (section 6), on every page, in every look and mode and at phone width.
 - **Runs page**: an agent's explore session that is going shows above the runs as a card (agent, pack, page, how long) with **Watch**, which opens the pack's editor attached to that session: the live view, the step list and Stop, like a recording the person started.
 - **Run and attempt pages**: "started by" shows the agent's name as given (`Claude Code`), and reviews show who wrote them, as they already do for people.
 - Every new control comes from the kit, every look and mode works, and it works at phone width. Screenshots in light, dark and phone width go in each PR.
@@ -156,7 +165,8 @@ Without `--agent` it writes for the agents whose folders it finds, else for all 
 ## 9. How step 5 is tested
 
 - **Unit:** CLI argument parsing from schemas (types, arrays, objects, `--no-`, path parameters in order, `--input -`), exit codes, client detection, pack names to ids; tool generation from actions (names, descriptions, annotations, no destructive tools, `call_action` refusing them); the skill's front matter (name and description limits) and its references being current; `init-agent` merging settings files without losing entries.
-- **Server:** `runs.wait` (returns on pause, on end, on timeout, and early when the client goes away), `runs.summary`, `runs.control`, `runs.file` (image, text, too big), `packs.write`; the MCP endpoint through the SDK client over real HTTP on a free port (initialize, list tools, call, image result, error result, the client's name as `startedBy`); `watchwright mcp` over stdio against a real server, and starting one when none runs.
+- **Approvals:** a destructive call from a non-web client waits, is approved and runs, is refused, expires; a call from the web page's origin runs at once; `approvals.wait` across the 60 s handover; the banner component.
+- **Server:** `runs.wait` (returns on pause, on end, on timeout, and early when the client goes away), `runs.summary`, `runs.control`, `runs.file` (image, text, too big); the MCP endpoint through the SDK client over real HTTP on a free port (initialize, list tools, call, image result, error result, the client's name as `startedBy`); `watchwright mcp` over stdio against a real server, and starting one when none runs.
 - **Engine (Chromium):** an agent-style flow end to end against the fixture site: explore (`record.do` with a ref, `record.look`), stop, write the steps to a YAML test, run it, wait, read the summary and a screenshot.
 - **Web:** component tests for Settings > Agents and the Runs page card.
 - **With a real agent:** Claude Code in the cloud sandbox connected over HTTP, asked to write and run a test for the fixture site; on Dumi's PC (Windows, Firefox), the CLI and MCP against a spare-port server, only when no bench is running.
@@ -164,15 +174,18 @@ Without `--agent` it writes for the agents whose folders it finds, else for all 
 ## 10. Pull requests within step 5
 
 1. This plan and the research note.
-2. The contract and the CLI: `agent`, `destructive` and `output` on actions; `runs.wait`, `runs.summary`, `runs.control`, `runs.file`, `packs.write`; the CLI commands; Reference: CLI.
-3. The MCP server: the `agents` plugin, HTTP and stdio, the tools, images; Reference: MCP tools.
-4. Exploring: `record.do` and `record.look`, refs to targets, the Runs page card and Watch; screenshots.
-5. The skill, `init-agent`, `agents.install` and Settings > Agents; Guide: Agents; screenshots.
-6. Sign-off after the checks with a real agent and on the PC.
+2. The contract and the CLI: `agent`, `destructive` and `output` on actions; `runs.wait`, `runs.summary`, `runs.control`, `runs.file`; the CLI commands; Reference: CLI.
+3. Approvals: the gate seam, the `approvals` plugin, the banner, the CLI waiting for one; screenshots.
+4. The MCP server: the `agents` plugin, HTTP and stdio, the tools, images; Reference: MCP tools.
+5. Exploring: `record.do` and `record.look`, refs to targets, the Runs page card and Watch; screenshots.
+6. The skill, `init-agent`, `agents.install` and Settings > Agents; Guide: Agents; screenshots.
+7. Sign-off after the checks with a real agent and on the PC.
 
 Each PR ships with tests and, where the page changes, screenshots.
 
-## 11. Open questions
+## 11. Answered questions
 
-1. **npm.** Watchwright isn't published, so strangers run it from a clone, and stdio MCP settings need a path to the clone (the HTTP address doesn't). Publish `watchwright` to npm in this step, so `npx watchwright` works everywhere? Recommended: not yet; get the package ready (no `private`, a clean `files` list, the skill inside) and publish when you decide the project is ready for strangers.
-2. **Approvals.** Leave destructive actions out of MCP for now and build the web page's approval banner with step 6's budgets (recommended), or build the banner in this step so agents can ask to delete runs?
+Dumi answered on 2026-10-28:
+
+1. **npm**: get the package ready (no `private`, a clean `files` list, the skill inside), but don't publish it in this step; Dumi decides when.
+2. **Approvals**: build the approval banner in this step (section 6), so agents can ask to delete things and the person approves on the web page.

@@ -44,7 +44,7 @@ What carries over:
 
 ## 6. Risks
 
-- **Deleting things.** Some actions remove runs, packs or files, and one stops the server. An agent should not do these without the person. The base design suggested an approval banner on the web page; with nothing paid to approve until step 6, leaving these actions out of what agents get by default is enough for now (open question in the plan).
+- **Deleting things.** Some actions remove runs, packs or files, and one stops the server. An agent should not do these without the person. The base design suggested an approval banner on the web page: the agent asks, the person approves there. Dumi chose to build it in this step (plan, section 6).
 - **Big screenshots.** Scroll shots can be thousands of pixels tall, and clients cap image sizes. The file tool says the size and offers the file's URL when it is too big, instead of failing.
 - **The server isn't running.** An MCP client that starts `watchwright mcp` over stdio expects it to work; it starts the server in the background when none answers, and says where.
 - **Installing.** Watchwright isn't on npm, so `npx watchwright …` doesn't work for strangers yet. An HTTP MCP address needs no install path at all, which makes it the default way to connect.
