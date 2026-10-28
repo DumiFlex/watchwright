@@ -106,6 +106,12 @@ export interface Helpers {
   scrollShots(name: string, options?: { target?: Target; max?: number }): Promise<number>;
   /** Saves text as an artifact: an element's inner text, or the given string. */
   keepText(name: string, from: Target | { text: string }): Promise<string>;
+  /**
+   * Saves a file with the attempt, under `files/<name>`: text, bytes, or `{ path }` to copy a file
+   * on disk (a download's `download.path()`). The content type defaults from the extension. A name
+   * used twice gets `-2`, `-3` before its extension. Returns the name it was saved under.
+   */
+  file(name: string, data: string | Uint8Array | { path: string }, contentType?: string): Promise<string>;
   log(message: string): void;
   /** A note for people reviewing the result. */
   note(message: string): void;

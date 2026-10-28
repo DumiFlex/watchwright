@@ -6,7 +6,7 @@
 import { ArrowLeft, ChevronLeft, ChevronRight, Columns2, MessageSquarePlus, Pencil } from "../icons";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, type Artifact, type Pack, type ResultDocument, type RunDetail } from "../api";
-import { attemptOrder, attemptSteps, cellOf, logMarks, plainText, recordColumns, shotGroups, traceViewerUrl } from "../attempt";
+import { attemptOrder, attemptSteps, besideFile, cellOf, isMarkdown, logMarks, plainText, recordColumns, shotGroups, traceViewerUrl } from "../attempt";
 import { clock, type TimelineStep } from "../timeline";
 import { duration, fileSize, when } from "../format";
 import { firstOwnFrame } from "../editor";
@@ -24,6 +24,7 @@ import FilmStrip from "../components/FilmStrip.vue";
 import ImageDiff, { type DiffImage } from "../components/ImageDiff.vue";
 import ImageViewer from "../components/ImageViewer.vue";
 import LogViewer from "../components/LogViewer.vue";
+import MarkdownView from "../components/MarkdownView.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import PageSkeleton from "../components/PageSkeleton.vue";
 import ReviewPanel from "../components/ReviewPanel.vue";
@@ -261,6 +262,14 @@ watch([tab, filePath], async ([t, url]) => {
   }
 });
 const fileOptions = computed(() => files.value.map((a) => ({ value: a.url, label: a.name })));
+// Markdown files open rendered; Source shows the text in the code view.
+const mdView = ref<"preview" | "source">("preview");
+const mdTabs = [
+  { value: "preview" as const, label: "Preview" },
+  { value: "source" as const, label: "Source" },
+];
+const shownMd = computed(() => !!shownFile.value && isMarkdown(shownFile.value));
+const beside = (target: string) => (shownFile.value ? besideFile(shownFile.value.url, target) : null);
 
 const traceHref = computed(() => (trace.value ? traceViewerUrl(window.location.origin, trace.value.url) : ""));
 
@@ -459,9 +468,15 @@ watch(
               <span v-if="shownFile" class="muted small">{{ fileSize(shownFile.size) }}</span>
               <a v-if="shownFile" class="btn small-btn" :href="shownFile.url" target="_blank" rel="noopener">Open</a>
               <button v-if="fileText" class="btn small-btn" type="button" @click="copy(fileText)">Copy</button>
+              <TabBar v-if="shownMd && fileText !== null" v-model="mdView" :tabs="mdTabs" id-prefix="att-md" label="Show the file as" class="md-tabs" />
             </div>
             <p v-if="fileError" class="muted">{{ fileError }}</p>
-            <CodeView v-else-if="fileText !== null && shownFile" :code="fileText" :lang="fileLang" :label="shownFile.name" max-height="560px" wrap />
+            <div v-else-if="fileText !== null && shownFile && shownMd && mdView === 'preview'" id="att-md-panel-preview" role="tabpanel" aria-labelledby="att-md-tab-preview" class="md-file" tabindex="0">
+              <MarkdownView :source="fileText" :label="`Preview of ${shownFile.name}`" id-prefix="att-md-" :resolve-link="beside" :resolve-image="beside" />
+            </div>
+            <div v-else-if="fileText !== null && shownFile" v-bind="shownMd ? { id: 'att-md-panel-source', role: 'tabpanel', 'aria-labelledby': 'att-md-tab-source' } : {}">
+              <CodeView :code="fileText" :lang="fileLang" :label="shownFile.name" max-height="560px" wrap />
+            </div>
             <p v-else-if="shownFile && !isText(shownFile)" class="muted">This file isn't text. Open it to see it.</p>
             <p v-else-if="shownFile" class="muted">Loading…</p>
           </div>
@@ -864,6 +879,20 @@ watch(
 }
 .file-bar > :nth-child(2) {
   width: min(420px, 100%);
+}
+.file-bar .small-btn {
+  margin-left: 0;
+}
+.file-bar .md-tabs {
+  margin-left: auto;
+}
+.md-file {
+  max-height: 560px;
+  overflow: auto;
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
 }
 .videos {
   max-width: 960px;

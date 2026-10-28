@@ -303,6 +303,8 @@ export interface CompareCell {
   notes: string[];
   texts: Record<string, string>;
   shots: CompareShot[];
+  /** Kept texts, collector records and saved files; `at` is the path inside the attempt folder. */
+  files: { name: string; url: string; path: string; at: string }[];
   reviews: Review[];
   score: number | null;
 }

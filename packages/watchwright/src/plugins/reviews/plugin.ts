@@ -10,7 +10,7 @@ import { rubricFor, scoreProblem, type Criterion, type Score } from "../packs/ru
 import { ENGINE, FILES_ROOT } from "../runs/plugin.js";
 import type { ResultDocument } from "../runs/results.js";
 import { runChanges, type RunChanges } from "./changes.js";
-import { compare, type CompareCell, type CompareShot, type Comparison } from "./compare.js";
+import { compare, type CompareCell, type CompareFile, type CompareShot, type Comparison } from "./compare.js";
 import { toMarkdown } from "./markdown.js";
 import { REVIEWS_MIGRATION_SQL, ReviewsRepo, type Review } from "./repo.js";
 import { zip, type ZipEntry } from "./zip.js";
@@ -87,6 +87,11 @@ function exportName(c: Comparison, ext: string): string {
 /** Where a screenshot goes inside the zip: shots/<run>/<attempt>/<file>. */
 function zipPath(shot: CompareShot, cell: CompareCell): string {
   return `shots/${cell.runId}/${cell.attemptId}/${path.posix.basename(shot.path)}`;
+}
+
+/** Where a kept file goes inside the zip: files/<run>/<attempt>/<path in the attempt folder>. */
+function zipFilePath(file: CompareFile, cell: CompareCell): string {
+  return `files/${cell.runId}/${cell.attemptId}/${file.at}`;
 }
 
 export interface AttemptReviews {
@@ -235,7 +240,7 @@ export const reviewsPlugin = definePlugin({
   },
   routes(app, { services }) {
     // Downloads of the export: the Markdown with links to this server, or a zip with the
-    // Markdown and its screenshots next to it.
+    // Markdown and its screenshots and files next to it.
     const dataDir = services.get(FILES_ROOT);
     const load = (req: FastifyRequest, reply: FastifyReply): Comparison | null => {
       const runs = (req.query as { runs?: unknown }).runs;
@@ -260,23 +265,24 @@ export const reviewsPlugin = definePlugin({
       const c = load(req, reply);
       if (!c) return reply;
       const entries: ZipEntry[] = [];
-      const md = toMarkdown(c, { link: (s, cell) => encodeURI(zipPath(s, cell)), now: new Date().toISOString() });
+      const md = toMarkdown(c, { link: (s, cell) => encodeURI(zipPath(s, cell)), fileLink: (f, cell) => encodeURI(zipFilePath(f, cell)), now: new Date().toISOString() });
       const name = exportName(c, "md");
       entries.push({ name, data: Buffer.from(md, "utf8") });
       const seen = new Set<string>();
+      const add = (at: string, rel: string) => {
+        if (seen.has(at)) return;
+        seen.add(at);
+        try {
+          entries.push({ name: at, data: readFileSync(path.join(dataDir, ...rel.split("/"))) });
+        } catch {
+          // A file deleted by hand: the link stays, the file is missing.
+        }
+      };
       for (const row of c.rows)
         for (const cell of row.cells) {
           if (!cell) continue;
-          for (const s of cell.shots) {
-            const at = zipPath(s, cell);
-            if (seen.has(at)) continue;
-            seen.add(at);
-            try {
-              entries.push({ name: at, data: readFileSync(path.join(dataDir, ...s.path.split("/"))) });
-            } catch {
-              // A file deleted by hand: the link stays, the image is missing.
-            }
-          }
+          for (const s of cell.shots) add(zipPath(s, cell), s.path);
+          for (const f of cell.files) add(zipFilePath(f, cell), f.path);
         }
       return reply.type("application/zip").header("content-disposition", attachment(exportName(c, "zip"))).send(zip(entries));
     });

@@ -282,7 +282,7 @@ const logLines = computed<LogLine[]>(() =>
 const showResults = computed(() => run.value !== null && !active.value && run.value.status !== "queued" && run.value.attempts.length > 0);
 const exports = computed(() => [
   { value: "md", label: "Markdown", href: exportUrl("md", [props.id]) },
-  { value: "zip", label: "Markdown and screenshots (zip)", href: exportUrl("zip", [props.id]) },
+  { value: "zip", label: "Markdown and files (zip)", href: exportUrl("zip", [props.id]) },
 ]);
 const reviews = ref<Review[]>([]);
 const rubric = ref<Record<string, Criterion[]>>({});
