@@ -4,14 +4,14 @@ Status: built. The pack is merged into the Wildcard Pipeline's `dev` (`bench/`, 
 
 ## 1. What step 3 delivers
 
-The bench robot (`scripts/bench-robot/` on the Wildcard Pipeline branch `claude/project-thread-fluwv9`: `run.js` 437 lines, `lib.js` 606, `tests.js` 673, `tests-meta.json` with 126 tests) clicks through the Wildcard Pipeline AI bench and saves screenshots, answer texts and the app's AI debug log for every run. At the end of step 3:
+The bench robot (`scripts/bench-robot/` in the Wildcard Pipeline repo: `run.js` 437 lines, `lib.js` 606, `tests.js` 673, `tests-meta.json` with 126 tests) clicks through the Wildcard Pipeline AI bench and saves screenshots, answer texts and the app's AI debug log for every run. At the end of step 3:
 
 1. **The bench is a Watchwright pack** in the Wildcard Pipeline repo, `bench/`, next to the `data-test` ids it clicks (research note, section 5). Adding that folder in Watchwright's Packs page shows all 126 tests in 14 sections, with their prompts and what a good answer looks like.
 2. **Starting a bench is a New run**: pick the model (q9, q35, q27, haiku, sonnet, opus, fable), optionally reset the library, include the web tests or not, pick sections or tests. Attempts per test follow the bench page's recommended runs for that model; Fable gets its subset.
 3. **Everything the robot saved is in the attempt**: screenshots (panel, chat, page, scroll sets), answer texts, the AI debug log per call (Markdown and JSON, viewable in the attempt page), times as metrics (`Plan s`, `Build s`, `Fix s`, …), flags with the right kind.
 4. **The robot's control flow maps onto the engine**: pause on a robot problem with Retry or Skip, hot reload of a fix, Stop, resume after a crash, redo broken (with what it needs). No hand-kept `NEEDS` table or `chain` field: tests declare `needs` and `inside`.
 5. **Review** uses a bench rubric, and the model matrix is a Compare of the runs for each model.
-6. **The pack is checked twice**: in the cloud sandbox against the real Wildcard Pipeline manager with a fake model (robot side only, every test), and on the PC against ComfyUI and LM Studio with q9 (a subset of every section, compared with the robot's last q9 results in `D:\wp-bench-runs\q9`).
+6. **The pack is checked twice**: in the cloud sandbox against the real Wildcard Pipeline manager with a fake model (robot side only, every test), and on the PC against ComfyUI and LM Studio with q9 (a subset of every section, compared with the robot's last q9 results).
 
 Not in step 3: YAML tests, the editor, Record and a second pack (step 4), CLI and MCP (step 5), cost and budgets for cloud models (step 6). The pack only labels which model the app is set to; switching the app's model stays a manual step, as today.
 
@@ -35,7 +35,7 @@ Read side by side, most of the robot maps onto what step 1 and 2 built: `Bot.got
 | `--model q9` with the model's display name in the live page | A param's choices are bare values | **Choice labels.** `params.model.labels = { q9: "Qwen3.5 9B", … }`, shown in the New run select. |
 | `debug-NN-*.md` files open in the live page | Other files are links in the summary | A **Files** tab on the attempt page shows text files (Markdown, JSON, text) in the code view. |
 
-Two more come from the robot's own suggestion list (`/mnt/project-files` note, 2026-10-27), as general seams the pack fills in:
+Two more come from the robot's own suggestion list (a note written 2026-10-27), as general seams the pack fills in:
 
 - **Attempt hooks.** `beforeAttempt` and `afterAttempt` in the pack, given the test's id and tags. The bench backs up the library before tests tagged `changes-library` and restores it after (suggestion 4).
 - **`h.waitUntil(check, { progress, stallMs })`.** A wait that ends as `stalled` when the app stops making progress. The bench's AI wait uses it to file a `model-loop` finding instead of waiting 30 minutes (suggestion 6).
@@ -84,7 +84,7 @@ bench/
 
 - **Watchwright unit and engine tests** for every change in section 2 (collector hooks with a child attempt, child caps, multi-parent children, unrun children, the override, `h.skip`, run info, `packDir`, choice labels, collectors after a context reset).
 - **The sandbox dry run.** The Wildcard Pipeline API mounts on a plain aiohttp app (`wp_api.register_routes`, as its eval scripts do), so a small script serves the built manager and the API on a free port with an empty data folder, plus a fake OpenAI-style model that answers every AI route with a canned reply. The whole pack runs against it in Chromium (no Firefox in the sandbox). That proves the robot side (every page opens, every button exists, saves land, collectors write) but not answer quality. The script stays in `bench/dev/` for anyone without a GPU.
-- **On the PC** (Firefox, ComfyUI and LM Studio on q9, through a Remote Control session, only when no bench is running): a short run with one or two tests from every section, then the same tests compared with the robot's last results in `D:\wp-bench-runs\q9`: the same steps reached, the same files saved, no new robot problems. The full q9 bench (hours) is Dumi's to start from the New run page when it suits.
+- **On the PC** (Firefox, ComfyUI and LM Studio on q9, only when no bench is running): a short run with one or two tests from every section, then the same tests compared with the robot's last q9 results: the same steps reached, the same files saved, no new robot problems. The full q9 bench (hours) is Dumi's to start from the New run page when it suits.
 
 ## 5. Pull requests
 
