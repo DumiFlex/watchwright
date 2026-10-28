@@ -49,6 +49,7 @@ export const packsPlugin = definePlugin({
     return [
       defineAction({
         name: "packs.list",
+        agent: { tool: "list_packs" },
         title: "List the packs added to this server",
         method: "GET",
         path: "/packs",
@@ -56,6 +57,7 @@ export const packsPlugin = definePlugin({
       }),
       defineAction<{ path: string }>({
         name: "packs.add",
+        agent: { tool: "add_pack" },
         title: "Add a pack by its folder or pack file path, and load it",
         method: "POST",
         path: "/packs",
@@ -74,6 +76,7 @@ export const packsPlugin = definePlugin({
       }),
       defineAction<{ path: string; name: string; baseURL: string; format?: "code" | "yaml" }>({
         name: "packs.create",
+        agent: { tool: "create_pack", say: "Use when the person wants tests for a site that has no pack yet. Prefer format yaml." },
         title: "Write a starter pack (pack file, a first test, a README) into a folder and add it",
         method: "POST",
         path: "/packs/create",
@@ -118,6 +121,7 @@ export const packsPlugin = definePlugin({
       }),
       defineAction<{ id: string }>({
         name: "packs.get",
+        agent: { tool: "get_pack", say: "Read this before writing or running tests: the tests' ids, sections, needs and parameters." },
         title: "One pack with its tests, parameters, flag kinds and load errors",
         method: "GET",
         path: "/packs/:id",
@@ -153,6 +157,7 @@ export const packsPlugin = definePlugin({
       }),
       defineAction<{ kind?: "test" | "pack" }>({
         name: "packs.yaml-schema",
+        agent: { tool: "test_format", say: "The full YAML test format, when the skill's step list isn't enough." },
         title: "The JSON Schema of YAML test files or of pack.yaml",
         method: "GET",
         path: "/packs/yaml-schema",
@@ -161,6 +166,7 @@ export const packsPlugin = definePlugin({
       }),
       defineAction<{ text: string; kind?: "test" | "pack" }>({
         name: "packs.check-yaml",
+        agent: { tool: "check_test", say: "Check a YAML test before writing it to the pack." },
         title: "Check the text of a YAML test file or of pack.yaml, without saving it",
         method: "POST",
         path: "/packs/check-yaml",
@@ -201,6 +207,8 @@ export const packsPlugin = definePlugin({
       }),
       defineAction<{ id: string }>({
         name: "packs.remove",
+        destructive: true,
+        explain: ({ id }: { id: string }) => `Remove the pack "${registry.get(id)?.name ?? id}" from Watchwright (its files and past runs stay)`,
         title: "Remove a pack from this server (its files and past runs stay)",
         method: "DELETE",
         path: "/packs/:id",

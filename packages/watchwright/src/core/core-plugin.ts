@@ -34,6 +34,7 @@ export const corePlugin = definePlugin({
   actions: ({ events, services, stop }) => [
     defineAction({
       name: "core.actions",
+      agent: { tool: "list_actions", say: "Every action the server has, for call_action." },
       title: "List every action with its input schema",
       method: "GET",
       path: "/actions",
@@ -41,6 +42,8 @@ export const corePlugin = definePlugin({
     }),
     defineAction({
       name: "core.stop",
+      destructive: true,
+      explain: () => "Stop the Watchwright server. Runs going now become interrupted, ready to resume when it starts again.",
       title: "Stop the server: runs going now become interrupted, ready to resume when it starts again",
       method: "POST",
       path: "/stop",

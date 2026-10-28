@@ -4,7 +4,7 @@ Guidance for AI coding agents (and people) working in this repository. Keep it s
 
 ## What this is
 
-Watchwright is a browser test harness on the Playwright library. A long-lived server runs test packs in its own run engine (not `npx playwright test`), streams a live screencast to its web page, and exposes every action through an HTTP API (later also a CLI and an MCP server). The base design (plugins, engine, store, API) is [docs/plan.md](docs/plan.md); the plan for the current step is [docs/plans/step-4.md](docs/plans/step-4.md). Read both before adding a feature.
+Watchwright is a browser test harness on the Playwright library. A long-lived server runs test packs in its own run engine (not `npx playwright test`), streams a live screencast to its web page, and exposes every action through an HTTP API (and through a CLI and an MCP server). The base design (plugins, engine, store, API) is [docs/plan.md](docs/plan.md); the plan for the current step is [docs/plans/step-5.md](docs/plans/step-5.md). Read both before adding a feature.
 
 ## Commands
 
@@ -24,15 +24,16 @@ Run `pnpm lint && pnpm typecheck && pnpm test` before every commit.
 ## Layout
 
 - `packages/watchwright/src/core/` — the plugin contract (`definePlugin`, typed services through `serviceKey`), the built-in plugin list and the `core` plugin (`/health`, `GET /actions`, `GET /events`, `POST /stop`).
-- `packages/watchwright/src/actions/` — the action registry: an action declares name, method, path and JSON Schema input; HTTP routes are generated from it (CLI and MCP later).
+- `packages/watchwright/src/actions/` — the action registry: an action declares name, method, path and JSON Schema input, and for agents `agent: { tool, say }` (an MCP tool) and `destructive`; HTTP routes, CLI commands and MCP tools are generated from it.
 - `packages/watchwright/src/events/` — the event log (cursor, bounded wait, subscribe).
 - `packages/watchwright/src/session/` — browser sessions (launch, contexts, screencast).
 - `packages/watchwright/src/jobs/` — job kinds, run control (pause, stop, broken waits) and the recorder for artifacts.
-- `packages/watchwright/src/plugins/` — `settings` (machine-wide preferences other plugins declare, `GET`/`POST /settings`), `live` (frame hub, WebSocket), `folders` (folder listing for the web app's folder browser, recent folders, open in the file manager), `packs` (esbuild loader, test ordering, discover, move, starter pack), `runs` (engine, results, files), `reviews` (rubric snapshots, reviews, compare, Markdown and zip export), `editor` (a pack's files for the web app's editor: list, read, save with a stale check, create, rename, delete), `record` (recording sessions: a browser driven from the live view, Playwright's recorder turning its actions into YAML steps, other targets for each step), `testing` (the `test` job kind, `h` helpers, outcomes).
+- `packages/watchwright/src/plugins/` — `settings` (machine-wide preferences other plugins declare, `GET`/`POST /settings`), `approvals` (the gate for `destructive` actions: from anything but the web page they wait for the person to approve them there), `live` (frame hub, WebSocket), `folders` (folder listing for the web app's folder browser, recent folders, open in the file manager), `packs` (esbuild loader, test ordering, discover, move, starter pack), `runs` (engine, results, files), `reviews` (rubric snapshots, reviews, compare, Markdown and zip export), `editor` (a pack's files for the web app's editor: list, read, save with a stale check, create, rename, delete), `record` (recording sessions: a browser driven from the live view, Playwright's recorder turning its actions into YAML steps, other targets for each step; agents explore in the same sessions with steps and aria refs, in `explore.ts`), `testing` (the `test` job kind, `h` helpers, outcomes), `agents` (the MCP server at `/api/v1/mcp`: tools made from actions with `agent.tool`, in `tools.ts`, shared with the CLI's stdio bridge `watchwright mcp`; who called lately; `agents.install`, which writes the skill and MCP settings into a project, in `install.ts`).
 - `packages/watchwright/src/server/` — Fastify app: mounts plugins under `/api/v1`, the request guard, the web app with SPA fallback.
 - `packages/watchwright/src/store/` — SQLite through better-sqlite3, migrations per plugin.
-- `packages/watchwright/src/cli/` — the `watchwright` command.
+- `packages/watchwright/src/cli/` — the `watchwright` command: `serve`, the commands for people and agents (`status`, `run`, `wait`, `results`), `mcp` (the stdio MCP bridge), `init-agent` (the skill and MCP settings into a project, locally), and one generated command per action, talking to the server over HTTP.
 - `packages/web/` — Vue 3 + Vite web app; `vite build` writes into `packages/watchwright/dist/web`.
+- `packages/watchwright/skill/watchwright/` — the agent skill shipped in the package: `SKILL.md` by hand, `references/` made from the docs site's pages by `pnpm --filter watchwright skill-references` (a test fails when they are stale; rerun it after changing those pages).
 - `packages/site/` — the docs site (VitePress): landing page, `guide/`, `reference/`. Built on every PR by `.github/workflows/site.yml`.
 
 ## Conventions

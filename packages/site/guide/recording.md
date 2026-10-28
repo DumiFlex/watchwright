@@ -48,3 +48,5 @@ When the server runs on a machine with a screen, the Record menu also has **Reco
 ## From an agent or a script
 
 Recording is in the [HTTP API](../reference/http-api#recording): start one, send clicks and keys to it, read and change its steps, and stop it.
+
+AI agents explore a site the same way, with steps instead of clicks ([Exploring](../reference/mcp#exploring)). While an agent's session is open, the Runs page shows it as a card with the agent's name, the pack and the page it is on. **Watch** opens it on the pack's page: the live view and the steps, where you can click and type along. **Close** leaves the agent to it; **Stop** ends its session.

@@ -25,6 +25,8 @@ export interface ElementInfo {
   box: { x: number; y: number; width: number; height: number };
   value: string | null;
   checked: boolean | null;
+  /** The list item, row or card it sits in, and that container's first line of text: what tells it from its siblings. */
+  container?: { tag: string; role: string | null; text: string } | null;
 }
 
 export interface Snapshot {
@@ -36,6 +38,38 @@ export interface Snapshot {
   /** The point, from the element's top-left corner. */
   spot: { x: number; y: number };
 }
+
+// Runs in the page: what an element says about itself.
+const INFO = `(t, testIdAttr) => {
+  const clean = (s) => (s || "").replace(/\\s+/g, " ").trim();
+  const r = t.getBoundingClientRect();
+  return {
+    tag: t.tagName.toLowerCase(),
+    type: t.getAttribute("type"),
+    role: t.getAttribute("role"),
+    testId: t.getAttribute(testIdAttr),
+    ariaLabel: t.getAttribute("aria-label"),
+    labels: t.labels ? Array.from(t.labels).map((l) => clean(l.innerText)).filter(Boolean) : [],
+    placeholder: t.getAttribute("placeholder"),
+    alt: t.getAttribute("alt"),
+    title: t.getAttribute("title"),
+    text: clean(t.innerText || t.textContent),
+    id: t.getAttribute("id"),
+    name: t.getAttribute("name"),
+    href: t.hasAttribute("href"),
+    box: { x: r.x, y: r.y, width: r.width, height: r.height },
+    value: "value" in t && typeof t.value === "string" ? t.value : null,
+    checked: "checked" in t && typeof t.checked === "boolean" ? t.checked : null,
+    container: (() => {
+      const c = t.parentElement && t.parentElement.closest('li,tr,article,[role="listitem"],[role="row"],[role="article"]');
+      const line = c ? clean((c.innerText || "").split("\\n").find((l) => l.trim()) || "") : "";
+      return c && line ? { tag: c.tagName.toLowerCase(), role: c.getAttribute("role"), text: line } : null;
+    })(),
+  };
+}`;
+
+/** INFO as a function Playwright can send to the page with an element. */
+const INFO_OF = new Function("el", "testIdAttr", `return (${INFO})(el, testIdAttr);`) as (el: unknown, testIdAttr: string) => ElementInfo;
 
 // Runs in the page. The element under the point, inside open shadow roots, raised to the nearest
 // control (a click on a button's icon is a click on the button).
@@ -49,29 +83,7 @@ const READ = `({ x, y, testIdAttr }) => {
   if (!el) return null;
   const sel = 'button,a[href],input,select,textarea,label,summary,option,[role],[contenteditable=""],[contenteditable="true"],[' + testIdAttr + ']';
   const t = el.closest(sel) || el;
-  const clean = (s) => (s || "").replace(/\\s+/g, " ").trim();
-  const r = t.getBoundingClientRect();
-  return {
-    el: t,
-    info: {
-      tag: t.tagName.toLowerCase(),
-      type: t.getAttribute("type"),
-      role: t.getAttribute("role"),
-      testId: t.getAttribute(testIdAttr),
-      ariaLabel: t.getAttribute("aria-label"),
-      labels: t.labels ? Array.from(t.labels).map((l) => clean(l.innerText)).filter(Boolean) : [],
-      placeholder: t.getAttribute("placeholder"),
-      alt: t.getAttribute("alt"),
-      title: t.getAttribute("title"),
-      text: clean(t.innerText || t.textContent),
-      id: t.getAttribute("id"),
-      name: t.getAttribute("name"),
-      href: t.hasAttribute("href"),
-      box: { x: r.x, y: r.y, width: r.width, height: r.height },
-      value: "value" in t && typeof t.value === "string" ? t.value : null,
-      checked: "checked" in t && typeof t.checked === "boolean" ? t.checked : null,
-    },
-  };
+  return { el: t, info: (${INFO})(t, testIdAttr) };
 }`;
 
 const INPUT_ROLES: Record<string, string> = { checkbox: "checkbox", radio: "radio", button: "button", submit: "button", reset: "button", range: "slider", number: "spinbutton", search: "searchbox" };
@@ -132,12 +144,23 @@ export function candidatesOf(i: ElementInfo): Target[] {
   return [...out, ...css];
 }
 
+const CONTAINER_ROLES: Record<string, string> = { li: "listitem", tr: "row", article: "article" };
+
+/** The container an element sits in, as a target: `{ role: listitem, hasText: Buy milk }`. */
+export function containerTarget(c: NonNullable<ElementInfo["container"]>): TargetMap | null {
+  const text = short(c.text, 40);
+  if (!text) return null;
+  const role = c.role?.split(/\s+/)[0] ?? CONTAINER_ROLES[c.tag];
+  return role ? { role, hasText: text } : { css: c.tag, hasText: text };
+}
+
 /**
  * Targets that match exactly one element, and that element is `el`. A target that matches several
- * gets the element's text as a filter (`testId: todo-title` + `hasText: Buy milk`), and failing
- * that its position among them (`nth`), which comes last because it breaks when the list changes.
+ * gets the element's text as a filter (`testId: todo-title` + `hasText: Buy milk`), then the list
+ * item or row it is in (`within: { role: listitem, hasText: Buy milk }`), and failing that its
+ * position among them (`nth`), which comes last because it breaks when the list changes.
  */
-async function checked(page: Page, el: ElementHandle, targets: readonly Target[], text: string | null): Promise<{ targets: Target[]; groups: Snapshot["groups"] }> {
+async function checked(page: Page, el: ElementHandle, targets: readonly Target[], text: string | null, container: TargetMap | null = null): Promise<{ targets: Target[]; groups: Snapshot["groups"] }> {
   const asMap = (t: Target): TargetMap => (typeof t === "string" ? { css: t } : t);
   const groups: Snapshot["groups"] = [];
   const unique = async (t: Target, group = false): Promise<"one" | "many" | "no"> => {
@@ -173,6 +196,10 @@ async function checked(page: Page, el: ElementHandle, targets: readonly Target[]
         const filtered: TargetMap = { ...m, hasText: text };
         if ((await unique(filtered)) === "one") return { good: filtered };
       }
+      if (container && m.within === undefined) {
+        const inside: TargetMap = { ...m, within: container };
+        if ((await unique(inside)) === "one") return { good: inside };
+      }
       const nth = await nthOf(t);
       return nth ? { last: nth } : {};
     }),
@@ -190,11 +217,18 @@ export async function snapshotAt(page: Page, x: number, y: number, testIdAttr = 
     const element = (await handle.getProperty("el")).asElement();
     if (!element) return null;
     const info = (await (await handle.getProperty("info")).jsonValue()) as ElementInfo;
-    const { targets, groups } = await checked(page, element, candidatesOf(info), short(info.text, 50));
+    const { targets, groups } = await checked(page, element, candidatesOf(info), short(info.text, 50), info.container ? containerTarget(info.container) : null);
     return { info, targets, groups, element, spot: { x: Math.round(x - info.box.x), y: Math.round(y - info.box.y) } };
   } finally {
     await handle.dispose().catch(() => undefined);
   }
+}
+
+/** An element's targets, best first (for an element an agent named by its aria ref). */
+export async function snapshotOf(page: Page, element: ElementHandle, testIdAttr = "data-testid"): Promise<Omit<Snapshot, "spot">> {
+  const info = await element.evaluate(INFO_OF, testIdAttr);
+  const { targets, groups } = await checked(page, element, candidatesOf(info), short(info.text, 50), info.container ? containerTarget(info.container) : null);
+  return { info, targets, groups };
 }
 
 /** What the live view outlines under the pointer: the element a press there acts on, and a target that names it. */

@@ -6,7 +6,7 @@ import fastifyWebsocket from "@fastify/websocket";
 import { checkActions, mountActions, type Action } from "../actions/registry.js";
 import { BUILTIN_PLUGINS } from "../core/builtin.js";
 import { checkPlugins, type PluginContext, type WatchwrightPlugin } from "../core/plugin.js";
-import { ACTIONS } from "../core/keys.js";
+import { ACTION_GATE, ACTIONS } from "../core/keys.js";
 import { Services } from "../core/services.js";
 import { EventLog } from "../events/log.js";
 import type { Store } from "../store/db.js";
@@ -49,7 +49,12 @@ export async function buildServer({ store, port, webRoot, plugins = BUILTIN_PLUG
     } else if (needsOriginCheck(req.method, upgrade) && !isAllowedOrigin(req.headers.origin, port)) {
       refused = errorBody("bad_origin", "Requests that change something must come from this server's own page.");
     }
-    if (!refused) return;
+    if (!refused) {
+      // An empty body is no body, whatever type it says it is (PowerShell and `curl -d ""` send a form type).
+      const length = req.headers["content-length"];
+      if (length === "0" || (length === undefined && req.headers["transfer-encoding"] === undefined)) delete req.headers["content-type"];
+      return;
+    }
     if (!upgrade) return reply.code(403).send(refused);
     // A refused upgrade gets a plain HTTP answer on the raw socket, which is then closed;
     // answering through `reply` leaves the socket open and blocks server shutdown.
@@ -81,7 +86,7 @@ export async function buildServer({ store, port, webRoot, plugins = BUILTIN_PLUG
   const actions: Action[] = plugins.flatMap((p) => p.actions?.(ctx) ?? []);
   checkActions(actions);
   ctx.services.provide(ACTIONS, actions);
-  await app.register(async (scope) => mountActions(scope, actions), { prefix: API_PREFIX });
+  await app.register(async (scope) => mountActions(scope, actions, () => (ctx.services.has(ACTION_GATE) ? ctx.services.get(ACTION_GATE) : null)), { prefix: API_PREFIX });
   for (const plugin of plugins) {
     const { routes } = plugin;
     if (routes) await app.register(async (scope) => routes(scope, ctx), { prefix: API_PREFIX });

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import fastifyStatic from "@fastify/static";
 import { ActionError, defineAction, type ObjectSchema } from "../../actions/registry.js";
+import { MAX_EVENT_WAIT_S } from "../../core/core-plugin.js";
 import { definePlugin } from "../../core/plugin.js";
 import { serviceKey } from "../../core/services.js";
 import { contentTypeOf } from "../../jobs/recorder.js";
@@ -12,6 +13,7 @@ import { FRAMES } from "../live/hub.js";
 import { PACKS } from "../packs/registry.js";
 import { SETTINGS } from "../settings/plugin.js";
 import { testKind } from "../testing/kind.js";
+import { digest, readRunFile, waitForRun } from "./digest.js";
 import { Engine, EngineError } from "./engine.js";
 import { RUNS_ARTIFACT_SET_SQL, RUNS_INFO_SQL, RUNS_LABELS_PRESETS_SQL, RUNS_MIGRATION_SQL, RUNS_STEPS_SQL, RunsRepo, type RunChoices, type RunOptions, type RunStatus } from "./repo.js";
 
@@ -152,8 +154,9 @@ export const runsPlugin = definePlugin({
   async close({ services }) {
     await services.get(ENGINE).close();
   },
-  actions: ({ services }) => {
+  actions: ({ services, events }) => {
     const engine = services.get(ENGINE);
+    const dataDir = services.get(FILES_ROOT);
     const repo = services.get(RUNS_REPO);
     const notFound = (id: string): never => {
       throw new ActionError("not_found", `No run with id ${id}.`, 404);
@@ -168,11 +171,20 @@ export const runsPlugin = definePlugin({
       if (!preset) throw new ActionError("not_found", `The pack has no preset named "${input.preset}".`, 404);
       return { ...preset.choices, ...choicesOf(input), packId: input.packId, ...(input.label !== undefined ? { label: input.label } : {}) };
     };
-    const control = (name: string, verb: string, title: string, fn: (id: string) => unknown) =>
-      defineAction<{ id: string }>({ name, title, method: "POST", path: `/runs/:id/${verb}`, input: byId, handler: ({ id }) => guard(() => fn(id)) });
+    const control = (name: string, verb: string, title: string, fn: (id: string, client: string) => unknown) =>
+      defineAction<{ id: string }>({ name, title, method: "POST", path: `/runs/:id/${verb}`, input: byId, handler: ({ id }, { client }) => guard(() => fn(id, client)) });
+    const CONTROLS = {
+      pause: (id: string, client: string) => engine.pause(id, client),
+      resume: (id: string) => engine.resume(id),
+      retry: (id: string) => engine.retry(id),
+      skip: (id: string) => engine.skip(id),
+      stop: (id: string) => engine.stop(id, "after"),
+      "stop-now": (id: string) => engine.stop(id, "now"),
+    } as const;
     return [
       defineAction<{ limit?: number; pack?: string; status?: string; before?: string; q?: string }>({
         name: "runs.list",
+        agent: { tool: "list_runs" },
         title: "List runs, newest first",
         method: "GET",
         path: "/runs",
@@ -219,6 +231,12 @@ export const runsPlugin = definePlugin({
       }),
       defineAction<{ id: string }>({
         name: "runs.delete",
+        agent: { tool: "delete_run", say: "Only delete runs you started, unless the person asks." },
+        destructive: true,
+        explain: ({ id }: { id: string }) => {
+          const r = engine.get(id);
+          return r ? `Delete run ${id}${r.label ? ` "${r.label}"` : ""} of "${r.packName}" (${r.status}, ${r.attempts.length} attempts) with its files` : `Delete run ${id}`;
+        },
         title: "Delete a run that isn't going, with its results and files",
         method: "DELETE",
         path: "/runs/:id",
@@ -227,6 +245,7 @@ export const runsPlugin = definePlugin({
       }),
       defineAction<StartBody>({
         name: "runs.start",
+        agent: { tool: "start_run", say: "The run shows live on the web page at /#/runs/<id>: tell the person so they can watch. Then call wait_for_run." },
         title: "Start a run: a pack, the tests to run (default all), parameter values and options",
         method: "POST",
         path: "/runs",
@@ -287,6 +306,8 @@ export const runsPlugin = definePlugin({
       }),
       defineAction<{ id: string }>({
         name: "runs.presets.delete",
+        destructive: true,
+        explain: ({ id }: { id: string }) => `Delete the preset "${repo.preset(id)?.name ?? id}"`,
         title: "Delete a preset",
         method: "DELETE",
         path: "/presets/:id",
@@ -317,13 +338,67 @@ export const runsPlugin = definePlugin({
       }),
       defineAction<{ id: string; attemptId: string }>({
         name: "runs.attempt",
+        agent: { tool: "get_attempt", say: "Full result of one attempt: error, flags, log, steps and its files (pass a file's `path` to get_file)." },
         title: "One attempt's result document (schemaVersion 1)",
         method: "GET",
         path: "/runs/:id/attempts/:attemptId",
         input: { type: "object", properties: { id: RUN_ID, attemptId: { type: "string", pattern: "^[0-9a-f]{12}$" } }, required: ["id", "attemptId"] },
         handler: ({ id, attemptId }) => engine.result(id, attemptId) ?? notFound(`${id}/${attemptId}`),
       }),
-      control("runs.pause", "pause", "Pause at the next step", (id) => engine.pause(id)),
+      defineAction<{ id: string }>({
+        name: "runs.summary",
+        title: "A run in brief: status, live state, counts and one line per attempt (error, robot problems, findings)",
+        agent: { tool: "get_run", say: "`page` is the run's page on the web app; robot counts problems of the test itself, findings problems of the site." },
+        method: "GET",
+        path: "/runs/:id/summary",
+        input: byId,
+        handler: ({ id }) => digest(engine.get(id) ?? notFound(id)),
+      }),
+      defineAction<{ id: string; after?: number; timeout?: number }>({
+        name: "runs.wait",
+        title: `Wait until a run ends or pauses, at most \`timeout\` seconds (up to ${MAX_EVENT_WAIT_S}); says why it returned and what happened meanwhile`,
+        agent: {
+          tool: "wait_for_run",
+          say: "Call again with `after` set to the returned cursor while reason is timeout. On paused: if pauseReason is broken, look at the attempt and retry or skip with control_run; if a person paused it (pausedBy), stop and ask them.",
+        },
+        method: "GET",
+        path: "/runs/:id/wait",
+        input: {
+          type: "object",
+          properties: {
+            id: RUN_ID,
+            after: { type: "integer", minimum: 0, description: "The cursor a previous wait returned: report what happened since, and count only pauses after it." },
+            timeout: { type: "number", minimum: 0, maximum: MAX_EVENT_WAIT_S, default: 60, description: "Seconds to wait at most." },
+          },
+          required: ["id"],
+        },
+        handler: async ({ id, after, timeout = 60 }, { signal }) => (await waitForRun(engine, events, id, after, timeout * 1000, signal)) ?? notFound(id),
+      }),
+      defineAction<{ id: string; do: keyof typeof CONTROLS }>({
+        name: "runs.control",
+        title: "Pause, resume, retry the broken attempt, skip it, stop after this test, or stop now",
+        agent: { tool: "control_run", say: "Only control runs you started, unless the person asks. Returns the run in brief." },
+        method: "POST",
+        path: "/runs/:id/control",
+        input: { type: "object", properties: { id: RUN_ID, do: { type: "string", enum: Object.keys(CONTROLS) } }, required: ["id", "do"] },
+        handler: async ({ id, do: what }, { client }) => {
+          await guard(() => CONTROLS[what](id, client));
+          return digest(engine.get(id)!);
+        },
+      }),
+      defineAction<{ id: string; path: string }>({
+        name: "runs.file",
+        title: "One of a run's files by its path from the results: a screenshot as base64 with its size, a text as text",
+        agent: { tool: "get_file", say: "Screenshots come back as images you can look at." },
+        method: "GET",
+        path: "/runs/:id/file",
+        input: { type: "object", properties: { id: RUN_ID, path: { type: "string", minLength: 1, maxLength: 600, description: "The file's `path` from an attempt's artifacts (`runs/<id>/…`)." } }, required: ["id", "path"] },
+        handler: ({ id, path: rel }) => {
+          if (!engine.get(id)) notFound(id);
+          return readRunFile(dataDir, id, rel) ?? notFound(`${id}: ${rel}`);
+        },
+      }),
+      control("runs.pause", "pause", "Pause at the next step", (id, client) => engine.pause(id, client)),
       control("runs.resume", "resume", "Resume a paused run, or continue an interrupted or stopped run where it was", (id) => engine.resume(id)),
       control("runs.retry", "retry", "Run the broken attempt the run paused on again", (id) => engine.retry(id)),
       control("runs.skip", "skip", "Keep the broken attempt's result and go on", (id) => engine.skip(id)),

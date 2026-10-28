@@ -5,14 +5,15 @@ Everything the web page does goes through this API, so scripts and AI agents can
 - JSON in and out. Success is `{ "data": … }`. Failure is `{ "error": { "code", "message", "detail"? } }` with a snake_case `code` and a matching HTTP status.
 - Requests must pass the [request guard](../guide/safety#who-can-reach-the-server): a loopback `Host` with the server's port, and for changes no `Origin` header or the server's own (scripts and agents send none).
 - Send `x-watchwright-client: <name>` to be named as who started a run (default `api`).
-- `GET /actions` lists every action with its JSON Schema input. The CLI and MCP server in a later step are built from the same list.
+- `GET /actions` lists every action with its JSON Schema input. The [CLI](./cli) builds its commands from the same list, and the [MCP server](./mcp) its tools.
+- `/api/v1/mcp` is the MCP endpoint (streamable HTTP), for AI agents.
 
 ## Server
 
 | Method and path | Does |
 |---|---|
 | `GET /health` | Whether the server is up, its version, its data folder and the loaded plugins with the newest store migration each one applied. |
-| `GET /actions` | Every action with its method, path and JSON Schema input. |
+| `GET /actions` | Every action: `name`, `title`, `method`, `path`, JSON Schema `input`, and where set `output` (the JSON Schema of its data), `agent` (`{ tool, say? }`: the MCP tool it is offered as, and a hint for agents) and `destructive: true` (it deletes data or stops the server). |
 | `POST /stop` | Stops the server, as Ctrl+C in its terminal does. It answers `{ stopping: true }` first. Runs going at the time become `interrupted` and can be resumed after it starts again. 409 `cant_stop` for a server that wasn't started by the `watchwright` command. |
 
 ## Packs
@@ -49,9 +50,9 @@ Every change returns the pack's state after it loads again, `pack: { status, err
 
 ## Recording
 
-[Recording](../guide/recording) opens a browser for a pack and turns what is done on its page into YAML steps. A recording has an 8-character id. Its events carry that id as `runId`, and its screencast goes through the [live WebSocket](#live-websocket) the same way, so a viewer subscribes to a recording as to a run. A recording holds its pack's site: runs of the site wait for it, and it waits (status `waiting`) for a run of the site to end. It ends by itself after 30 minutes without input.
+[Recording](../guide/recording) opens a browser for a pack and turns what is done on its page into YAML steps. A recording has an 8-character id. Its events carry that id as `runId`, and its screencast goes through the [live WebSocket](#live-websocket) the same way, so a viewer subscribes to a recording as to a run. A recording holds its pack's site: runs of the site wait for it, and it waits (status `waiting`) for a run of the site to end. It ends by itself after 30 minutes without input (15 minutes without a call when an agent started it).
 
-A recording's state is `{ id, packId, testId, status, message, window, viewport, pages, activePage, steps }`. `status` is `waiting`, `starting`, `replaying` (running the steps before the cursor), `recording` or `ended`. Each step is `{ id, name, args, targets, spot }`: `args` are the YAML step's fields, `targets` every target that picks out the same element (the one in use first), and `spot` where a click landed inside the element, for `position`.
+A recording's state is `{ id, packId, testId, status, message, window, viewport, pages, activePage, steps, startedBy }`. `startedBy` is `web` for the person, else the client that started it (an agent's name). `status` is `waiting`, `starting`, `replaying` (running the steps before the cursor), `recording` or `ended`. Each step is `{ id, name, args, targets, spot }`: `args` are the YAML step's fields, `targets` every target that picks out the same element (the one in use first), and `spot` where a click landed inside the element, for `position`.
 
 | Method and path | Does |
 |---|---|
@@ -64,9 +65,11 @@ A recording's state is `{ id, packId, testId, status, message, window, viewport,
 | `POST /record/:id/steps` `{ name, args?, targets?, index? }` | Adds a step (201), at the end or at `index`. `targets` are other targets to offer for it. 400 `bad_step`. |
 | `POST /record/:id/steps/:step` `{ name?, args? }` | Changes a step. A new `args.target` is added to its `targets`. |
 | `DELETE /record/:id/steps/:step` | Removes a step. |
-| `POST /record/:id/stop` | Ends the recording and closes its browser. Returns the state with the steps. |
+| `GET /record/:id/look?shot=` | The active page as an agent reads it: `{ url, title, snapshot, shot? }`. `snapshot` is Playwright's aria snapshot for AI, where elements carry refs (`[ref=e4]`); `shot` (with `shot=true`) is a JPEG of the viewport, `{ mimeType, encoding: "base64", data }`. |
+| `POST /record/:id/do` `{ steps, shot? }` | Runs [YAML steps](./yaml-steps), written as JSON, on the active page one at a time and stops at the first that fails. A target may be `{ "ref": "e4" }` from the last look: it is swapped for the element's best target before the step runs. Each step that ran joins the steps. Answers `{ steps: [{ index, ok, step?, error? }], look }`. |
+| `POST /record/:id/stop` | Ends the recording and closes its browser. Returns the state with the steps, and `yaml`: the steps as the list a test's `steps:` takes. |
 
-Events: `record.started`, `record.status` `{ status, message }`, `record.replay-step` `{ title }`, `record.step` `{ step, index }`, `record.step-updated` `{ step }`, `record.step-removed` `{ id }`, `record.ended` `{ message, steps }` (`steps` is how many), and the `page.*` events of its pages.
+Events: `record.started`, `record.status` `{ status, message }`, `record.replay-step` `{ title }`, `record.agent-step` `{ title }` (a step of `do` running), `record.step` `{ step, index }`, `record.step-updated` `{ step }`, `record.step-removed` `{ id }`, `record.ended` `{ message, steps }` (`steps` is how many), and the `page.*` events of its pages.
 
 ## Settings
 
@@ -107,7 +110,11 @@ A web page can't learn a folder's path from the browser, so the server lists fol
 | `GET /runs/stats?days=&pack=&tz=&until=` | Runs at a glance: `days` (one entry per day, oldest first, `days` of them, default 14, at most 90) with `{ date, runs, passed, failed, broken, skipped, stopped, medianMs }`, and the same totals for the period (`current`) and the `days` days before it (`previous`). Runs count on the day they were made, attempts on the day they started; only top-level attempts that finished count, and `medianMs` is the median time of the passed and failed ones. `tz` is the caller's `Date.getTimezoneOffset()` (minutes behind UTC), so days are the caller's calendar days; `until` (YYYY-MM-DD) is the last day, today by default. `pack` keeps one pack's runs. |
 | `GET /packs/:id/history?limit=` | Each test's last `limit` (default 20, at most 100) finished attempts across the pack's runs, oldest first, keyed by test id: `{ attemptId, runId, runLabel, number, try, status, startedAt, durationMs, params }`. Only the try that counts is listed; `try` above 1 means it was run again after it broke. `{}` for a pack with no runs. |
 | `DELETE /runs/:id` | Deletes a run that isn't queued or going, with its attempts and its folder in the data folder. Its events stay in the event log. |
-| `POST /runs/:id/pause` | Pauses at the next step. |
+| `GET /runs/:id/summary` | A run in brief, for agents and scripts: `{ id, label, pack: { id, name }, status, startedBy, page, live, counts, pending, attempts, error }`. `page` is the run's page in the web app (`/#/runs/<id>`); `live` is `{ state, pauseReason, pausedBy, deadline, stopping, testId, step }` while it runs; `counts` leaves out zeros; each attempt is `{ id, testId, title, number, try, parentId, status, error, robot, findings, durationMs }`, with the error's kind and first line and how many robot and finding flags it has. |
+| `GET /runs/:id/wait?after=&timeout=` | Waits until the run ends or pauses, at most `timeout` seconds (default 60, at most 110). Returns `{ reason, cursor, happened, run }`: `reason` is `ended`, `paused`, `timeout` or `gone` (the caller went away); `run` is the summary; `happened` lists what happened since `after` (or since the call): runs starting, pausing (`reason`, `testId`, `by`), resuming, stopping and finishing, and each attempt finishing (`testId`, `number`, `status`, `error`, `flags`). Pass `cursor` as `after` to the next wait. Without `after` a paused run answers at once; with it, only a pause after that cursor does, so a caller isn't answered again while a person keeps the run paused. |
+| `POST /runs/:id/control` `{ do }` | One door for `pause`, `resume`, `retry`, `skip`, `stop` (after this test) and `stop-now`. Returns the summary. |
+| `GET /runs/:id/file?path=` | One of the run's files by its `path` from a result document: `{ path, url, mimeType, size, width?, height?, encoding, data, note? }`. PNG and JPEG images come as base64 with their size in pixels, text and JSON files as `utf8`. An image over 5 MB or with a side over 8000 px, a text over 1 MB, and other files come without `data`, with a `note` and the `url` to fetch them. 404 for a path outside the run's folder. |
+| `POST /runs/:id/pause` | Pauses at the next step. The run's `live.pausedBy` and the `run.paused` event's `by` name who asked. |
 | `POST /runs/:id/resume` | Resumes a manual pause. For an `interrupted`, `stopped` or `failed_to_start` run, queues it to continue: passed, failed and skipped attempts are kept, the rest run. |
 | `POST /runs/:id/retry`, `/skip` | Answers a pause on a broken attempt. |
 | `POST /runs/:id/stop` `{ when: "after" \| "now" }` | `after` finishes the current test first; `now` ends at once and files the current attempt as `stopped`. A queued run is cancelled. |
@@ -155,13 +162,32 @@ Deleting a run deletes its reviews.
 
 Run statuses: `queued`, `running`, `pausing`, `paused`, `finished`, `stopped`, `interrupted` (the server stopped mid-run), `failed_to_start`. Attempt statuses: `passed`, `failed`, `broken`, `skipped`, `stopped`, plus `running` and `interrupted`.
 
+## Approvals
+
+Actions marked `destructive` in `GET /actions` (deleting a run, a pack, a pack file or a preset, and `POST /stop`) run at once only when the request comes from the web page. From anything else they wait for the person to [approve them on the web page](../guide/safety#approvals). The request is held for up to 45 seconds (less than MCP clients' 60 second timeout): approved in that time, it answers as the action does; refused, it fails with 403 `refused`. Still waiting after that, it answers `202` with `{ approval, message }`; wait on the approval by its id.
+
+An approval is `{ id, action, input, client, summary, status, answeredBy, result, error, createdAt, answeredAt, expiresAt }`. `status` is `waiting`, `approved` (it ran; `result` is the action's data), `refused`, `expired` (nobody answered in 30 minutes) or `failed` (approved, but the action failed; `error` says why).
+
+| Method and path | Does |
+|---|---|
+| `GET /approvals?status=&limit=` | Approvals, newest first. |
+| `GET /approvals/:id/wait?timeout=` | Waits until the approval is answered or expires, at most `timeout` seconds (default 60, up to 110), and returns it. Call again while it is `waiting`. |
+| `POST /approvals/:id/answer` `{ approve }` | Approves (runs the action) or refuses. Only from the web page: 403 `not_allowed` otherwise. 409 `conflict` once it is answered. |
+
+## Agents
+
+| Method and path | Does |
+|---|---|
+| `GET /agents/seen?days=` | Agents that called the MCP server in the last `days` (default 30), most recent first: `{ name, firstAt, lastAt, lastTool, calls, started }`, where `started` counts the runs and explore sessions it started. |
+| `POST /agents/install` `{ folder, agents?, mcp?, server? }` | Does what [`watchwright init-agent`](./cli#init-agent) does, in a folder on the server's machine: `agents` is a list of `claude`, `codex`, `cursor`; `server` is the address written into the settings. Answers `{ folder, agents, wrote, commands, problems }`. 400 `install_failed` when the folder is missing. |
+
 ## Events
 
 Everything that happens is an event with a growing sequence number: `{ seq, time, type, runId?, attemptId?, data }`.
 
 `GET /events?after=<seq>&wait=<seconds>&runId=&types=&limit=` returns `{ events, next, head }`. With `wait` (up to 110 seconds) it holds the request until a matching event arrives, so an agent can follow a run with one request at a time: call again with `after=next`.
 
-Event types (open set, more come with later plugins): `run.queued`, `run.started`, `run.planned`, `run.pausing`, `run.paused`, `run.resumed`, `run.decision`, `run.stopping`, `run.labeled`, `run.finished`, `run.interrupted`, `run.failed_to_start`, `run.log`, `run.info`, `run.tests-added`, `attempt.started`, `attempt.step`, `attempt.log`, `attempt.flag`, `attempt.artifact`, `attempt.finished`, `page.opened`, `page.navigated`, `page.active`, `page.closed`, `video.unavailable`, `pack.added`, `pack.loaded`, `pack.reload_failed`, `pack.reloaded`, `pack.removed`, `editor.file_changed`, `review.saved`, `record.started`, `record.status`, `record.replay-step`, `record.step`, `record.step-updated`, `record.step-removed`, `record.ended`.
+Event types (open set, more come with later plugins): `run.queued`, `run.started`, `run.planned`, `run.pausing`, `run.paused`, `run.resumed`, `run.decision`, `run.stopping`, `run.labeled`, `run.finished`, `run.interrupted`, `run.failed_to_start`, `run.log`, `run.info`, `run.tests-added`, `attempt.started`, `attempt.step`, `attempt.log`, `attempt.flag`, `attempt.artifact`, `attempt.finished`, `page.opened`, `page.navigated`, `page.active`, `page.closed`, `video.unavailable`, `pack.added`, `pack.loaded`, `pack.reload_failed`, `pack.reloaded`, `pack.removed`, `editor.file_changed`, `review.saved`, `record.started`, `record.status`, `record.replay-step`, `record.agent-step`, `record.step`, `record.step-updated`, `record.step-removed`, `record.ended`, `approval.requested`, `approval.answered`.
 
 ## Live WebSocket
 

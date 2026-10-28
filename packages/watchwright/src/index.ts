@@ -33,7 +33,7 @@ export { VERSION } from "./version.js";
 export { resolveDataDir, DEFAULT_PORT, DEFAULT_HOST } from "./config.js";
 export { definePlugin, migrationsOf, type WatchwrightPlugin, type PluginContext } from "./core/plugin.js";
 export { serviceKey, Services, type ServiceKey } from "./core/services.js";
-export { defineAction, ActionError, type Action, type ActionCall, type JsonSchema, type ObjectSchema } from "./actions/registry.js";
+export { defineAction, ActionError, type Action, type ActionCall, type ActionInfo, type JsonSchema, type ObjectSchema } from "./actions/registry.js";
 export { BUILTIN_PLUGINS } from "./core/builtin.js";
 export type { HealthData } from "./core/core-plugin.js";
 export type { WwEvent } from "./events/log.js";
