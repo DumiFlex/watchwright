@@ -21,7 +21,7 @@ At the end of this step:
 
 **Registry.** The runs plugin provides a `JOB_KINDS` service (`register(kind)`, `get(name)`, `list()`), and `plugins/testing/` becomes a real plugin (today it is a folder the runs engine imports, not in `BUILTIN_PLUGINS`), loaded after `runs`, that registers `test` in its `setup`. The engine takes kinds from the service instead of `kinds: [testKind]`, and looks them up when a run starts, so a run interrupted before a crash resumes once its kind's plugin has registered.
 
-**A run names its kind.** `runs.start` gets an optional `kind` (default `test`); `runs` rows already have `job_kind`. `prepare` uses it and refuses an unknown kind with `bad_input`. `GET /actions` and `GET /health` list the loaded kinds.
+**A run names its kind.** `runs.start` gets an optional `kind` (default `test`); `runs` rows already have `job_kind`. `prepare` uses it and refuses an unknown kind with `bad_input`. `GET /kinds` (`watchwright runs kinds`) lists the loaded kinds with their labels.
 
 **The kind owns `h` and the outcome rules.** The engine stops importing `createHelpers` and `classify`. `JobKind` gets:
 
@@ -39,7 +39,7 @@ interface JobKind {
 
 `AttemptRuntime` is today's `HelperRuntime` moved to `jobs/`, minus test words. `AttemptEnv.helpers()` returns what the kind built. Packs, the `test` API and YAML tests don't change.
 
-**Labels.** Result documents and run summaries carry `kind` and, when the kind has them, `labels`. The web app, the CLI and MCP answers show the label and keep the outcome as the value (`status: "passed", label: "done"`), so filters and agents keep one vocabulary. `schemaVersion` stays 1: both fields are additive.
+**Labels.** Runs, attempts and result documents already carry `kind`; `GET /kinds` gives each kind's words. The web app's status chips show the word, and every result keeps the outcome as the value, so filters, stats and agents keep one vocabulary. `schemaVersion` stays 1.
 
 ## 3. Runs that grow (gap 2)
 
@@ -99,7 +99,7 @@ An `alerts` plugin built on the event log.
 ## 8. Pull requests
 
 1. This plan.
-2. Job kinds as plugins: `JOB_KINDS`, `kind` on start, `helpers`/`classify` move to the testing kind, outcome labels in results, web, CLI and MCP (gaps 1, 3, 4).
+2. Job kinds as plugins: `JOB_KINDS`, `kind` on start, `helpers`/`classify` move to the testing kind, `GET /kinds` and outcome words in the web app, and a `ready` step in the plugin contract so queued runs wait for every kind (gaps 1, 3, 4).
 3. Runs that grow: `addItem`, `runs_added`, resume, the live queue, a fixture kind in tests (gap 2).
 4. Pages from plugins: `pages` in the contract, `GET /health`, the menu built from it (gap 7).
 5. Secrets: store, Settings > Secrets, `${secret.…}`, `h.secret`, masking (gap 8, part 1).
