@@ -2,14 +2,14 @@
 // One pack: whether it loads, its recent runs, then tabs for its README (the way a code host shows one), its
 // tests with their metadata (searchable and filtered, for packs with hundreds of them),
 // parameters, flag kinds and rubric.
-import { ArrowLeft, CircleDot, Ellipsis, FilePlus, FileText, Pencil, Play, SearchX, TriangleAlert } from "../icons";
+import { ArrowLeft, ChevronDown, ChevronRight, CircleDot, Ellipsis, FilePlus, FileText, Pencil, Play, SearchX, TriangleAlert } from "../icons";
 import { nextTestId, recordingTestTemplate, slug, type PackFile } from "../editfiles";
 import { findReadme, packImageUrl, resolveRelative } from "../markdown";
 import MarkdownView from "../components/MarkdownView.vue";
 import TextField from "../components/TextField.vue";
 import SelectMenu from "../components/SelectMenu.vue";
 import ToggleSwitch from "../components/ToggleSwitch.vue";
-import { NO_FILTER, filterTests, isFiltered, sectionsOf, tagsOf, type TestFilter } from "../packtests";
+import { NO_FILTER, filterTests, groupTests, isFiltered, sectionsOf, tagsOf, type TestFilter } from "../packtests";
 import { href } from "../router";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, sendJson, type Criterion, type FolderPlaces, type HistoryEntry, type Pack, type PackTest, type RunSummary } from "../api";
@@ -123,15 +123,41 @@ const storage = () => {
     return null;
   }
 };
-const descriptions = ref(storage()?.getItem(DESC_KEY) !== "off");
-watch(descriptions, (on) => {
-  try {
-    storage()?.setItem(DESC_KEY, on ? "on" : "off");
-  } catch {
-    // private window: the choice lasts until the page closes
-  }
+// Until the person picks, descriptions show in small packs and stay folded in big ones, where
+// they'd make every row several lines tall.
+const BIG_PACK = 30;
+const stored = storage()?.getItem(DESC_KEY);
+const descPick = ref<boolean | null>(stored === "on" ? true : stored === "off" ? false : null);
+const descriptions = computed({
+  get: () => descPick.value ?? (pack.value?.tests.length ?? 0) <= BIG_PACK,
+  set: (on: boolean) => {
+    descPick.value = on;
+    try {
+      storage()?.setItem(DESC_KEY, on ? "on" : "off");
+    } catch {
+      // private window: the choice lasts until the page closes
+    }
+  },
 });
 const hasDescriptions = computed(() => (pack.value?.tests ?? []).some((t) => t.description));
+
+// A pack with more than one section lists its tests under a row per section (then the Section
+// column would only repeat it). With no filter on, a section folds away; filtering opens them all,
+// so a match is never hidden in a folded section.
+const grouped = computed(() => sectionsOf(pack.value?.tests ?? []).length > 1 && !filter.value.section);
+const groups = computed(() => (grouped.value ? groupTests(shown.value) : [{ section: "", tests: shown.value }]));
+const foldable = computed(() => grouped.value && !isFiltered(filter.value));
+const folded = ref(new Set<string>());
+const allFolded = computed(() => groups.value.every((g) => folded.value.has(g.section)));
+function toggleFold(section: string) {
+  const next = new Set(folded.value);
+  if (!next.delete(section)) next.add(section);
+  folded.value = next;
+}
+function foldAll(fold: boolean) {
+  folded.value = new Set(fold ? groups.value.map((g) => g.section) : []);
+}
+const columns = computed(() => 4 + (grouped.value ? 0 : 1) + (hasHistory.value ? 1 : 0));
 
 // Tests that score on something other than the pack's rubric.
 const ownRubric = computed(() => {
@@ -299,7 +325,7 @@ onBeforeUnmount(() => live?.close());
           <MarkdownView :source="readme.text" :resolve-link="readmeLink" :resolve-image="readmeImage" id-prefix="readme-" :label="readme.path" />
         </div>
 
-        <div v-show="tab === 'tests'" id="pack-panel-tests" role="tabpanel" aria-labelledby="pack-tab-tests" class="panel">
+        <div v-show="tab === 'tests'" id="pack-panel-tests" role="tabpanel" aria-labelledby="pack-tab-tests" class="panel tests">
           <div v-if="pack.tests.length" class="finder">
             <label class="sr-only" for="pt-search">Search tests</label>
             <TextField id="pt-search" v-model="filter.search" type="search" class="search" placeholder="Search: id, title, tag, file, description…" />
@@ -311,38 +337,61 @@ onBeforeUnmount(() => live?.close());
             <SelectMenu v-if="hasHistory" id="pt-state" v-model="filter.state" :options="stateOptions" />
             <ToggleSwitch v-if="hasDescriptions" id="pt-desc" v-model="descriptions" class="desc-toggle">Descriptions</ToggleSwitch>
           </div>
-          <p v-if="pack.tests.length && isFiltered(filter)" class="muted small count" aria-live="polite">{{ shown.length }} of {{ pack.tests.length }} tests</p>
-          <table v-if="shown.length" class="tbl">
-            <thead>
-              <tr><th>Test</th><th>Section</th><th>Needs</th><th>Attempts</th><th v-if="hasHistory" class="c-hist">Last {{ HISTORY_LIMIT }} attempts, newest on the right</th><th>File</th></tr>
-            </thead>
-            <tbody>
-              <tr v-for="t in shown" :key="t.id" :class="{ child: t.inside.length > 0 }">
-                <td class="c-test">
-                  <code>{{ t.id }}</code> <span>{{ t.title !== t.id ? t.title : "" }}</span>
-                  <span v-if="t.inside.length" class="muted small">runs inside {{ t.inside.join(" or ") }}</span>
-                  <span v-for="tag in t.tags" :key="tag" class="tag small">{{ tag }}</span>
-                  <span v-if="testHistory[t.id]?.flaky" v-tip="testHistory[t.id]!.flaky!" class="flaky small" tabindex="0">flaky</span>
-                  <p v-if="t.description && descriptions" class="desc muted small">{{ t.description }}</p>
-                </td>
-                <td class="muted" data-label="Section" :class="{ none: !t.section }">{{ t.section ?? "–" }}</td>
-                <td data-label="Needs" :class="{ none: !t.needs.length }"><code v-if="t.needs.length">{{ t.needs.join(", ") }}</code><span v-else class="muted">–</span></td>
-                <td class="num" data-label="Attempts">{{ runsText(t) || "1" }}</td>
-                <td v-if="hasHistory" class="c-hist" :class="{ none: !testHistory[t.id] }">
-                  <div v-if="testHistory[t.id]" class="hist">
-                    <HistoryStrip :entries="testHistory[t.id]!.entries" :label="`Last attempts of ${t.id}`" />
-                    <span v-tip="'Passed, of the attempts that passed, failed or broke'" class="hist-num rate num small">{{ testHistory[t.id]!.rate }}</span>
-                    <span v-tip="'Typical time (median)'" class="hist-num num small muted">{{ testHistory[t.id]!.median }}</span>
-                  </div>
-                  <span v-else class="muted small">No runs yet</span>
-                </td>
-                <td class="muted small file">
-                  <a v-tip="'Edit this test'" class="edit" :href="href({ name: 'edit', id: pack.id, file: t.file, line: t.line })" :aria-label="`Edit ${t.id}`"><Pencil :size="14" /></a>
-                  <FileLink :file="join(pack.dir, t.file)" :label="t.file" />
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          <div v-if="pack.tests.length && (isFiltered(filter) || foldable)" class="listbar">
+            <p class="muted small count" aria-live="polite">{{ isFiltered(filter) ? `${shown.length} of ${pack.tests.length} tests` : `${pack.tests.length} tests in ${groups.length} sections` }}</p>
+            <button v-if="foldable" type="button" class="btn" @click="foldAll(!allFolded)">{{ allFolded ? "Open all sections" : "Fold all sections" }}</button>
+          </div>
+          <div v-if="shown.length" class="tbl-wrap">
+            <table class="tbl">
+              <thead>
+                <tr><th>Test</th><th v-if="!grouped">Section</th><th>Needs</th><th>Attempts</th><th v-if="hasHistory" class="c-hist">Last {{ HISTORY_LIMIT }} attempts, newest on the right</th><th>File</th></tr>
+              </thead>
+              <tbody v-for="g in groups" :key="g.section">
+                <tr v-if="grouped" class="group">
+                  <th :colspan="columns" scope="colgroup">
+                    <button v-if="foldable" type="button" class="fold" :aria-expanded="!folded.has(g.section)" @click="toggleFold(g.section)">
+                      <component :is="folded.has(g.section) ? ChevronRight : ChevronDown" :size="16" />
+                      <span class="gname">{{ g.section || "No section" }}</span>
+                      <span class="muted small num">{{ g.tests.length }}</span>
+                    </button>
+                    <span v-else class="fold">
+                      <span class="gname">{{ g.section || "No section" }}</span>
+                      <span class="muted small num">{{ g.tests.length }}</span>
+                    </span>
+                  </th>
+                </tr>
+                <template v-if="!foldable || !folded.has(g.section)">
+                  <tr v-for="t in g.tests" :key="t.id" :class="{ child: t.inside.length > 0 }">
+                    <td class="c-test">
+                      <div class="tline">
+                        <code class="tid">{{ t.id }}</code>
+                        <span v-if="t.title !== t.id" v-tip="t.title" class="ttitle">{{ t.title }}</span>
+                        <span v-if="t.inside.length" class="muted small inside">runs inside {{ t.inside.join(" or ") }}</span>
+                        <span v-for="tag in t.tags" :key="tag" class="tag small">{{ tag }}</span>
+                        <span v-if="testHistory[t.id]?.flaky" v-tip="testHistory[t.id]!.flaky!" class="flaky small" tabindex="0">flaky</span>
+                      </div>
+                      <p v-if="t.description && descriptions" class="desc muted small">{{ t.description }}</p>
+                    </td>
+                    <td v-if="!grouped" class="muted" data-label="Section" :class="{ none: !t.section }">{{ t.section ?? "–" }}</td>
+                    <td data-label="Needs" :class="{ none: !t.needs.length }"><code v-if="t.needs.length">{{ t.needs.join(", ") }}</code><span v-else class="muted">–</span></td>
+                    <td class="num" data-label="Attempts">{{ runsText(t) || "1" }}</td>
+                    <td v-if="hasHistory" class="c-hist" :class="{ none: !testHistory[t.id] }">
+                      <div v-if="testHistory[t.id]" class="hist">
+                        <HistoryStrip :entries="testHistory[t.id]!.entries" :label="`Last attempts of ${t.id}`" />
+                        <span v-tip="'Passed, of the attempts that passed, failed or broke'" class="hist-num rate num small">{{ testHistory[t.id]!.rate }}</span>
+                        <span v-tip="'Typical time (median)'" class="hist-num num small muted">{{ testHistory[t.id]!.median }}</span>
+                      </div>
+                      <span v-else class="muted small">No runs yet</span>
+                    </td>
+                    <td class="muted small file">
+                      <a v-tip="'Edit this test'" class="edit" :href="href({ name: 'edit', id: pack.id, file: t.file, line: t.line })" :aria-label="`Edit ${t.id}`"><Pencil :size="14" /></a>
+                      <FileLink :file="join(pack.dir, t.file)" :label="t.file" />
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
           <EmptyState v-else-if="pack.tests.length" :icon="SearchX" heading="No tests match" compact :level="3">
             <p>{{ filter.search.trim() ? `Nothing matches "${filter.search.trim()}" with these filters.` : "No test has this section, tag and result." }}</p>
             <template #actions>
@@ -493,14 +542,28 @@ onBeforeUnmount(() => live?.close());
 .tbl tr.child .c-test {
   padding-left: var(--space-5);
 }
+/* The test cell takes the room the other columns leave, and its line ends in an ellipsis. */
 .c-test {
+  width: 100%;
+  max-width: 0;
+}
+.tline {
   display: flex;
-  flex-wrap: wrap;
   align-items: baseline;
-  gap: 2px 8px;
+  gap: 8px;
+  min-width: 0;
+}
+.tline > * {
+  flex: none;
+}
+.tline > .ttitle {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .desc {
-  flex-basis: 100%;
   max-width: 72ch;
   margin: 2px 0 0;
   white-space: pre-line;
@@ -551,12 +614,69 @@ onBeforeUnmount(() => live?.close());
   background: var(--hover);
   color: var(--text);
 }
+.panel.tests {
+  overflow-x: visible;
+}
+.tbl-wrap {
+  overflow-x: auto;
+}
+/* The search and filters stay under the top bar while a long list scrolls. */
 .finder {
+  position: sticky;
+  top: 56px;
+  z-index: 5;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2) var(--space-3);
-  margin-bottom: var(--space-3);
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2) 0;
+  background: var(--surface);
+  border-bottom: var(--border-width) solid var(--line);
+}
+.listbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+}
+.listbar .count {
+  margin: 0;
+}
+.listbar .btn {
+  padding: 2px 10px;
+  font-size: 13px;
+}
+.tbl tr.group th {
+  padding: var(--space-4) 0 var(--space-1);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+.tbl tbody:first-of-type tr.group th {
+  padding-top: var(--space-1);
+}
+.fold {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 2px var(--space-2) 2px 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+}
+button.fold {
+  cursor: pointer;
+}
+button.fold:hover {
+  background: var(--hover);
+}
+button.fold > svg {
+  color: var(--muted);
 }
 .finder > .search {
   flex: 1 1 260px;
@@ -565,9 +685,6 @@ onBeforeUnmount(() => live?.close());
 .finder > :deep(.sel) {
   flex: none;
   width: 170px;
-}
-.count {
-  margin: 0 0 var(--space-2);
 }
 .readme-head {
   display: flex;
@@ -711,8 +828,18 @@ onBeforeUnmount(() => live?.close());
     flex: 1 1 140px;
     width: auto;
   }
+  .finder {
+    position: static;
+  }
+  .tbl,
+  .tbl tbody {
+    display: block;
+  }
   .tbl thead {
     display: none;
+  }
+  .tbl tr.group th {
+    flex-basis: 100%;
   }
   .tbl tr {
     display: flex;
@@ -731,7 +858,13 @@ onBeforeUnmount(() => live?.close());
   }
   .tbl td.c-test {
     flex-basis: 100%;
+    max-width: 100%;
+    min-width: 0;
     font-size: 14px;
+  }
+  .tbl tr.group {
+    padding: 0;
+    border-top: 0;
   }
   .tbl td.c-hist {
     flex-basis: 100%;

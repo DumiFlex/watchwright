@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HistoryEntry, PackTest } from "../src/api";
-import { NO_FILTER, filterTests, isFiltered, matchesSearch, sectionsOf, stateOf, tagsOf } from "../src/packtests";
+import { NO_FILTER, filterTests, groupTests, isFiltered, matchesSearch, sectionsOf, stateOf, tagsOf } from "../src/packtests";
 
 const t = (id: string, extra: Partial<PackTest> = {}): PackTest => ({
   id,
@@ -83,4 +83,12 @@ describe("stateOf", () => {
 it("lists sections in order of use and tags sorted", () => {
   expect(sectionsOf(tests)).toEqual(["Connection", "Wildcards", ""]);
   expect(tagsOf(tests)).toEqual(["ai", "s", "w"]);
+});
+
+it("groups tests under their sections in order of use", () => {
+  const groups = groupTests(tests);
+  expect(groups.map((g) => g.section)).toEqual(sectionsOf(tests));
+  expect(groups.flatMap((g) => g.tests).length).toBe(tests.length);
+  for (const g of groups) expect(g.tests.every((t) => (t.section ?? "") === g.section)).toBe(true);
+  expect(groupTests([])).toEqual([]);
 });

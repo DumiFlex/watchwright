@@ -49,3 +49,21 @@ export function sectionsOf(tests: readonly PackTest[]): string[] {
 export function tagsOf(tests: readonly PackTest[]): string[] {
   return [...new Set(tests.flatMap((t) => t.tags))].sort((a, b) => a.localeCompare(b));
 }
+
+export interface TestGroup {
+  /** The section's name; "" for tests without one. */
+  section: string;
+  tests: PackTest[];
+}
+
+/** Tests under their sections, in the order the sections are first used, each keeping its order. */
+export function groupTests(tests: readonly PackTest[]): TestGroup[] {
+  const groups = new Map<string, PackTest[]>();
+  for (const t of tests) {
+    const key = t.section ?? "";
+    const list = groups.get(key);
+    if (list) list.push(t);
+    else groups.set(key, [t]);
+  }
+  return [...groups].map(([section, list]) => ({ section, tests: list }));
+}
