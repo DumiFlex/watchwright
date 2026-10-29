@@ -34,7 +34,7 @@ A pack without a rubric is scored on one 1-to-5 **Overall**. The pack page's **R
 
 ## Scoring on the web page
 
-Open an attempt from the run page. The **Review** panel beside the results has one row of buttons per criterion and a note. Click a score, or focus a row and press a digit; pick the same score again to clear it. Changes save by themselves a moment later. J and K move to the next and previous attempt, so you can work through a run from the keyboard.
+Open an attempt from the run page. The **Review** panel beside the results stays in view while you scroll through the steps and screenshots, and has one row of buttons per criterion and a note. On a narrow screen it sits below them; **Review** at the top of the page jumps there. Click a score, or focus a row and press a digit; pick the same score again to clear it. Changes save by themselves a moment later. J and K move to the next and previous attempt, so you can work through a run from the keyboard.
 
 To talk about one picture or one step, use **Add to review note** in the screenshot viewer or beside a step on the **Steps** timeline. It adds a line naming the shot's file (`Shot 03-results.png: `) or the step and when it started (`Step send › wait at 0:12: `) to your note, with the cursor after it.
 
