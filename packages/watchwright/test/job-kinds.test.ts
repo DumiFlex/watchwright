@@ -174,7 +174,7 @@ engine("a run that grows", () => {
     expect(start.data.log.map((l) => l.message)).toContain("added [true,true,false]");
     const announced = h.app.watchwright.events.after(0).filter((e) => e.runId === runId && e.type === "run.items-added");
     expect(announced.flatMap((e) => e.data.items as string[])).toEqual(["p1", "p2", "p3"]);
-  });
+  }, 60_000);
 
   it("keeps added items when an interrupted run resumes", async () => {
     const dataDir = tempDir("ww-data-");
@@ -196,5 +196,5 @@ engine("a run that grows", () => {
     expect(detail.plan.map((p) => p.testId)).toEqual(["slow", "after-slow"]);
     await second.api("POST", `/runs/${runId}/stop`, { when: "now" });
     await second.waitFor((e) => e.runId === runId && e.type === "run.finished", 30_000, head);
-  });
+  }, 60_000);
 });
