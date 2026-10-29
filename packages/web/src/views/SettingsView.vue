@@ -12,6 +12,7 @@ import { loadSettings, saveSettings, settings } from "../settings";
 import { LOOKS, MODES, type Theme } from "../theme";
 import { notify, notifySupport, turnOffNotify, turnOnNotify, type NotifySupport } from "../notify";
 import { toast } from "../toasts";
+import AboutCard from "../components/AboutCard.vue";
 import AgentsSettings from "../components/AgentsSettings.vue";
 import AlertsSettings from "../components/AlertsSettings.vue";
 import SecretsSettings from "../components/SecretsSettings.vue";
@@ -207,6 +208,8 @@ onMounted(() => {
         <button type="button" class="btn danger" @click="askStop"><Power :size="15" /> Stop Watchwright</button>
       </div>
     </section>
+
+    <AboutCard />
     <ModalDialog v-model="stopOpen" heading="Stop Watchwright?">
       <p v-if="going.length">
         {{ going.length === 1 ? "A run is" : `${going.length} runs are` }} going: <strong>{{ going.map((r) => `${runName(r)} (${r.packName})`).join(", ") }}</strong>. {{ going.length === 1 ? "It stops" : "They stop" }} where {{ going.length === 1 ? "it is" : "they are" }} and can be resumed after Watchwright starts again.
