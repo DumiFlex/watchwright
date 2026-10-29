@@ -99,6 +99,10 @@ The server listens on `127.0.0.1` only. It refuses requests whose `Host` header 
 
 Test packs are code that runs on your machine with your permissions. Only load packs you trust.
 
+## Support
+
+Watchwright is free and made by one person. If it helps you, you can support it through [GitHub Sponsors](https://github.com/sponsors/DumiFlex), [Buy Me a Coffee](https://buymeacoffee.com/dumiflex) or [PayPal](https://paypal.me/dumiflex). More on the [About page](https://dumiflex.github.io/watchwright/about).
+
 ## License
 
 Copyright 2026 DumiFlex. Licensed under the [Apache License, Version 2.0](LICENSE); see [NOTICE](NOTICE).
