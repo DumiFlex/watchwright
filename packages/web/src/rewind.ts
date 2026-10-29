@@ -25,3 +25,24 @@ export function rewindSteps(steps: readonly { at: number; label: string }[], fro
   });
   return out;
 }
+
+/** Playback speeds the rewind offers. */
+export const REWIND_SPEEDS = [0.5, 1, 2, 4] as const;
+
+/**
+ * The time (ms since the epoch) of the frame next to `at` in direction `dir`: the first one
+ * after it, or the last one before it. Null at either end. `times` is in order.
+ */
+export function neighbourFrame(times: readonly number[], at: number, dir: 1 | -1): number | null {
+  if (dir > 0) return times.find((t) => t > at) ?? null;
+  return times.findLast((t) => t < at) ?? null;
+}
+
+/**
+ * Where playback goes after `elapsed` ms at `speed`, and whether it reached the newest kept
+ * frame `end` (ms since the epoch). `at` is the moment shown now.
+ */
+export function playStep(at: number, elapsed: number, speed: number, end: number): { at: number; atEnd: boolean } {
+  const next = at + Math.max(0, elapsed) * speed;
+  return next >= end ? { at: end, atEnd: true } : { at: next, atEnd: false };
+}
