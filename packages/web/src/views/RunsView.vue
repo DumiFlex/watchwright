@@ -581,6 +581,11 @@ onBeforeUnmount(() => {
   justify-content: center;
 }
 @media (max-width: 720px) {
+  /* Two tiles a row, so the runs list starts on the first screen instead of after four tall tiles. */
+  .tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-2);
+  }
   .filters {
     width: 100%;
     flex-wrap: wrap;
