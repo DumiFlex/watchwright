@@ -1,8 +1,9 @@
 <script setup lang="ts">
 // Settings: this browser's look and mode, and the server's machine-wide preferences (the editor
 // file links open in, recent folders). Machine-wide values are kept by the server (`/settings`),
-// so every browser and agent sees the same; the look stays in this browser.
-import { computed, inject, onMounted, ref, type Ref } from "vue";
+// so every browser and agent sees the same; the look stays in this browser. A list of the sections
+// beside the cards jumps to each.
+import { computed, inject, onBeforeUnmount, onMounted, ref, type Ref } from "vue";
 import { History, Power, Trash2 } from "../icons";
 import { getJson, runName, sendJson, type FolderPlaces, type RunSummary } from "../api";
 import { EDITOR_OPTIONS, editorUrl, type Editor } from "../editor";
@@ -12,6 +13,7 @@ import { loadSettings, saveSettings, settings } from "../settings";
 import { LOOKS, MODES, type Theme } from "../theme";
 import { notify, notifySupport, turnOffNotify, turnOnNotify, type NotifySupport } from "../notify";
 import { toast } from "../toasts";
+import { sectionAt } from "../toc";
 import AboutCard from "../components/AboutCard.vue";
 import AgentsSettings from "../components/AgentsSettings.vue";
 import AlertsSettings from "../components/AlertsSettings.vue";
@@ -112,10 +114,51 @@ async function stopServer() {
   stopped.value = true;
 }
 
+// The section list: a link per card, down the side on wide screens and above the cards on narrow
+// ones. The one marked is the last whose heading has passed the top bar (the last one at the
+// bottom of the page, which may never get that far).
+const SECTIONS = [
+  { id: "s-look", label: "Look and mode" },
+  { id: "s-editor", label: "Editor" },
+  { id: "s-newrun", label: "New run" },
+  { id: "s-notify", label: "Notifications" },
+  { id: "s-secrets", label: "Secrets" },
+  { id: "s-signins", label: "Sign-ins" },
+  { id: "s-alerts", label: "Alerts" },
+  { id: "s-agents", label: "Agents" },
+  { id: "s-recent", label: "Recent folders" },
+  { id: "s-server", label: "Server" },
+  { id: "s-about", label: "About" },
+];
+const TOP_BAR = 56;
+const current = ref(SECTIONS[0]!.id);
+function goTo(id: string) {
+  const card = document.getElementById(id)?.closest("section");
+  if (!card) return;
+  card.scrollIntoView({ behavior: "smooth", block: "start" });
+  current.value = id;
+}
+let frame = 0;
+function markCurrent() {
+  frame = 0;
+  const root = document.scrollingElement;
+  const atBottom = !!root && root.scrollTop + window.innerHeight >= root.scrollHeight - 2;
+  const tops = SECTIONS.map((s) => document.getElementById(s.id)?.closest("section")?.getBoundingClientRect().top ?? null);
+  current.value = SECTIONS[sectionAt(tops, TOP_BAR + 24, atBottom)]!.id;
+}
+const onScroll = () => {
+  if (!frame) frame = requestAnimationFrame(markCurrent);
+};
+
 onMounted(() => {
   void loadSettings(true);
   void loadRecent();
   void loadStartup();
+  window.addEventListener("scroll", onScroll, { passive: true });
+});
+onBeforeUnmount(() => {
+  window.removeEventListener("scroll", onScroll);
+  if (frame) cancelAnimationFrame(frame);
 });
 </script>
 
@@ -128,88 +171,99 @@ onMounted(() => {
       </div>
     </div>
 
-    <section class="card" aria-labelledby="s-look">
-      <h2 id="s-look" class="display">Look and mode</h2>
-      <p class="muted small">Also in the Theme menu at the top, and in Ctrl+K.</p>
-      <div class="two">
-        <div>
-          <h3 class="sub">Look</h3>
-          <RadioGroup v-model="look" :options="lookOptions" label="Look" />
-        </div>
-        <div>
-          <h3 class="sub">Mode</h3>
-          <RadioGroup v-model="mode" :options="modeOptions" label="Mode" />
-        </div>
+    <div class="layout">
+      <nav class="toc" aria-label="Settings sections">
+        <ul>
+          <li v-for="sec in SECTIONS" :key="sec.id">
+            <button type="button" :class="{ on: current === sec.id }" :aria-current="current === sec.id ? 'true' : undefined" @click="goTo(sec.id)">{{ sec.label }}</button>
+          </li>
+        </ul>
+      </nav>
+      <div class="sections">
+        <section class="card" aria-labelledby="s-look">
+          <h2 id="s-look" class="display">Look and mode</h2>
+          <p class="muted small">Also in the Theme menu at the top, and in Ctrl+K.</p>
+          <div class="two">
+            <div>
+              <h3 class="sub">Look</h3>
+              <RadioGroup v-model="look" :options="lookOptions" label="Look" />
+            </div>
+            <div>
+              <h3 class="sub">Mode</h3>
+              <RadioGroup v-model="mode" :options="modeOptions" label="Mode" />
+            </div>
+          </div>
+        </section>
+
+        <section class="card" aria-labelledby="s-editor">
+          <h2 id="s-editor" class="display">Editor</h2>
+          <p class="muted small">Test files, build errors and the line a test broke on open in this editor, at the line.</p>
+          <div class="row">
+            <label for="s-editor-pick" class="lbl">Open files in</label>
+            <SelectMenu id="s-editor-pick" v-model="editor" class="pick" :options="EDITOR_OPTIONS" />
+          </div>
+          <p v-if="sample" class="muted small">Links look like <code class="sample">{{ sample }}</code>. The editor must be installed on the computer you browse from.</p>
+        </section>
+
+        <section class="card" aria-labelledby="s-newrun">
+          <h2 id="s-newrun" class="display">New run</h2>
+          <p class="muted small">What the New run page fills in when it opens. A run's "New run like this" and presets always fill in their own choices.</p>
+          <RadioGroup v-model="newRunFrom" :options="newRunOptions" label="New run starts from" />
+        </section>
+
+        <section class="card" aria-labelledby="s-notify">
+          <h2 id="s-notify" class="display">Notifications</h2>
+          <p class="muted small">Kept by this browser. A desktop notice when a run finishes, pauses on a broken test or fails to start, while this tab is in the background. Clicking it opens the run.</p>
+          <ToggleSwitch id="s-notify-on" v-model="notices" :disabled="support === 'unsupported'">Desktop notifications</ToggleSwitch>
+          <p v-if="support === 'unsupported'" class="muted small">This browser can't show notifications for this page.</p>
+          <p v-else-if="support === 'denied'" class="muted small">The browser blocks notifications for this page. Allow them in its site settings, then switch this on.</p>
+        </section>
+
+        <SecretsSettings />
+        <SigninsSettings />
+        <AlertsSettings />
+
+        <AgentsSettings />
+
+        <section class="card" aria-labelledby="s-recent">
+          <h2 id="s-recent" class="display">Recent folders</h2>
+          <p class="muted small">The folder browser lists the last ten folders packs were added or moved from.</p>
+          <ul v-if="recent.length" class="recent">
+            <li v-for="r in recent" :key="r.path">
+              <History :size="15" class="muted" />
+              <code class="rpath" :class="{ gone: !r.exists }">{{ tildify(r.path, settings.home) }}</code>
+              <span v-tip="when(r.usedAt)" class="muted small">{{ r.exists ? "" : "gone · " }}{{ new Date(r.usedAt).toLocaleDateString() }}</span>
+              <button v-tip="'Forget this folder'" type="button" class="ib" :aria-label="`Forget ${r.path}`" @click="forget(r.path)"><Trash2 :size="14" /></button>
+            </li>
+          </ul>
+          <p v-else class="muted">No recent folders.</p>
+          <button v-if="recent.length" class="btn" @click="forget()">Clear the list</button>
+        </section>
+
+        <section class="card" aria-labelledby="s-server">
+          <h2 id="s-server" class="display">Server</h2>
+          <p class="muted small">Schedules only start runs while Watchwright is running.</p>
+          <template v-if="startup?.supported">
+            <ToggleSwitch id="s-startup" v-model="startAtSignIn">Start at sign-in</ToggleSwitch>
+            <p class="muted small">
+              Puts <code>Watchwright.cmd</code> in your Startup folder. It starts this server minimized when you sign in to Windows, on the same port and data folder, without opening the browser. Turning
+              this off deletes the file.
+            </p>
+          </template>
+          <div v-else-if="startup" class="cmd">
+            <p class="muted small">To start Watchwright when you sign in to this computer, run this command from a LaunchAgent (macOS) or a systemd user unit (Linux):</p>
+            <code class="block">{{ startup.command }}</code>
+          </div>
+          <p class="muted small">Stops the Watchwright program on this machine, like Ctrl+C in its terminal. Runs going at the time are interrupted and can be resumed after it starts again.</p>
+          <p v-if="stopped" class="stopped" role="status">Watchwright has stopped. To start it again, run <code>watchwright serve</code>.</p>
+          <div v-else>
+            <button type="button" class="btn danger" @click="askStop"><Power :size="15" /> Stop Watchwright</button>
+          </div>
+        </section>
+
+        <AboutCard />
       </div>
-    </section>
-
-    <section class="card" aria-labelledby="s-editor">
-      <h2 id="s-editor" class="display">Editor</h2>
-      <p class="muted small">Test files, build errors and the line a test broke on open in this editor, at the line.</p>
-      <div class="row">
-        <label for="s-editor-pick" class="lbl">Open files in</label>
-        <SelectMenu id="s-editor-pick" v-model="editor" class="pick" :options="EDITOR_OPTIONS" />
-      </div>
-      <p v-if="sample" class="muted small">Links look like <code class="sample">{{ sample }}</code>. The editor must be installed on the computer you browse from.</p>
-    </section>
-
-    <section class="card" aria-labelledby="s-newrun">
-      <h2 id="s-newrun" class="display">New run</h2>
-      <p class="muted small">What the New run page fills in when it opens. A run's "New run like this" and presets always fill in their own choices.</p>
-      <RadioGroup v-model="newRunFrom" :options="newRunOptions" label="New run starts from" />
-    </section>
-
-    <section class="card" aria-labelledby="s-notify">
-      <h2 id="s-notify" class="display">Notifications</h2>
-      <p class="muted small">Kept by this browser. A desktop notice when a run finishes, pauses on a broken test or fails to start, while this tab is in the background. Clicking it opens the run.</p>
-      <ToggleSwitch id="s-notify-on" v-model="notices" :disabled="support === 'unsupported'">Desktop notifications</ToggleSwitch>
-      <p v-if="support === 'unsupported'" class="muted small">This browser can't show notifications for this page.</p>
-      <p v-else-if="support === 'denied'" class="muted small">The browser blocks notifications for this page. Allow them in its site settings, then switch this on.</p>
-    </section>
-
-    <SecretsSettings />
-    <SigninsSettings />
-    <AlertsSettings />
-
-    <AgentsSettings />
-
-    <section class="card" aria-labelledby="s-recent">
-      <h2 id="s-recent" class="display">Recent folders</h2>
-      <p class="muted small">The folder browser lists the last ten folders packs were added or moved from.</p>
-      <ul v-if="recent.length" class="recent">
-        <li v-for="r in recent" :key="r.path">
-          <History :size="15" class="muted" />
-          <code class="rpath" :class="{ gone: !r.exists }">{{ tildify(r.path, settings.home) }}</code>
-          <span v-tip="when(r.usedAt)" class="muted small">{{ r.exists ? "" : "gone · " }}{{ new Date(r.usedAt).toLocaleDateString() }}</span>
-          <button v-tip="'Forget this folder'" type="button" class="ib" :aria-label="`Forget ${r.path}`" @click="forget(r.path)"><Trash2 :size="14" /></button>
-        </li>
-      </ul>
-      <p v-else class="muted">No recent folders.</p>
-      <button v-if="recent.length" class="btn" @click="forget()">Clear the list</button>
-    </section>
-
-    <section class="card" aria-labelledby="s-server">
-      <h2 id="s-server" class="display">Server</h2>
-      <p class="muted small">Schedules only start runs while Watchwright is running.</p>
-      <template v-if="startup?.supported">
-        <ToggleSwitch id="s-startup" v-model="startAtSignIn">Start at sign-in</ToggleSwitch>
-        <p class="muted small">
-          Puts <code>Watchwright.cmd</code> in your Startup folder. It starts this server minimized when you sign in to Windows, on the same port and data folder, without opening the browser. Turning
-          this off deletes the file.
-        </p>
-      </template>
-      <div v-else-if="startup" class="cmd">
-        <p class="muted small">To start Watchwright when you sign in to this computer, run this command from a LaunchAgent (macOS) or a systemd user unit (Linux):</p>
-        <code class="block">{{ startup.command }}</code>
-      </div>
-      <p class="muted small">Stops the Watchwright program on this machine, like Ctrl+C in its terminal. Runs going at the time are interrupted and can be resumed after it starts again.</p>
-      <p v-if="stopped" class="stopped" role="status">Watchwright has stopped. To start it again, run <code>watchwright serve</code>.</p>
-      <div v-else>
-        <button type="button" class="btn danger" @click="askStop"><Power :size="15" /> Stop Watchwright</button>
-      </div>
-    </section>
-
-    <AboutCard />
+    </div>
     <ModalDialog v-model="stopOpen" heading="Stop Watchwright?">
       <p v-if="going.length">
         {{ going.length === 1 ? "A run is" : `${going.length} runs are` }} going: <strong>{{ going.map((r) => `${runName(r)} (${r.packName})`).join(", ") }}</strong>. {{ going.length === 1 ? "It stops" : "They stop" }} where {{ going.length === 1 ? "it is" : "they are" }} and can be resumed after Watchwright starts again.
@@ -225,7 +279,79 @@ onMounted(() => {
 
 <style scoped>
 .narrow {
-  max-width: 860px;
+  max-width: 1080px;
+}
+.layout {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+.sections {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+}
+.sections > :deep(section) {
+  scroll-margin-top: calc(56px + var(--space-4));
+}
+.toc {
+  position: sticky;
+  top: calc(56px + var(--space-4));
+}
+.toc ul {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.toc button {
+  display: block;
+  width: 100%;
+  padding: 6px var(--space-3);
+  border: 0;
+  border-left: 2px solid var(--line);
+  border-radius: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.toc button:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+.toc button.on {
+  border-left-color: var(--accent);
+  color: var(--text);
+  font-weight: 600;
+}
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .toc {
+    position: static;
+  }
+  .toc ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  .toc button {
+    width: auto;
+    padding: 4px 10px;
+    border: var(--border-width) solid var(--line);
+    border-radius: var(--radius-chip);
+    font-size: 13px;
+  }
+  .toc button.on {
+    border-color: var(--line);
+    font-weight: 400;
+  }
 }
 .card {
   display: grid;
