@@ -275,7 +275,7 @@ onBeforeUnmount(() => live?.close());
           <li v-for="r in runs.slice(0, RECENT)" :key="r.id">
             <a :href="`#/runs/${r.id}`" class="rid"><span v-if="r.label" class="rlabel">{{ r.label }}</span><span class="num">{{ r.id }}</span></a>
             <StatusChip :status="r.status" />
-            <span class="small">{{ countsText(r.counts) }}</span>
+            <span class="small" :class="{ muted: r.status === 'queued' }">{{ r.status === "queued" ? "waiting to start" : countsText(r.counts) }}</span>
             <span v-if="Object.keys(r.params).length" class="rparams small">
               <code v-for="(v, k) in r.params" :key="k">{{ k }}={{ v }}</code>
             </span>

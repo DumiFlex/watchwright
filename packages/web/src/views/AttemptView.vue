@@ -60,6 +60,23 @@ async function load() {
 
 // What the test says it does and what a good result looks like, from the pack (as it is now).
 const description = ref<string | null>(null);
+// A long description folds to four lines, so the failure and the steps under it stay near the top.
+// "Show all" shows only when the fold actually hides text at this width.
+const aboutText = ref<HTMLElement | null>(null);
+const descriptionOpen = ref(false);
+const descriptionCut = ref(false);
+function measureDescription() {
+  const el = aboutText.value;
+  descriptionCut.value = !!el && !descriptionOpen.value && el.scrollHeight > el.clientHeight + 1;
+}
+const longDescription = computed(() => descriptionOpen.value || descriptionCut.value);
+watch(description, async () => {
+  descriptionOpen.value = false;
+  await nextTick();
+  measureDescription();
+});
+onMounted(() => window.addEventListener("resize", measureDescription));
+onBeforeUnmount(() => window.removeEventListener("resize", measureDescription));
 const testPack = ref<Pack | null>(null);
 async function loadDescription(packId: string, testId: string) {
   const p = await getJson<Pack>(`/api/v1/packs/${packId}`);
@@ -330,7 +347,10 @@ watch(
 
       <section v-if="description" class="card about" aria-labelledby="about-title">
         <h2 id="about-title">About this test</h2>
-        <p class="about-text">{{ description }}</p>
+        <p id="about-text" ref="aboutText" class="about-text" :class="{ folded: !descriptionOpen }">{{ description }}</p>
+        <button v-if="longDescription" class="btn more" :aria-expanded="descriptionOpen" aria-controls="about-text" @click="descriptionOpen = !descriptionOpen">
+          {{ descriptionOpen ? "Show less" : "Show all" }}
+        </button>
       </section>
 
       <section v-if="doc.error" class="card problem" :class="{ calm: doc.error.kind === 'skipped' }" aria-labelledby="err-title">
@@ -869,6 +889,16 @@ watch(
   margin: 0;
   max-width: 90ch;
   white-space: pre-line;
+}
+.about-text.folded {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  overflow: hidden;
+}
+.about .more {
+  margin-top: var(--space-2);
 }
 .file-bar {
   display: flex;
