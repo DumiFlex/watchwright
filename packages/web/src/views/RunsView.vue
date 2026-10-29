@@ -253,7 +253,7 @@ onBeforeUnmount(() => {
             <StatusChip :status="r.status" />
             <ProgressBar class="aprog" :value="done(r.counts)" :max="Math.max(1, r.counts.planned)" :label="`${r.packName} progress`" :tone="r.counts.broken || r.counts.failed ? 'warn' : 'accent'" />
             <span class="muted small">
-              {{ done(r.counts) }} of {{ r.counts.planned }} tests<template v-if="r.counts.failed"> · {{ r.counts.failed }} failed</template><template v-if="r.counts.broken"> · {{ r.counts.broken }} broken</template>
+              {{ done(r.counts) }} of {{ r.counts.planned }} {{ r.counts.planned === 1 ? "attempt" : "attempts" }}<template v-if="r.counts.failed"> · {{ r.counts.failed }} failed</template><template v-if="r.counts.broken"> · {{ r.counts.broken }} broken</template>
               <template v-if="r.startedAt"> · {{ duration(runDuration(r, now)) }}</template>
               <template v-else> · waiting for its site</template>
             </span>

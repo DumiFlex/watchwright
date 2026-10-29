@@ -11,6 +11,8 @@ export interface LiveSubscription {
 
 export interface LiveHandlers {
   onState?(state: LiveState): void;
+  /** The server's newest event when the subscription began: events up to it are the replayed backlog. */
+  onHello?(head: number): void;
   onEvent?(event: WwEvent): void;
   onFrame?(header: FrameHeader, jpeg: Uint8Array): void;
 }
@@ -47,6 +49,11 @@ export class LiveConnection {
         return;
       }
       const parsed = JSON.parse(msg.data) as { type: string; data: WwEvent };
+      if (parsed.type === "hello") {
+        const head = (parsed.data as unknown as { head?: unknown }).head;
+        if (typeof head === "number") this.handlers.onHello?.(head);
+        return;
+      }
       if (parsed.type !== "event") return;
       this.lastSeq = parsed.data.seq;
       this.handlers.onEvent?.(parsed.data);

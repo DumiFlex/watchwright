@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Ban, Keyboard, Pencil, Plus, Repeat, Undo2 } from "../icons";
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, sendJson, type ChangeSide, type Criterion, type Pack, type Review, type RunChanges, type RunDetail, type WwEvent } from "../api";
 import { LiveConnection, type LiveState } from "../live";
 import DataTable from "../components/DataTable.vue";
@@ -20,7 +20,7 @@ import { countsText, duration } from "../format";
 import { levelOf, type LogLine } from "../logview";
 import { href } from "../router";
 import { resultRows, type ResultRow } from "../review";
-import { canMove as canMoveRow, movable as movableRow } from "../queue";
+import { canMove as canMoveRow, followTop, movable as movableRow, rowInView } from "../queue";
 import { useShortcut } from "../keys";
 import { offerNotify } from "../notify";
 import { resetHead, setIconDot, setTitle } from "../pagehead";
@@ -108,15 +108,25 @@ function addLog(line: (typeof log.value)[number]) {
 // Which test an attempt belongs to, so log lines can be filtered by test.
 const attemptTests = new Map<string, string>();
 watch(run, (r) => r?.attempts.forEach((a) => attemptTests.set(a.id, a.testId)));
+// Events up to this sequence number are the backlog the live channel replays on connect. They
+// fill the log, but the banner's step and the rewind captions come from the run's snapshot, or an
+// old test's steps would show as the current one while the backlog plays through.
+let backlogHead = 0;
+function onHello(head: number) {
+  backlogHead = head;
+  scheduleLoad();
+}
 function onEvent(e: WwEvent) {
   if (e.runId !== props.id) return;
   const d = e.data;
+  const replayed = e.seq <= backlogHead;
   switch (e.type) {
     case "attempt.log":
     case "run.log":
       addLog({ seq: e.seq, time: String(d.time ?? e.time), level: String(d.level ?? "info"), message: String(d.message ?? ""), test: (e.attemptId && attemptTests.get(e.attemptId)) || null });
       break;
     case "attempt.step":
+      if (replayed) break;
       step.value = (d.title as string | null) ?? null;
       if (step.value) noteStep(e.time, step.value);
       break;
@@ -135,15 +145,16 @@ function onEvent(e: WwEvent) {
       activePageId.value = String(d.pageId);
       break;
     case "attempt.started":
-      step.value = null;
-      noteStep(e.time, `${String(d.testId)} starts`);
       if (e.attemptId) attemptTests.set(e.attemptId, String(d.testId));
       addLog({ seq: e.seq, time: e.time, level: "info", message: `Started ${d.testId} ${titles.value.get(String(d.testId)) ?? ""} (attempt ${d.number} of ${d.of}${Number(d.try) > 1 ? `, try ${d.try}` : ""})`, test: String(d.testId) });
+      if (replayed) break;
+      step.value = null;
+      noteStep(e.time, `${String(d.testId)} starts`);
       scheduleLoad();
       break;
     case "attempt.finished":
       addLog({ seq: e.seq, time: e.time, level: d.status === "passed" ? "info" : "warn", message: `${d.testId} ${d.status}${d.error ? `: ${String(d.error).split("\n")[0]}` : ""}`, test: String(d.testId) });
-      scheduleLoad();
+      if (!replayed) scheduleLoad();
       break;
     case "review.saved":
       void loadReviews();
@@ -152,9 +163,37 @@ function onEvent(e: WwEvent) {
       addLog({ seq: e.seq, time: e.time, level: "warn", message: String(d.message), test: null });
       break;
     default:
-      if (e.type.startsWith("run.") || e.type.startsWith("pack.")) scheduleLoad();
+      if (!replayed && (e.type.startsWith("run.") || e.type.startsWith("pack."))) scheduleLoad();
   }
 }
+
+// The queue keeps the running attempt in view while it runs, until the person scrolls the queue
+// away from it; scrolling back to the running row picks the follow up again.
+const queueEl = ref<HTMLElement | null>(null);
+let followQueue = true;
+let ownScroll = false;
+const curRow = () => queueEl.value?.querySelector<HTMLElement>("li.cur") ?? null;
+function onQueueScroll() {
+  if (ownScroll) return void (ownScroll = false);
+  const box = queueEl.value;
+  const row = curRow();
+  if (box && row) followQueue = rowInView({ scrollTop: box.scrollTop, height: box.clientHeight }, { top: row.offsetTop, height: row.offsetHeight });
+}
+watch(
+  () => run.value?.plan.findIndex((p) => p.status === "running") ?? -1,
+  async (i) => {
+    if (i < 0 || !followQueue) return;
+    await nextTick();
+    const box = queueEl.value;
+    const row = curRow();
+    if (!box || !row) return;
+    const top = followTop({ scrollTop: box.scrollTop, height: box.clientHeight }, { top: row.offsetTop, height: row.offsetHeight });
+    if (top === null || top === box.scrollTop) return;
+    ownScroll = true;
+    box.scrollTop = top;
+  },
+  { flush: "post" },
+);
 
 // "Run again": the same pack, tests, values, options and label, started right away.
 async function again() {
@@ -335,7 +374,7 @@ function connect() {
   markSaved.value = null;
   conn = new LiveConnection(
     { runId: props.id, frames: true, after: 0 },
-    { onState: (s) => (liveState.value = s), onEvent, onFrame: (h, jpeg) => void viewer.value?.push(h, jpeg) },
+    { onState: (s) => (liveState.value = s), onHello, onEvent, onFrame: (h, jpeg) => void viewer.value?.push(h, jpeg) },
   );
 }
 onMounted(() => {
@@ -482,8 +521,8 @@ async function remove() {
             <h2 id="queue-title" class="display">Queue</h2>
             <button v-if="active" class="btn" :disabled="busy" @click="openAdd"><Plus :size="15" /> Add tests</button>
           </div>
-          <p class="qcounts muted small">{{ run.counts.passed }} passed · {{ run.counts.failed }} failed · {{ run.counts.broken }} broken · {{ run.counts.planned }} planned</p>
-          <ol class="queue">
+          <p class="qcounts muted small">{{ run.counts.passed }} passed · {{ run.counts.failed }} failed · {{ run.counts.broken }} broken, of {{ run.counts.planned }} {{ run.counts.planned === 1 ? "attempt" : "attempts" }}</p>
+          <ol ref="queueEl" class="queue" @scroll.passive="onQueueScroll">
             <li
               v-for="(p, i) in run.plan"
               :key="`${p.testId}#${p.number}`"
@@ -814,6 +853,7 @@ async function remove() {
   padding: 0;
 }
 .queue {
+  position: relative;
   display: grid;
   gap: 2px;
   max-height: 60vh;
