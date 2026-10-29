@@ -1,11 +1,15 @@
 <script setup lang="ts">
-// One pack: whether it loads, its tests with their metadata, parameters and flag kinds, and
-// its recent runs, then its README the way a code host shows one.
-import { ArrowLeft, CircleDot, Ellipsis, FilePlus, FileText, Pencil, Play, TriangleAlert } from "../icons";
+// One pack: whether it loads, its recent runs, then tabs for its README (the way a code host shows one), its
+// tests with their metadata (searchable and filtered, for packs with hundreds of them),
+// parameters, flag kinds and rubric.
+import { ArrowLeft, CircleDot, Ellipsis, FilePlus, FileText, Pencil, Play, SearchX, TriangleAlert } from "../icons";
 import { nextTestId, recordingTestTemplate, slug, type PackFile } from "../editfiles";
 import { findReadme, packImageUrl, resolveRelative } from "../markdown";
 import MarkdownView from "../components/MarkdownView.vue";
 import TextField from "../components/TextField.vue";
+import SelectMenu from "../components/SelectMenu.vue";
+import ToggleSwitch from "../components/ToggleSwitch.vue";
+import { NO_FILTER, filterTests, isFiltered, sectionsOf, tagsOf, type TestFilter } from "../packtests";
 import { href } from "../router";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, sendJson, type Criterion, type FolderPlaces, type HistoryEntry, type Pack, type PackTest, type RunSummary } from "../api";
@@ -28,6 +32,8 @@ import TabBar from "../components/TabBar.vue";
 import { vTip } from "../tooltip";
 
 const props = defineProps<{ id: string }>();
+/** Runs shown above the tabs; the runs list has the rest. */
+const RECENT = 5;
 
 const pack = ref<Pack | null>(null);
 const runs = ref<RunSummary[]>([]);
@@ -84,15 +90,49 @@ async function confirmRemove() {
   toast(`Removed "${name}"`, { tone: "ok" });
   window.location.hash = "#/packs";
 }
-type Tab = "tests" | "params" | "flags" | "rubric";
+type Tab = "readme" | "tests" | "params" | "flags" | "rubric";
 const tab = ref<Tab>("tests");
+// The README tab opens first when the pack has one, until the person picks a tab themselves.
+let tabPicked = false;
+watch(tab, () => (tabPicked = true));
 
 const tabs = computed(() => [
+  ...(readme.value ? [{ value: "readme" as const, label: "README" }] : []),
   { value: "tests" as const, label: "Tests", count: pack.value?.tests.length ?? 0 },
   { value: "params" as const, label: "Parameters", count: Object.keys(pack.value?.params ?? {}).length },
   { value: "flags" as const, label: "Flags", count: Object.keys(pack.value?.flags ?? {}).length },
   { value: "rubric" as const, label: "Rubric", count: pack.value?.rubric.length ?? 0 },
 ]);
+// Finding tests: a search and filters, and descriptions that can be folded away (kept per browser).
+const filter = ref<TestFilter>({ ...NO_FILTER });
+const shown = computed(() => filterTests(pack.value?.tests ?? [], filter.value, history.value));
+const sectionOptions = computed(() => [{ value: "", label: "All sections" }, ...sectionsOf(pack.value?.tests ?? []).map((s) => ({ value: s, label: s || "No section" }))]);
+const tagOptions = computed(() => [{ value: "", label: "All tags" }, ...tagsOf(pack.value?.tests ?? []).map((t) => ({ value: t, label: t }))]);
+const stateOptions = [
+  { value: "" as const, label: "Any result" },
+  { value: "failing" as const, label: "Failing lately" },
+  { value: "flaky" as const, label: "Flaky" },
+  { value: "passing" as const, label: "Passing lately" },
+  { value: "never" as const, label: "Never run" },
+];
+const DESC_KEY = "watchwright.pack.descriptions";
+const storage = () => {
+  try {
+    return typeof localStorage === "undefined" ? null : localStorage;
+  } catch {
+    return null;
+  }
+};
+const descriptions = ref(storage()?.getItem(DESC_KEY) !== "off");
+watch(descriptions, (on) => {
+  try {
+    storage()?.setItem(DESC_KEY, on ? "on" : "off");
+  } catch {
+    // private window: the choice lasts until the page closes
+  }
+});
+const hasDescriptions = computed(() => (pack.value?.tests ?? []).some((t) => t.description));
+
 // Tests that score on something other than the pack's rubric.
 const ownRubric = computed(() => {
   const base = (pack.value?.rubric ?? []).map((c) => c.id).join(",");
@@ -123,6 +163,10 @@ async function loadReadme() {
   if (!path) return void (readme.value = null);
   const res = await getJson<{ text: string }>(`/api/v1/packs/${props.id}/file?path=${encodeURIComponent(path)}`);
   readme.value = res.ok ? { path, text: res.data.text } : null;
+  if (readme.value && !tabPicked) {
+    tab.value = "readme";
+    tabPicked = false;
+  }
 }
 const readmeImage = (src: string) => (readme.value ? packImageUrl(props.id, readme.value.path, src) : null);
 function readmeLink(target: string): string | null {
@@ -156,7 +200,16 @@ async function reload() {
   await load();
 }
 
-watch(() => props.id, load);
+watch(
+  () => props.id,
+  () => {
+    filter.value = { ...NO_FILTER };
+    readme.value = null;
+    tab.value = "tests";
+    tabPicked = false;
+    void load();
+  },
+);
 let live: LiveConnection | null = null;
 onMounted(async () => {
   void load();
@@ -213,22 +266,64 @@ onBeforeUnmount(() => live?.close());
         <p class="muted small">Fix the files and save: the server builds the pack again by itself.</p>
       </section>
 
+      <section class="card" aria-labelledby="pk-runs">
+        <div class="runs-head">
+          <h2 id="pk-runs" class="display">Recent runs</h2>
+          <a v-if="runs.length" class="small" :href="`#/?pack=${pack.id}`">All runs of this pack</a>
+        </div>
+        <ul v-if="runs.length" class="rlist">
+          <li v-for="r in runs.slice(0, RECENT)" :key="r.id">
+            <a :href="`#/runs/${r.id}`" class="rid"><span v-if="r.label" class="rlabel">{{ r.label }}</span><span class="num">{{ r.id }}</span></a>
+            <StatusChip :status="r.status" />
+            <span class="small">{{ countsText(r.counts) }}</span>
+            <span v-if="Object.keys(r.params).length" class="rparams small">
+              <code v-for="(v, k) in r.params" :key="k">{{ k }}={{ v }}</code>
+            </span>
+            <span v-tip="when(r.startedAt ?? r.createdAt)" class="muted small">{{ ago(r.startedAt ?? r.createdAt) }}</span>
+          </li>
+        </ul>
+        <p v-else class="no-runs muted">
+          <Play :size="15" /> Nothing has run yet. Runs of this pack show here with their results.
+          <a v-if="pack.status === 'ok' && !pack.missing" :href="`#/new?pack=${pack.id}`">Start a run</a>
+        </p>
+      </section>
+
       <section class="card">
         <TabBar v-model="tab" :tabs="tabs" id-prefix="pack" label="Pack details" />
 
+        <div v-if="readme" v-show="tab === 'readme'" id="pack-panel-readme" role="tabpanel" aria-labelledby="pack-tab-readme" class="panel readme">
+          <header class="readme-head">
+            <h2 class="readme-name"><FileText :size="16" /><span class="mono">{{ readme.path }}</span></h2>
+            <a v-tip="'Edit'" class="edit" :href="href({ name: 'edit', id: pack.id, file: readme.path, line: null })" :aria-label="`Edit ${readme.path}`"><Pencil :size="15" /></a>
+          </header>
+          <MarkdownView :source="readme.text" :resolve-link="readmeLink" :resolve-image="readmeImage" id-prefix="readme-" :label="readme.path" />
+        </div>
+
         <div v-show="tab === 'tests'" id="pack-panel-tests" role="tabpanel" aria-labelledby="pack-tab-tests" class="panel">
-          <table v-if="pack.tests.length" class="tbl">
+          <div v-if="pack.tests.length" class="finder">
+            <label class="sr-only" for="pt-search">Search tests</label>
+            <TextField id="pt-search" v-model="filter.search" type="search" class="search" placeholder="Search: id, title, tag, file, description…" />
+            <label class="sr-only" for="pt-section">Section</label>
+            <SelectMenu v-if="sectionOptions.length > 2" id="pt-section" v-model="filter.section" :options="sectionOptions" />
+            <label class="sr-only" for="pt-tag">Tag</label>
+            <SelectMenu v-if="tagOptions.length > 1" id="pt-tag" v-model="filter.tag" :options="tagOptions" />
+            <label class="sr-only" for="pt-state">Result</label>
+            <SelectMenu v-if="hasHistory" id="pt-state" v-model="filter.state" :options="stateOptions" />
+            <ToggleSwitch v-if="hasDescriptions" id="pt-desc" v-model="descriptions" class="desc-toggle">Descriptions</ToggleSwitch>
+          </div>
+          <p v-if="pack.tests.length && isFiltered(filter)" class="muted small count" aria-live="polite">{{ shown.length }} of {{ pack.tests.length }} tests</p>
+          <table v-if="shown.length" class="tbl">
             <thead>
               <tr><th>Test</th><th>Section</th><th>Needs</th><th>Attempts</th><th v-if="hasHistory" class="c-hist">Last {{ HISTORY_LIMIT }} attempts, newest on the right</th><th>File</th></tr>
             </thead>
             <tbody>
-              <tr v-for="t in pack.tests" :key="t.id" :class="{ child: t.inside.length > 0 }">
+              <tr v-for="t in shown" :key="t.id" :class="{ child: t.inside.length > 0 }">
                 <td class="c-test">
                   <code>{{ t.id }}</code> <span>{{ t.title !== t.id ? t.title : "" }}</span>
                   <span v-if="t.inside.length" class="muted small">runs inside {{ t.inside.join(" or ") }}</span>
                   <span v-for="tag in t.tags" :key="tag" class="tag small">{{ tag }}</span>
                   <span v-if="testHistory[t.id]?.flaky" v-tip="testHistory[t.id]!.flaky!" class="flaky small" tabindex="0">flaky</span>
-                  <p v-if="t.description" class="desc muted small">{{ t.description }}</p>
+                  <p v-if="t.description && descriptions" class="desc muted small">{{ t.description }}</p>
                 </td>
                 <td class="muted" data-label="Section" :class="{ none: !t.section }">{{ t.section ?? "–" }}</td>
                 <td data-label="Needs" :class="{ none: !t.needs.length }"><code v-if="t.needs.length">{{ t.needs.join(", ") }}</code><span v-else class="muted">–</span></td>
@@ -248,6 +343,12 @@ onBeforeUnmount(() => live?.close());
               </tr>
             </tbody>
           </table>
+          <EmptyState v-else-if="pack.tests.length" :icon="SearchX" heading="No tests match" compact :level="3">
+            <p>{{ filter.search.trim() ? `Nothing matches "${filter.search.trim()}" with these filters.` : "No test has this section, tag and result." }}</p>
+            <template #actions>
+              <button type="button" class="btn" @click="filter = { ...NO_FILTER }">Clear the filters</button>
+            </template>
+          </EmptyState>
           <EmptyState v-else :icon="FilePlus" heading="No tests yet" compact :level="3">
             <p>Tests are files in the pack folder. Record one by clicking through the site, or write one in the editor.</p>
             <template v-if="!pack.missing" #actions>
@@ -301,36 +402,6 @@ onBeforeUnmount(() => live?.close());
             </dl>
           </template>
         </div>
-      </section>
-
-      <section class="card" aria-labelledby="pk-runs">
-        <h2 id="pk-runs" class="display">Recent runs</h2>
-        <ul v-if="runs.length" class="rlist">
-          <li v-for="r in runs" :key="r.id">
-            <a :href="`#/runs/${r.id}`" class="rid"><span v-if="r.label" class="rlabel">{{ r.label }}</span><span class="num">{{ r.id }}</span></a>
-            <StatusChip :status="r.status" />
-            <span class="small">{{ countsText(r.counts) }}</span>
-            <span v-if="Object.keys(r.params).length" class="rparams small">
-              <code v-for="(v, k) in r.params" :key="k">{{ k }}={{ v }}</code>
-            </span>
-            <span v-tip="when(r.startedAt ?? r.createdAt)" class="muted small">{{ ago(r.startedAt ?? r.createdAt) }}</span>
-          </li>
-        </ul>
-        <EmptyState v-else :icon="Play" heading="Nothing has run yet" compact :level="3">
-          <p>Runs of this pack show here with their results.</p>
-          <template v-if="pack.status === 'ok' && !pack.missing" #actions>
-            <a class="btn primary" :href="`#/new?pack=${pack.id}`">Start a run</a>
-          </template>
-        </EmptyState>
-        <a v-if="runs.length" class="small" :href="`#/?pack=${pack.id}`">All runs of this pack</a>
-      </section>
-
-      <section v-if="readme" class="card readme" aria-labelledby="pk-readme">
-        <header class="readme-head">
-          <h2 id="pk-readme" class="readme-name"><FileText :size="16" /><span class="mono">{{ readme.path }}</span></h2>
-          <a v-tip="'Edit'" class="edit" :href="href({ name: 'edit', id: pack.id, file: readme.path, line: null })" :aria-label="`Edit ${readme.path}`"><Pencil :size="15" /></a>
-        </header>
-        <MarkdownView :source="readme.text" :resolve-link="readmeLink" :resolve-image="readmeImage" id-prefix="readme-" :label="readme.path" />
       </section>
     </template>
     <PageSkeleton v-else-if="!error" label="Loading the pack" :cards="3" />
@@ -480,6 +551,24 @@ onBeforeUnmount(() => live?.close());
   background: var(--hover);
   color: var(--text);
 }
+.finder {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.finder > .search {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+.finder > :deep(.sel) {
+  flex: none;
+  width: 170px;
+}
+.count {
+  margin: 0 0 var(--space-2);
+}
 .readme-head {
   display: flex;
   align-items: center;
@@ -506,6 +595,10 @@ onBeforeUnmount(() => live?.close());
 .readme-name .mono {
   overflow-wrap: anywhere;
 }
+.panel.readme {
+  overflow-x: visible;
+  padding-top: var(--space-5);
+}
 .readme .edit {
   margin-right: 0;
 }
@@ -519,7 +612,7 @@ onBeforeUnmount(() => live?.close());
 }
 .defs {
   display: grid;
-  grid-template-columns: minmax(120px, max-content) 1fr;
+  grid-template-columns: minmax(120px, max-content) minmax(0, 1fr);
   gap: var(--space-2) var(--space-4);
   margin: 0;
 }
@@ -532,8 +625,9 @@ onBeforeUnmount(() => live?.close());
   color: var(--muted);
 }
 .choice {
+  display: inline-block;
   white-space: nowrap;
-  margin-left: 4px;
+  margin: 2px 0 2px 4px;
   padding: 0 4px;
   border-radius: var(--radius-sm);
   background: var(--raised);
@@ -560,9 +654,26 @@ onBeforeUnmount(() => live?.close());
   color: var(--muted);
   background: var(--raised);
 }
+.runs-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+.runs-head h2 {
+  margin: 0;
+}
+.no-runs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+}
 .rlist {
   list-style: none;
-  margin: 0 0 var(--space-2);
+  margin: 0;
   padding: 0;
 }
 .rlist li {
@@ -593,6 +704,13 @@ onBeforeUnmount(() => live?.close());
   color: var(--muted);
 }
 @media (max-width: 720px) {
+  .finder > .search {
+    flex-basis: 100%;
+  }
+  .finder > :deep(.sel) {
+    flex: 1 1 140px;
+    width: auto;
+  }
   .tbl thead {
     display: none;
   }

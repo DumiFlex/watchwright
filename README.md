@@ -1,6 +1,22 @@
 # Watchwright
 
-A browser test harness built on [Playwright](https://playwright.dev) that you watch work live.
+**Browser test and benchmark runs you can watch, pause, fix and score, on your own machine, driven by your own AI agent.**
+
+Watchwright is a test harness built on [Playwright](https://playwright.dev). It's for the runs plain `npx playwright test` isn't made for: long ones that take minutes or hours, where a broken step should pause rather than end the run, where you score what each attempt produced, or where your agent does the driving while you look on.
+
+- **Bench your AI feature across models.** One pack runs per model or setting (`runs: { by: "model", q9: 3, haiku: 1 }`), every attempt keeps its screenshots, text and video, a rubric scores it, and Compare lines the runs up side by side.
+- **Let your agent test and fix your site while you watch.** Claude Code, Codex or any MCP client starts runs, reads results and writes tests. You see the browser live, a broken test pauses for you to fix and retry, and anything that deletes data waits for your approval.
+- **Check your site on a schedule.** Schedules start runs by themselves and alerts reach your phone or chat. The attempt that broke keeps its video, trace and log.
+
+Try it in one command (Node.js 22 or newer):
+
+```bash
+npx watchwright demo
+```
+
+It starts a run of the [TodoMVC example pack](examples/todomvc) against Playwright's public demo app and opens it in your browser. Not sure whether you need Watchwright or Playwright Test? [Watchwright or Playwright Test?](https://dumiflex.github.io/watchwright/guide/watchwright-or-playwright-test) says when to use which.
+
+## What it does
 
 - **Watch it.** Every run streams a live picture of the browser to Watchwright's own web page, with the current test, step and log.
 - **Control it from the page.** Start, pause, resume, retry, skip and stop runs on the website, and review what each test saved: screenshots, text, metrics, video and Playwright traces. Or let a schedule start them, and an alert on your phone or in a chat tell you when one fails.
@@ -36,6 +52,8 @@ pnpm install
 pnpm --filter watchwright exec playwright install chromium firefox
 pnpm serve            # builds, starts the server and opens it
 ```
+
+`npx watchwright demo` does all of this for the TodoMVC example: it gets Chromium if it's missing, starts the server and starts a run.
 
 Then add a test pack on the Packs page (browse to a folder with a `pack.ts` or `pack.yaml` file, or start a new one from a starter) and start a run. The [TodoMVC example](examples/todomvc) is a small pack to try first. [Writing a test pack](packages/site/guide/test-packs.md) explains how to write a pack, and the [HTTP and WebSocket API](packages/site/reference/http-api.md) lists every route, event and the live WebSocket.
 

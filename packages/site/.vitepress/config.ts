@@ -26,6 +26,7 @@ export default defineConfig({
         items: [
           { text: "Getting started", link: "/guide/getting-started" },
           { text: "How it works", link: "/guide/how-it-works" },
+          { text: "Watchwright or Playwright Test?", link: "/guide/watchwright-or-playwright-test" },
           { text: "Writing a test pack", link: "/guide/test-packs" },
           { text: "YAML tests", link: "/guide/yaml-tests" },
           { text: "Editing a pack", link: "/guide/editing" },

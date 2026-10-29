@@ -20,6 +20,7 @@ export const REQUIRED = [
   "dist/cli/main.js",
   "dist/schema/test.json",
   "dist/schema/pack.json",
+  "dist/demo/todomvc/pack.yaml",
   "dist/web/index.html",
   "skill/watchwright/SKILL.md",
 ];
