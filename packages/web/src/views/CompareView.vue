@@ -4,9 +4,9 @@
 // status, score, flags and metrics, plus a screenshot or kept text picked for the whole grid.
 import { computed, ref, watch } from "vue";
 import { getJson, type CompareCell, type Comparison, type Pack, type RunSummary } from "../api";
-import { MAX_COMPARE, differingParams, exportUrl, paramsText, runIdsOf, runScores, shotOf, showOptions } from "../compare";
+import { DIFFER_FIRST, MAX_COMPARE, differingParams, exportUrl, paramsText, rowDiffers, rowMatches, runIdsOf, runScores, shotOf, showOptions } from "../compare";
 import { countsText, duration, when } from "../format";
-import { Columns2 } from "../icons";
+import { Columns2, SearchX } from "../icons";
 import { replaceRoute } from "../router";
 import EmptyState from "../components/EmptyState.vue";
 import ImageDiff from "../components/ImageDiff.vue";
@@ -17,6 +17,8 @@ import MultiSelect from "../components/MultiSelect.vue";
 import SkeletonBlock from "../components/SkeletonBlock.vue";
 import SelectMenu from "../components/SelectMenu.vue";
 import StatusChip from "../components/StatusChip.vue";
+import TextField from "../components/TextField.vue";
+import ToggleSwitch from "../components/ToggleSwitch.vue";
 import { vTip } from "../tooltip";
 
 const props = defineProps<{ query: Record<string, string> }>();
@@ -46,6 +48,18 @@ const exports = computed(() => [
   { value: "md", label: "Markdown", href: exportUrl("md", chosen.value) },
   { value: "zip", label: "Markdown and files (zip)", href: exportUrl("zip", chosen.value) },
 ]);
+// Finding rows: a search, and past a dozen rows only the tests whose runs went differently (status,
+// flags, score or time, the rule Since the last run uses), until the person flips the switch.
+const search = ref("");
+const differPick = ref<boolean | null>(null);
+const onlyDiffer = computed({
+  get: () => differPick.value ?? (data.value?.rows.length ?? 0) > DIFFER_FIRST,
+  set: (on: boolean) => (differPick.value = on),
+});
+const multiRun = computed(() => (data.value?.runs.length ?? 0) > 1);
+const shownRows = computed(() =>
+  (data.value?.rows ?? []).filter((r) => rowMatches(r, search.value) && (!onlyDiffer.value || !multiRun.value || rowDiffers(r.cells))),
+);
 /** Tests with more than one attempt show the attempt number on each row. */
 const manyAttempts = computed(() => {
   const seen = new Map<string, number>();
@@ -209,11 +223,23 @@ const runTag = (i: number) => {
     </section>
 
     <section v-else class="card grid-card" :aria-busy="loading">
-      <div class="scroll">
+      <div class="finder">
+        <label class="sr-only" for="cmp-search">Search tests</label>
+        <TextField id="cmp-search" v-model="search" type="search" class="search" placeholder="Search: id or title" />
+        <ToggleSwitch v-if="multiRun" id="cmp-differ" v-model="onlyDiffer">Only tests that differ</ToggleSwitch>
+        <span class="muted small count" aria-live="polite">{{ shownRows.length === data.rows.length ? `${data.rows.length} rows` : `${shownRows.length} of ${data.rows.length} rows` }}</span>
+      </div>
+      <EmptyState v-if="!shownRows.length" :icon="SearchX" :heading="search.trim() ? 'No test matches' : 'Every test went the same way'" compact :level="3">
+        <p>{{ search.trim() ? `Nothing matches "${search.trim()}"${onlyDiffer && multiRun ? " among the tests that differ" : ""}.` : "In these runs no test changed status, flags, score or time." }}</p>
+        <template #actions>
+          <button type="button" class="btn" @click="(search = ''), (onlyDiffer = false)">Show every test</button>
+        </template>
+      </EmptyState>
+      <div v-else class="scroll">
         <table class="cmp" :style="{ '--runs': data.runs.length }">
           <thead>
             <tr>
-              <th scope="col" class="corner"><span class="muted small">{{ data.rows.length }} rows · {{ data.packName }}</span></th>
+              <th scope="col" class="corner"><span class="muted small">{{ data.packName }}</span></th>
               <th v-for="(r, i) in data.runs" :key="r.id" scope="col" class="runhead">
                 <span v-if="r.label" class="runlabel">{{ r.label }}</span>
                 <a :href="`#/runs/${r.id}`" class="mono runid">{{ r.id }}</a>
@@ -229,7 +255,7 @@ const runTag = (i: number) => {
             </tr>
           </thead>
           <tbody>
-            <template v-for="row in data.rows" :key="rowKey(row)">
+            <template v-for="row in shownRows" :key="rowKey(row)">
               <tr>
                 <th scope="row" class="test">
                   <span><span class="mono">{{ row.testId }}</span> {{ row.title }}</span>
@@ -355,6 +381,21 @@ const runTag = (i: number) => {
 .grid-card {
   padding: 0;
   overflow: hidden;
+}
+.finder {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--border-width) solid var(--line);
+}
+.finder > .search {
+  flex: 0 1 320px;
+  min-width: 0;
+}
+.finder > .count {
+  margin-left: auto;
 }
 .scroll {
   overflow-x: auto;
