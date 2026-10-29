@@ -1,5 +1,14 @@
 # Watchwright
 
+[![npm version](https://img.shields.io/npm/v/watchwright?color=cb3837&logo=npm)](https://www.npmjs.com/package/watchwright)
+[![npm downloads](https://img.shields.io/npm/dm/watchwright?color=cb3837)](https://www.npmjs.com/package/watchwright)
+[![CI](https://github.com/DumiFlex/watchwright/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/DumiFlex/watchwright/actions/workflows/ci.yml)
+[![Node.js](https://img.shields.io/node/v/watchwright?color=5fa04e&logo=nodedotjs&logoColor=white)](https://nodejs.org)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](https://github.com/DumiFlex/watchwright/blob/main/LICENSE)
+[![Docs](https://img.shields.io/badge/docs-dumiflex.github.io-0a7ea4)](https://dumiflex.github.io/watchwright/)
+[![GitHub Sponsors](https://img.shields.io/github/sponsors/DumiFlex?logo=githubsponsors&color=db61a2)](https://github.com/sponsors/DumiFlex)
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-ffdd00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/dumiflex)
+
 **Browser test and benchmark runs you can watch, pause, fix and score, on your own machine, driven by your own AI agent.**
 
 Watchwright is a test harness built on [Playwright](https://playwright.dev). It's for the runs plain `npx playwright test` isn't made for: long ones that take minutes or hours, where a broken step should pause rather than end the run, where you score what each attempt produced, or where your agent does the driving while you look on.
