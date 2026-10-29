@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.2](https://github.com/DumiFlex/watchwright/compare/v0.9.1...v0.9.2) (2026-10-29)
+
+
+### Bug Fixes
+
+* corner step captions and a rewind player (release 0.9.2) ([7240e1f](https://github.com/DumiFlex/watchwright/commit/7240e1fe886c0b2fef5dd08a5d0774003ab99e6b))
+* show step captions in a corner and play the live rewind like a video ([#128](https://github.com/DumiFlex/watchwright/issues/128)) ([8ae53a5](https://github.com/DumiFlex/watchwright/commit/8ae53a513e709c4a15e5d8e85914d8483e8caf57))
+
 ## [0.9.1](https://github.com/DumiFlex/watchwright/compare/v0.9.0...v0.9.1) (2026-10-29)
 
 
