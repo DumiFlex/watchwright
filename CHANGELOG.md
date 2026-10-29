@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.1](https://github.com/DumiFlex/watchwright/compare/v0.9.0...v0.9.1) (2026-10-29)
+
+
+### Bug Fixes
+
+* hide console windows of browsers and ffmpeg on Windows ([#124](https://github.com/DumiFlex/watchwright/issues/124)) ([d50dae0](https://github.com/DumiFlex/watchwright/commit/d50dae099133d39d430f4028d39a29d2b7c6ecd9))
+* hide console windows of browsers and ffmpeg on Windows ([#125](https://github.com/DumiFlex/watchwright/issues/125)) ([087174f](https://github.com/DumiFlex/watchwright/commit/087174fdd76ecb3a5c9d132cdbb37a1463f06603))
+
 ## [0.9.0](https://github.com/DumiFlex/watchwright/compare/v0.8.0...v0.9.0) (2026-10-29)
 
 
