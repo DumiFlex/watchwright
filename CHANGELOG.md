@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.10.0](https://github.com/DumiFlex/watchwright/compare/v0.9.3...v0.10.0) (2026-10-29)
+
+
+### Features
+
+* open a run's page at the tail of a long log ([#148](https://github.com/DumiFlex/watchwright/issues/148)) ([552a259](https://github.com/DumiFlex/watchwright/commit/552a259719a724e2c6100bbe11d98070d1a425df))
+* **web:** a list of the sections on the Settings page ([#147](https://github.com/DumiFlex/watchwright/issues/147)) ([c49cfe5](https://github.com/DumiFlex/watchwright/commit/c49cfe5120bb3b2f26bfdfd43b43a799023d2e19))
+* **web:** compare only the tests that differ, with a search ([#146](https://github.com/DumiFlex/watchwright/issues/146)) ([f242a60](https://github.com/DumiFlex/watchwright/commit/f242a60281e85ca8a6dc36df6eb25a4d953332ee))
+* **web:** fold the runs chart away until asked for ([#149](https://github.com/DumiFlex/watchwright/issues/149)) ([af2adc0](https://github.com/DumiFlex/watchwright/commit/af2adc053e89fb25c118e68adb3f536d8ebccc68))
+* **web:** keep the review in view beside the steps and shots on the attempt page ([#143](https://github.com/DumiFlex/watchwright/issues/143)) ([d390ef3](https://github.com/DumiFlex/watchwright/commit/d390ef3fd01031f5c4c48fb8baabd99ca6713806))
+* **web:** pack Tests tab for big packs: sticky finder, one-line rows, foldable sections ([#144](https://github.com/DumiFlex/watchwright/issues/144)) ([6801657](https://github.com/DumiFlex/watchwright/commit/680165734e40275de72f38c5a8da76c76ea3a4a1))
+
+
+### Bug Fixes
+
+* compare a run with the last run of the same tests and keep Since the last run short ([#138](https://github.com/DumiFlex/watchwright/issues/138)) ([1d6bbf6](https://github.com/DumiFlex/watchwright/commit/1d6bbf683596f97941c2f402ebefba21a97960e3))
+* **web:** fold a long test description on the attempt page, and say a queued run waits ([#141](https://github.com/DumiFlex/watchwright/issues/141)) ([3b91ee8](https://github.com/DumiFlex/watchwright/commit/3b91ee8c1d0133c78cb7dfa16a0f737135503478))
+* **web:** keep the running test in view in a live run's queue ([#137](https://github.com/DumiFlex/watchwright/issues/137)) ([68c0181](https://github.com/DumiFlex/watchwright/commit/68c0181aa150d14095873ce2a9139d4eb2376e52))
+* **web:** keep the top bar inside the window at every width ([#135](https://github.com/DumiFlex/watchwright/issues/135)) ([d52cf55](https://github.com/DumiFlex/watchwright/commit/d52cf5530d27f26f437efa629aa658e2a74c0647))
+* **web:** search and filter a run's results, and keep the attempts in view on a phone ([#139](https://github.com/DumiFlex/watchwright/issues/139)) ([8d24a3e](https://github.com/DumiFlex/watchwright/commit/8d24a3ee038222abf2f7c2c97a8c299111b5cec1))
+* **web:** two stat tiles a row on a phone so the runs list starts on the first screen ([#140](https://github.com/DumiFlex/watchwright/issues/140)) ([e46f17d](https://github.com/DumiFlex/watchwright/commit/e46f17d321e99a456e465c5b6c1d61131905a0bc))
+
 ## [0.9.3](https://github.com/DumiFlex/watchwright/compare/v0.9.2...v0.9.3) (2026-10-29)
 
 
