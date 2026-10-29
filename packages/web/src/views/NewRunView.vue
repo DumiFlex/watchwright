@@ -664,21 +664,27 @@ useShortcut("Mod+Enter", () => !namingOpen.value && void start());
 .plan {
   position: sticky;
   top: calc(56px + var(--space-4));
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: var(--space-2);
   max-height: calc(100vh - 56px - 2 * var(--space-4));
-  overflow: auto;
 }
-.plan h2 {
+.card.plan > h2 {
   margin: 0;
 }
 .sum {
   margin: 0;
 }
 .order {
+  /* The list scrolls inside the card, so Start run stays in sight under it however
+     many tests are planned. */
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   margin: 0;
   padding-left: 22px;
   display: grid;
+  align-content: start;
   gap: 4px;
 }
 .order > li::marker {
@@ -713,11 +719,17 @@ useShortcut("Mod+Enter", () => !namingOpen.value && void start());
   border-left: 2px solid var(--line);
 }
 .go {
+  /* Before the page scrolls, the card can still reach past the window's bottom edge:
+     the button sticks to that edge over the list until it does. */
+  position: sticky;
+  bottom: 0;
+  flex: none;
   display: grid;
   gap: var(--space-2);
-  margin-top: var(--space-2);
-  padding-top: var(--space-3);
+  margin: var(--space-2) 0 -18px;
+  padding: var(--space-3) 0 18px;
   border-top: var(--border-width) solid var(--line);
+  background: var(--surface);
 }
 .go .btn {
   justify-content: center;
@@ -729,6 +741,9 @@ useShortcut("Mod+Enter", () => !namingOpen.value && void start());
   .plan {
     position: static;
     max-height: none;
+  }
+  .order {
+    max-height: min(360px, 50vh);
   }
 }
 </style>
