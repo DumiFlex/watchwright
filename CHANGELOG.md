@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.3](https://github.com/DumiFlex/watchwright/compare/v0.9.2...v0.9.3) (2026-10-29)
+
+
+### Bug Fixes
+
+* keep Start run in sight on the New run page ([#132](https://github.com/DumiFlex/watchwright/issues/132)) ([e457146](https://github.com/DumiFlex/watchwright/commit/e457146a14e0f848a5278a33348a3478eb491f7a))
+
 ## [0.9.2](https://github.com/DumiFlex/watchwright/compare/v0.9.1...v0.9.2) (2026-10-29)
 
 
