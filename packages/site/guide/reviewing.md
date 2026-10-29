@@ -38,7 +38,7 @@ Open an attempt from the run page. The **Review** panel beside the results has o
 
 To talk about one picture or one step, use **Add to review note** in the screenshot viewer or beside a step on the **Steps** timeline. It adds a line naming the shot's file (`Shot 03-results.png: `) or the step and when it started (`Step send › wait at 0:12: `) to your note, with the cursor after it.
 
-Once a run is over, its page shows the results as a grid: one row per test, one column per attempt, with each attempt's status, its score and its flags, and the test's mean score at the end. Scale scores count on a 1-to-5 footing so tests with different scales compare; choices and yes/no criteria are shown but not averaged.
+Once a run is over, its page shows the results as a grid: one row per test, one column per attempt, with each attempt's status, its score and its flags, and the test's mean score at the end. Scale scores count on a 1-to-5 footing so tests with different scales compare; choices and yes/no criteria are shown but not averaged. Past a dozen tests the grid gets a search (every word must match the id or title) and a choice to show only tests with a failed or broken attempt, ones not reviewed yet, or flagged ones.
 
 ## Comparing runs
 

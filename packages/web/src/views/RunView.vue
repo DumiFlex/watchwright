@@ -20,7 +20,7 @@ import { exportUrl } from "../compare";
 import { countsText, duration } from "../format";
 import { levelOf, type LogLine } from "../logview";
 import { href } from "../router";
-import { resultRows, type ResultRow } from "../review";
+import { filterResults, resultRows, type ResultRow, type ResultShow } from "../review";
 import { canMove as canMoveRow, followTop, movable as movableRow, rowInView } from "../queue";
 import { useShortcut } from "../keys";
 import { offerNotify } from "../notify";
@@ -353,6 +353,17 @@ const allChanges = ref(false);
 const shownChanges = computed(() => (allChanges.value ? split.value.moved : split.value.moved.slice(0, CHANGES_SHOWN)));
 const scoreOf = (s: ChangeSide | null) => (s?.score === null || s?.score === undefined ? "–" : s.score.toFixed(1));
 const results = computed(() => (run.value ? resultRows(run.value, reviews.value, rubric.value) : []));
+// Past this many tests the results get a search and a choice of which to show.
+const RESULTS_FINDER = 12;
+const resSearch = ref("");
+const resShow = ref<ResultShow>("all");
+const showOptions = [
+  { value: "all", label: "All tests" },
+  { value: "problems", label: "Failed or broken" },
+  { value: "unreviewed", label: "Not reviewed" },
+  { value: "flagged", label: "Flagged" },
+];
+const shownResults = computed(() => filterResults(results.value, resSearch.value, resShow.value));
 const maxAttempts = computed(() => Math.max(1, ...results.value.flatMap((r) => Object.keys(r.cells).map(Number))));
 const resultColumns = computed(() => [
   { key: "test", label: "Test", sortable: true, value: (r: ResultRow) => r.testId },
@@ -615,10 +626,18 @@ async function remove() {
           <h2 id="results-title" class="display">Results <span class="muted small">{{ countsText(run.counts) }}</span></h2>
           <span class="muted small">Score: the mean of the scale scores, on 1 to 5. Click a cell to open the attempt and review it.</span>
         </div>
-        <DataTable :columns="resultColumns" :rows="results" :row-key="(r) => r.testId" label="Results by test and attempt" clickable @row-click="openRow">
+        <div v-if="results.length > RESULTS_FINDER" class="finder">
+          <label class="sr-only" for="res-search">Search results</label>
+          <TextField id="res-search" v-model="resSearch" type="search" class="search" placeholder="Search: id or title" />
+          <label class="sr-only" for="res-show">Show</label>
+          <SelectMenu id="res-show" v-model="resShow" :options="showOptions" />
+        </div>
+        <p v-if="results.length > RESULTS_FINDER && (resSearch.trim() || resShow !== 'all')" class="muted small count" aria-live="polite">{{ shownResults.length }} of {{ results.length }} tests</p>
+        <DataTable :columns="resultColumns" :rows="shownResults" :row-key="(r) => r.testId" label="Results by test and attempt" clickable @row-click="openRow">
           <template #cell-test="{ row }">
-            <span :class="{ child: row.parent }"><code>{{ row.testId }}</code> {{ row.title !== row.testId ? row.title : "" }}</span>
+            <span class="rtest" :class="{ child: row.parent }"><code>{{ row.testId }}</code> {{ row.title !== row.testId ? row.title : "" }}</span>
           </template>
+          <template #empty>No test matches.</template>
           <template v-for="n in maxAttempts" :key="n" #[`cell-a${n}`]="{ row }">
             <a v-if="row.cells[n]" class="cell" :href="href({ name: 'attempt', runId: run.id, attemptId: row.cells[n].attemptId })" @click.stop>
               <StatusChip :status="row.cells[n].status" />
@@ -968,6 +987,35 @@ async function remove() {
   align-items: center;
   gap: var(--space-2) var(--space-4);
   margin-top: var(--space-3);
+}
+.finder {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.finder > .search {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+.finder > :deep(.sel) {
+  flex: none;
+  width: 190px;
+}
+.count {
+  margin: 0 0 var(--space-2);
+}
+/* On a phone a long title would push the attempts out of view: it keeps one line. */
+@media (max-width: 640px) {
+  .rtest {
+    display: inline-block;
+    max-width: 52vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: bottom;
+  }
 }
 .changes {
   list-style: none;

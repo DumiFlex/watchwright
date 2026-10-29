@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Criterion } from "../src/api";
-import { attemptScore, mean, onFive, resultRows, scoreText } from "../src/review";
+import { attemptScore, filterResults, mean, onFive, resultRows, scoreText, type ResultRow } from "../src/review";
 
 const correct: Criterion = { id: "correct", title: "Correct", description: null, kind: "scale", scale: 5 };
 const tone: Criterion = { id: "tone", title: "Tone", description: null, kind: "scale", scale: 3 };
@@ -60,5 +60,26 @@ describe("review helpers", () => {
     expect(rows[0]!.cells[2]).toMatchObject({ status: "failed", flags: 2, score: 3, reviewed: true });
     expect(rows[0]!.score).toBe(4);
     expect(rows[1]!.score).toBeNull();
+  });
+});
+
+describe("filtering results", () => {
+  const cell = (status: string, over: Partial<{ reviewed: boolean; flags: number }> = {}) => ({ attemptId: "a", status, flags: 0, score: null, reviewed: false, ...over });
+  const row = (testId: string, title: string, cells: ReturnType<typeof cell>[]): ResultRow => ({ testId, title, parent: null, score: null, cells: Object.fromEntries(cells.map((c, i) => [i + 1, c])) });
+  const rows = [
+    row("SEA1", "Search finds boots", [cell("passed", { reviewed: true })]),
+    row("SEA2", "Search for hats", [cell("passed", { reviewed: true }), cell("failed", { reviewed: true })]),
+    row("CAR1", "Cart adds boots", [cell("broken", { flags: 1 })]),
+  ];
+  const ids = (r: ResultRow[]) => r.map((x) => x.testId);
+  it("matches every word in the id or title", () => {
+    expect(ids(filterResults(rows, "boots", "all"))).toEqual(["SEA1", "CAR1"]);
+    expect(ids(filterResults(rows, "sea BOOTS", "all"))).toEqual(["SEA1"]);
+    expect(ids(filterResults(rows, "  ", "all"))).toEqual(["SEA1", "SEA2", "CAR1"]);
+  });
+  it("keeps rows with a failed or broken attempt, an unreviewed one or a flag", () => {
+    expect(ids(filterResults(rows, "", "problems"))).toEqual(["SEA2", "CAR1"]);
+    expect(ids(filterResults(rows, "", "unreviewed"))).toEqual(["CAR1"]);
+    expect(ids(filterResults(rows, "", "flagged"))).toEqual(["CAR1"]);
   });
 });
