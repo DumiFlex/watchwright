@@ -8,6 +8,7 @@ It comes with the [`watchwright` npm package](https://www.npmjs.com/package/watc
 
 ```bash
 watchwright serve [pack folder…] [--port 7420] [--host 127.0.0.1] [--data <folder>] [--no-open]
+watchwright demo [--port 7420] [--data <folder>] [--no-open]
 watchwright status
 watchwright run <pack> [test…] [--param key=value]… [--preset <name>] [--label <text>] [--wait]
 watchwright wait <run> [--after <cursor>] [--timeout <seconds>]
@@ -28,6 +29,17 @@ Starts the server: the web page, the [HTTP API](./http-api) and the store, on `h
 | `--host` | Address to bind. Only loopback addresses (`127.0.0.1`, `localhost`, `::1`). |
 | `--data` | Folder for the database and run files (default: `WATCHWRIGHT_DATA`, else the system's app data folder). |
 | `--no-open` | Don't open the web page on start. |
+
+### demo
+
+A first run in one command, for trying Watchwright out. It:
+
+1. downloads Playwright's Chromium when it isn't there yet (once, about 150 MB),
+2. copies the [TodoMVC example pack](https://github.com/DumiFlex/watchwright/tree/main/examples/todomvc) into the data folder, under `demo/todomvc`,
+3. starts the server, or uses the Watchwright already running on the port, and adds the pack,
+4. starts a run of the pack (labelled **Demo**) against Playwright's public [TodoMVC demo app](https://demo.playwright.dev/todomvc), and opens the run's page.
+
+The run needs the internet to reach the demo app. The server keeps running afterwards, as with `serve`, and takes the same options. The pack is copied only the first time, so changes you make to it in the editor stay; delete the `demo/todomvc` folder to get the original back.
 
 ### status
 

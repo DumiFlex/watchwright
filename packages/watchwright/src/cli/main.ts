@@ -5,6 +5,7 @@ import { VERSION } from "../version.js";
 import { UsageError } from "./args.js";
 import { Client, clientName, DEFAULT_SERVER, serverUrl } from "./client.js";
 import { actionCommand, actionsCommand, EXIT, guarded, processIo, resultsCommand, runCommand, statusCommand, waitCommand, type RunOpts } from "./commands.js";
+import { demoCommand } from "./demo.js";
 import { initAgentCommand } from "./init-agent.js";
 import { mcpCommand } from "./mcp.js";
 import { serveCommand } from "./serve.js";
@@ -13,6 +14,7 @@ const HELP = `Watchwright ${VERSION}
 
 Usage:
   watchwright serve [pack folder…] [--port ${DEFAULT_PORT}] [--host ${DEFAULT_HOST}] [--data <folder>] [--no-open]
+  watchwright demo [--port ${DEFAULT_PORT}] [--data <folder>] [--no-open]
   watchwright status
   watchwright run <pack> [test…] [--param key=value]… [--preset <name>] [--label <text>] [--wait]
   watchwright wait <run> [--after <cursor>] [--timeout <seconds>]
@@ -30,6 +32,11 @@ serve      Starts the server: the web app, the HTTP API and the store. It stays 
   --host     Address to bind. Only loopback addresses for now (127.0.0.1, localhost, ::1).
   --data     Folder for the database and run files (default: WATCHWRIGHT_DATA, else the OS's app data folder).
   --no-open  Don't open the web page in the browser on start.
+
+demo       A first run in one command: gets Playwright's Chromium when it's missing, copies the
+           TodoMVC example pack into the data folder (demo/todomvc), starts the server (or uses
+           the one running), and starts a run of the pack against Playwright's public TodoMVC
+           demo app. The run's page opens in your browser. Takes serve's options.
 
 status     Whether the server is up, and the runs that are going.
 run        Starts a run of a pack (its id, name or folder): every test, or the tests named.
@@ -109,11 +116,12 @@ async function main(argv: string[]): Promise<number> {
     return command === undefined ? EXIT.usage : EXIT.ok;
   }
   // These parse their own options; --help after them shows the help above, where they are described.
-  if ((command === "serve" || command === "mcp" || command === "init-agent") && (argv.includes("--help") || argv.includes("-h"))) {
+  if ((command === "serve" || command === "demo" || command === "mcp" || command === "init-agent") && (argv.includes("--help") || argv.includes("-h"))) {
     console.log(HELP);
     return EXIT.ok;
   }
   if (command === "serve") return serveCommand(argv.slice(1));
+  if (command === "demo") return demoCommand(argv.slice(1));
   if (command === "mcp") return mcpCommand(argv.slice(1));
   if (command === "init-agent") return guarded(processIo, false, () => Promise.resolve(initAgentCommand(processIo, argv.slice(1))));
 

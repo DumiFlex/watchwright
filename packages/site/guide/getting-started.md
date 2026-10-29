@@ -20,6 +20,16 @@ The first line downloads the browsers Playwright drives.
 
 Every version on npm is published by the repository's release workflow and carries a [provenance statement](https://docs.npmjs.com/generating-provenance-statements) that ties it to the commit it was built from; `npm audit signatures` checks it.
 
+### Try the demo
+
+To see a run before writing a pack, start one of the TodoMVC example pack:
+
+```bash
+npx watchwright demo
+```
+
+It downloads Playwright's Chromium if it's missing, starts the server, adds the example pack and starts a run against Playwright's public [TodoMVC demo app](https://demo.playwright.dev/todomvc). The run's page opens in your browser, with the browser live. The pack's copy sits in the data folder under `demo/todomvc`; open it in **Packs** to read its tests. See [`watchwright demo`](../reference/cli#demo).
+
 ### From a clone
 
 To work on Watchwright itself, run it from a clone of the repository (with pnpm 9; `corepack enable` sets it up from `package.json`):

@@ -42,7 +42,7 @@
     "NOTICE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && node scripts/write-schemas.mjs",
+    "build": "tsc -p tsconfig.build.json && node scripts/write-schemas.mjs && node scripts/copy-demo.mjs",
     "dev": "tsx watch src/cli/main.ts serve",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "steps-reference": "tsx scripts/steps-reference.ts",
