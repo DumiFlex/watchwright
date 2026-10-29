@@ -101,7 +101,7 @@ Test packs are code that runs on your machine with your permissions. Only load p
 
 ## Support
 
-Watchwright is free and made by one person. If it helps you, you can support it through [GitHub Sponsors](https://github.com/sponsors/DumiFlex), [Buy Me a Coffee](https://buymeacoffee.com/dumiflex) or [PayPal](https://paypal.me/dumiflex). More on the [About page](https://dumiflex.github.io/watchwright/about).
+Watchwright is free and made by one person. If it helps you, you can support it through [GitHub Sponsors](https://github.com/sponsors/DumiFlex), [Buy Me a Coffee](https://buymeacoffee.com/dumiflex) or [PayPal](https://paypal.me/DumiFlex). More on the [About page](https://dumiflex.github.io/watchwright/about).
 
 ## License
 

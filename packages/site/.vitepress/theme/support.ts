@@ -24,6 +24,6 @@ export const supportLinks: SupportLink[] = [
     id: "paypal",
     label: "PayPal",
     detail: "Send any amount through PayPal.me.",
-    href: "https://paypal.me/dumiflex",
+    href: "https://paypal.me/DumiFlex",
   },
 ];
