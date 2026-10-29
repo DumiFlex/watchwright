@@ -7,12 +7,16 @@ export interface LiveSubscription {
   frames?: boolean;
   /** Replay events after this sequence number (default: only new ones). */
   after?: number;
+  /** With `runId`: of the replayed log lines, only the newest this many. */
+  logTail?: number;
 }
 
 export interface LiveHandlers {
   onState?(state: LiveState): void;
   /** The server's newest event when the subscription began: events up to it are the replayed backlog. */
   onHello?(head: number): void;
+  /** How many older log lines the server left out of the replay (with `logTail`). */
+  onBacklog?(skippedLogs: number): void;
   onEvent?(event: WwEvent): void;
   onFrame?(header: FrameHeader, jpeg: Uint8Array): void;
 }
@@ -54,6 +58,11 @@ export class LiveConnection {
         if (typeof head === "number") this.handlers.onHello?.(head);
         return;
       }
+      if (parsed.type === "backlog") {
+        const skipped = (parsed.data as unknown as { skippedLogs?: unknown }).skippedLogs;
+        if (typeof skipped === "number") this.handlers.onBacklog?.(skipped);
+        return;
+      }
       if (parsed.type !== "event") return;
       this.lastSeq = parsed.data.seq;
       this.handlers.onEvent?.(parsed.data);
@@ -69,7 +78,7 @@ export class LiveConnection {
   private send() {
     if (this.socket?.readyState !== WebSocket.OPEN) return;
     const after = this.lastSeq ?? this.sub.after;
-    this.socket.send(JSON.stringify({ type: "subscribe", runId: this.sub.runId ?? null, frames: this.sub.frames ?? false, ...(after === undefined ? {} : { after }) }));
+    this.socket.send(JSON.stringify({ type: "subscribe", runId: this.sub.runId ?? null, frames: this.sub.frames ?? false, ...(after === undefined ? {} : { after }), ...(this.sub.logTail ? { logTail: this.sub.logTail } : {}) }));
   }
 
   close() {

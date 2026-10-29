@@ -55,3 +55,19 @@ describe("event log", () => {
     expect(await waiting).toEqual([]);
   });
 });
+
+describe("the newest events of a run", () => {
+  it("finds where the newest n log lines begin and counts the older ones", () => {
+    const { log } = make();
+    log.append("run.started", {}, { runId: "r1" });
+    const lines = Array.from({ length: 5 }, (_, i) => log.append("attempt.log", { message: `l${i}` }, { runId: "r1" }));
+    log.append("attempt.log", {}, { runId: "r2" });
+    log.append("run.log", {}, { runId: "r1" });
+    const types = ["attempt.log", "run.log"];
+    // The newest three are l3, l4 and the run.log line: l0..l2 are older.
+    expect(log.newest("r1", 0, types, 3)).toEqual({ cut: lines[2]!.seq, older: 3 });
+    expect(log.newest("r1", lines[0]!.seq, types, 3)).toEqual({ cut: lines[2]!.seq, older: 2 });
+    expect(log.newest("r1", 0, types, 6)).toEqual({ cut: 0, older: 0 });
+    expect(log.newest("r3", 0, types, 1)).toEqual({ cut: 0, older: 0 });
+  });
+});

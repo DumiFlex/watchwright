@@ -95,7 +95,8 @@ function scheduleLoad() {
 }
 
 const titles = computed(() => new Map((run.value?.plan ?? []).map((p) => [p.testId, p.title])));
-// The log keeps its newest lines; line numbers count from the first line since the page opened.
+// The log keeps its newest lines, and the server only replays that many when the page opens (a
+// long run has tens of thousands); line numbers count from the run's first line.
 const LOG_LIMIT = 5000;
 const logDropped = ref(0);
 function addLog(line: (typeof log.value)[number]) {
@@ -388,8 +389,8 @@ function connect() {
   logDropped.value = 0;
   markSaved.value = null;
   conn = new LiveConnection(
-    { runId: props.id, frames: true, after: 0 },
-    { onState: (s) => (liveState.value = s), onHello, onEvent, onFrame: (h, jpeg) => void viewer.value?.push(h, jpeg) },
+    { runId: props.id, frames: true, after: 0, logTail: LOG_LIMIT },
+    { onState: (s) => (liveState.value = s), onHello, onBacklog: (n) => (logDropped.value += n), onEvent, onFrame: (h, jpeg) => void viewer.value?.push(h, jpeg) },
   );
 }
 onMounted(() => {

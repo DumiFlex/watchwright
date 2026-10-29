@@ -251,7 +251,7 @@ Event types (open set, more come with later plugins): `run.queued`, `run.started
 { "type": "subscribe", "runId": "1a2b3c4d", "after": 0, "frames": true }
 ```
 
-to get the run's events after `after` (then new ones) as `{ "type": "event", "data": <event> }` text messages, and, with `frames`, binary messages with the screencast: a 4-byte big-endian header length, a JSON header `{ runId, pageId, timestamp, width, height }`, then a JPEG. Leave out `runId` for every event and no frames. Send `subscribe` again to change it. A viewer that falls behind skips frames and only ever gets the newest one per page.
+to get the run's events after `after` (then new ones) as `{ "type": "event", "data": <event> }` text messages, and, with `frames`, binary messages with the screencast: a 4-byte big-endian header length, a JSON header `{ runId, pageId, timestamp, width, height }`, then a JPEG. Leave out `runId` for every event and no frames. With `runId`, `"logTail": 5000` replays only the run's newest 5,000 log lines (`attempt.log`, `run.log`) and every other event; a `{ "type": "backlog", "data": { "skippedLogs": n } }` message first says how many older lines it left out. The run page does this, so a run with a long log opens at its tail. Send `subscribe` again to change it. A viewer that falls behind skips frames and only ever gets the newest one per page.
 
 ### Rewind
 
