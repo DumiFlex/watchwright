@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.0](https://github.com/DumiFlex/watchwright/compare/v0.8.0...v0.9.0) (2026-10-29)
+
+
+### Features
+
+* About section with support buttons in the web app and docs site ([99cc35f](https://github.com/DumiFlex/watchwright/commit/99cc35f8a9ee56c019dcb3faef536806d89f6bb7))
+* add an About section with support buttons to the web app and docs site ([#118](https://github.com/DumiFlex/watchwright/issues/118)) ([ffce61c](https://github.com/DumiFlex/watchwright/commit/ffce61c134563efd742de534ef19497b1bf74852))
+
 ## [0.8.0](https://github.com/DumiFlex/watchwright/compare/v0.7.0...v0.8.0) (2026-10-29)
 
 
