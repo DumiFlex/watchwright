@@ -16,7 +16,15 @@ interface Subscribe {
   /** Only this run's events (plus events that belong to no run), and its frames when `frames` is on. */
   runId?: string | null;
   frames?: boolean;
+  /**
+   * With `runId`: of the run's log lines in that backlog, only the newest this many. The others
+   * are skipped and counted in a `backlog` message, so a long run opens at the tail of its log.
+   */
+  logTail?: number;
 }
+
+/** The events that are log lines, which a long run has by the ten thousand. */
+const LOG_TYPES = ["attempt.log", "run.log"];
 
 function parse(raw: unknown): Subscribe | null {
   try {
@@ -29,8 +37,8 @@ function parse(raw: unknown): Subscribe | null {
 }
 
 /**
- * The live channel. A client sends `{ type: "subscribe", after?, runId?, frames? }` (again to
- * change it) and gets JSON text messages `{ type: "event", data }` plus binary frame messages.
+ * The live channel. A client sends `{ type: "subscribe", after?, runId?, frames?, logTail? }` (again
+ * to change it) and gets JSON text messages `{ type: "event", data }` plus binary frame messages.
  */
 export const livePlugin = definePlugin({
   name: "live",
@@ -108,9 +116,12 @@ export const livePlugin = definePlugin({
         const filter: EventFilter = { runId: msg.runId ?? undefined };
         // Backlog and live listener are attached in one synchronous pass, so no event is missed or sent twice.
         let last = msg.after ?? events.head();
+        const n = msg.logTail;
+        const tail = msg.runId && typeof n === "number" && Number.isInteger(n) && n > 0 ? events.newest(msg.runId, last, LOG_TYPES, n) : null;
+        if (tail && tail.older > 0) socket.send(JSON.stringify({ type: "backlog", data: { skippedLogs: tail.older } }));
         for (;;) {
           const page = events.after(last, filter, 1000);
-          for (const e of page) sendEvent(e);
+          for (const e of page) if (!tail || e.seq > tail.cut || !LOG_TYPES.includes(e.type)) sendEvent(e);
           if (page.length > 0) last = page[page.length - 1]!.seq;
           if (page.length < 1000) break;
         }

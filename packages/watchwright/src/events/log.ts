@@ -102,6 +102,23 @@ export class EventLog {
     }
   }
 
+  /**
+   * Where a run's newest `n` events of these types begin, among those after `seq`: the ones at or
+   * below `cut` are older, and `older` counts them. A viewer that only wants the tail of a long
+   * run's log skips those.
+   */
+  newest(runId: string, seq: number, types: readonly string[], n: number): { cut: number; older: number } {
+    const of = types.map(() => "?").join(", ");
+    const edge = this.db
+      .prepare(`SELECT seq FROM events WHERE run_id = ? AND seq > ? AND type IN (${of}) ORDER BY seq DESC LIMIT 1 OFFSET ?`)
+      .get(runId, seq, ...types, n) as { seq: number } | undefined;
+    if (!edge) return { cut: seq, older: 0 };
+    const count = this.db.prepare(`SELECT COUNT(*) AS n FROM events WHERE run_id = ? AND seq > ? AND seq <= ? AND type IN (${of})`).get(runId, seq, edge.seq, ...types) as {
+      n: number;
+    };
+    return { cut: edge.seq, older: count.n };
+  }
+
   /** The newest sequence number, 0 when the log is empty. */
   head(): number {
     const row = this.db.prepare("SELECT MAX(seq) AS seq FROM events").get() as { seq: number | null };
