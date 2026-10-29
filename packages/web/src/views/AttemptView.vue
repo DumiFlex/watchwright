@@ -1,9 +1,9 @@
 <script setup lang="ts">
 // Everything one attempt saved: error, flags, metrics and notes on top, then tabs for the
 // screenshots (gallery, scroll sets as strips, marks), kept texts, the log, collector records,
-// the video and the trace, with the review beside them (below on narrow screens). J and K step
-// to the next and previous attempt of the run.
-import { ArrowLeft, ChevronLeft, ChevronRight, Columns2, MessageSquarePlus, Pencil } from "../icons";
+// the video and the trace, with the review beside them and in view while they scroll (below
+// on narrow screens). J and K step to the next and previous attempt of the run.
+import { ArrowDown, ArrowLeft, ChevronLeft, ChevronRight, Columns2, MessageSquarePlus, Pencil } from "../icons";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, type Artifact, type Pack, type ResultDocument, type RunDetail } from "../api";
 import { attemptOrder, attemptSteps, besideFile, cellOf, isMarkdown, logMarks, plainText, recordColumns, shotGroups, traceViewerUrl } from "../attempt";
@@ -210,6 +210,11 @@ function reviewShot(image: { name: string; url: string }) {
   open.value = null;
   review.value?.addToNote(`Shot ${file}${image.name && !file.includes(image.name) ? ` (${image.name})` : ""}: `);
 }
+// On a narrow screen the review sits under everything; the header's Review button goes there.
+const side = ref<HTMLElement | null>(null);
+function toReview() {
+  side.value?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
 function reviewStep(s: TimelineStep) {
   review.value?.addToNote(`Step ${s.label} at ${clock(s.start)}: `);
 }
@@ -324,6 +329,7 @@ watch(
   <main class="page">
     <p class="crumb">
       <a :href="href({ name: 'run', id: runId })"><ArrowLeft :size="15" />{{ run ? run.packName : "Run" }} <span class="num">{{ runId }}</span></a>
+      <button v-if="doc" type="button" class="btn small-btn jump" @click="toReview">Review<ArrowDown :size="15" /></button>
     </p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <template v-if="doc">
@@ -345,194 +351,198 @@ watch(
         </div>
       </header>
 
-      <section v-if="description" class="card about" aria-labelledby="about-title">
-        <h2 id="about-title">About this test</h2>
-        <p id="about-text" ref="aboutText" class="about-text" :class="{ folded: !descriptionOpen }">{{ description }}</p>
-        <button v-if="longDescription" class="btn more" :aria-expanded="descriptionOpen" aria-controls="about-text" @click="descriptionOpen = !descriptionOpen">
-          {{ descriptionOpen ? "Show less" : "Show all" }}
-        </button>
-      </section>
-
-      <section v-if="doc.error" class="card problem" :class="{ calm: doc.error.kind === 'skipped' }" aria-labelledby="err-title">
-        <h2 id="err-title">{{ doc.error.kind === "assertion" ? "A check failed" : doc.error.kind === "timeout" ? "Timed out" : doc.error.kind === "stopped" ? "Stopped" : doc.error.kind === "skipped" ? "Skipped" : "The harness couldn't go on" }}</h2>
-        <pre class="msg">{{ plainText(doc.error.message) }}</pre>
-        <p v-if="doc.error.stack && firstOwnFrame(doc.error.stack)" class="where small">
-          In your code:
-          <FileLink :file="firstOwnFrame(doc.error.stack)!.file" :label="tildify(firstOwnFrame(doc.error.stack)!.file, settings.home)" :line="firstOwnFrame(doc.error.stack)!.line" :column="firstOwnFrame(doc.error.stack)!.column" />
-          <a v-if="editLink" class="editlink" :href="editLink"><Pencil :size="14" /> Edit this test</a>
-        </p>
-        <details v-if="doc.error.stack" class="stack">
-          <summary>Stack</summary>
-          <pre>{{ plainText(doc.error.stack) }}</pre>
-        </details>
-      </section>
-
-      <section v-if="doc.flags.length || doc.notes.length || Object.keys(doc.metrics).length" class="card summary" aria-label="Summary">
-        <div v-if="robot.length" class="block">
-          <h3>Robot problems</h3>
-          <ul class="flags">
-            <li v-for="f in robot" :key="f.name" class="robot"><code>{{ f.name }}</code><span v-if="f.detail" class="detail">{{ f.detail }}</span></li>
-          </ul>
-        </div>
-        <div v-if="findings.length" class="block">
-          <h3>Findings</h3>
-          <ul class="flags">
-            <li v-for="f in findings" :key="f.name" class="finding"><code>{{ f.name }}</code><span v-if="f.detail" class="detail">{{ f.detail }}</span></li>
-          </ul>
-        </div>
-        <div v-if="infos.length" class="block">
-          <h3>Info</h3>
-          <ul class="flags">
-            <li v-for="f in infos" :key="f.name"><code>{{ f.name }}</code><span v-if="f.detail" class="detail">{{ f.detail }}</span></li>
-          </ul>
-        </div>
-        <div v-if="Object.keys(doc.metrics).length" class="block">
-          <h3>Metrics</h3>
-          <dl class="facts">
-            <template v-for="(m, k) in doc.metrics" :key="k"><dt>{{ k }}</dt><dd class="num">{{ m.value }} {{ m.unit ?? "" }}</dd></template>
-          </dl>
-        </div>
-        <div v-if="doc.notes.length" class="block">
-          <h3>Notes</h3>
-          <ul class="notes">
-            <li v-for="(n, i) in doc.notes" :key="i">{{ n }}</li>
-          </ul>
-        </div>
-      </section>
-
-      <section v-if="steps.length" class="card steps" aria-labelledby="steps-title">
-        <h2 id="steps-title">Steps <span class="hint">{{ videos.length ? "Pick a step to see it in the video." : "" }}</span></h2>
-        <TimelineScrubber :model-value="playhead" :steps="steps" :duration="span" :marks="marks" label="Attempt time" @update:model-value="scrub" @pick="pickStep" />
-        <FilmStrip v-if="videos[0]" class="film" :src="videos[0].url" :duration="span" :playhead="playhead" :label="`Frames of ${videos[0].name}`" @seek="scrub" />
-        <ol class="steplist">
-          <li v-for="s in steps" :key="s.id">
-            <button type="button" class="steprow" :class="{ on: playhead >= s.start && playhead < s.end }" @click="pickStep(s)">
-              <span class="num muted">{{ clock(s.start) }}</span>
-              <span class="st">{{ s.label }}</span>
-              <span class="num muted dur">{{ stepLength(s) }}</span>
-              <StatusChip v-if="s.status" :status="s.status" />
-              <span v-else aria-hidden="true" />
-            </button>
-            <button v-if="videos.length" v-tip="'Before and after'" type="button" class="ibtn" :aria-label="`Show the page before and after step ${s.label}`" @click="showAround(s)">
-              <Columns2 :size="15" />
-            </button>
-            <button v-tip="'Add to review note'" type="button" class="ibtn" :aria-label="`Add step ${s.label} to the review note`" @click="reviewStep(s)">
-              <MessageSquarePlus :size="15" />
-            </button>
-          </li>
-        </ol>
-      </section>
-
       <div class="body">
-        <section class="card tabs-card">
-          <TabBar v-model="tab" :tabs="tabs" id-prefix="att" label="What the attempt saved" />
+        <div class="col">
+          <section v-if="description" class="card about" aria-labelledby="about-title">
+            <h2 id="about-title">About this test</h2>
+            <p id="about-text" ref="aboutText" class="about-text" :class="{ folded: !descriptionOpen }">{{ description }}</p>
+            <button v-if="longDescription" class="btn more" :aria-expanded="descriptionOpen" aria-controls="about-text" @click="descriptionOpen = !descriptionOpen">
+              {{ descriptionOpen ? "Show less" : "Show all" }}
+            </button>
+          </section>
 
-          <div v-if="tab === 'shots'" id="att-panel-shots" role="tabpanel" aria-labelledby="att-tab-shots" class="panel">
-            <template v-for="(g, gi) in groups" :key="gi">
-              <div v-if="g.set === null" class="gallery">
-                <button v-for="a in g.shots" :key="a.url" type="button" class="thumb" :class="{ mark: a.kind === 'mark' }" @click="openShot(a)">
-                  <img :src="a.url" :alt="a.name" loading="lazy" />
-                  <span class="cap"><span v-if="a.kind === 'mark'" class="tag">mark</span>{{ a.name }}</span>
+          <section v-if="doc.error" class="card problem" :class="{ calm: doc.error.kind === 'skipped' }" aria-labelledby="err-title">
+            <h2 id="err-title">{{ doc.error.kind === "assertion" ? "A check failed" : doc.error.kind === "timeout" ? "Timed out" : doc.error.kind === "stopped" ? "Stopped" : doc.error.kind === "skipped" ? "Skipped" : "The harness couldn't go on" }}</h2>
+            <pre class="msg">{{ plainText(doc.error.message) }}</pre>
+            <p v-if="doc.error.stack && firstOwnFrame(doc.error.stack)" class="where small">
+              In your code:
+              <FileLink :file="firstOwnFrame(doc.error.stack)!.file" :label="tildify(firstOwnFrame(doc.error.stack)!.file, settings.home)" :line="firstOwnFrame(doc.error.stack)!.line" :column="firstOwnFrame(doc.error.stack)!.column" />
+              <a v-if="editLink" class="editlink" :href="editLink"><Pencil :size="14" /> Edit this test</a>
+            </p>
+            <details v-if="doc.error.stack" class="stack">
+              <summary>Stack</summary>
+              <pre>{{ plainText(doc.error.stack) }}</pre>
+            </details>
+          </section>
+
+          <section v-if="doc.flags.length || doc.notes.length || Object.keys(doc.metrics).length" class="card summary" aria-label="Summary">
+            <div v-if="robot.length" class="block">
+              <h3>Robot problems</h3>
+              <ul class="flags">
+                <li v-for="f in robot" :key="f.name" class="robot"><code>{{ f.name }}</code><span v-if="f.detail" class="detail">{{ f.detail }}</span></li>
+              </ul>
+            </div>
+            <div v-if="findings.length" class="block">
+              <h3>Findings</h3>
+              <ul class="flags">
+                <li v-for="f in findings" :key="f.name" class="finding"><code>{{ f.name }}</code><span v-if="f.detail" class="detail">{{ f.detail }}</span></li>
+              </ul>
+            </div>
+            <div v-if="infos.length" class="block">
+              <h3>Info</h3>
+              <ul class="flags">
+                <li v-for="f in infos" :key="f.name"><code>{{ f.name }}</code><span v-if="f.detail" class="detail">{{ f.detail }}</span></li>
+              </ul>
+            </div>
+            <div v-if="Object.keys(doc.metrics).length" class="block">
+              <h3>Metrics</h3>
+              <dl class="facts">
+                <template v-for="(m, k) in doc.metrics" :key="k"><dt>{{ k }}</dt><dd class="num">{{ m.value }} {{ m.unit ?? "" }}</dd></template>
+              </dl>
+            </div>
+            <div v-if="doc.notes.length" class="block">
+              <h3>Notes</h3>
+              <ul class="notes">
+                <li v-for="(n, i) in doc.notes" :key="i">{{ n }}</li>
+              </ul>
+            </div>
+          </section>
+
+          <section v-if="steps.length" class="card steps" aria-labelledby="steps-title">
+            <h2 id="steps-title">Steps <span class="hint">{{ videos.length ? "Pick a step to see it in the video." : "" }}</span></h2>
+            <TimelineScrubber :model-value="playhead" :steps="steps" :duration="span" :marks="marks" label="Attempt time" @update:model-value="scrub" @pick="pickStep" />
+            <FilmStrip v-if="videos[0]" class="film" :src="videos[0].url" :duration="span" :playhead="playhead" :label="`Frames of ${videos[0].name}`" @seek="scrub" />
+            <ol class="steplist">
+              <li v-for="s in steps" :key="s.id">
+                <button type="button" class="steprow" :class="{ on: playhead >= s.start && playhead < s.end }" @click="pickStep(s)">
+                  <span class="num muted">{{ clock(s.start) }}</span>
+                  <span class="st">{{ s.label }}</span>
+                  <span class="num muted dur">{{ stepLength(s) }}</span>
+                  <StatusChip v-if="s.status" :status="s.status" />
+                  <span v-else aria-hidden="true" />
                 </button>
-              </div>
-              <figure v-else class="strip">
-                <figcaption><strong>{{ g.set }}</strong> <span class="muted small">scroll set · {{ g.shots.length }} {{ g.shots.length === 1 ? "shot" : "shots" }}</span></figcaption>
-                <div class="strip-body">
-                  <button v-for="a in g.shots" :key="a.url" v-tip="a.name" type="button" class="strip-shot" @click="openShot(a)">
+                <button v-if="videos.length" v-tip="'Before and after'" type="button" class="ibtn" :aria-label="`Show the page before and after step ${s.label}`" @click="showAround(s)">
+                  <Columns2 :size="15" />
+                </button>
+                <button v-tip="'Add to review note'" type="button" class="ibtn" :aria-label="`Add step ${s.label} to the review note`" @click="reviewStep(s)">
+                  <MessageSquarePlus :size="15" />
+                </button>
+              </li>
+            </ol>
+          </section>
+
+          <section class="card tabs-card">
+            <TabBar v-model="tab" :tabs="tabs" id-prefix="att" label="What the attempt saved" />
+
+            <div v-if="tab === 'shots'" id="att-panel-shots" role="tabpanel" aria-labelledby="att-tab-shots" class="panel">
+              <template v-for="(g, gi) in groups" :key="gi">
+                <div v-if="g.set === null" class="gallery">
+                  <button v-for="a in g.shots" :key="a.url" type="button" class="thumb" :class="{ mark: a.kind === 'mark' }" @click="openShot(a)">
                     <img :src="a.url" :alt="a.name" loading="lazy" />
+                    <span class="cap"><span v-if="a.kind === 'mark'" class="tag">mark</span>{{ a.name }}</span>
                   </button>
                 </div>
-              </figure>
-            </template>
-          </div>
-
-          <div v-else-if="tab === 'texts'" id="att-panel-texts" role="tabpanel" aria-labelledby="att-tab-texts" class="panel texts">
-            <article v-for="[name, text] in texts" :key="name" class="text">
-              <header>
-                <h3>{{ name }}</h3>
-                <span class="muted small">{{ text.length }} characters</span>
-                <button class="btn small-btn" type="button" @click="copy(text)">Copy</button>
-              </header>
-              <pre>{{ text }}</pre>
-            </article>
-          </div>
-
-          <div v-else-if="tab === 'log'" id="att-panel-log" role="tabpanel" aria-labelledby="att-tab-log" class="panel">
-            <LogViewer :lines="logLines" :label="`Log of ${doc.test.id}`" :line-href="lineHref" :focus-line="line ?? null" />
-          </div>
-
-          <div v-else-if="tab === 'collectors'" id="att-panel-collectors" role="tabpanel" aria-labelledby="att-tab-collectors" class="panel">
-            <div v-if="collectors.length > 1" class="filters">
-              <label for="att-collector" class="sr-only">Collector</label>
-              <SelectMenu id="att-collector" v-model="collectorPath" :options="collectorOptions" />
+                <figure v-else class="strip">
+                  <figcaption><strong>{{ g.set }}</strong> <span class="muted small">scroll set · {{ g.shots.length }} {{ g.shots.length === 1 ? "shot" : "shots" }}</span></figcaption>
+                  <div class="strip-body">
+                    <button v-for="a in g.shots" :key="a.url" v-tip="a.name" type="button" class="strip-shot" @click="openShot(a)">
+                      <img :src="a.url" :alt="a.name" loading="lazy" />
+                    </button>
+                  </div>
+                </figure>
+              </template>
             </div>
-            <p v-if="recordsError" class="error">{{ recordsError }}</p>
-            <DataTable
-              v-else
-              :columns="recordCols"
-              :rows="recordRows"
-              :row-key="(r) => r.i"
-              :label="collectors.find((c) => c.url === collectorPath)?.name ?? 'Records'"
-              height="480px"
-              :loading="records === null"
-            >
-              <template #empty>No records.</template>
-            </DataTable>
-            <p class="muted small"><a :href="collectorPath" target="_blank" rel="noopener">Open the JSON</a></p>
-          </div>
 
-          <div v-else-if="tab === 'files'" id="att-panel-files" role="tabpanel" aria-labelledby="att-tab-files" class="panel">
-            <div class="file-bar">
-              <label for="att-file" class="sr-only">File</label>
-              <SelectMenu id="att-file" v-model="filePath" :options="fileOptions" />
-              <span v-if="shownFile" class="muted small">{{ fileSize(shownFile.size) }}</span>
-              <a v-if="shownFile" class="btn small-btn" :href="shownFile.url" target="_blank" rel="noopener">Open</a>
-              <button v-if="fileText" class="btn small-btn" type="button" @click="copy(fileText)">Copy</button>
-              <TabBar v-if="shownMd && fileText !== null" v-model="mdView" :tabs="mdTabs" id-prefix="att-md" label="Show the file as" class="md-tabs" />
+            <div v-else-if="tab === 'texts'" id="att-panel-texts" role="tabpanel" aria-labelledby="att-tab-texts" class="panel texts">
+              <article v-for="[name, text] in texts" :key="name" class="text">
+                <header>
+                  <h3>{{ name }}</h3>
+                  <span class="muted small">{{ text.length }} characters</span>
+                  <button class="btn small-btn" type="button" @click="copy(text)">Copy</button>
+                </header>
+                <pre>{{ text }}</pre>
+              </article>
             </div>
-            <p v-if="fileError" class="muted">{{ fileError }}</p>
-            <div v-else-if="fileText !== null && shownFile && shownMd && mdView === 'preview'" id="att-md-panel-preview" role="tabpanel" aria-labelledby="att-md-tab-preview" class="md-file" tabindex="0">
-              <MarkdownView :source="fileText" :label="`Preview of ${shownFile.name}`" id-prefix="att-md-" :resolve-link="beside" :resolve-image="beside" />
-            </div>
-            <div v-else-if="fileText !== null && shownFile" v-bind="shownMd ? { id: 'att-md-panel-source', role: 'tabpanel', 'aria-labelledby': 'att-md-tab-source' } : {}">
-              <CodeView :code="fileText" :lang="fileLang" :label="shownFile.name" max-height="560px" wrap />
-            </div>
-            <p v-else-if="shownFile && !isText(shownFile)" class="muted">This file isn't text. Open it to see it.</p>
-            <p v-else-if="shownFile" class="muted">Loading…</p>
-          </div>
 
-          <div v-else-if="tab === 'video'" id="att-panel-video" role="tabpanel" aria-labelledby="att-tab-video" class="panel videos">
-            <div v-for="v in videos" :key="v.url" class="video">
-              <VideoPlayer ref="players" :src="v.url" :label="v.name" @time="(sec) => (playhead = sec * 1000)" @duration="(sec) => (videoMs = Math.round(sec * 1000))">
-                <TimelineScrubber
-                  v-if="steps.length"
-                  class="vtimeline"
-                  :model-value="playhead"
-                  :steps="steps"
-                  :duration="videoSpan"
-                  :marks="marks"
-                  :label="`Steps in ${v.name}`"
-                  @update:model-value="scrub"
-                  @pick="pickStep"
-                />
-              </VideoPlayer>
-              <p class="muted small">{{ v.name }} · {{ fileSize(v.size) }} · <a :href="v.url" download>Download</a></p>
+            <div v-else-if="tab === 'log'" id="att-panel-log" role="tabpanel" aria-labelledby="att-tab-log" class="panel">
+              <LogViewer :lines="logLines" :label="`Log of ${doc.test.id}`" :line-href="lineHref" :focus-line="line ?? null" />
             </div>
-          </div>
 
-          <div v-else-if="tab === 'trace' && trace" id="att-panel-trace" role="tabpanel" aria-labelledby="att-tab-trace" class="panel trace">
-            <p>
-              The trace holds every action of this attempt with the page before and after it, the call log, console and network. It opens in Playwright's trace viewer, served by
-              Watchwright, in a new tab.
-            </p>
-            <p class="actions">
-              <a class="btn primary" :href="traceHref" target="_blank" rel="noopener">Open in the trace viewer</a>
-              <a class="btn" :href="trace.url" download>Download trace.zip</a>
-              <span class="muted small">{{ fileSize(trace.size) }}</span>
-            </p>
-          </div>
-        </section>
-        <ReviewPanel ref="review" :run-id="runId" :attempt-id="attemptId" />
+            <div v-else-if="tab === 'collectors'" id="att-panel-collectors" role="tabpanel" aria-labelledby="att-tab-collectors" class="panel">
+              <div v-if="collectors.length > 1" class="filters">
+                <label for="att-collector" class="sr-only">Collector</label>
+                <SelectMenu id="att-collector" v-model="collectorPath" :options="collectorOptions" />
+              </div>
+              <p v-if="recordsError" class="error">{{ recordsError }}</p>
+              <DataTable
+                v-else
+                :columns="recordCols"
+                :rows="recordRows"
+                :row-key="(r) => r.i"
+                :label="collectors.find((c) => c.url === collectorPath)?.name ?? 'Records'"
+                height="480px"
+                :loading="records === null"
+              >
+                <template #empty>No records.</template>
+              </DataTable>
+              <p class="muted small"><a :href="collectorPath" target="_blank" rel="noopener">Open the JSON</a></p>
+            </div>
+
+            <div v-else-if="tab === 'files'" id="att-panel-files" role="tabpanel" aria-labelledby="att-tab-files" class="panel">
+              <div class="file-bar">
+                <label for="att-file" class="sr-only">File</label>
+                <SelectMenu id="att-file" v-model="filePath" :options="fileOptions" />
+                <span v-if="shownFile" class="muted small">{{ fileSize(shownFile.size) }}</span>
+                <a v-if="shownFile" class="btn small-btn" :href="shownFile.url" target="_blank" rel="noopener">Open</a>
+                <button v-if="fileText" class="btn small-btn" type="button" @click="copy(fileText)">Copy</button>
+                <TabBar v-if="shownMd && fileText !== null" v-model="mdView" :tabs="mdTabs" id-prefix="att-md" label="Show the file as" class="md-tabs" />
+              </div>
+              <p v-if="fileError" class="muted">{{ fileError }}</p>
+              <div v-else-if="fileText !== null && shownFile && shownMd && mdView === 'preview'" id="att-md-panel-preview" role="tabpanel" aria-labelledby="att-md-tab-preview" class="md-file" tabindex="0">
+                <MarkdownView :source="fileText" :label="`Preview of ${shownFile.name}`" id-prefix="att-md-" :resolve-link="beside" :resolve-image="beside" />
+              </div>
+              <div v-else-if="fileText !== null && shownFile" v-bind="shownMd ? { id: 'att-md-panel-source', role: 'tabpanel', 'aria-labelledby': 'att-md-tab-source' } : {}">
+                <CodeView :code="fileText" :lang="fileLang" :label="shownFile.name" max-height="560px" wrap />
+              </div>
+              <p v-else-if="shownFile && !isText(shownFile)" class="muted">This file isn't text. Open it to see it.</p>
+              <p v-else-if="shownFile" class="muted">Loading…</p>
+            </div>
+
+            <div v-else-if="tab === 'video'" id="att-panel-video" role="tabpanel" aria-labelledby="att-tab-video" class="panel videos">
+              <div v-for="v in videos" :key="v.url" class="video">
+                <VideoPlayer ref="players" :src="v.url" :label="v.name" @time="(sec) => (playhead = sec * 1000)" @duration="(sec) => (videoMs = Math.round(sec * 1000))">
+                  <TimelineScrubber
+                    v-if="steps.length"
+                    class="vtimeline"
+                    :model-value="playhead"
+                    :steps="steps"
+                    :duration="videoSpan"
+                    :marks="marks"
+                    :label="`Steps in ${v.name}`"
+                    @update:model-value="scrub"
+                    @pick="pickStep"
+                  />
+                </VideoPlayer>
+                <p class="muted small">{{ v.name }} · {{ fileSize(v.size) }} · <a :href="v.url" download>Download</a></p>
+              </div>
+            </div>
+
+            <div v-else-if="tab === 'trace' && trace" id="att-panel-trace" role="tabpanel" aria-labelledby="att-tab-trace" class="panel trace">
+              <p>
+                The trace holds every action of this attempt with the page before and after it, the call log, console and network. It opens in Playwright's trace viewer, served by
+                Watchwright, in a new tab.
+              </p>
+              <p class="actions">
+                <a class="btn primary" :href="traceHref" target="_blank" rel="noopener">Open in the trace viewer</a>
+                <a class="btn" :href="trace.url" download>Download trace.zip</a>
+                <span class="muted small">{{ fileSize(trace.size) }}</span>
+              </p>
+            </div>
+          </section>
+        </div>
+        <div ref="side" class="side">
+          <ReviewPanel ref="review" :run-id="runId" :attempt-id="attemptId" />
+        </div>
       </div>
 
       <ImageViewer v-model="open" :images="viewerImages" :label="`Shots of ${doc.test.id}`">
@@ -588,6 +598,9 @@ watch(
   display: flex;
   align-items: center;
   gap: var(--space-2);
+}
+.stepper .num {
+  white-space: nowrap;
 }
 .btn.off {
   opacity: 0.45;
@@ -680,6 +693,23 @@ watch(
   gap: var(--space-4);
   align-items: start;
 }
+.col {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+}
+/* The review stays in view beside the steps and shots while they scroll (below the top bar). */
+.side {
+  position: sticky;
+  top: calc(56px + var(--space-4));
+  max-height: calc(100vh - 56px - 2 * var(--space-4));
+  overflow-y: auto;
+  border-radius: var(--radius);
+  scroll-margin-top: calc(56px + var(--space-4));
+}
+.jump {
+  display: none;
+}
 .steps {
   display: grid;
   gap: var(--space-3);
@@ -754,6 +784,20 @@ watch(
 @media (max-width: 960px) {
   .body {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .side {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+  .crumb {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+  }
+  .jump {
+    display: inline-flex;
   }
 }
 .panel {
