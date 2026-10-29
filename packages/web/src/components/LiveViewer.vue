@@ -1,14 +1,19 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { getJson, type FrameHeader } from "../api";
-import { History, Radio } from "../icons";
+import { History, Pause, Play, Radio, StepBack, StepForward } from "../icons";
 import { keyOf, pagePoint, screenRect, type ViewInput } from "../liveinput";
-import { rewindSteps, type RewindFrame } from "../rewind";
+import { neighbourFrame, playStep, REWIND_SPEEDS, rewindSteps, type RewindFrame } from "../rewind";
+import { vTip } from "../tooltip";
+import MenuButton from "./MenuButton.vue";
 import TimelineScrubber from "./TimelineScrubber.vue";
 
 // Draws the newest screencast frame of one page on a canvas. It follows the page the run last
 // acted on, unless the viewer picks a tab. Rewind shows the server's last 30 s of frames on a
-// scrubber (with the steps that ran then); live frames keep coming in underneath.
+// scrubber (with the steps that ran then) and plays them like a video: play and pause, speed,
+// one frame back or forward, 5 s jumps (keys as in the video player: Space or K, arrows, comma
+// and period). Live frames keep coming in underneath; playback that reaches the newest kept
+// frame fetches the frames kept since and goes on, and goes back to live once it catches up.
 // With `interactive` (Record), presses, drags, the wheel and keys on the picture are sent to the
 // page in its own pixels (`input`); with `picking`, a click names a point instead (`pick`).
 // `hover` outlines an element (a box in page pixels) until the pointer leaves the picture (`leave`).
@@ -101,15 +106,20 @@ const scrubSteps = computed(() => rewindSteps(props.steps, windowStart.value, wi
 const behind = computed(() => (past.value ? Math.max(0, (pageFrames.value.at(-1)?.timestamp ?? 0) - past.value.header.timestamp) : 0));
 let loading = 0;
 
-async function startRewind() {
-  if (!props.runId) return;
-  rewindError.value = null;
+/** Fetches the server's kept frames; false (with the error shown) when that fails. */
+async function loadIndex(): Promise<boolean> {
+  if (!props.runId) return false;
   const res = await getJson<{ windowMs: number; frames: RewindFrame[] }>(`/api/v1/live/${props.runId}/rewind`);
   if (!res.ok) {
     rewindError.value = res.error.message;
-    return;
+    return false;
   }
   index.value = res.data.frames;
+  return true;
+}
+async function startRewind() {
+  rewindError.value = null;
+  if (!(await loadIndex())) return;
   if (pageFrames.value.length === 0) {
     rewindError.value = "Nothing to rewind to yet.";
     return;
@@ -118,7 +128,91 @@ async function startRewind() {
   playhead.value = windowLength.value;
   void show();
 }
+
+// Playback: the playhead moves with the clock, at the chosen speed.
+const playing = ref(false);
+const speed = ref(1);
+const speedItems = computed(() => REWIND_SPEEDS.map((s) => ({ value: String(s), label: `${s}×`, current: s === speed.value })));
+const windowEnd = computed(() => windowStart.value + windowLength.value);
+let playFrame = 0;
+let lastTick = 0;
+let catchingUp = false;
+function play() {
+  if (!rewinding.value || playing.value) return;
+  playing.value = true;
+  lastTick = performance.now();
+  cancelAnimationFrame(playFrame);
+  playFrame = requestAnimationFrame(playTick);
+}
+function pause() {
+  playing.value = false;
+  cancelAnimationFrame(playFrame);
+}
+function togglePlay() {
+  if (playing.value) pause();
+  else play();
+}
+function playTick(now: number) {
+  if (!playing.value || !rewinding.value) return;
+  const step = playStep(windowStart.value + playhead.value, now - lastTick, speed.value, windowEnd.value);
+  lastTick = now;
+  playhead.value = step.at - windowStart.value;
+  if (step.atEnd) {
+    void catchUp(step.at);
+    return;
+  }
+  playFrame = requestAnimationFrame(playTick);
+}
+/** At the newest kept frame: fetch the frames kept since and go on, or go back to live. */
+async function catchUp(at: number) {
+  if (catchingUp) return;
+  catchingUp = true;
+  const ok = await loadIndex();
+  catchingUp = false;
+  if (!playing.value || !rewinding.value) return;
+  if (!ok) {
+    pause();
+    return;
+  }
+  // Frames newer than the one shown, closer than a frame interval or two to live, count as caught up.
+  if (pageFrames.value.length === 0 || windowEnd.value - at < 250) {
+    backToLive();
+    return;
+  }
+  playhead.value = Math.max(0, at - windowStart.value);
+  lastTick = performance.now();
+  playFrame = requestAnimationFrame(playTick);
+}
+function jump(by: number) {
+  playhead.value = Math.min(windowLength.value, Math.max(0, playhead.value + by));
+}
+function frameStep(dir: 1 | -1) {
+  pause();
+  const t = neighbourFrame(
+    pageFrames.value.map((f) => f.timestamp),
+    past.value?.header.timestamp ?? windowStart.value + playhead.value,
+    dir,
+  );
+  if (t !== null) playhead.value = t - windowStart.value;
+}
+function setSpeed(v: string) {
+  speed.value = Number(v);
+}
+function onRewindKey(e: KeyboardEvent) {
+  // The scrubber and the speed menu handle their own keys.
+  if ((e.target as HTMLElement).closest(".scrub, .speed")) return;
+  const k = e.key;
+  if (k === " " || k === "k" || k === "K") togglePlay();
+  else if (k === "ArrowRight") jump(5000);
+  else if (k === "ArrowLeft") jump(-5000);
+  else if (k === ".") frameStep(1);
+  else if (k === ",") frameStep(-1);
+  else return;
+  e.preventDefault();
+}
+
 function backToLive() {
+  pause();
   rewinding.value = false;
   rewindError.value = null;
   past.value?.bitmap.close();
@@ -188,6 +282,7 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
   if (tick) clearInterval(tick);
+  cancelAnimationFrame(playFrame);
   if (wheelTimer) clearTimeout(wheelTimer);
   if (moveTimer) clearTimeout(moveTimer);
   for (const f of latest.values()) f.bitmap.close();
@@ -393,8 +488,27 @@ defineExpose({ push, backToLive });
       </div>
       <p v-if="!hasFrame" class="placeholder">{{ running ? "Waiting for the first frame…" : "No live picture: the run isn't running." }}</p>
     </div>
-    <div v-if="rewinding" class="rewind">
-      <TimelineScrubber v-model="playhead" :steps="scrubSteps" :duration="windowLength" label="Rewind, the last 30 seconds" />
+    <div v-if="rewinding" class="rewind" role="group" aria-label="Rewind player" tabindex="0" @keydown="onRewindKey">
+      <div class="controls">
+        <button v-tip="playing ? 'Pause (K)' : 'Play (K)'" type="button" class="ib" :aria-label="playing ? 'Pause the rewind' : 'Play the rewind'" @click="togglePlay">
+          <Pause v-if="playing" :size="17" />
+          <Play v-else :size="17" />
+        </button>
+        <button v-tip="'Back one frame (,)'" type="button" class="ib" aria-label="Back one frame" @click="frameStep(-1)">
+          <StepBack :size="17" />
+        </button>
+        <button v-tip="'Forward one frame (.)'" type="button" class="ib" aria-label="Forward one frame" @click="frameStep(1)">
+          <StepForward :size="17" />
+        </button>
+        <button v-tip="'Back 5 seconds (Left)'" type="button" class="ib num" aria-label="Back 5 seconds" @click="jump(-5000)">−5s</button>
+        <button v-tip="'Forward 5 seconds (Right)'" type="button" class="ib num" aria-label="Forward 5 seconds" @click="jump(5000)">+5s</button>
+        <MenuButton class="speed" :items="speedItems" label="Rewind speed" @select="setSpeed">
+          <template #button><span class="num">{{ speed }}×</span></template>
+        </MenuButton>
+      </div>
+      <div class="scrub">
+        <TimelineScrubber v-model="playhead" :steps="scrubSteps" :duration="windowLength" label="Rewind, the last 30 seconds" />
+      </div>
     </div>
     <div class="meta">
       <template v-if="rewinding">
@@ -530,6 +644,48 @@ canvas.picking {
 }
 .back {
   color: var(--warn);
+}
+.rewind {
+  display: grid;
+  gap: var(--space-1);
+  border-radius: var(--radius);
+}
+.rewind:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+.ib {
+  display: grid;
+  place-items: center;
+  min-width: 34px;
+  height: 34px;
+  padding: 0 var(--space-1);
+  flex: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.ib:hover {
+  background: var(--hover);
+}
+.num {
+  font-variant-numeric: tabular-nums;
+}
+.speed :deep(.trigger) {
+  min-width: 44px;
+  border: 0;
+  background: none;
+  font-size: 13px;
 }
 .mini {
   display: inline-flex;

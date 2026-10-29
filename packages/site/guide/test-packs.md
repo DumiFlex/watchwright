@@ -74,7 +74,7 @@ export default pack({
 | `collectors` | Record what the browser does for every attempt (see below). |
 | `helpers` | Adds your own helpers to `h` (see below). |
 | `idle` | Your app's busy check for `h.idle()`: resolve `true` when the app is idle. |
-| `run` | `pauseOnBroken` (default `true`), `pauseLimitMinutes` (default 20), `testTimeout` in ms (default 30 minutes), `trace` (`problems` (default), `always`, `never`), `video` (default `true`), `showActions` (default `true`), `chapters` (show `h.step` titles as cards in the live view, default `false`), `screencastSize`, `frameQuality`. |
+| `run` | `pauseOnBroken` (default `true`), `pauseLimitMinutes` (default 20), `testTimeout` in ms (default 30 minutes), `trace` (`problems` (default), `always`, `never`), `video` (default `true`), `showActions` (default `true`), `chapters` (show each `h.step` title, after the titles of the steps it runs in, as a small caption in the bottom-left corner of the live view and video, default `false`), `screencastSize`, `frameQuality`. |
 
 ## Tests
 

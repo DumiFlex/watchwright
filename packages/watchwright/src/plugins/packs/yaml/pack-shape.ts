@@ -68,7 +68,7 @@ const RUN = obj(
     trace: str("Which attempts keep a trace (default problems).", { enum: ["problems", "always", "never"] }),
     video: bool("Record a video per attempt (default true)."),
     showActions: bool("Draw click points and action titles into the live view (default true)."),
-    chapters: bool("Show each step's title as a card in the live view and video (default false)."),
+    chapters: bool("Show each step's title as a small caption in the bottom-left corner of the live view and video (default false)."),
     screencastSize: size,
     frameQuality: int("JPEG quality of live frames (default 70).", { min: 1, max: 100 }),
   },

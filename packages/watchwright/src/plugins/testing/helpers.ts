@@ -3,6 +3,7 @@ import path from "node:path";
 import type { Locator, Page } from "playwright";
 import { contentTypeOf, safeRelative } from "../../jobs/recorder.js";
 import type { AttemptRuntime } from "../../jobs/runtime.js";
+import { stepCaptions } from "./caption.js";
 import { SkipTest, StepError, type ClickOptions, type FlagKind, type Helpers, type Target } from "../packs/api.js";
 
 // The core `h` helper (docs/plan.md, section 5), ported from the bench robot's Bot without the
@@ -38,6 +39,7 @@ export function createHelpers(rt: HelperRuntime, extend?: (h: Helpers) => Record
     rt.session.setActive(page);
   };
   const steps: string[] = [];
+  const captions = stepCaptions(page);
 
   const until = async (check: () => boolean | Promise<boolean>, timeout: number): Promise<boolean> => {
     const end = Date.now() + timeout;
@@ -120,7 +122,7 @@ export function createHelpers(rt: HelperRuntime, extend?: (h: Helpers) => Record
       recorder.addLog("info", `Step: ${title}`);
       const record = recorder.beginStep(title, steps.length - 1);
       let ok = false;
-      if (rt.chapters) await page.screencast.showChapter(title, { duration: 1200 }).catch(() => undefined);
+      if (rt.chapters) await captions.show(steps.join(" › "));
       try {
         const out = await fn();
         ok = true;
@@ -154,6 +156,7 @@ export function createHelpers(rt: HelperRuntime, extend?: (h: Helpers) => Record
 
     async shot(name, options = {}) {
       await enter();
+      await captions.hide();
       const file = recorder.numberedName(name, ".png");
       const data = options.target ? await loc(options.target).screenshot() : await page.screenshot({ fullPage: options.fullPage ?? false });
       recorder.write("shot", name, file, data, "image/png");
@@ -161,6 +164,7 @@ export function createHelpers(rt: HelperRuntime, extend?: (h: Helpers) => Record
 
     async scrollShots(name, options = {}) {
       await enter();
+      await captions.hide();
       const max = options.max ?? 20;
       const scroller = options.target ? loc(options.target) : null;
       const metrics = async () =>

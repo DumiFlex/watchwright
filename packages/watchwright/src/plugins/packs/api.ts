@@ -194,7 +194,7 @@ export interface PackRunOptions {
   video?: boolean;
   /** Draw click points and action titles into the live view and video (default true). */
   showActions?: boolean;
-  /** Show each `h.step` title as a chapter card in the live view and video (default false). */
+  /** Show each `h.step` title as a small corner caption in the live view and video (default false). */
   chapters?: boolean;
   /** Live view and video size (default: the viewport). */
   screencastSize?: { width: number; height: number };
