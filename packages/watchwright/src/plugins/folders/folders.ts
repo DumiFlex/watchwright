@@ -232,7 +232,7 @@ function isFile(p: string): boolean {
 
 function launchDetached(cmd: string, args: string[]): void {
   try {
-    const child = spawn(cmd, args, { detached: true, stdio: "ignore" });
+    const child = spawn(cmd, args, { detached: true, stdio: "ignore", windowsHide: true });
     child.on("error", () => undefined);
     child.unref();
   } catch {

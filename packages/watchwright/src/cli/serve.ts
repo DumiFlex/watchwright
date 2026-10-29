@@ -8,6 +8,7 @@ import { DEFAULT_HOST, DEFAULT_PORT, LOOPBACK_HOSTS, resolveDataDir } from "../c
 import { buildServer } from "../server/app.js";
 import { openStore } from "../store/db.js";
 import { VERSION } from "../version.js";
+import { hideChildWindows } from "./hide-windows.js";
 
 // `watchwright serve`: the long-lived server (the web app, the HTTP API and the store).
 
@@ -51,6 +52,8 @@ export async function serveCommand(argv: string[], after?: AfterStart): Promise<
   const running = await watchwrightAt(url);
   if (running) return alreadyRunning(url, running, folders, !values["no-open"], after);
 
+  // Before anything starts a child process (a browser, ffmpeg, a pack's commands).
+  hideChildWindows();
   const dataDir = resolveDataDir({ flag: values.data });
   const plugins = BUILTIN_PLUGINS;
   const store = openStore(dataDir, migrationsOf(plugins));
@@ -141,7 +144,7 @@ export function openBrowser(url: string): void {
   const [cmd, args] =
     process.platform === "win32" ? ["cmd", ["/c", "start", "", url]] : process.platform === "darwin" ? ["open", [url]] : ["xdg-open", [url]];
   try {
-    const child = spawn(cmd, args, { detached: true, stdio: "ignore" });
+    const child = spawn(cmd, args, { detached: true, stdio: "ignore", windowsHide: true });
     child.on("error", () => undefined);
     child.unref();
   } catch {
