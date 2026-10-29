@@ -80,3 +80,19 @@ export function resultRows(run: Pick<RunDetail, "plan" | "attempts">, reviews: r
     return { testId, title, parent, cells, score: mean(Object.values(cells).map((c) => c.score)) };
   });
 }
+
+/** Which result rows to show: all, ones with a failed or broken attempt, ones not reviewed yet, or flagged ones. */
+export type ResultShow = "all" | "problems" | "unreviewed" | "flagged";
+
+/** The rows that match the search (every word in the id or title) and the `show` choice. */
+export function filterResults(rows: readonly ResultRow[], search: string, show: ResultShow): ResultRow[] {
+  const words = search.toLowerCase().split(/\s+/).filter(Boolean);
+  return rows.filter((r) => {
+    const cells = Object.values(r.cells);
+    if (show === "problems" && !cells.some((c) => c.status === "failed" || c.status === "broken")) return false;
+    if (show === "unreviewed" && !cells.some((c) => !c.reviewed)) return false;
+    if (show === "flagged" && !cells.some((c) => c.flags > 0)) return false;
+    const text = `${r.testId} ${r.title}`.toLowerCase();
+    return words.every((w) => text.includes(w));
+  });
+}

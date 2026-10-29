@@ -19,6 +19,7 @@ export {
   Calendar,
   CalendarClock,
   Camera,
+  ChartColumn,
   Check,
   ChevronDown,
   ChevronLeft,

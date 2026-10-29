@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Ban, Keyboard, Pencil, Plus, Repeat, Undo2 } from "../icons";
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, sendJson, type ChangeSide, type Criterion, type Pack, type Review, type RunChanges, type RunDetail, type WwEvent } from "../api";
 import { LiveConnection, type LiveState } from "../live";
 import DataTable from "../components/DataTable.vue";
@@ -15,12 +15,13 @@ import SelectMenu from "../components/SelectMenu.vue";
 import StatusChip from "../components/StatusChip.vue";
 import TextArea from "../components/TextArea.vue";
 import TextField from "../components/TextField.vue";
+import { CHANGES_SHOWN, splitChanges } from "../changes";
 import { exportUrl } from "../compare";
 import { countsText, duration } from "../format";
 import { levelOf, type LogLine } from "../logview";
 import { href } from "../router";
-import { resultRows, type ResultRow } from "../review";
-import { canMove as canMoveRow, movable as movableRow } from "../queue";
+import { filterResults, resultRows, type ResultRow, type ResultShow } from "../review";
+import { canMove as canMoveRow, followTop, movable as movableRow, rowInView } from "../queue";
 import { useShortcut } from "../keys";
 import { offerNotify } from "../notify";
 import { resetHead, setIconDot, setTitle } from "../pagehead";
@@ -94,7 +95,8 @@ function scheduleLoad() {
 }
 
 const titles = computed(() => new Map((run.value?.plan ?? []).map((p) => [p.testId, p.title])));
-// The log keeps its newest lines; line numbers count from the first line since the page opened.
+// The log keeps its newest lines, and the server only replays that many when the page opens (a
+// long run has tens of thousands); line numbers count from the run's first line.
 const LOG_LIMIT = 5000;
 const logDropped = ref(0);
 function addLog(line: (typeof log.value)[number]) {
@@ -108,15 +110,25 @@ function addLog(line: (typeof log.value)[number]) {
 // Which test an attempt belongs to, so log lines can be filtered by test.
 const attemptTests = new Map<string, string>();
 watch(run, (r) => r?.attempts.forEach((a) => attemptTests.set(a.id, a.testId)));
+// Events up to this sequence number are the backlog the live channel replays on connect. They
+// fill the log, but the banner's step and the rewind captions come from the run's snapshot, or an
+// old test's steps would show as the current one while the backlog plays through.
+let backlogHead = 0;
+function onHello(head: number) {
+  backlogHead = head;
+  scheduleLoad();
+}
 function onEvent(e: WwEvent) {
   if (e.runId !== props.id) return;
   const d = e.data;
+  const replayed = e.seq <= backlogHead;
   switch (e.type) {
     case "attempt.log":
     case "run.log":
       addLog({ seq: e.seq, time: String(d.time ?? e.time), level: String(d.level ?? "info"), message: String(d.message ?? ""), test: (e.attemptId && attemptTests.get(e.attemptId)) || null });
       break;
     case "attempt.step":
+      if (replayed) break;
       step.value = (d.title as string | null) ?? null;
       if (step.value) noteStep(e.time, step.value);
       break;
@@ -135,15 +147,16 @@ function onEvent(e: WwEvent) {
       activePageId.value = String(d.pageId);
       break;
     case "attempt.started":
-      step.value = null;
-      noteStep(e.time, `${String(d.testId)} starts`);
       if (e.attemptId) attemptTests.set(e.attemptId, String(d.testId));
       addLog({ seq: e.seq, time: e.time, level: "info", message: `Started ${d.testId} ${titles.value.get(String(d.testId)) ?? ""} (attempt ${d.number} of ${d.of}${Number(d.try) > 1 ? `, try ${d.try}` : ""})`, test: String(d.testId) });
+      if (replayed) break;
+      step.value = null;
+      noteStep(e.time, `${String(d.testId)} starts`);
       scheduleLoad();
       break;
     case "attempt.finished":
       addLog({ seq: e.seq, time: e.time, level: d.status === "passed" ? "info" : "warn", message: `${d.testId} ${d.status}${d.error ? `: ${String(d.error).split("\n")[0]}` : ""}`, test: String(d.testId) });
-      scheduleLoad();
+      if (!replayed) scheduleLoad();
       break;
     case "review.saved":
       void loadReviews();
@@ -152,9 +165,37 @@ function onEvent(e: WwEvent) {
       addLog({ seq: e.seq, time: e.time, level: "warn", message: String(d.message), test: null });
       break;
     default:
-      if (e.type.startsWith("run.") || e.type.startsWith("pack.")) scheduleLoad();
+      if (!replayed && (e.type.startsWith("run.") || e.type.startsWith("pack."))) scheduleLoad();
   }
 }
+
+// The queue keeps the running attempt in view while it runs, until the person scrolls the queue
+// away from it; scrolling back to the running row picks the follow up again.
+const queueEl = ref<HTMLElement | null>(null);
+let followQueue = true;
+let ownScroll = false;
+const curRow = () => queueEl.value?.querySelector<HTMLElement>("li.cur") ?? null;
+function onQueueScroll() {
+  if (ownScroll) return void (ownScroll = false);
+  const box = queueEl.value;
+  const row = curRow();
+  if (box && row) followQueue = rowInView({ scrollTop: box.scrollTop, height: box.clientHeight }, { top: row.offsetTop, height: row.offsetHeight });
+}
+watch(
+  () => run.value?.plan.findIndex((p) => p.status === "running") ?? -1,
+  async (i) => {
+    if (i < 0 || !followQueue) return;
+    await nextTick();
+    const box = queueEl.value;
+    const row = curRow();
+    if (!box || !row) return;
+    const top = followTop({ scrollTop: box.scrollTop, height: box.clientHeight }, { top: row.offsetTop, height: row.offsetHeight });
+    if (top === null || top === box.scrollTop) return;
+    ownScroll = true;
+    box.scrollTop = top;
+  },
+  { flush: "post" },
+);
 
 // "Run again": the same pack, tests, values, options and label, started right away.
 async function again() {
@@ -308,8 +349,22 @@ const flagDiff = (before: ChangeSide | null, after: ChangeSide | null) => {
   const a = new Set(after?.flags ?? []);
   return { added: [...a].filter((f) => !b.has(f)), dropped: [...b].filter((f) => !a.has(f)) };
 };
+const split = computed(() => splitChanges(changes.value?.rows ?? []));
+const allChanges = ref(false);
+const shownChanges = computed(() => (allChanges.value ? split.value.moved : split.value.moved.slice(0, CHANGES_SHOWN)));
 const scoreOf = (s: ChangeSide | null) => (s?.score === null || s?.score === undefined ? "–" : s.score.toFixed(1));
 const results = computed(() => (run.value ? resultRows(run.value, reviews.value, rubric.value) : []));
+// Past this many tests the results get a search and a choice of which to show.
+const RESULTS_FINDER = 12;
+const resSearch = ref("");
+const resShow = ref<ResultShow>("all");
+const showOptions = [
+  { value: "all", label: "All tests" },
+  { value: "problems", label: "Failed or broken" },
+  { value: "unreviewed", label: "Not reviewed" },
+  { value: "flagged", label: "Flagged" },
+];
+const shownResults = computed(() => filterResults(results.value, resSearch.value, resShow.value));
 const maxAttempts = computed(() => Math.max(1, ...results.value.flatMap((r) => Object.keys(r.cells).map(Number))));
 const resultColumns = computed(() => [
   { key: "test", label: "Test", sortable: true, value: (r: ResultRow) => r.testId },
@@ -334,8 +389,8 @@ function connect() {
   logDropped.value = 0;
   markSaved.value = null;
   conn = new LiveConnection(
-    { runId: props.id, frames: true, after: 0 },
-    { onState: (s) => (liveState.value = s), onEvent, onFrame: (h, jpeg) => void viewer.value?.push(h, jpeg) },
+    { runId: props.id, frames: true, after: 0, logTail: LOG_LIMIT },
+    { onState: (s) => (liveState.value = s), onHello, onBacklog: (n) => (logDropped.value += n), onEvent, onFrame: (h, jpeg) => void viewer.value?.push(h, jpeg) },
   );
 }
 onMounted(() => {
@@ -482,8 +537,8 @@ async function remove() {
             <h2 id="queue-title" class="display">Queue</h2>
             <button v-if="active" class="btn" :disabled="busy" @click="openAdd"><Plus :size="15" /> Add tests</button>
           </div>
-          <p class="qcounts muted small">{{ run.counts.passed }} passed · {{ run.counts.failed }} failed · {{ run.counts.broken }} broken · {{ run.counts.planned }} planned</p>
-          <ol class="queue">
+          <p class="qcounts muted small">{{ run.counts.passed }} passed · {{ run.counts.failed }} failed · {{ run.counts.broken }} broken, of {{ run.counts.planned }} {{ run.counts.planned === 1 ? "attempt" : "attempts" }}</p>
+          <ol ref="queueEl" class="queue" @scroll.passive="onQueueScroll">
             <li
               v-for="(p, i) in run.plan"
               :key="`${p.testId}#${p.number}`"
@@ -537,31 +592,34 @@ async function remove() {
           <h2 id="changes-title" class="display">Since the last run</h2>
           <span class="muted small">
             Against <a :href="href({ name: 'run', id: changes.previous.id })" class="num">{{ changes.previous.id }}</a>, the last run of this pack with the same parameters.
-            <template v-if="changes.rows.length"> {{ changes.same }} {{ changes.same === 1 ? "attempt" : "attempts" }} didn't change.</template>
+            <template v-if="split.moved.length"> {{ changes.same }} {{ changes.same === 1 ? "attempt" : "attempts" }} didn't change.</template>
             {{ " " }}<a :href="`#/compare?runs=${changes.previous.id},${run.id}`">Compare side by side</a>
           </span>
         </div>
-        <p v-if="changes.rows.length === 0" class="muted">Nothing changed: every attempt has the same status and flags, and no score or time moved.</p>
+        <p v-if="split.moved.length === 0" class="muted">Nothing changed: every attempt in both runs has the same status and flags, and no score or time moved.</p>
         <ul v-else class="changes">
-          <li v-for="c in changes.rows" :key="`${c.testId}#${c.number}`">
+          <li v-for="c in shownChanges" :key="`${c.testId}#${c.number}`">
             <a class="chrow" :href="c.after ? href({ name: 'attempt', runId: run.id, attemptId: c.after.attemptId }) : href({ name: 'attempt', runId: c.before!.runId, attemptId: c.before!.attemptId })">
               <span class="chtest"><code>{{ c.testId }}</code> {{ c.title !== c.testId ? c.title : "" }}<span v-if="c.number > 1" class="muted n"> #{{ c.number }}</span></span>
               <span class="chwhat">
-                <template v-if="c.changes.includes('new')"><span class="muted">new</span> <StatusChip :status="c.after!.status" /></template>
-                <template v-else-if="c.changes.includes('gone')"><StatusChip :status="c.before!.status" /> <span class="muted">not in this run</span></template>
-                <template v-else>
-                  <span v-if="c.changes.includes('status')" class="pair"><StatusChip :status="c.before!.status" /><ArrowRight :size="13" class="muted" /><StatusChip :status="c.after!.status" /></span>
-                  <span v-if="c.changes.includes('flags')" class="pair small">
-                    <span v-for="f in flagDiff(c.before, c.after).added" :key="`+${f}`" class="flag add">+ {{ f }}</span>
-                    <span v-for="f in flagDiff(c.before, c.after).dropped" :key="`-${f}`" class="flag drop">− {{ f }}</span>
-                  </span>
-                  <span v-if="c.changes.includes('score')" class="pair small"><span class="muted">score</span> <span class="num">{{ scoreOf(c.before) }}</span><ArrowRight :size="13" class="muted" /><span class="num">{{ scoreOf(c.after) }}</span></span>
-                  <span v-if="c.changes.includes('time')" class="pair small"><span class="muted">time</span> <span class="num">{{ duration(c.before!.durationMs) }}</span><ArrowRight :size="13" class="muted" /><span class="num">{{ duration(c.after!.durationMs) }}</span></span>
-                </template>
+                <span v-if="c.changes.includes('status')" class="pair"><StatusChip :status="c.before!.status" /><ArrowRight :size="13" class="muted" /><StatusChip :status="c.after!.status" /></span>
+                <span v-if="c.changes.includes('flags')" class="pair small">
+                  <span v-for="f in flagDiff(c.before, c.after).added" :key="`+${f}`" class="flag add">+ {{ f }}</span>
+                  <span v-for="f in flagDiff(c.before, c.after).dropped" :key="`-${f}`" class="flag drop">− {{ f }}</span>
+                </span>
+                <span v-if="c.changes.includes('score')" class="pair small"><span class="muted">score</span> <span class="num">{{ scoreOf(c.before) }}</span><ArrowRight :size="13" class="muted" /><span class="num">{{ scoreOf(c.after) }}</span></span>
+                <span v-if="c.changes.includes('time')" class="pair small"><span class="muted">time</span> <span class="num">{{ duration(c.before!.durationMs) }}</span><ArrowRight :size="13" class="muted" /><span class="num">{{ duration(c.after!.durationMs) }}</span></span>
               </span>
             </a>
           </li>
         </ul>
+        <div v-if="split.moved.length > CHANGES_SHOWN || split.added || split.gone" class="chfoot muted small">
+          <button v-if="split.moved.length > CHANGES_SHOWN" class="btn" @click="allChanges = !allChanges">
+            {{ allChanges ? "Show fewer" : `Show all ${split.moved.length}` }}
+          </button>
+          <span v-if="split.added">{{ split.added }} {{ split.added === 1 ? "attempt wasn't" : "attempts weren't" }} in that run.</span>
+          <span v-if="split.gone">{{ split.gone }} {{ split.gone === 1 ? "attempt" : "attempts" }} of that run {{ split.gone === 1 ? "isn't" : "aren't" }} in this one.</span>
+        </div>
       </section>
 
       <section v-if="showResults" class="card" aria-labelledby="results-title">
@@ -569,10 +627,18 @@ async function remove() {
           <h2 id="results-title" class="display">Results <span class="muted small">{{ countsText(run.counts) }}</span></h2>
           <span class="muted small">Score: the mean of the scale scores, on 1 to 5. Click a cell to open the attempt and review it.</span>
         </div>
-        <DataTable :columns="resultColumns" :rows="results" :row-key="(r) => r.testId" label="Results by test and attempt" clickable @row-click="openRow">
+        <div v-if="results.length > RESULTS_FINDER" class="finder">
+          <label class="sr-only" for="res-search">Search results</label>
+          <TextField id="res-search" v-model="resSearch" type="search" class="search" placeholder="Search: id or title" />
+          <label class="sr-only" for="res-show">Show</label>
+          <SelectMenu id="res-show" v-model="resShow" :options="showOptions" />
+        </div>
+        <p v-if="results.length > RESULTS_FINDER && (resSearch.trim() || resShow !== 'all')" class="muted small count" aria-live="polite">{{ shownResults.length }} of {{ results.length }} tests</p>
+        <DataTable :columns="resultColumns" :rows="shownResults" :row-key="(r) => r.testId" label="Results by test and attempt" clickable @row-click="openRow">
           <template #cell-test="{ row }">
-            <span :class="{ child: row.parent }"><code>{{ row.testId }}</code> {{ row.title !== row.testId ? row.title : "" }}</span>
+            <span class="rtest" :class="{ child: row.parent }"><code>{{ row.testId }}</code> {{ row.title !== row.testId ? row.title : "" }}</span>
           </template>
+          <template #empty>No test matches.</template>
           <template v-for="n in maxAttempts" :key="n" #[`cell-a${n}`]="{ row }">
             <a v-if="row.cells[n]" class="cell" :href="href({ name: 'attempt', runId: run.id, attemptId: row.cells[n].attemptId })" @click.stop>
               <StatusChip :status="row.cells[n].status" />
@@ -814,6 +880,7 @@ async function remove() {
   padding: 0;
 }
 .queue {
+  position: relative;
   display: grid;
   gap: 2px;
   max-height: 60vh;
@@ -914,6 +981,42 @@ async function remove() {
 }
 .reshead h2 {
   margin: 0;
+}
+.chfoot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  margin-top: var(--space-3);
+}
+.finder {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.finder > .search {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+.finder > :deep(.sel) {
+  flex: none;
+  width: 190px;
+}
+.count {
+  margin: 0 0 var(--space-2);
+}
+/* On a phone a long title would push the attempts out of view: it keeps one line. */
+@media (max-width: 640px) {
+  .rtest {
+    display: inline-block;
+    max-width: 52vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: bottom;
+  }
 }
 .changes {
   list-style: none;

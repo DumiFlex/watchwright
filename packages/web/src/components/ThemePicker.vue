@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, useId } from "vue";
 import { LOOKS, MODES, type Theme } from "../theme";
+import { vTip } from "../tooltip";
 
 const theme = defineModel<Theme>({ required: true });
 
@@ -36,14 +37,16 @@ onBeforeUnmount(() => {
   <div ref="root" class="picker">
     <button
       ref="button"
+      v-tip="'Theme'"
       type="button"
       class="trigger"
+      aria-label="Theme"
       :aria-expanded="open"
       :aria-controls="panelId"
       @click="open = !open"
     >
       <span class="swatch" :data-look="theme.look" aria-hidden="true"><i /><i /></span>
-      Theme
+      <span class="trigger-label">Theme</span>
     </button>
     <div v-if="open" :id="panelId" class="panel">
       <fieldset>
@@ -90,6 +93,15 @@ onBeforeUnmount(() => {
 }
 .trigger:hover {
   background: var(--raised);
+}
+/* The top bar runs out of room below laptop width: the swatch alone names the button there. */
+@media (max-width: 1080px) {
+  .trigger {
+    padding: 0 var(--space-2);
+  }
+  .trigger-label {
+    display: none;
+  }
 }
 .swatch {
   display: inline-flex;

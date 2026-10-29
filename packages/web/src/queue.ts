@@ -21,3 +21,24 @@ export function canMove(plan: readonly QueueRow[], i: number, direction: -1 | 1)
   while (plan[j]?.testId === id) j += direction;
   return plan[j]?.status === "pending";
 }
+
+/** A box's scroll window and one row in it, in the box's own coordinates (row top from the list's top). */
+export interface ScrollBox {
+  scrollTop: number;
+  height: number;
+}
+export interface RowBox {
+  top: number;
+  height: number;
+}
+
+/** Whether the row shows whole in the box. */
+export function rowInView(box: ScrollBox, row: RowBox): boolean {
+  return row.top >= box.scrollTop && row.top + row.height <= box.scrollTop + box.height;
+}
+
+/** Where to scroll the box so the row sits a third of the way down, or null when it already shows. */
+export function followTop(box: ScrollBox, row: RowBox): number | null {
+  if (rowInView(box, row)) return null;
+  return Math.max(0, Math.round(row.top - box.height / 3));
+}
