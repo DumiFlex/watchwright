@@ -2,7 +2,7 @@
 // The home page: runs that are going (or waiting) first, then every earlier run with filters
 // by pack and status, a page at a time. Filters live in the address so a list can be linked.
 // Agents' explore sessions show above them, each with Watch.
-import { Bot, CalendarClock, Ellipsis, Eye, Package, Play, SearchX } from "../icons";
+import { Bot, CalendarClock, ChartColumn, Ellipsis, Eye, Package, Play, SearchX } from "../icons";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, sendJson, type Pack, type RunSummary } from "../api";
 import { ago, countsText, done, duration, isActive, runDuration, when } from "../format";
@@ -61,6 +61,22 @@ const period = ref(((): string => {
     return "14";
   }
 })());
+// The chart of attempts per day is folded away until the person opens it (remembered), so the
+// runs list starts on the first screen.
+const chartOpen = ref(((): boolean => {
+  try {
+    return store?.getItem("ww.runs.chart") === "on";
+  } catch {
+    return false;
+  }
+})());
+watch(chartOpen, (on) => {
+  try {
+    store?.setItem("ww.runs.chart", on ? "on" : "off");
+  } catch {
+    // remembered only when the browser allows it
+  }
+});
 const glanceTiles = computed(() => (stats.value ? tiles(stats.value) : []));
 const glanceBars = computed(() => (stats.value ? bars(stats.value) : []));
 const showGlance = computed(() => stats.value !== null && anything(stats.value));
@@ -268,8 +284,13 @@ onBeforeUnmount(() => {
     <section v-if="showGlance" class="card glance" aria-labelledby="glance-title">
       <div class="list-head">
         <h2 id="glance-title" class="display">At a glance<template v-if="packFilter && packName(packFilter)">: {{ packName(packFilter) }}</template></h2>
-        <label class="sr-only" for="glance-period">Period</label>
-        <SelectMenu id="glance-period" v-model="period" class="period" :options="periodOptions" />
+        <div class="glance-tools">
+          <button type="button" class="btn" :aria-expanded="chartOpen" aria-controls="glance-chart" @click="chartOpen = !chartOpen">
+            <ChartColumn :size="15" />{{ chartOpen ? "Hide chart" : "Show chart" }}
+          </button>
+          <label class="sr-only" for="glance-period">Period</label>
+          <SelectMenu id="glance-period" v-model="period" class="period" :options="periodOptions" />
+        </div>
       </div>
       <div class="tiles">
         <StatTile
@@ -286,7 +307,9 @@ onBeforeUnmount(() => {
           :trend-labels="t.trendLabels"
         />
       </div>
-      <BarChart :items="glanceBars" :series="SERIES" label="Attempts per day, by outcome" :height="200" />
+      <div v-if="chartOpen" id="glance-chart" class="chart">
+        <BarChart :items="glanceBars" :series="SERIES" label="Attempts per day, by outcome" :height="200" />
+      </div>
     </section>
 
     <section class="card" aria-labelledby="runs-title">
@@ -466,7 +489,15 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
   gap: var(--space-3);
-  margin-bottom: var(--space-4);
+}
+.chart {
+  margin-top: var(--space-4);
+}
+.glance-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
 }
 .period {
   flex: none;
@@ -585,6 +616,15 @@ onBeforeUnmount(() => {
   .tiles {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--space-2);
+  }
+  .glance-tools {
+    flex-wrap: nowrap;
+    width: 100%;
+  }
+  .glance-tools .period {
+    flex: 1;
+    width: auto;
+    min-width: 0;
   }
   .filters {
     width: 100%;
