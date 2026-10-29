@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.8.0](https://github.com/DumiFlex/watchwright/compare/v0.7.0...v0.8.0) (2026-10-29)
+
+
+### Features
+
+* one-command demo and a why-Watchwright pitch ([#113](https://github.com/DumiFlex/watchwright/issues/113)) ([4b04a93](https://github.com/DumiFlex/watchwright/commit/4b04a939ad514be206c4513a936fa9ccf80951cd))
+* one-command demo, pack page tabs and test search ([e94670e](https://github.com/DumiFlex/watchwright/commit/e94670ea445f1cf81d62105d2798e2af7abbaaf8))
+* pack page README tab, test search and filters ([#115](https://github.com/DumiFlex/watchwright/issues/115)) ([8e7bcfb](https://github.com/DumiFlex/watchwright/commit/8e7bcfb36af82d4c92c745aaf7eed0e32efaece4))
+
 ## [0.7.0](https://github.com/DumiFlex/watchwright/compare/v0.6.0...v0.7.0) (2026-10-28)
 
 
