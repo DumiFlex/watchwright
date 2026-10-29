@@ -44,3 +44,37 @@ export function runScores(c: Pick<Comparison, "runs" | "rows">): (number | null)
 export function exportUrl(kind: "md" | "zip", ids: readonly string[]): string {
   return `/api/v1/export.${kind}?runs=${ids.join(",")}`;
 }
+
+/** A score differs by at least this much (on 1 to 5); the same rule as Since the last run on the server. */
+const SCORE_STEP = 0.5;
+/** A time differs when one is this many times the other, and by at least `TIME_MIN_MS`. */
+const TIME_RATIO = 1.5;
+const TIME_MIN_MS = 2000;
+
+type DiffCell = Pick<CompareCell, "status" | "flags" | "score" | "durationMs">;
+
+const flagKey = (c: DiffCell) => [...new Set(c.flags.map((f) => f.name))].sort().join("\u0000");
+
+/** Whether two cells of a row went differently: one missing, or status, flags, score or time moved. */
+export function cellsDiffer(a: DiffCell | null, b: DiffCell | null): boolean {
+  if (!a || !b) return a !== b;
+  if (a.status !== b.status || flagKey(a) !== flagKey(b)) return true;
+  if (a.score !== null && b.score !== null && Math.abs(a.score - b.score) >= SCORE_STEP) return true;
+  const [x, y] = [a.durationMs, b.durationMs];
+  return x !== null && y !== null && Math.abs(x - y) >= TIME_MIN_MS && Math.max(x, y) >= TIME_RATIO * Math.max(1, Math.min(x, y));
+}
+
+/** Whether any two runs of a row went differently. */
+export function rowDiffers(cells: readonly (DiffCell | null)[]): boolean {
+  return cells.some((a, i) => cells.slice(i + 1).some((b) => cellsDiffer(a, b)));
+}
+
+/** Every word of the search appears in the row's test id or title. */
+export function rowMatches(row: { testId: string; title: string }, search: string): boolean {
+  const words = search.toLowerCase().split(/\s+/).filter(Boolean);
+  const text = `${row.testId}\n${row.title}`.toLowerCase();
+  return words.every((w) => text.includes(w));
+}
+
+/** Past this many rows, the compare page opens on the rows that differ. */
+export const DIFFER_FIRST = 12;
