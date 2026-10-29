@@ -31,9 +31,9 @@ A seeded server with data at the size a real bench reaches:
 
 Not traps, checked and fine: Packs, Schedules (empty and filled), the editor at phone width, the log viewer (virtual, capped at 5,000 lines, search and levels), the step timeline with 120 repeated steps (scrolls in its own box), every look's controls.
 
-## Open: proposals
+## Proposals (all built)
 
-These change a page's layout or the server, so they wait for a decision.
+These changed a page's layout or the server, so they waited for a decision. All six were chosen and built: #143, #144, #146, #147, #148 and #149 (the chart folded behind **Show chart**).
 
 1. **Attempt page: review beside the evidence.** On wide screens put Review in a right-hand column that stays in view (sticky) next to the steps and shots, instead of under them; on a phone keep it where it is, with a "Review" jump in the header. Small to medium.
 2. **Pack Tests tab: built for 150 tests.** Keep the search and filters stuck to the top of the tab while the list scrolls; one line per test (title with an ellipsis, tags beside it, description in the row's tooltip or under a toggle); group rows under their section with a collapse per section and a count. Medium.
@@ -52,7 +52,7 @@ Before the fixes, from the seeded server:
 | ![Top bar cut off at 900 px](../screenshots/ux-audit/top-bar-900-before.png) | ![Runs page on a phone](../screenshots/ux-audit/runs-phone-before.png) |
 | ![A finished run's whole page](../screenshots/ux-audit/run-results-before.png) | ![Attempt page with Review below the fold](../screenshots/ux-audit/attempt-review-below.png) |
 
-Still open:
+Before the proposals:
 
 | | |
 |---|---|
