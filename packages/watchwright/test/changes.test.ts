@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { changesOf, runChanges, type ChangeSide } from "../src/plugins/reviews/changes.js";
+import { changesOf, pickPrevious, runChanges, type ChangeSide } from "../src/plugins/reviews/changes.js";
 import type { CompareCell, Comparison } from "../src/plugins/reviews/compare.js";
 
 const side = (over: Partial<ChangeSide> = {}): ChangeSide => ({ runId: "r", attemptId: "a", status: "passed", durationMs: 4000, score: 4, flags: [], ...over });
@@ -39,5 +39,19 @@ describe("run changes", () => {
     expect(out.same).toBe(1);
     expect(out.rows.map((r) => [r.testId, r.changes])).toEqual([["B", ["status", "flags"]], ["C", ["new"]]]);
     expect(out.rows[0]!.after?.flags).toEqual(["slow"]);
+  });
+});
+
+describe("the run to compare with", () => {
+  const r = (id: string, tests: string[] = [], params: Record<string, unknown> = {}) => ({ id, params, tests });
+  it("prefers the newest earlier run with the same tests", () => {
+    expect(pickPrevious(r("now"), [r("quick", ["A1", "B2"]), r("full"), r("older")])).toBe("full");
+    expect(pickPrevious(r("now", ["B2", "A1"]), [r("full"), r("quick", ["A1", "B2"])])).toBe("quick");
+  });
+  it("falls back to the newest run with the same params", () => {
+    expect(pickPrevious(r("now"), [r("quick", ["A1"]), r("other", [], { model: "b" })])).toBe("quick");
+  });
+  it("needs the same params and never picks the run itself", () => {
+    expect(pickPrevious(r("now", [], { model: "a" }), [r("now", [], { model: "a" }), r("x", [], { model: "b" })])).toBeUndefined();
   });
 });
