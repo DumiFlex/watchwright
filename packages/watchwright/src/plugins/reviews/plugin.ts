@@ -9,7 +9,7 @@ import { PACKS } from "../packs/registry.js";
 import { rubricFor, scoreProblem, type Criterion, type Score } from "../packs/rubric.js";
 import { ENGINE, FILES_ROOT } from "../runs/plugin.js";
 import type { ResultDocument } from "../runs/results.js";
-import { runChanges, type RunChanges } from "./changes.js";
+import { pickPrevious, runChanges, type RunChanges } from "./changes.js";
 import { compare, type CompareCell, type CompareFile, type CompareShot, type Comparison } from "./compare.js";
 import { toMarkdown } from "./markdown.js";
 import { REVIEWS_MIGRATION_SQL, ReviewsRepo, type Review } from "./repo.js";
@@ -57,13 +57,7 @@ export function comparisonOf(services: Services, list: string): Comparison {
   );
 }
 
-/** Same params, whatever the key order. */
-const sameParams = (a: Record<string, unknown>, b: Record<string, unknown>) => {
-  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
-  return [...keys].every((k) => a[k] === b[k]);
-};
-
-/** What changed in a run since `against`, or since the newest earlier run of its pack with the same params. */
+/** What changed in a run since `against`, or since the newest earlier run of its pack with the same params (and tests, when there is one). */
 export function changesOf(services: Services, runId: string, against?: string): RunChanges {
   const engine = services.get(ENGINE);
   const run = engine.get(runId);
@@ -71,7 +65,7 @@ export function changesOf(services: Services, runId: string, against?: string): 
   let previous = against;
   if (previous === undefined) {
     const earlier = engine.list({ packId: run.packId, before: run.createdAt, statuses: ["finished", "stopped", "interrupted"], limit: 200 });
-    previous = earlier.find((r) => r.id !== run.id && sameParams(r.params, run.params))?.id;
+    previous = pickPrevious(run, earlier);
   }
   if (previous === undefined) return { previous: null, rows: [], same: 0 };
   if (previous === runId) throw new ActionError("bad_input", "Compare a run with another run.");

@@ -59,6 +59,31 @@ export function changesOf(before: ChangeSide | null, after: ChangeSide | null): 
   return out;
 }
 
+/** What `pickPrevious` needs of a run. `tests` is the run's chosen tests; empty means all of them. */
+export interface RunPick {
+  id: string;
+  params: Record<string, unknown>;
+  tests: string[];
+}
+
+/** Same params, whatever the key order. */
+export const sameParams = (a: Record<string, unknown>, b: Record<string, unknown>) => {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  return [...keys].every((k) => a[k] === b[k]);
+};
+
+const sameTests = (a: readonly string[], b: readonly string[]) => a.length === b.length && [...a].sort().join("\u0000") === [...b].sort().join("\u0000");
+
+/**
+ * The run to compare `run` with, from `earlier` (newest first): the newest with the same params and
+ * the same chosen tests, else the newest with the same params. A full run is compared with the last
+ * full run, not with a quick run of three tests that happened in between.
+ */
+export function pickPrevious(run: RunPick, earlier: readonly RunPick[]): string | undefined {
+  const candidates = earlier.filter((r) => r.id !== run.id && sameParams(r.params, run.params));
+  return (candidates.find((r) => sameTests(r.tests, run.tests)) ?? candidates[0])?.id;
+}
+
 /** Changes from the first run of a two-run comparison to the second. */
 export function runChanges(c: Comparison): RunChanges {
   if (c.runs.length !== 2) throw new Error("Changes need exactly two runs.");

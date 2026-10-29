@@ -15,6 +15,7 @@ import SelectMenu from "../components/SelectMenu.vue";
 import StatusChip from "../components/StatusChip.vue";
 import TextArea from "../components/TextArea.vue";
 import TextField from "../components/TextField.vue";
+import { CHANGES_SHOWN, splitChanges } from "../changes";
 import { exportUrl } from "../compare";
 import { countsText, duration } from "../format";
 import { levelOf, type LogLine } from "../logview";
@@ -347,6 +348,9 @@ const flagDiff = (before: ChangeSide | null, after: ChangeSide | null) => {
   const a = new Set(after?.flags ?? []);
   return { added: [...a].filter((f) => !b.has(f)), dropped: [...b].filter((f) => !a.has(f)) };
 };
+const split = computed(() => splitChanges(changes.value?.rows ?? []));
+const allChanges = ref(false);
+const shownChanges = computed(() => (allChanges.value ? split.value.moved : split.value.moved.slice(0, CHANGES_SHOWN)));
 const scoreOf = (s: ChangeSide | null) => (s?.score === null || s?.score === undefined ? "–" : s.score.toFixed(1));
 const results = computed(() => (run.value ? resultRows(run.value, reviews.value, rubric.value) : []));
 const maxAttempts = computed(() => Math.max(1, ...results.value.flatMap((r) => Object.keys(r.cells).map(Number))));
@@ -576,31 +580,34 @@ async function remove() {
           <h2 id="changes-title" class="display">Since the last run</h2>
           <span class="muted small">
             Against <a :href="href({ name: 'run', id: changes.previous.id })" class="num">{{ changes.previous.id }}</a>, the last run of this pack with the same parameters.
-            <template v-if="changes.rows.length"> {{ changes.same }} {{ changes.same === 1 ? "attempt" : "attempts" }} didn't change.</template>
+            <template v-if="split.moved.length"> {{ changes.same }} {{ changes.same === 1 ? "attempt" : "attempts" }} didn't change.</template>
             {{ " " }}<a :href="`#/compare?runs=${changes.previous.id},${run.id}`">Compare side by side</a>
           </span>
         </div>
-        <p v-if="changes.rows.length === 0" class="muted">Nothing changed: every attempt has the same status and flags, and no score or time moved.</p>
+        <p v-if="split.moved.length === 0" class="muted">Nothing changed: every attempt in both runs has the same status and flags, and no score or time moved.</p>
         <ul v-else class="changes">
-          <li v-for="c in changes.rows" :key="`${c.testId}#${c.number}`">
+          <li v-for="c in shownChanges" :key="`${c.testId}#${c.number}`">
             <a class="chrow" :href="c.after ? href({ name: 'attempt', runId: run.id, attemptId: c.after.attemptId }) : href({ name: 'attempt', runId: c.before!.runId, attemptId: c.before!.attemptId })">
               <span class="chtest"><code>{{ c.testId }}</code> {{ c.title !== c.testId ? c.title : "" }}<span v-if="c.number > 1" class="muted n"> #{{ c.number }}</span></span>
               <span class="chwhat">
-                <template v-if="c.changes.includes('new')"><span class="muted">new</span> <StatusChip :status="c.after!.status" /></template>
-                <template v-else-if="c.changes.includes('gone')"><StatusChip :status="c.before!.status" /> <span class="muted">not in this run</span></template>
-                <template v-else>
-                  <span v-if="c.changes.includes('status')" class="pair"><StatusChip :status="c.before!.status" /><ArrowRight :size="13" class="muted" /><StatusChip :status="c.after!.status" /></span>
-                  <span v-if="c.changes.includes('flags')" class="pair small">
-                    <span v-for="f in flagDiff(c.before, c.after).added" :key="`+${f}`" class="flag add">+ {{ f }}</span>
-                    <span v-for="f in flagDiff(c.before, c.after).dropped" :key="`-${f}`" class="flag drop">− {{ f }}</span>
-                  </span>
-                  <span v-if="c.changes.includes('score')" class="pair small"><span class="muted">score</span> <span class="num">{{ scoreOf(c.before) }}</span><ArrowRight :size="13" class="muted" /><span class="num">{{ scoreOf(c.after) }}</span></span>
-                  <span v-if="c.changes.includes('time')" class="pair small"><span class="muted">time</span> <span class="num">{{ duration(c.before!.durationMs) }}</span><ArrowRight :size="13" class="muted" /><span class="num">{{ duration(c.after!.durationMs) }}</span></span>
-                </template>
+                <span v-if="c.changes.includes('status')" class="pair"><StatusChip :status="c.before!.status" /><ArrowRight :size="13" class="muted" /><StatusChip :status="c.after!.status" /></span>
+                <span v-if="c.changes.includes('flags')" class="pair small">
+                  <span v-for="f in flagDiff(c.before, c.after).added" :key="`+${f}`" class="flag add">+ {{ f }}</span>
+                  <span v-for="f in flagDiff(c.before, c.after).dropped" :key="`-${f}`" class="flag drop">− {{ f }}</span>
+                </span>
+                <span v-if="c.changes.includes('score')" class="pair small"><span class="muted">score</span> <span class="num">{{ scoreOf(c.before) }}</span><ArrowRight :size="13" class="muted" /><span class="num">{{ scoreOf(c.after) }}</span></span>
+                <span v-if="c.changes.includes('time')" class="pair small"><span class="muted">time</span> <span class="num">{{ duration(c.before!.durationMs) }}</span><ArrowRight :size="13" class="muted" /><span class="num">{{ duration(c.after!.durationMs) }}</span></span>
               </span>
             </a>
           </li>
         </ul>
+        <div v-if="split.moved.length > CHANGES_SHOWN || split.added || split.gone" class="chfoot muted small">
+          <button v-if="split.moved.length > CHANGES_SHOWN" class="btn" @click="allChanges = !allChanges">
+            {{ allChanges ? "Show fewer" : `Show all ${split.moved.length}` }}
+          </button>
+          <span v-if="split.added">{{ split.added }} {{ split.added === 1 ? "attempt wasn't" : "attempts weren't" }} in that run.</span>
+          <span v-if="split.gone">{{ split.gone }} {{ split.gone === 1 ? "attempt" : "attempts" }} of that run {{ split.gone === 1 ? "isn't" : "aren't" }} in this one.</span>
+        </div>
       </section>
 
       <section v-if="showResults" class="card" aria-labelledby="results-title">
@@ -954,6 +961,13 @@ async function remove() {
 }
 .reshead h2 {
   margin: 0;
+}
+.chfoot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  margin-top: var(--space-3);
 }
 .changes {
   list-style: none;
