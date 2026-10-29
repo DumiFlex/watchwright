@@ -94,7 +94,7 @@ onMounted(async () => {
 
 <template>
   <header class="top">
-    <a class="brand" href="#/">
+    <a class="brand" href="#/" aria-label="Watchwright">
       <BrandMark :size="28" />
       <span class="wordmark">Watchwright</span>
     </a>
@@ -232,7 +232,14 @@ onMounted(async () => {
 .gear[aria-current] {
   color: var(--accent-text);
 }
-@media (max-width: 640px) {
+/* Between phone and laptop width the menu still fits once the extras go. */
+@media (max-width: 1080px) {
+  .version,
+  .cmd-keys {
+    display: none;
+  }
+}
+@media (max-width: 860px) {
   .top {
     padding: 0 var(--space-4);
     gap: var(--space-2);
@@ -247,6 +254,18 @@ onMounted(async () => {
     display: inline-block;
   }
   .cmd-keys {
+    display: none;
+  }
+}
+/* Narrow phones: wide, tracked looks (Drafting table) would push the menu off the edge. */
+@media (max-width: 400px) {
+  .wordmark {
+    font-size: 16px;
+    letter-spacing: normal;
+  }
+}
+@media (max-width: 340px) {
+  .wordmark {
     display: none;
   }
 }
