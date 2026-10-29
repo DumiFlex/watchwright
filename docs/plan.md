@@ -154,7 +154,7 @@ The core `h` helper in step 1 (ported from `Bot`, minus the Wildcard parts): `go
 
 - **Capture.** `page.screencast.start({ onFrame, path, size, quality })` per page (there is no `fps` option; the browser decides the rate). Frames are JPEG `Buffer`s with `timestamp`, `viewportWidth`, `viewportHeight`. In a quick check in this sandbox (Chromium, 1280×800, quality 70) frames came at about 38 fps, 7.6 KB each, and kept flowing across a navigation. Firefox and WebKit cap at 25 fps per the docs. Firefox is the one that matters on the PC: test it there in the first engine PR.
 - **Fan-out.** The server keeps the latest frame per page. Each viewer gets frames over its WebSocket as binary messages with a small header (page id, timestamp, size). Backpressure: if a viewer's socket buffer is over a limit, that viewer skips frames until it drains, and only ever gets the newest. No viewers, no forwarding (capture still runs for the video).
-- **Annotations.** `showActions()` on by default (click points and action titles in the picture). `h.step` titles go through `showChapter` when the pack asks for it. Robot problems show as a red overlay banner via `showOverlay`.
+- **Annotations.** `showActions()` on by default (click points and action titles in the picture). `h.step` titles show as a small caption in the bottom-left corner (an overlay through `showOverlay`) when the pack asks for it; Playwright's `showChapter` card blurs the whole page, so it is not used. Robot problems show as a red overlay banner via `showOverlay`.
 - **Viewer.** A `<canvas>` that draws the newest frame, shows frame age and fps, and a tab strip when the run has more than one page. "Mark" (save the current frame with a note) is step 2.
 
 ## 8. Store
