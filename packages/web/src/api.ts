@@ -7,6 +7,8 @@ export interface HealthData {
   plugins: { name: string; schemaVersion: number }[];
   /** The web app's pages the loaded plugins bring, in menu order. */
   pages: HealthPage[];
+  /** Login: on, who is signed in, whether the first admin is still to be made. */
+  login?: { on: boolean; user: { id: string; name: string; role: string } | null; setupNeeded: boolean };
 }
 
 /** A page a plugin brings (`PluginPage` on the server). */
@@ -418,10 +420,17 @@ export interface WwEvent {
   data: Record<string, unknown>;
 }
 
+let signedOutHandler: (() => void) | null = null;
+/** Called when the server answers 401 `sign_in_needed` (login on, and the sign-in ran out). */
+export function onSignedOut(handler: () => void): void {
+  signedOutHandler = handler;
+}
+
 async function call<T>(url: string, init: RequestInit, fetcher: typeof fetch): Promise<ApiResult<T>> {
   try {
     const res = await fetcher(url, init);
     const body = (await res.json().catch(() => null)) as { data?: T; error?: ApiError } | null;
+    if (res.status === 401 && body?.error?.code === "sign_in_needed") signedOutHandler?.();
     if (res.ok && body && "data" in body) return { ok: true, data: body.data as T };
     return { ok: false, error: body?.error ?? { code: `http_${res.status}`, message: `The server answered ${res.status}.` } };
   } catch {

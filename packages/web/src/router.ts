@@ -15,7 +15,11 @@ export type Route =
   | { name: "compare"; query: Record<string, string> }
   | { name: "kit" }
   | { name: "settings"; section?: string }
-  | { name: "schedules" };
+  | { name: "schedules" }
+  /** The link the server prints when login is on and there is no user: creates the first admin. */
+  | { name: "setup"; code: string }
+  /** An invitation link: makes an account with the role an admin chose. */
+  | { name: "invite"; code: string };
 
 const ID8 = "([0-9a-f]{8})";
 
@@ -37,6 +41,8 @@ export function parseRoute(hash: string): Route {
   if (path === "/kit") return { name: "kit" };
   if (path === "/settings") return query.section && /^[a-z-]{1,40}$/.test(query.section) ? { name: "settings", section: query.section } : { name: "settings" };
   if (path === "/schedules") return { name: "schedules" };
+  if (path === "/setup") return { name: "setup", code: query.code ?? "" };
+  if (path === "/invite") return { name: "invite", code: query.code ?? "" };
   if (path === "/compare") return { name: "compare", query };
   if ((m = new RegExp(`^/runs/${ID8}$`).exec(path))) return { name: "run", id: m[1]! };
   if ((m = new RegExp(`^/runs/${ID8}/attempts/([0-9a-f]{12})$`).exec(path))) {
@@ -86,6 +92,10 @@ export function href(route: Route): string {
       return `#/settings${qs(route.section ? { section: route.section } : {})}`;
     case "schedules":
       return "#/schedules";
+    case "setup":
+      return `#/setup${qs({ code: route.code })}`;
+    case "invite":
+      return `#/invite${qs({ code: route.code })}`;
   }
 }
 

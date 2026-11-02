@@ -42,6 +42,30 @@ export const SQL = `
   CREATE INDEX auth_tokens_user ON auth_tokens (user_id);
 `;
 
+/** Invitations: a one-time link that lets someone make their own account with a set role. */
+export const INVITES_SQL = `
+  CREATE TABLE auth_invites (
+    id          TEXT PRIMARY KEY,
+    hash        TEXT NOT NULL UNIQUE,
+    role        TEXT NOT NULL,
+    note        TEXT,
+    created_by  TEXT,
+    created_at  TEXT NOT NULL,
+    expires_at  TEXT NOT NULL
+  );
+`;
+
+export interface InviteInfo {
+  id: string;
+  role: Role;
+  note: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  expiresAt: string;
+}
+
+const INVITE_PREFIX = "inv_";
+
 /** A session lasts this long after its last use. */
 export const SESSION_DAYS = 30;
 const DAY_MS = 24 * 60 * 60_000;
@@ -290,9 +314,56 @@ export class AuthStore {
     return { id: row.id, name: row.name, role: row.role as Role, via: "token" };
   }
 
-  /** Drops sessions that have expired (on start, and once a day). */
+  invites(): InviteInfo[] {
+    const rows = this.db.prepare("SELECT * FROM auth_invites WHERE expires_at > ? ORDER BY created_at DESC").all(new Date().toISOString()) as {
+      id: string;
+      role: string;
+      note: string | null;
+      created_by: string | null;
+      created_at: string;
+      expires_at: string;
+    }[];
+    return rows.map((r) => ({ id: r.id, role: r.role as Role, note: r.note, createdBy: r.created_by, createdAt: r.created_at, expiresAt: r.expires_at }));
+  }
+
+  /** A new invitation: `code` goes in the link and is shown this once. */
+  addInvite(role: Role, opts: { days?: number | undefined; note?: string | undefined; by?: string | undefined } = {}): { code: string; info: InviteInfo } {
+    if (!ROLES.includes(role)) throw new ActionError("bad_input", `A role is one of ${ROLES.join(", ")}.`);
+    const code = `${INVITE_PREFIX}${randomBytes(24).toString("base64url")}`;
+    const id = randomBytes(6).toString("hex");
+    const now = new Date();
+    const expires = new Date(now.getTime() + (opts.days ?? 7) * DAY_MS).toISOString();
+    this.db
+      .prepare("INSERT INTO auth_invites (id, hash, role, note, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run(id, sha256(code), role, opts.note?.trim().slice(0, 120) || null, opts.by ?? null, now.toISOString(), expires);
+    return { code, info: this.invites().find((i) => i.id === id)! };
+  }
+
+  /** The invitation a code belongs to, while it is valid; null otherwise. */
+  invite(code: string): InviteInfo | null {
+    if (!code.startsWith(INVITE_PREFIX)) return null;
+    const r = this.db.prepare("SELECT id FROM auth_invites WHERE hash = ? AND expires_at > ?").get(sha256(code), new Date().toISOString()) as { id: string } | undefined;
+    return r ? (this.invites().find((i) => i.id === r.id) ?? null) : null;
+  }
+
+  removeInvite(id: string): boolean {
+    return this.db.prepare("DELETE FROM auth_invites WHERE id = ?").run(id).changes > 0;
+  }
+
+  /** Makes the account an invitation is for and uses the invitation up; null when the code isn't valid. */
+  async acceptInvite(code: string, name: string, password: string): Promise<UserInfo | null> {
+    const inv = this.invite(code);
+    if (!inv) return null;
+    const user = await this.add({ name, password, role: inv.role });
+    this.removeInvite(inv.id);
+    return user;
+  }
+
+  /** Drops sessions and invitations that have expired (on start, and once a day). */
   sweep(): void {
-    this.db.prepare("DELETE FROM auth_sessions WHERE expires_at <= ?").run(new Date().toISOString());
+    const now = new Date().toISOString();
+    this.db.prepare("DELETE FROM auth_sessions WHERE expires_at <= ?").run(now);
+    this.db.prepare("DELETE FROM auth_invites WHERE expires_at <= ?").run(now);
   }
 }
 

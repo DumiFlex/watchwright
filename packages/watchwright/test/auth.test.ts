@@ -203,6 +203,25 @@ describe("login on", () => {
     await signIn("dumi", "another long one");
   });
 
+  it("lets an invited person make their own account, once", async () => {
+    const { auth, call, signIn } = await make();
+    await auth.add({ name: "dumi", password: PASSWORD, role: "admin" });
+    const admin = await signIn("dumi");
+    const made = await call("POST", "/auth/invites", { cookie: admin, page: true, body: { role: "viewer", note: "Sam" } });
+    expect(made.status).toBe(201);
+    const code = (made.body.data as unknown as { code: string }).code;
+    expect((await call("GET", `/auth/invite?code=${code}`)).body.data).toMatchObject({ role: "viewer" });
+    expect((await call("GET", "/auth/invites", { cookie: admin })).body.data).toHaveLength(1);
+    const taken = await call("POST", "/auth/invite", { page: true, body: { code, name: "dumi", password: PASSWORD } });
+    expect(taken.body.error?.code).toBe("name_taken");
+    const used = await call("POST", "/auth/invite", { page: true, body: { code, name: "sam", password: PASSWORD } });
+    expect(used.status).toBe(200);
+    expect(used.cookie).toMatch(/^ww_session=/);
+    expect((await call("GET", "/auth/me", { cookie: used.cookie! })).body.data).toMatchObject({ user: { name: "sam", role: "viewer" } });
+    expect((await call("POST", "/auth/invite", { page: true, body: { code, name: "sam2", password: PASSWORD } })).body.error?.code).toBe("bad_invite");
+    expect((await call("GET", `/auth/invite?code=${code}`)).status).toBe(404);
+  });
+
   it("keeps the last admin", async () => {
     const { auth } = await make();
     const admin = await auth.add({ name: "dumi", password: PASSWORD, role: "admin" });

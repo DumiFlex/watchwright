@@ -28,6 +28,9 @@ import RunsView from "./views/RunsView.vue";
 import RunView from "./views/RunView.vue";
 import SettingsView from "./views/SettingsView.vue";
 import SchedulesView from "./views/SchedulesView.vue";
+import SignInView from "./views/SignInView.vue";
+import { can, loadSession, session, signOut } from "./session";
+import { UserRound } from "./icons";
 // The editor (CodeMirror, the YAML checker) loads only when a pack is opened for editing.
 const EditView = defineAsyncComponent(() => import("./views/EditView.vue"));
 
@@ -50,7 +53,7 @@ const down = ref(false);
 // doesn't show, and its address shows the runs list.
 const pages = computed(() => health.value?.pages ?? DEFAULT_PAGES);
 const nav = computed(() => navFrom(pages.value, route.value));
-const shown = computed(() => (hasPage(pages.value, route.value) ? route.value : ({ name: "runs", query: {} } as const)));
+const shown = computed(() => (route.value.name !== "setup" && route.value.name !== "invite" && hasPage(pages.value, route.value) ? route.value : ({ name: "runs", query: {} } as const)));
 
 // Mod+K anywhere opens the command palette: go to a page or switch the look and mode.
 const palette = ref(false);
@@ -85,52 +88,80 @@ onBeforeUnmount(stopNotifier);
 // Deletes an agent or a script asked for, waiting for the person.
 const approvals = useApprovals();
 
-onMounted(async () => {
+async function loadHealth() {
   const res = await getJson<HealthData>("/api/v1/health");
   if (res.ok) health.value = res.data;
   else down.value = true;
+}
+onMounted(async () => {
+  await Promise.all([loadHealth(), loadSession()]);
 });
+// With login on, nothing but the sign-in page shows until someone is signed in.
+const locked = computed(() => session.loaded && session.on && session.user === null);
+// After signing in, the full health (pages, data folder) and everything else loads.
+watch(
+  () => session.user?.id,
+  (id, before) => {
+    if (id && before === undefined && session.on) void loadHealth();
+  },
+);
+const roleWords: Record<string, string> = { viewer: "Viewer: sees runs and results", user: "User: runs, records and edits packs", admin: "Admin: also users and settings" };
+const userItems = computed(() => [
+  { value: "account", label: "Your account and tokens", href: "#/settings?section=account" },
+  { value: "signout", label: "Sign out" },
+]);
 </script>
 
 <template>
-  <header class="top">
-    <a class="brand" href="#/" aria-label="Watchwright">
-      <BrandMark :size="28" />
-      <span class="wordmark">Watchwright</span>
-    </a>
-    <span v-if="health" v-tip="`Data folder: ${health.dataDir}`" class="version num">v{{ health.version }}</span>
-    <span v-else-if="down" class="down" role="alert">Server unreachable</span>
-    <nav class="nav" aria-label="Main">
-      <a v-for="n in nav.filter((x) => x.main)" :key="n.value" :href="n.href" class="link" :aria-current="n.current ? 'page' : undefined">{{ n.label }}</a>
-    </nav>
-    <div class="end">
-      <a v-if="pages.some((p) => p.name === 'new-run')" class="btn primary new" href="#/new" :aria-current="route.name === 'new' ? 'page' : undefined">
-        <Plus :size="15" />
-        New run
+  <template v-if="locked">
+    <SignInView :setup-code="route.name === 'setup' ? route.code : null" :invite-code="route.name === 'invite' ? route.code : null" />
+    <ToastHost />
+  </template>
+  <template v-else>
+    <header class="top">
+      <a class="brand" href="#/" aria-label="Watchwright">
+        <BrandMark :size="28" />
+        <span class="wordmark">Watchwright</span>
       </a>
-      <button type="button" class="cmd" aria-label="Commands" aria-keyshortcuts="Control+K Meta+K" @click="palette = true">
-        <Search :size="15" />
-        <KeyHint keys="Mod+K" class="cmd-keys" />
-      </button>
-      <ThemePicker v-model="theme" />
-      <a v-if="pages.some((p) => p.name === 'settings')" v-tip="'Settings'" class="cmd gear" href="#/settings" aria-label="Settings" :aria-current="route.name === 'settings' ? 'page' : undefined"><Settings :size="16" /></a>
-      <MenuButton class="navmenu" :items="nav" label="Menu" />
-    </div>
-  </header>
-  <ApprovalBar :approvals="approvals.waiting.value" :busy="approvals.busy.value" @answer="(id, ok) => approvals.answer(id, ok)" />
-  <RunView v-if="shown.name === 'run'" :id="shown.id" />
-  <AttemptView v-else-if="shown.name === 'attempt'" :run-id="shown.runId" :attempt-id="shown.attemptId" :line="shown.line ?? null" />
-  <NewRunView v-else-if="shown.name === 'new'" :query="shown.query" />
-  <PacksView v-else-if="shown.name === 'packs'" :query="shown.query" />
-  <PackView v-else-if="shown.name === 'pack'" :id="shown.id" />
-  <EditView v-else-if="shown.name === 'edit'" :id="shown.id" :file="shown.file" :line="shown.line" :record="shown.record ?? false" :explore="shown.watch ?? null" />
-  <CompareView v-else-if="shown.name === 'compare'" :query="shown.query" />
-  <KitView v-else-if="shown.name === 'kit'" />
-  <SettingsView v-else-if="shown.name === 'settings'" :section="shown.section" />
-  <SchedulesView v-else-if="shown.name === 'schedules'" />
-  <RunsView v-else :query="shown.query" />
-  <CommandPalette v-model:open="palette" :commands="commands" />
-  <ToastHost />
+      <span v-if="health" v-tip="`Data folder: ${health.dataDir}`" class="version num">v{{ health.version }}</span>
+      <span v-else-if="down" class="down" role="alert">Server unreachable</span>
+      <nav class="nav" aria-label="Main">
+        <a v-for="n in nav.filter((x) => x.main)" :key="n.value" :href="n.href" class="link" :aria-current="n.current ? 'page' : undefined">{{ n.label }}</a>
+      </nav>
+      <div class="end">
+        <a v-if="pages.some((p) => p.name === 'new-run') && can('user')" class="btn primary new" href="#/new" :aria-current="route.name === 'new' ? 'page' : undefined">
+          <Plus :size="15" />
+          New run
+        </a>
+        <button type="button" class="cmd" aria-label="Commands" aria-keyshortcuts="Control+K Meta+K" @click="palette = true">
+          <Search :size="15" />
+          <KeyHint keys="Mod+K" class="cmd-keys" />
+        </button>
+        <ThemePicker v-model="theme" />
+        <a v-if="pages.some((p) => p.name === 'settings')" v-tip="'Settings'" class="cmd gear" href="#/settings" aria-label="Settings" :aria-current="route.name === 'settings' ? 'page' : undefined"><Settings :size="16" /></a>
+        <MenuButton v-if="session.on && session.user" v-tip="roleWords[session.user.role]" class="usermenu" :items="userItems" :label="`Signed in as ${session.user.name}`" @select="(v) => v === 'signout' && signOut()">
+          <template #button>
+            <span class="who"><UserRound :size="16" /> <span class="uname">{{ session.user.displayName ?? session.user.name }}</span></span>
+          </template>
+        </MenuButton>
+        <MenuButton class="navmenu" :items="nav" label="Menu" />
+      </div>
+    </header>
+    <ApprovalBar :approvals="approvals.waiting.value" :busy="approvals.busy.value" @answer="(id, ok) => approvals.answer(id, ok)" />
+    <RunView v-if="shown.name === 'run'" :id="shown.id" />
+    <AttemptView v-else-if="shown.name === 'attempt'" :run-id="shown.runId" :attempt-id="shown.attemptId" :line="shown.line ?? null" />
+    <NewRunView v-else-if="shown.name === 'new'" :query="shown.query" />
+    <PacksView v-else-if="shown.name === 'packs'" :query="shown.query" />
+    <PackView v-else-if="shown.name === 'pack'" :id="shown.id" />
+    <EditView v-else-if="shown.name === 'edit'" :id="shown.id" :file="shown.file" :line="shown.line" :record="shown.record ?? false" :explore="shown.watch ?? null" />
+    <CompareView v-else-if="shown.name === 'compare'" :query="shown.query" />
+    <KitView v-else-if="shown.name === 'kit'" />
+    <SettingsView v-else-if="shown.name === 'settings'" :section="shown.section" />
+    <SchedulesView v-else-if="shown.name === 'schedules'" />
+    <RunsView v-else :query="shown.query" />
+    <CommandPalette v-model:open="palette" :commands="commands" />
+    <ToastHost />
+  </template>
 </template>
 
 <style scoped>
@@ -232,10 +263,23 @@ onMounted(async () => {
 .gear[aria-current] {
   color: var(--accent-text);
 }
+.who {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 13px;
+}
+.uname {
+  max-width: 14ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* Between phone and laptop width the menu still fits once the extras go. */
 @media (max-width: 1080px) {
   .version,
-  .cmd-keys {
+  .cmd-keys,
+  .uname {
     display: none;
   }
 }
