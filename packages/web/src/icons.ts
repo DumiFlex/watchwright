@@ -63,6 +63,7 @@ export {
   KeyRound,
   Laptop,
   Layers,
+  LayoutDashboard,
   Lightbulb,
   Link,
   ListChecks,

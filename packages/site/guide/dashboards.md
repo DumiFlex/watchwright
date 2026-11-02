@@ -5,7 +5,7 @@ A pack's dashboard shows how its runs went over time, at a glance: outcomes and 
 A pack's page shows its dashboard at the top, once the pack has run. Pick a value of each filter, or another range (the last 10, 50 or 200 runs, the last 7 or 30 days), and every tile reads only those runs. Agents get the same numbers with the `pack_dashboard` tool.
 
 ::: info Planned
-**Customize** on the page (add, move and resize tiles without editing the pack), and the tiles on the public status page and in shares, come next.
+The tiles on the public status page and in shares come next.
 :::
 
 Everything a tile shows is something any pack can record: `h.metric` and collectors' metrics, `h.text`, `h.file`, screenshots, flags, review scores, a run's params and the facts it saved with `info`, and tests' sections and tags.
@@ -126,6 +126,14 @@ A tile is its kind with a name (`metric: Load ms`) or `true` (`matrix: true`), p
 | `flags`, `flags.<kind or name>` | Attempts with any flag, or with a flag of that kind or name. Lower is better. |
 | `duration` | The mean time per attempt, in ms. Lower is better. |
 | `runs`, `attempts` | How many. |
+
+## Customize on the page
+
+**Customize**, beside the range at the top of the dashboard, changes it without editing the pack: the runs the tiles read, the filters, the groups and their titles, and the tiles. Drag a tile by its grip to move it (or focus the grip and use the arrow keys), pick its width, and open it for its fields: its name, from the names the pack's tests and latest runs offer (or one typed, for a name no run has recorded yet), its title, its kind's own fields, which tests and runs it reads, and whether shares show it. **Add a tile** picks a kind first.
+
+**Save** keeps the change on the server, for everyone who opens the pack; the dashboard says it was changed on the page. The pack's own `dashboard` block stays as it is, and **Use the pack's** drops the change so the dashboard shows the pack's block again (or the default, for a pack without one). People with the viewer role see the dashboard but not Customize.
+
+A change is kept as a `dashboard` block too, so the API takes the same thing: `POST /api/v1/packs/:id/dashboard` with `{ tiles }` or `{ groups }` saves one, and `DELETE` drops it. To keep a change for good, copy it into the pack.
 
 ## Keeping things out of shares
 

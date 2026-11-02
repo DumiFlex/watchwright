@@ -9,6 +9,9 @@ import { ago, when } from "../format";
 import { vTip } from "../tooltip";
 import SelectMenu from "./SelectMenu.vue";
 import SkeletonBlock from "./SkeletonBlock.vue";
+import DashboardEditor from "./DashboardEditor.vue";
+import { can } from "../session";
+import { LayoutDashboard } from "../icons";
 import DashboardTile from "./tiles/DashboardTile.vue";
 
 const props = defineProps<{
@@ -20,6 +23,9 @@ const props = defineProps<{
 }>();
 
 const reply = ref<DashboardReply | null>(null);
+const customizing = ref(false);
+// With login off a change is kept with the client that made it, which isn't a person's name.
+const CLIENTS = ["web", "api", "cli", "mcp"];
 const error = ref<string | null>(null);
 const range = ref("");
 const picked = ref<Record<string, string>>({});
@@ -79,7 +85,7 @@ const rangeText = computed(() => {
       <span v-if="reply" class="muted small">
         <span v-if="reply.range.from" v-tip="`${when(reply.range.from)} to ${when(reply.range.to)}`">{{ rangeText }}, since {{ ago(reply.range.from) }}</span>
         <span v-else>{{ rangeText }}</span>
-        <template v-if="reply.source === 'override' && reply.updatedBy"> · changed on this page by {{ reply.updatedBy }}</template>
+        <template v-if="reply.source === 'override'"> · changed on this page{{ reply.updatedBy && !CLIENTS.includes(reply.updatedBy) ? ` by ${reply.updatedBy}` : "" }}</template>
         <template v-else-if="reply.source === 'default'"> · the default; a pack sets its own with <code>dashboard:</code></template>
       </span>
       <div class="pd-filters">
@@ -89,6 +95,7 @@ const rangeText = computed(() => {
         </template>
         <label class="sr-only" for="pd-range">Runs to show</label>
         <SelectMenu id="pd-range" v-model="range" :options="rangeOptions" />
+        <button v-if="reply && can('user')" type="button" class="btn" @click="customizing = true"><LayoutDashboard :size="15" /> Customize</button>
       </div>
     </div>
     <p v-if="error" class="error small" role="alert">{{ error }}</p>
@@ -103,6 +110,7 @@ const rangeText = computed(() => {
         </div>
       </div>
     </template>
+    <DashboardEditor v-if="reply" v-model="customizing" :pack-id="packId" :reply="reply" @saved="load" />
   </section>
 </template>
 

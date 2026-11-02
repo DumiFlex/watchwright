@@ -66,6 +66,8 @@ function onClick(e: MouseEvent) {
       <div class="content"><slot /></div>
       <footer v-if="$slots.actions" class="actions"><slot name="actions" /></footer>
     </div>
+    <!-- Popups inside the drawer (menus, suggestions) teleport here, as in ModalDialog. -->
+    <div class="dlg-popups" />
   </dialog>
 </template>
 
@@ -150,6 +152,9 @@ function onClick(e: MouseEvent) {
   color: var(--text);
 }
 .content {
+  /* Holds what is placed absolutely inside it (screen-reader-only text), so that never makes
+     the drawer itself scroll. */
+  position: relative;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
