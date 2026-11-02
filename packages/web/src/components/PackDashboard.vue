@@ -20,6 +20,8 @@ const props = defineProps<{
   latestRuns: readonly string[];
   /** Bumped by the page when runs change, to load the numbers again. */
   stamp: number;
+  /** The heading; the runs list names the pack in it. */
+  heading?: string;
 }>();
 
 const reply = ref<DashboardReply | null>(null);
@@ -81,7 +83,7 @@ const rangeText = computed(() => {
 <template>
   <section class="pack-dashboard" aria-labelledby="pd-title" :aria-busy="!reply && !error">
     <div class="pd-head">
-      <h2 id="pd-title" class="display">Dashboard</h2>
+      <h2 id="pd-title" class="display">{{ heading ?? "Dashboard" }}</h2>
       <span v-if="reply" class="muted small">
         <span v-if="reply.range.from" v-tip="`${when(reply.range.from)} to ${when(reply.range.to)}`">{{ rangeText }}, since {{ ago(reply.range.from) }}</span>
         <span v-else>{{ rangeText }}</span>
