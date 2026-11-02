@@ -63,7 +63,7 @@ The image sets these, and you can change them with `-e` or in `environment:`:
 | `WATCHWRIGHT_AUTH` | `on` | Login. It can't be off while the server listens beyond `127.0.0.1`. |
 | `WATCHWRIGHT_DATA` | `/data` | The data folder. |
 | `WATCHWRIGHT_FOLDERS` | `/packs` | The folders the web app's folder browser may show, with commas. |
-| `WATCHWRIGHT_SERVER_HOST` | `1` | No screen: browsers always run headless (a pack's `headless: false` is ignored), **Record in a window** isn't offered, and folders can't be shown in a file manager. |
+| `WATCHWRIGHT_SERVER_HOST` | `1` | No screen: browsers always run headless (a pack's `headless: false` is ignored), **Record in a window** isn't offered, and folders can't be shown in a file manager. The live view, videos and Record from the live view work as usual: they never needed a screen. |
 | `WATCHWRIGHT_HOST` | `0.0.0.0` | The address the server listens on inside the container. |
 | `TZ` | (UTC) | The time zone for schedules. |
 
