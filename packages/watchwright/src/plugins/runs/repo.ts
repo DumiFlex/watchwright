@@ -336,7 +336,7 @@ export class RunsRepo {
     return this.db.prepare(sql).all(...args, filter.limit ?? 100) as RunRow[];
   }
 
-  /** Removes a run with its attempts and artifacts (the events stay in the log). */
+  /** Removes a run with its attempts and artifacts. */
   deleteRun(id: string): boolean {
     return this.db.prepare("DELETE FROM runs WHERE id = ?").run(id).changes > 0;
   }
@@ -350,6 +350,26 @@ export class RunsRepo {
   sizeTotals(): { runs: number; bytes: number; unmeasured: number } {
     const r = this.db.prepare("SELECT COUNT(*) AS runs, COALESCE(SUM(size_bytes), 0) AS bytes, SUM(CASE WHEN size_bytes IS NULL THEN 1 ELSE 0 END) AS unmeasured FROM runs").get() as { runs: number; bytes: number; unmeasured: number | null };
     return { runs: r.runs, bytes: r.bytes, unmeasured: r.unmeasured ?? 0 };
+  }
+
+  /**
+   * Ended runs that no cleanup rule keeps, oldest first. A rule left at 0 is off; with both on, a
+   * run is kept when either keeps it (younger than `keepDays`, or among the `keepPerPack` newest
+   * runs of its pack). Labeled runs are always kept.
+   */
+  cleanupCandidates(o: { keepDays: number; keepPerPack: number; now?: Date }): RunRow[] {
+    if (o.keepDays <= 0 && o.keepPerPack <= 0) return [];
+    const before = new Date((o.now ?? new Date()).getTime() - o.keepDays * 86_400_000).toISOString();
+    const keep: string[] = [];
+    if (o.keepDays > 0) keep.push("created_at >= @before");
+    if (o.keepPerPack > 0) keep.push("rank <= @keepPerPack");
+    return this.db
+      .prepare(
+        `SELECT * FROM (SELECT runs.*, runs.rowid AS row_no, ROW_NUMBER() OVER (PARTITION BY pack_id ORDER BY created_at DESC, runs.rowid DESC) AS rank FROM runs)
+         WHERE label = '' AND status NOT IN ('queued', 'running', 'pausing', 'paused') AND NOT (${keep.join(" OR ")})
+         ORDER BY created_at, row_no`,
+      )
+      .all({ before, keepPerPack: o.keepPerPack }) as RunRow[];
   }
 
   /** The runs that take the most room, largest first. */

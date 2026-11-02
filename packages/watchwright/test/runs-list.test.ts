@@ -101,4 +101,52 @@ describe("runs list and delete", () => {
     expect(queued.status).toBe(409);
     expect((await h.api("DELETE", "/runs/0000000f")).status).toBe(404);
   });
+
+  it("cleans up ended runs no keep rule keeps, never labeled or going ones, with their files and events", async () => {
+    const day = 86_400_000;
+    const at = (daysAgo: number) => new Date(Date.now() - daysAgo * day).toISOString();
+    const { h, dataDir } = await withRuns([
+      { id: "000000c1", pack: "aaaaaaaa", status: "finished", at: at(40) },
+      { id: "000000c2", pack: "aaaaaaaa", status: "finished", at: at(35), label: "baseline" },
+      { id: "000000c3", pack: "aaaaaaaa", status: "interrupted", at: at(31) },
+      { id: "000000c4", pack: "aaaaaaaa", status: "finished", at: at(2) },
+      { id: "000000c5", pack: "aaaaaaaa", status: "finished", at: at(1) },
+      { id: "000000c6", pack: "bbbbbbbb", status: "stopped", at: at(50) },
+      { id: "000000c7", pack: "bbbbbbbb", status: "paused", at: at(45) },
+    ]);
+    mkdirSync(path.join(dataDir, "runs", "000000c1"), { recursive: true });
+    writeFileSync(path.join(dataDir, "runs", "000000c1", "result.json"), "{}");
+    h.app.watchwright.events.append("run.log", { message: "old" }, { runId: "000000c1" });
+    type Plan = { rules: { keepDays: number; keepPerPack: number }; runs: RunSummary[]; bytes: number; unmeasured: number };
+    const plan = async () => (await h.api<Plan>("GET", "/storage/cleanup")).data;
+    const set = (values: Record<string, number>) => h.api("POST", "/settings", { values });
+
+    // Off by default: nothing goes.
+    expect(await plan()).toMatchObject({ rules: { keepDays: 0, keepPerPack: 0 }, runs: [] });
+
+    // Older than 30 days, oldest first; the labeled and the paused run stay.
+    await set({ "runs.keepDays": 30 });
+    expect(ids((await plan()).runs)).toEqual(["000000c6", "000000c1", "000000c3"]);
+
+    // The last 2 of each pack: with both rules, a run either rule keeps stays.
+    await set({ "runs.keepDays": 0, "runs.keepPerPack": 2 });
+    expect(ids((await plan()).runs)).toEqual(["000000c1", "000000c3"]);
+    await set({ "runs.keepDays": 30, "runs.keepPerPack": 1 });
+    expect(ids((await plan()).runs)).toEqual(["000000c6", "000000c1", "000000c3"]);
+    await set({ "runs.keepDays": 3, "runs.keepPerPack": 4 });
+    expect(ids((await plan()).runs)).toEqual(["000000c1"]);
+
+    h.app.watchwright.store.db.prepare("UPDATE runs SET size_bytes = 2048 WHERE id = '000000c1'").run();
+    expect(await plan()).toMatchObject({ bytes: 2048, unmeasured: 0 });
+    // Deleting asks for approval unless the web page asks, as here.
+    const res = await h.app.inject({ method: "POST", url: "/api/v1/storage/cleanup", headers: { host: h.host, origin: `http://${h.host}` }, payload: {} });
+    expect(res.statusCode).toBe(200);
+    expect(ids((res.json() as { data: Plan }).data.runs)).toEqual(["000000c1"]);
+    expect(existsSync(path.join(dataDir, "runs", "000000c1"))).toBe(false);
+    const events = h.app.watchwright.events.after(0);
+    expect(events.filter((e) => e.runId === "000000c1").map((e) => e.type)).toEqual(["run.deleted"]);
+    expect(events.find((e) => e.type === "runs.cleaned")?.data).toMatchObject({ count: 1, bytes: 2048, rules: { keepDays: 3, keepPerPack: 4 } });
+    expect(ids((await h.api<RunSummary[]>("GET", "/runs")).data)).toEqual(["000000c5", "000000c4", "000000c3", "000000c2", "000000c7", "000000c6"]);
+    expect((await plan()).runs).toEqual([]);
+  });
 });

@@ -2,25 +2,28 @@
 // Settings > Storage: how full the drive with the data folder is, what runs take, the largest
 // runs, and the free space below which runs warn and then stop recording videos.
 import { computed, onMounted, ref } from "vue";
-import { getJson, runName, type StorageReport } from "../api";
+import { getJson, runName, sendJson, type CleanupPlan, type StorageReport } from "../api";
 import { countsText, fileSize, when } from "../format";
 import { tildify } from "../paths";
 import { saveSettings, settings } from "../settings";
 import { toast } from "../toasts";
 import { vTip } from "../tooltip";
+import ModalDialog from "./ModalDialog.vue";
 import NumberInput from "./NumberInput.vue";
 import ProgressBar from "./ProgressBar.vue";
 import StatusChip from "./StatusChip.vue";
 
 const report = ref<StorageReport | null>(null);
+const plan = ref<CleanupPlan | null>(null);
 const error = ref<string | null>(null);
 
 async function load() {
-  const res = await getJson<StorageReport>("/api/v1/storage");
+  const [res, p] = await Promise.all([getJson<StorageReport>("/api/v1/storage"), getJson<CleanupPlan>("/api/v1/storage/cleanup")]);
   if (res.ok) {
     report.value = res.data;
     error.value = null;
   } else error.value = res.error.message;
+  if (p.ok) plan.value = p.data;
 }
 onMounted(load);
 
@@ -45,6 +48,36 @@ const stopGB = computed<number>({
   get: () => (settings.values["runs.storageStopGB"] as number | undefined) ?? 1,
   set: (v) => void save({ "runs.storageStopGB": v }),
 });
+// Cleanup rules: 0 keeps every run.
+const keepDays = computed<number>({
+  get: () => (settings.values["runs.keepDays"] as number | undefined) ?? 0,
+  set: (v) => void save({ "runs.keepDays": v }),
+});
+const keepPerPack = computed<number>({
+  get: () => (settings.values["runs.keepPerPack"] as number | undefined) ?? 0,
+  set: (v) => void save({ "runs.keepPerPack": v }),
+});
+const rulesOn = computed(() => keepDays.value > 0 || keepPerPack.value > 0);
+const runsText = (n: number) => `${n} ${n === 1 ? "run" : "runs"}`;
+/** "12 runs, 3.4 GB" (and how many of them aren't measured yet). */
+const planText = computed(() => {
+  const p = plan.value;
+  if (!p) return "";
+  return `${runsText(p.runs.length)}, ${fileSize(p.bytes)}${p.unmeasured ? ` and ${p.unmeasured} not measured yet` : ""}`;
+});
+
+const confirmOpen = ref(false);
+const cleaning = ref(false);
+async function cleanUp() {
+  cleaning.value = true;
+  const res = await sendJson<CleanupPlan>("/api/v1/storage/cleanup", {});
+  cleaning.value = false;
+  confirmOpen.value = false;
+  if (!res.ok) return toast(res.error.message, { tone: "bad" });
+  toast(`Deleted ${runsText(res.data.runs.length)}, ${fileSize(res.data.bytes)}`, { tone: "ok" });
+  void load();
+}
+
 async function save(values: Record<string, unknown>) {
   const err = await saveSettings(values);
   if (err) toast(err, { tone: "bad" });
@@ -99,7 +132,50 @@ async function save(values: Record<string, unknown>) {
         </div>
       </div>
       <p class="muted small">A run checks once a minute. It says so on its page and in its log, and an alert rule can send it on. Runs never stop for it: below the second limit they go on without videos.</p>
+
+      <h3 class="label">Clean up old runs</h3>
+      <div class="limits">
+        <div class="inline">
+          <span class="small">Keep runs for</span>
+          <span class="inline">
+            <NumberInput id="s-keep-days" v-model="keepDays" label="Keep runs for, in days" :min="0" :max="36500" />
+            <span class="muted small nowrap">days</span>
+          </span>
+        </div>
+        <div class="inline">
+          <span class="small">Keep the newest</span>
+          <span class="inline">
+            <NumberInput id="s-keep-per-pack" v-model="keepPerPack" label="Keep the newest runs of each pack" :min="0" :max="100000" />
+            <span class="muted small nowrap">runs of each pack</span>
+          </span>
+        </div>
+      </div>
+      <p class="muted small">0 keeps them all. A run either rule keeps stays, and so does a run with a name and a run that is going. Once a rule is set, cleanup runs once a day.</p>
+      <div v-if="rulesOn && plan" class="inline">
+        <span class="small grow">
+          <template v-if="plan.runs.length">Cleaning up now deletes <strong>{{ planText }}</strong>.</template>
+          <template v-else>Nothing to clean up now.</template>
+        </span>
+        <button class="btn" :disabled="!plan.runs.length" @click="confirmOpen = true">Clean up now</button>
+      </div>
     </template>
+    <ModalDialog v-model="confirmOpen" heading="Delete old runs?">
+      <p v-if="plan">
+        This deletes <strong>{{ planText }}</strong>, the oldest from {{ plan.runs[0] ? new Date(plan.runs[0].createdAt).toLocaleDateString() : "" }}, with their results, screenshots, videos and traces. This can't be undone.
+      </p>
+      <ul v-if="plan" class="largest preview">
+        <li v-for="r in plan.runs.slice(0, 5)" :key="r.id">
+          <span class="name">{{ runName(r) }}</span>
+          <span class="muted small when">{{ new Date(r.createdAt).toLocaleDateString() }} · {{ countsText(r.counts) }}</span>
+          <span class="num size">{{ r.sizeBytes == null ? "" : fileSize(r.sizeBytes) }}</span>
+        </li>
+      </ul>
+      <p v-if="plan && plan.runs.length > 5" class="muted small">And {{ runsText(plan.runs.length - 5) }} more.</p>
+      <template #actions>
+        <button class="btn" :disabled="cleaning" @click="confirmOpen = false">Cancel</button>
+        <button class="btn danger" :disabled="cleaning" @click="cleanUp">{{ cleaning ? "Deleting…" : "Delete runs" }}</button>
+      </template>
+    </ModalDialog>
   </section>
 </template>
 
@@ -165,5 +241,12 @@ async function save(values: Record<string, unknown>) {
 }
 .nowrap {
   white-space: nowrap;
+}
+.grow {
+  flex: 1;
+  min-width: 12em;
+}
+.preview {
+  margin: var(--space-3) 0;
 }
 </style>

@@ -118,6 +118,21 @@ export interface StorageReport {
   limits: StorageLimits;
 }
 
+/** Which ended runs cleanup keeps. 0 turns a rule off; a run is kept when any rule keeps it, and a labeled run always is. */
+export interface CleanupRules {
+  keepDays: number;
+  keepPerPack: number;
+}
+
+/** What a cleanup deletes (or deleted): the runs, oldest first, and the room they take. */
+export interface CleanupPlan {
+  rules: CleanupRules;
+  runs: RunSummary[];
+  bytes: number;
+  /** Of `runs`, how many aren't measured yet, so `bytes` leaves them out. */
+  unmeasured: number;
+}
+
 /** What can change while a run goes (`runs.settings`), as in effect. */
 export interface RunSettings {
   pauseOnBroken: boolean;
@@ -224,6 +239,8 @@ export interface EngineOptions {
   signIns?: { get(siteKey: string): StorageState | undefined; save(siteKey: string, state: StorageState, source: string): unknown } | undefined;
   /** Free space on the drive below which a run warns, and below which it stops recording videos (the settings; 5 and 1 GB by default). */
   storageLimits?: (() => StorageLimits) | undefined;
+  /** How long ended runs are kept (Settings > Storage); both 0, the default, keeps every run. */
+  cleanupRules?: (() => CleanupRules) | undefined;
   /** How often a going run measures its folder and the drive's free space (default once a minute). */
   storageCheckMs?: number | undefined;
 }
@@ -317,6 +334,37 @@ export class Engine {
       largest: this.o.repo.largest(top).map((r) => this.summary(r)),
       limits: this.limits(),
     };
+  }
+
+  /** The ended runs the cleanup rules don't keep, oldest first. */
+  cleanupPlan(rules: CleanupRules = this.cleanupRules()): CleanupPlan {
+    const runs = this.o.repo
+      .cleanupCandidates(rules)
+      .filter((r) => !this.active.has(r.id))
+      .map((r) => this.summary(r));
+    return { rules, runs, bytes: runs.reduce((n, r) => n + (r.sizeBytes ?? 0), 0), unmeasured: runs.filter((r) => r.sizeBytes == null).length };
+  }
+
+  /** Deletes the runs `cleanupPlan` lists, the same way `delete` does. `by` says who asked (`schedule` for the daily sweep). */
+  async cleanup(by: string): Promise<CleanupPlan> {
+    const plan = this.cleanupPlan();
+    const done: RunSummary[] = [];
+    for (const r of plan.runs) {
+      if (this.closing) break;
+      try {
+        await this.delete(r.id);
+        done.push(r);
+      } catch {
+        // Started again (redo, resume) since the plan: keep it.
+      }
+    }
+    const result = { ...plan, runs: done, bytes: done.reduce((n, r) => n + (r.sizeBytes ?? 0), 0), unmeasured: done.filter((r) => r.sizeBytes == null).length };
+    if (done.length) this.o.events.append("runs.cleaned", { by, count: done.length, bytes: result.bytes, rules: plan.rules });
+    return result;
+  }
+
+  private cleanupRules(): CleanupRules {
+    return this.o.cleanupRules?.() ?? { keepDays: 0, keepPerPack: 0 };
   }
 
   private limits(): StorageLimits {
@@ -547,6 +595,7 @@ export class Engine {
     if (this.active.has(id) || r.status === "queued") throw new EngineError("conflict", "Stop the run before deleting it.", 409);
     this.o.repo.deleteRun(id);
     await rm(path.join(this.o.dataDir, "runs", id), { recursive: true, force: true });
+    this.o.events.forgetRun(id);
     this.o.events.append("run.deleted", {}, { runId: id });
     return { id, deleted: true };
   }
