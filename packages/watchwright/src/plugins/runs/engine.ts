@@ -617,6 +617,22 @@ export class Engine {
     await Promise.all(runs.map((r) => r.done.catch(() => undefined)));
   }
 
+  /**
+   * A promise that failed with nobody waiting on it, almost always test code that started a
+   * Playwright call without `await` and ended before it did. It must not take the server down:
+   * it goes on the log of every run that is going (the attempt that is running, else the run),
+   * since nothing tells which one it came from. Returns the message, for the server's own log.
+   */
+  strayError(reason: unknown): string {
+    const first = reason instanceof Error ? `${reason.name === "Error" ? "" : `${reason.name}: `}${reason.message.split("\n")[0]}` : String(reason);
+    const message = this.mask(`A promise failed after nothing waited on it (a call without await in a test?): ${first}`);
+    for (const run of this.active.values()) {
+      if (run.recorder) run.recorder.addLog("warn", message);
+      else this.emit("run.log", { level: "warn", message }, run.id);
+    }
+    return message;
+  }
+
   /** Resolves when the run is no longer active (for tests and the CLI). */
   async settled(id: string): Promise<void> {
     await this.active.get(id)?.done;
