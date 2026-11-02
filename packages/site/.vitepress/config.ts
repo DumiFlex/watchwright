@@ -38,6 +38,7 @@ export default defineConfig({
           { text: "Alerts", link: "/guide/alerts" },
           { text: "Safety", link: "/guide/safety" },
           { text: "Single sign-on", link: "/guide/single-sign-on" },
+          { text: "Sharing", link: "/guide/sharing" },
         ],
       },
       {

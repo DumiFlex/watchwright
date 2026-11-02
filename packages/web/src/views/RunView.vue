@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Ban, Keyboard, Pencil, Plus, Repeat, Settings, Undo2 } from "../icons";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Ban, Keyboard, Pencil, Plus, Repeat, Settings, Share2, Undo2 } from "../icons";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { AttemptPatches, eventAttempt } from "../run-patch";
 import { getJson, sendJson, type ChangeSide, type Criterion, type Pack, type Review, type RunChanges, type RunDetail, type WwEvent } from "../api";
@@ -14,6 +14,7 @@ import MultiSelect from "../components/MultiSelect.vue";
 import PageSkeleton from "../components/PageSkeleton.vue";
 import RunSettingsDialog from "../components/RunSettingsDialog.vue";
 import SelectMenu from "../components/SelectMenu.vue";
+import ShareDialog from "../components/ShareDialog.vue";
 import StatusChip from "../components/StatusChip.vue";
 import TextArea from "../components/TextArea.vue";
 import TextField from "../components/TextField.vue";
@@ -30,11 +31,13 @@ import { offerNotify } from "../notify";
 import { resetHead, setIconDot, setTitle } from "../pagehead";
 import { openModals } from "../popup";
 import { runTitle, runTone, settingsText } from "../runstate";
+import { can } from "../session";
 import { vTip } from "../tooltip";
 
 const props = defineProps<{ id: string }>();
 
 const run = ref<RunDetail | null>(null);
+const shareOpen = ref(false);
 const error = ref<string | null>(null);
 const actionError = ref<string | null>(null);
 const busy = ref(false);
@@ -558,6 +561,7 @@ async function remove() {
           <button v-if="canRedo" class="btn" :disabled="busy" @click="act('redo-broken')">Redo broken</button>
           <button v-if="!active && run.status !== 'queued'" v-tip="'Start the same pack, tests, values and options now'" class="btn" :disabled="busy" @click="again"><Repeat :size="15" /> Run again</button>
           <a v-if="!active" class="btn" :href="`#/new?pack=${run.packId}&from=${run.id}`">New run like this…</a>
+          <button v-if="run.status !== 'queued' && can('user')" v-tip="'A read-only link for people without an account'" class="btn" @click="shareOpen = true"><Share2 :size="15" /> Share</button>
           <a v-if="showResults" class="btn" :href="`#/compare?runs=${run.id}`">Compare</a>
           <MenuButton v-if="showResults" :items="exports" label="Export" class="export">
             <template #button><span class="exportlabel">Export</span></template>
@@ -749,6 +753,7 @@ async function remove() {
           {{ duration(run.attempts.reduce((s, a) => s + (a.durationMs ?? 0), 0)) }} of test time
         </p>
       </section>
+      <ShareDialog v-model="shareOpen" :run-id="run.id" />
       <ModalDialog v-model="markOpen" heading="Mark this moment">
         <p class="muted small">Saves what the live view shows {{ rewound ? "at the rewound moment" : "now" }} to the running attempt{{ live?.testId ? ` (${live.testId})` : "" }}, with your note. It shows with the attempt's screenshots.</p>
         <TextArea v-model="markNote" :rows="3" placeholder="What you saw (optional)" />

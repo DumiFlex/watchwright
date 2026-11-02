@@ -253,6 +253,28 @@ Deleting a run deletes its reviews.
 
 Run statuses: `queued`, `running`, `pausing`, `paused`, `finished`, `stopped`, `interrupted` (the server stopped mid-run), `failed_to_start`. Attempt statuses: `passed`, `failed`, `broken`, `skipped`, `stopped`, plus `running` and `interrupted`.
 
+## Sharing
+
+Share links and the public status page ([Sharing](../guide/sharing)). A share link's token is 22 characters; only its hash is kept, so `POST /shares` is the only answer that holds it.
+
+| Method and path | Does |
+|---|---|
+| `GET /shares?run=` | Share links that still work, of one run or all: `[{ id, runId, traces, createdBy, createdAt, expiresAt, views, viewedAt, run }]`, `run` being `{ packName, label, status, createdAt }`. User role. |
+| `POST /shares` `{ run, days?, traces? }` | Makes a link (201): the link's fields plus `token` and `page` (`#/s/<token>`, to put after the server's address). `days` from 1 to 365; without it the link works until removed. `traces` shares traces and collector files too. 404 `not_found` for an unknown run. User role. |
+| `DELETE /shares/:id` | Takes a link back. User role. |
+| `GET /shares/dashboard` | The public status page's settings (admin): `{ on, packs, linkRuns, title }`. |
+| `POST /shares/dashboard` `{ on?, packs?, linkRuns?, title? }` | Changes them (admin). `packs` is a list of pack ids, in the order shown. |
+
+These answer anyone, without a cookie or token, and are limited to 600 requests a minute per address (429 `too_many_requests` past that):
+
+| Method and path | Does |
+|---|---|
+| `GET /shared/:token` | The shared run: `{ id, packName, label, status, startedBy, createdAt, startedAt, finishedAt, error, params, info, counts, plan, attempts, running, runVideos, traces }`. Each run video is `{ url, size }`. 404 `not_shared` when the link was taken back, expired or its run was deleted. |
+| `GET /shared/:token/attempts/:attemptId` | An attempt's result document, as in `GET /runs/:id/attempts/:attemptId`, with file urls under the link. Traces and collector files are left out unless the link shares them. |
+| `GET /shared/:token/files/<path>` | One file the run recorded and the link shares (ranges supported); 404 for anything else. |
+| `GET /public/status` | The public status page: `{ title, linkRuns, packs: [{ packId, name, runs }] }`, each pack's last 20 runs newest first, each `{ id, label, status, counts, startedAt, finishedAt, durationMs }`. 404 `dashboard_off` while it is off. |
+| `GET /public/runs/:id`, `…/attempts/:attemptId`, `…/files/<path>` | A run on the status page, the same as through a share link without traces, while **Runs open read-only** is on. 404 for runs of packs not on the page. |
+
 ## Approvals
 
 Actions marked `destructive` in `GET /actions` (deleting a run, a pack, a pack file or a preset, and `POST /stop`) run at once only when the request comes from the web page. From anything else they wait for the person to [approve them on the web page](../guide/safety#approvals). The request is held for up to 45 seconds (less than MCP clients' 60 second timeout): approved in that time, it answers as the action does; refused, it fails with 403 `refused`. Still waiting after that, it answers `202` with `{ approval, message }`; wait on the approval by its id.

@@ -40,6 +40,9 @@ export function pageOf(route: Route): string | null {
     case "setup":
     case "invite":
     case "signin":
+    case "shared":
+    case "status":
+    case "status-run":
       return null;
   }
 }

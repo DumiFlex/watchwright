@@ -318,6 +318,43 @@ export interface RunDetail extends RunSummary {
   runVideos?: { path: string; url: string; size: number }[];
 }
 
+/** A run as a share link or the public dashboard shows it: no live view, files from the share's own address. */
+export interface SharedRun extends Pick<RunDetail, "id" | "packName" | "label" | "status" | "startedBy" | "createdAt" | "startedAt" | "finishedAt" | "error" | "params" | "info" | "counts" | "plan" | "attempts"> {
+  /** Still running: the page asks again now and then. */
+  running: boolean;
+  runVideos: { url: string; size: number }[];
+  /** Traces and collector files are shared too. */
+  traces: boolean;
+}
+
+/** A share link (`GET /shares`); the token itself is shown only once, when it is made. */
+export interface ShareLink {
+  id: string;
+  runId: string;
+  traces: boolean;
+  createdBy: string | null;
+  createdAt: string;
+  expiresAt: string | null;
+  views: number;
+  viewedAt: string | null;
+  run: { packName: string; label: string; status: RunStatus; createdAt: string } | null;
+}
+
+/** The public dashboard's settings (`GET /shares/dashboard`, admins). */
+export interface DashboardSettings {
+  on: boolean;
+  packs: string[];
+  linkRuns: boolean;
+  title: string;
+}
+
+/** The public dashboard (`GET /public/status`): each pack's latest runs, newest first. */
+export interface PublicStatus {
+  title: string;
+  linkRuns: boolean;
+  packs: { packId: string; name: string; runs: { id: string; label: string; status: RunStatus; counts: RunSummary["counts"]; startedAt: string | null; finishedAt: string | null; durationMs: number | null }[] }[];
+}
+
 export interface Artifact {
   kind: string;
   name: string;
