@@ -1,6 +1,6 @@
 # Dashboards plan
 
-Status: plan, agreed in outline by Dumi (2026-11-02). Built after the Docker step of [self-hosting.md](self-hosting.md), which goes on meanwhile.
+Status: built (2026-11-02), in PRs #181 to #184 and the sign-off PR. Agreed in outline by Dumi (2026-11-02) and built after the Docker step of [self-hosting.md](self-hosting.md).
 
 Dumi, 2026-11-02: "we should probably work on some dashboard customization, since many runs can come with their own setups, outputs, reviews and so on." And on the first draft: go with the suggestions, look at what the Wildcard bench and smoke packs need, and come up with more components and fields people can set up.
 
