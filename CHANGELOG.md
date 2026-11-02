@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/DumiFlex/watchwright/compare/v0.11.1...v0.12.0) (2026-11-02)
+
+
+### Features
+
+* update Watchwright from its page or with watchwright update ([#198](https://github.com/DumiFlex/watchwright/issues/198)) ([6c212ad](https://github.com/DumiFlex/watchwright/commit/6c212ad54f4f2709b95007f81b70ec17c9195936))
+
 ## [0.11.1](https://github.com/DumiFlex/watchwright/compare/v0.11.0...v0.11.1) (2026-11-02)
 
 
