@@ -171,3 +171,4 @@ Items 1 and 3 close gaps in what already shipped, so they fit FIX FIRST. Items 2
 ## Decided
 
 - 2 November 2026: Dumi chose **code is admin-only, with users proposing code changes for admins to review**. The code fix is built first; proposals follow. Checking the code for it also found that a YAML test's `upload` step takes any path on the server and its `goto` (and a recording's address) can open `file:` addresses; the code fix closes both, since without that a YAML test could still read server files.
+- 2 November 2026: Dumi said yes to **only admins publish tiles** now, and to **pack access before named dashboards**. Build order: code admin-only, proposals, admin-only public tiles, pack access, named dashboards.
