@@ -368,6 +368,11 @@ export class Engine {
     return { ...runSummary(r, this.o.repo.counts(id)), plan, attempts, live: this.snapshot(id) };
   }
 
+  /** A run's status alone, from one row: cheap enough to check on every event. Null when there is no such run. */
+  status(id: string): RunRow["status"] | null {
+    return this.o.repo.run(id)?.status ?? null;
+  }
+
   history(id: string): AttemptSummary[] {
     return this.o.repo.attempts(id, true).map(attemptSummary);
   }
