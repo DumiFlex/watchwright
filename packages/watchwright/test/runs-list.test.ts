@@ -3,7 +3,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { RunsRepo, type RunStatus, type RunSummary } from "../src/plugins/runs/repo.js";
 import { cleanTempDirs, tempDir } from "./helpers/fixtures.js";
-import { startHarness, type Harness } from "./helpers/harness.js";
+import { engineOf, startHarness, type Harness } from "./helpers/harness.js";
 
 // Listing runs with filters and a cursor, and deleting them. Rows are written straight into the
 // store, so these tests need no browser.
@@ -148,5 +148,27 @@ describe("runs list and delete", () => {
     expect(events.find((e) => e.type === "runs.cleaned")?.data).toMatchObject({ count: 1, bytes: 2048, rules: { keepDays: 3, keepPerPack: 4 } });
     expect(ids((await h.api<RunSummary[]>("GET", "/runs")).data)).toEqual(["000000c5", "000000c4", "000000c3", "000000c2", "000000c7", "000000c6"]);
     expect((await plan()).runs).toEqual([]);
+  });
+
+  it("after a restart, reports the runs the stop interrupted once, and resumes them when asked", async () => {
+    const { h } = await withRuns([
+      { id: "000000d1", pack: "aaaaaaaa", status: "interrupted", at: "2026-10-01T10:00:00.000Z" },
+      { id: "000000d2", pack: "aaaaaaaa", status: "interrupted", at: "2026-10-02T10:00:00.000Z" },
+      { id: "000000d3", pack: "aaaaaaaa", status: "finished", at: "2026-10-03T10:00:00.000Z" },
+    ]);
+    const db = h.app.watchwright.store.db;
+    const engine = engineOf(h);
+    db.prepare("UPDATE runs SET stopped_by_server = 1 WHERE id IN ('000000d1', '000000d3')").run();
+    expect(engine.afterRestart(false)).toEqual({ interrupted: ["000000d1"], resumed: [] });
+    expect(h.app.watchwright.events.after(0).find((e) => e.type === "runs.restarted")?.data).toEqual({ interrupted: ["000000d1"], resumed: [] });
+    // Each run once: a later start doesn't report it again.
+    expect(engine.afterRestart(true)).toEqual({ interrupted: [], resumed: [] });
+    expect((await h.api<RunSummary>("GET", "/runs/000000d1")).data.status).toBe("interrupted");
+
+    db.prepare("UPDATE runs SET stopped_by_server = 1 WHERE id = '000000d2'").run();
+    expect(engine.afterRestart(true)).toEqual({ interrupted: ["000000d2"], resumed: ["000000d2"] });
+    const log = h.app.watchwright.events.after(0).filter((e) => e.runId === "000000d2").map((e) => e.type);
+    expect(log).toContain("run.queued");
+    expect(log).toContain("run.log");
   });
 });

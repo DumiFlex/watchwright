@@ -32,6 +32,9 @@ export const RUNS_ARTIFACT_SET_SQL = `ALTER TABLE runs_artifacts ADD COLUMN set_
 export const RUNS_INFO_SQL = `ALTER TABLE runs ADD COLUMN info TEXT NOT NULL DEFAULT '{}';`;
 /** Bytes a run's folder takes; null until measured. */
 export const RUNS_SIZE_SQL = `ALTER TABLE runs ADD COLUMN size_bytes INTEGER;`;
+
+/** Migration 7: runs the server's stop interrupted, to resume (or report) when it starts again. */
+export const RUNS_STOPPED_BY_SERVER_SQL = `ALTER TABLE runs ADD COLUMN stopped_by_server INTEGER NOT NULL DEFAULT 0;`;
 export const RUNS_STEPS_SQL = `ALTER TABLE runs_attempts ADD COLUMN steps TEXT NOT NULL DEFAULT '[]';`;
 
 /** Migration 4: a run's optional label, and presets (named run choices per pack). */
@@ -391,10 +394,24 @@ export class RunsRepo {
   interruptLeftovers(): string[] {
     const ids = (this.db.prepare(`SELECT id FROM runs WHERE status IN ('running', 'pausing', 'paused')`).all() as { id: string }[]).map((r) => r.id);
     this.db.transaction(() => {
-      this.db.prepare(`UPDATE runs SET status = 'interrupted' WHERE status IN ('running', 'pausing', 'paused')`).run();
+      this.db.prepare(`UPDATE runs SET status = 'interrupted', stopped_by_server = 1 WHERE status IN ('running', 'pausing', 'paused')`).run();
       this.db.prepare(`UPDATE runs_attempts SET status = 'interrupted' WHERE status = 'running'`).run();
     })();
     return ids;
+  }
+
+  /** Marks a run the server's stop interrupted. */
+  markStoppedByServer(id: string): void {
+    this.db.prepare("UPDATE runs SET stopped_by_server = 1 WHERE id = ?").run(id);
+  }
+
+  /** The runs the last stop interrupted, oldest first, and forgets them. */
+  takeStoppedByServer(): string[] {
+    return this.db.transaction(() => {
+      const ids = (this.db.prepare("SELECT id FROM runs WHERE stopped_by_server = 1 AND status = 'interrupted' ORDER BY created_at, rowid").all() as { id: string }[]).map((r) => r.id);
+      this.db.prepare("UPDATE runs SET stopped_by_server = 0 WHERE stopped_by_server = 1").run();
+      return ids;
+    })();
   }
 
   /** Starts a new try of an attempt: older tries of the same (item, number) stop being current. */

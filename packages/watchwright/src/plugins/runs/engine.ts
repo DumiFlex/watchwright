@@ -267,6 +267,29 @@ export class Engine {
     for (const id of this.o.repo.interruptLeftovers()) this.o.events.append("run.interrupted", { reason: "server_stopped" }, { runId: id });
   }
 
+  /**
+   * Once the server is up again: the runs its last stop (or a crash) interrupted. With `resume`
+   * (the `runs.resumeOnStart` setting) they continue where they were. Either way one
+   * `runs.restarted` event lists them, for alerts. Each run is handled once.
+   */
+  afterRestart(resume: boolean): { interrupted: string[]; resumed: string[] } {
+    if (this.closing) return { interrupted: [], resumed: [] };
+    const interrupted = this.o.repo.takeStoppedByServer();
+    const resumed: string[] = [];
+    for (const id of interrupted) {
+      if (!resume) continue;
+      try {
+        this.resume(id);
+        resumed.push(id);
+        this.o.events.append("run.log", { level: "info", message: "Watchwright started again: the run goes on where it was (Settings > New run > Resume interrupted runs)." }, { runId: id });
+      } catch (err) {
+        this.o.events.append("run.log", { level: "warn", message: `Watchwright started again but couldn't resume the run: ${err instanceof Error ? err.message : String(err)}` }, { runId: id });
+      }
+    }
+    if (interrupted.length) this.o.events.append("runs.restarted", { interrupted, resumed });
+    return { interrupted, resumed };
+  }
+
   /** Runs and outcomes per day for the `days` days ending today, in a time zone `offset` minutes behind UTC. */
   stats(o: { days: number; offset: number; packId?: string | undefined; until?: string | undefined }): RunStats {
     const until = o.until ?? dayOf(new Date().toISOString(), o.offset);
@@ -1133,8 +1156,10 @@ export class Engine {
     const status = run.shutdown ? "interrupted" : run.control.stopMode ? "stopped" : "finished";
     repo.updateRun(row.id, { status, finished_at: status === "interrupted" ? null : new Date().toISOString() });
     const counts = repo.counts(row.id);
-    if (status === "interrupted") this.emit("run.interrupted", { reason: "server_stopped" }, row.id);
-    else this.emit("run.finished", { status, counts }, row.id);
+    if (status === "interrupted") {
+      repo.markStoppedByServer(row.id);
+      this.emit("run.interrupted", { reason: "server_stopped" }, row.id);
+    } else this.emit("run.finished", { status, counts }, row.id);
   }
 
   /** Starts a video of the whole run, of the page the live view follows; a new part when the run already has one. */

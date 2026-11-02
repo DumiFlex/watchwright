@@ -36,6 +36,10 @@ const editor = computed<Editor>({
   get: () => settings.values["settings.editor"],
   set: (v) => void save({ "settings.editor": v }),
 });
+const resumeOnStart = computed<boolean>({
+  get: () => settings.values["runs.resumeOnStart"] === true,
+  set: (v) => void save({ "runs.resumeOnStart": v }),
+});
 const newRunFrom = computed<"latest" | "defaults">({
   get: () => settings.values["runs.newRunFrom"],
   set: (v) => void save({ "runs.newRunFrom": v }),
@@ -218,6 +222,8 @@ onBeforeUnmount(() => {
           <h2 id="s-newrun" class="display">New run</h2>
           <p class="muted small">What the New run page fills in when it opens. A run's "New run like this" and presets always fill in their own choices.</p>
           <RadioGroup v-model="newRunFrom" :options="newRunOptions" label="New run starts from" />
+          <ToggleSwitch id="s-resume-on-start" v-model="resumeOnStart">Resume interrupted runs when Watchwright starts</ToggleSwitch>
+          <p class="muted small">Runs going when Watchwright stopped, or when the computer restarted or it crashed, go on where they were once it starts again. Off: they wait for Resume on their page. An alert rule can say when a run is interrupted.</p>
         </section>
 
         <section class="card" aria-labelledby="s-notify">

@@ -9,7 +9,7 @@ import { CHANNEL_TYPES, checkUrl, outgoing, send, shownUrl, type AlertMessage, t
 // a schedule's) outcome instead of one per run. A send that fails is tried three more times with
 // back-off, then logged as `alert.failed`.
 
-export const TRIGGERS = ["failed", "broken", "stopped", "passed", "failed_to_start", "recovered", "test_broken", "schedule_missed", "approval", "storage_low"] as const;
+export const TRIGGERS = ["failed", "broken", "stopped", "passed", "failed_to_start", "recovered", "test_broken", "schedule_missed", "approval", "storage_low", "interrupted"] as const;
 export type Trigger = (typeof TRIGGERS)[number];
 
 export interface Channel {
@@ -381,6 +381,16 @@ export class Alerter {
       case "storage.low":
         if (e.runId) this.onStorageLow(e, e.runId);
         return;
+      // A run the server's stop interrupted is reported when the server is back (runs.restarted);
+      // one an engine error interrupted, now.
+      case "run.interrupted":
+        if (e.runId && e.data.reason !== "server_stopped") this.onInterrupted(e, e.runId, `an error: ${this.d.mask(String(e.data.message ?? "no message"))}`, false);
+        return;
+      case "runs.restarted": {
+        const resumed = new Set(Array.isArray(e.data.resumed) ? e.data.resumed.map(String) : []);
+        for (const id of Array.isArray(e.data.interrupted) ? e.data.interrupted.map(String) : []) this.onInterrupted(e, id, "Watchwright stopping", resumed.has(id));
+        return;
+      }
       case "approval.requested":
         this.fire(this.rules().filter((r) => r.enabled && r.triggers.includes("approval")), {
           trigger: "approval",
@@ -478,6 +488,24 @@ export class Alerter {
         event: { seq: e.seq, type: e.type, runId, data: e.data },
       },
       runId,
+    );
+  }
+
+  private onInterrupted(e: WwEvent, runId: string, cause: string, resumed: boolean): void {
+    const run = this.d.run(runId);
+    if (!run) return;
+    const rules = this.rules().filter((r) => r.enabled && r.triggers.includes("interrupted") && this.inScope(r, run.packId, this.scheduleOfRun(run)));
+    const next = resumed ? "It goes on now where it was." : "Resume it on its page to go on where it was.";
+    this.fire(
+      rules,
+      {
+        trigger: "interrupted",
+        title: `${run.packName}: interrupted`,
+        text: `${this.runName(run)} was interrupted by ${cause}. ${next}`,
+        link: `${this.d.base()}#/runs/${run.id}`,
+        event: { seq: e.seq, type: e.type, runId: run.id, data: e.data },
+      },
+      run.id,
     );
   }
 

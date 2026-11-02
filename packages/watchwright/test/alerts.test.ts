@@ -183,6 +183,28 @@ describe("Alerter", () => {
     });
   });
 
+  it("tells when a run is interrupted: by a stop once the server is back, by an error at once", async () => {
+    const w = make();
+    const ch = w.alerter.createChannel({ name: "Hook", type: "webhook", url: "https://hooks.example.com/a" });
+    w.alerter.createRule({ name: "Cut", triggers: ["interrupted"], channels: [ch.id], packs: ["aaaa1111"] });
+    const counts = { passed: 1, failed: 0, broken: 0, skipped: 0, stopped: 0, planned: 3 };
+    w.runs.set("abcdef01", { id: "abcdef01", packId: "aaaa1111", packName: "Shop", label: "", status: "interrupted", startedBy: "web", error: null, counts });
+    w.runs.set("abcdef02", { id: "abcdef02", packId: "aaaa1111", packName: "Shop", label: "nightly", status: "interrupted", startedBy: "web", error: null, counts });
+    w.runs.set("abcdef03", { id: "abcdef03", packId: "cccc3333", packName: "Other", label: "", status: "interrupted", startedBy: "web", error: null, counts });
+    // The stop itself says nothing: the server is going away.
+    w.events.append("run.interrupted", { reason: "server_stopped" }, { runId: "abcdef01" });
+    w.events.append("runs.restarted", { interrupted: ["abcdef01", "abcdef02", "abcdef03"], resumed: ["abcdef02"] });
+    w.events.append("run.interrupted", { reason: "engine_error", message: "browser crashed" }, { runId: "abcdef02" });
+    await w.flush();
+    const texts = w.sent.map((m) => (JSON.parse(m.body) as { text: string }).text);
+    expect(texts).toEqual([
+      "Run abcdef01 was interrupted by Watchwright stopping. Resume it on its page to go on where it was.",
+      "Run abcdef02 (nightly) was interrupted by Watchwright stopping. It goes on now where it was.",
+      "Run abcdef02 (nightly) was interrupted by an error: browser crashed. Resume it on its page to go on where it was.",
+    ]);
+    expect((JSON.parse(w.sent[0]!.body) as { title: string; link: string })).toMatchObject({ title: "Shop: interrupted", link: "http://127.0.0.1:7420/#/runs/abcdef01" });
+  });
+
   it("tries again with back-off, then logs alert.failed", async () => {
     let calls = 0;
     const w = make(async () => {
