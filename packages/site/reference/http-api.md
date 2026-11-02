@@ -32,6 +32,11 @@ These work with [login](../guide/safety#login) on. With it off, the user routes 
 | `POST /auth/users` `{ name, role, password?, displayName? }` | Adds a user (admin). Roles: `viewer` sees runs and results, `user` also starts runs, records, edits packs and reviews, `admin` also manages users, settings, secrets, sign-ins, alerts and the server. 409 `name_taken`, 400 `weak_password` (under 10 characters). |
 | `POST /auth/users/:id` `{ role?, password?, disabled?, displayName? }` | Changes a user (admin). A new password or disabling ends their sign-ins. 409 `last_admin` for the only admin. |
 | `DELETE /auth/users/:id` | Removes a user with their sign-ins and tokens (admin; waits for [approval](#approvals) from anything but the web page). |
+| `GET /auth/invites` | Invitations nobody has used yet (admin): `{ id, role, note, by, createdAt, expiresAt }`. |
+| `POST /auth/invites` `{ role, days?, note? }` | Makes a one-time invitation (admin): `{ code, … }`, the only time the code is shown. The link to send is `<server>/#/invite?code=<code>`. `days` is 1 to 30 (7 by default); `note` says who it is for. |
+| `DELETE /auth/invites/:id` | Takes an invitation back (admin). |
+| `GET /auth/invite?code=` | What an invitation is for: `{ role, expiresAt }`. 404 `bad_invite` when it's used, expired or taken back. Anyone may call it. |
+| `POST /auth/invite` `{ code, name, password }` | Makes the invited account with the invitation's role and signs in. 404 `bad_invite`, 409 `name_taken`, 400 `weak_password`, 429 `too_many_tries`. |
 | `GET /auth/tokens` `?all=true` | Your API tokens (`{ id, name, kind, createdAt, usedAt, expiresAt }`); an admin's `all` lists everyone's. |
 | `POST /auth/tokens` `{ name, days? }` | Makes a token for the CLI, a script or an agent: `{ token, … }`, the only time the value is shown. `days` makes it expire. |
 | `DELETE /auth/tokens/:id` | Removes a token. |

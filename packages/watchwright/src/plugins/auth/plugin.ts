@@ -6,7 +6,7 @@ import { LOGIN, LOGIN_OPTIONS } from "../../core/keys.js";
 import { definePlugin } from "../../core/plugin.js";
 import { serviceKey } from "../../core/services.js";
 import { errorBody } from "../../server/errors.js";
-import { AuthStore, SESSION_DAYS, SQL, type UserInfo } from "./store.js";
+import { AuthStore, INVITES_SQL, SESSION_DAYS, SQL, type UserInfo } from "./store.js";
 import { Throttle } from "./throttle.js";
 
 // Login (docs/plans/self-hosting.md, section 2): accounts with three roles, the web page's sign-in
@@ -62,7 +62,10 @@ const states = new WeakMap<object, State>();
 
 export const authPlugin = definePlugin({
   name: "auth",
-  migrations: [{ id: 1, name: "init", sql: SQL }],
+  migrations: [
+    { id: 1, name: "init", sql: SQL },
+    { id: 2, name: "invites", sql: INVITES_SQL },
+  ],
   setup(ctx) {
     const store = new AuthStore(ctx.store.db);
     const options = ctx.services.get(LOGIN_OPTIONS);
@@ -159,6 +162,43 @@ export const authPlugin = definePlugin({
         handler: ({ id }, call) => {
           if (call.user?.id === id) throw new ActionError("not_allowed", "You can't remove yourself.", 409);
           if (!store.remove(id)) throw new ActionError("not_found", `No user with id ${id}.`, 404);
+          return { removed: id };
+        },
+      }),
+      defineAction({
+        name: "auth.invites",
+        title: "Invitations nobody has used yet",
+        method: "GET",
+        path: "/auth/invites",
+        access: "admin",
+        handler: () => store.invites(),
+      }),
+      defineAction<{ role: Role; days?: number; note?: string }>({
+        name: "auth.add-invite",
+        title: "Make a one-time link that lets someone make their own account with this role",
+        method: "POST",
+        path: "/auth/invites",
+        status: 201,
+        access: "admin",
+        input: {
+          type: "object",
+          properties: { role: ROLE, days: { type: "integer", minimum: 1, maximum: 30, default: 7 }, note: { type: "string", description: "Who it is for, to tell invitations apart" } },
+          required: ["role"],
+        },
+        handler: ({ role, days, note }, call) => {
+          const { code, info } = store.addInvite(role, { days, note, by: call.user?.name });
+          return { code, ...info };
+        },
+      }),
+      defineAction<{ id: string }>({
+        name: "auth.remove-invite",
+        title: "Take back an invitation",
+        method: "DELETE",
+        path: "/auth/invites/:id",
+        access: "admin",
+        input: { type: "object", properties: { id: ID }, required: ["id"] },
+        handler: ({ id }) => {
+          if (!store.removeInvite(id)) throw new ActionError("not_found", `No invitation with id ${id}.`, 404);
           return { removed: id };
         },
       }),
@@ -259,6 +299,34 @@ export const authPlugin = definePlugin({
       }
       store.endSessions(u.id, u.via === "session" ? (cookieValue(req.headers.cookie) ?? undefined) : undefined);
       return { data: { changed: true } };
+    });
+
+    // What an invitation link is for, so the page can say so before anyone types.
+    app.get<{ Querystring: { code?: string } }>("/auth/invite", { config: { access: "public" } }, async (req, reply) => {
+      const inv = typeof req.query.code === "string" ? store.invite(req.query.code) : null;
+      if (!inv) return reply.code(404).send(errorBody("bad_invite", "This invitation link isn't valid any more. Ask an admin for a new one."));
+      return { data: { role: inv.role, expiresAt: inv.expiresAt } };
+    });
+
+    app.post<{ Body: { code?: unknown; name?: unknown; password?: unknown } }>("/auth/invite", { config: { access: "public" } }, async (req, reply) => {
+      if (!on) return reply.code(409).send(errorBody("login_off", "Login is off on this server."));
+      const { code, name, password } = req.body ?? {};
+      const keys = [`ip:${req.ip}`, "invite"];
+      const wait = throttle.waitMs(keys);
+      if (wait > 0) return reply.code(429).header("retry-after", Math.ceil(wait / 1000)).send(errorBody("too_many_tries", `Too many tries. Try again in ${Math.ceil(wait / 1000)} seconds.`));
+      if (typeof code !== "string" || typeof name !== "string" || typeof password !== "string") return reply.code(400).send(errorBody("bad_input", "Send { code, name, password }."));
+      try {
+        const user = await store.acceptInvite(code, name, password);
+        if (!user) {
+          throttle.failed(keys);
+          return reply.code(404).send(errorBody("bad_invite", "This invitation link isn't valid any more. Ask an admin for a new one."));
+        }
+        ctx.events.append("auth.invite-used", { user: user.name, role: user.role });
+        return signedIn(req, reply, user);
+      } catch (err) {
+        if (err instanceof ActionError) return reply.code(err.status).send(errorBody(err.code, err.message));
+        throw err;
+      }
     });
 
     app.post("/auth/signout", { config: { access: "public" } }, async (req, reply) => {
