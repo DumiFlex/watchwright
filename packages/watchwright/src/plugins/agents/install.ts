@@ -23,6 +23,11 @@ export interface InstallOptions {
   mcp?: boolean;
   /** The server's MCP address. */
   url: string;
+  /**
+   * The server has login on: the settings send `Authorization: Bearer` from the WATCHWRIGHT_TOKEN
+   * environment variable. Never the token itself, since project settings get committed.
+   */
+  auth?: boolean;
 }
 
 export interface InstallResult {
@@ -47,9 +52,12 @@ export function mcpUrl(server: string): string {
   return new URL("api/v1/mcp", server.endsWith("/") ? server : `${server}/`).href;
 }
 
+/** The environment variable agents read the token from. */
+export const TOKEN_ENV = "WATCHWRIGHT_TOKEN";
+
 /** The line that adds the server to Codex. */
-export function codexCommand(url: string): string {
-  return `codex mcp add watchwright --url ${url}`;
+export function codexCommand(url: string, auth = false): string {
+  return `codex mcp add watchwright --url ${url}${auth ? ` --bearer-token-env-var ${TOKEN_ENV}` : ""}`;
 }
 
 /** Sets `mcpServers.watchwright` in a JSON settings file, keeping everything else. */
@@ -91,9 +99,11 @@ export function installAgents(opts: InstallOptions): InstallResult {
       if (problem) result.problems.push(`${rel} ${problem}, so it was left as it is. Add the watchwright server to it by hand.`);
       else result.wrote.push(rel);
     };
-    if (agents.includes("claude")) merge(".mcp.json", { type: "http", url: opts.url });
-    if (agents.includes("cursor")) merge(".cursor/mcp.json", { url: opts.url });
-    if (agents.includes("codex")) result.commands.push(codexCommand(opts.url));
+    // Claude Code expands ${VAR} in .mcp.json, Cursor ${env:VAR} in its mcp.json.
+    const header = (ref: string) => (opts.auth ? { headers: { Authorization: `Bearer ${ref}` } } : {});
+    if (agents.includes("claude")) merge(".mcp.json", { type: "http", url: opts.url, ...header(`\${${TOKEN_ENV}}`) });
+    if (agents.includes("cursor")) merge(".cursor/mcp.json", { url: opts.url, ...header(`\${env:${TOKEN_ENV}}`) });
+    if (agents.includes("codex")) result.commands.push(codexCommand(opts.url, opts.auth));
   }
   return result;
 }

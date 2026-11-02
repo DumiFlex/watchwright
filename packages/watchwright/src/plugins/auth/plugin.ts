@@ -106,7 +106,7 @@ export const authPlugin = definePlugin({
         handler: (_input, call) => {
           const login = ctx.services.get(LOGIN);
           const user = call.user ? store.user(call.user.id) : null;
-          return { on: login.on, user: user ? { ...userOut(user), via: call.user!.via } : null, setupNeeded: login.on && login.setupCode() !== null };
+          return { on: login.on, user: user ? { ...userOut(user), via: call.user!.via, ...(call.user!.tokenId ? { tokenId: call.user!.tokenId } : {}) } : null, setupNeeded: login.on && login.setupCode() !== null };
         },
       }),
       defineAction({

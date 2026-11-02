@@ -17,6 +17,8 @@ export interface CallUser {
   role: Role;
   /** `session`: the web page's sign-in cookie. `token`: an API token (CLI, scripts, agents). */
   via: "session" | "token";
+  /** With `via: "token"`: which token, so a client can remove its own. */
+  tokenId?: string;
 }
 
 /** Headers that can carry who someone is. */

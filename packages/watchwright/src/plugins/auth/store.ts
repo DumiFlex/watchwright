@@ -311,7 +311,7 @@ export class AuthStore {
       this.db.prepare("UPDATE auth_tokens SET used_at = ? WHERE id = ?").run(iso, row.token_id);
       this.db.prepare("UPDATE users SET seen_at = ? WHERE id = ?").run(iso, row.id);
     }
-    return { id: row.id, name: row.name, role: row.role as Role, via: "token" };
+    return { id: row.id, name: row.name, role: row.role as Role, via: "token", tokenId: row.token_id };
   }
 
   invites(): InviteInfo[] {

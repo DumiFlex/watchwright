@@ -18,7 +18,9 @@ watchwright wait <run> [--after <cursor>] [--timeout <seconds>]
 watchwright results <run> [--attempt <id>]
 watchwright actions
 watchwright mcp [--no-start]
-watchwright init-agent [folder] [--agent claude,codex,cursor] [--no-mcp]
+watchwright init-agent [folder] [--agent claude,codex,cursor] [--no-mcp] [--auth]
+watchwright login [--name <name>] [--password-stdin] [--token <token>]
+watchwright logout
 watchwright users list|add|reset-password|role|disable|enable|remove …
 watchwright <plugin> <verb> [args] [--options]
 ```
@@ -93,7 +95,19 @@ Sets up a project for AI agents, on this machine (no server needed): the Watchwr
 | Codex | `.agents/skills/watchwright/` | Printed: a `codex mcp add` line to run once (Codex keeps MCP servers in its own settings) |
 | Cursor | `.agents/skills/watchwright/` | `.cursor/mcp.json` |
 
-Without `--agent`, it sets up the agents whose folders the project has (`.claude`, `.codex` or `.agents`, `.cursor`), else all three. Settings files are merged: other servers and keys stay, and a file that isn't valid JSON is left alone and named in a message. The skill's folder is replaced, so running it again updates the skill. `--no-mcp` writes only the skill; `--server` sets the address written into the settings. See [Agents](https://dumiflex.github.io/watchwright/guide/agents).
+Without `--agent`, it sets up the agents whose folders the project has (`.claude`, `.codex` or `.agents`, `.cursor`), else all three. Settings files are merged: other servers and keys stay, and a file that isn't valid JSON is left alone and named in a message. The skill's folder is replaced, so running it again updates the skill. `--no-mcp` writes only the skill; `--server` sets the address written into the settings. When that server has [login](https://dumiflex.github.io/watchwright/guide/safety#login) on (or with `--auth`, for a server that isn't running yet), the settings send `Authorization: Bearer` with the token from the `WATCHWRIGHT_TOKEN` environment variable: `${WATCHWRIGHT_TOKEN}` in `.mcp.json`, `${env:WATCHWRIGHT_TOKEN}` in Cursor's, and `--bearer-token-env-var` for Codex. The token itself is never written into a project. See [Agents](https://dumiflex.github.io/watchwright/guide/agents).
+
+### login
+
+Signs in to a server that has [login](https://dumiflex.github.io/watchwright/guide/safety#login) on, from this machine. It asks for your name and password (or takes `--name` and reads the password from standard input with `--password-stdin`), makes an API token named after the machine (`CLI on <host>`), and saves it for that server. From then on, every command and `watchwright mcp` aimed at that server sends it by themselves. `WATCHWRIGHT_TOKEN` still wins when it is set.
+
+`--token <token>` checks and saves a token you made in **Settings › Your account** instead, which is the way in for accounts that sign in through single sign-on.
+
+Saved tokens live in `credentials.json` in your config folder (`%APPDATA%\watchwright` on Windows, `~/.config/watchwright` elsewhere, or `WATCHWRIGHT_CONFIG_DIR`), one per server address, readable only by you.
+
+### logout
+
+Removes the saved token for the server, both on the server and on this machine.
 
 ### users
 
@@ -134,7 +148,7 @@ Actions that delete data or stop the server (`runs delete`, `packs remove`, `pac
 | `--server <address>` | The server to talk to: an address or just a port. Default: `WATCHWRIGHT_URL`, else `http://127.0.0.1:7420/`. |
 | `--as <name>` | Who is calling, shown as who started a run, paused it or wrote a review. Default: `WATCHWRIGHT_CLIENT`, else the agent the command runs under (Claude Code, Codex, Cursor, Gemini CLI, Amp and OpenCode are recognized from their environment), else `cli`. |
 | `--json` | Print the data as JSON instead of text (`status`, `run`, `wait`, `results`, `actions`). |
-| `WATCHWRIGHT_TOKEN` | An API token, for a server with [login](https://dumiflex.github.io/watchwright/guide/safety#login) on. Sent as `Authorization: Bearer`. |
+| `WATCHWRIGHT_TOKEN` | An API token, for a server with [login](https://dumiflex.github.io/watchwright/guide/safety#login) on. Sent as `Authorization: Bearer`. Without it, the token [`login`](#login) saved for the server is sent. |
 
 ## Exit codes
 
