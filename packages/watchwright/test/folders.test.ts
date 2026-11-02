@@ -2,7 +2,8 @@ import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { FOLDERS, FolderError, cleanPath } from "../src/plugins/folders/folders.js";
+import { FOLDERS, FolderError, cleanPath, fileManagerCommand } from "../src/plugins/folders/folders.js";
+import { withWindowsHide } from "../src/cli/hide-windows.js";
 import { cleanTempDirs, tempDir, writeFiles } from "./helpers/fixtures.js";
 import { startHarness, type Harness } from "./helpers/harness.js";
 
@@ -107,6 +108,14 @@ describe("folders plugin", () => {
     expect(() => open(path.join(root, "elsewhere"))).toThrow(/only opens/);
     expect(() => open(path.join(root, "shop", "pack.ts"))).toThrow(/no folder/);
     expect((await h.api("POST", "/folders/open", { path: path.join(root, "elsewhere") })).error?.code).toBe("not_allowed");
+  });
+
+  it("starts Explorer shown, since a hidden start opens the folder unseen", () => {
+    expect(fileManagerCommand("win32", "E:\\packs\\shop")).toEqual(["explorer.exe", ["E:\\packs\\shop"], { windowsHide: false }]);
+    expect(fileManagerCommand("darwin", "/packs/shop")).toEqual(["open", ["/packs/shop"], { windowsHide: true }]);
+    expect(fileManagerCommand("linux", "/packs/shop")).toEqual(["xdg-open", ["/packs/shop"], { windowsHide: true }]);
+    // The server makes windowsHide the default on Windows, but an explicit false wins.
+    expect(withWindowsHide("spawn", ["explorer.exe", ["E:\\x"], { windowsHide: false }])[2]).toEqual({ windowsHide: false });
   });
 });
 
