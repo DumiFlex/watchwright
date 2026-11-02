@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
-import { Moon, Palette, Plus, Search, Settings, Sun, SunMoon } from "./icons";
+import { CircleArrowUp, Moon, Palette, Plus, Search, Settings, Sun, SunMoon } from "./icons";
 import { getJson, sendJson, type HealthData, type Pack, type RunSummary } from "./api";
 import { finderCommands } from "./finder";
 import ApprovalBar from "./components/ApprovalBar.vue";
@@ -16,6 +16,7 @@ import { toast } from "./toasts";
 import { PUBLIC_ROUTES, useRoute } from "./router";
 import { DEFAULT_PAGES, hasPage, navFrom, pageIcon } from "./pages";
 import { vTip } from "./tooltip";
+import { loadUpdates, updates } from "./updates";
 import { useShortcut } from "./keys";
 import { applyTheme, browserStore, loadTheme, LOOKS, saveTheme, type Theme } from "./theme";
 import AttemptView from "./views/AttemptView.vue";
@@ -95,8 +96,11 @@ const approvals = useApprovals();
 
 async function loadHealth() {
   const res = await getJson<HealthData>("/api/v1/health");
-  if (res.ok) health.value = res.data;
-  else down.value = true;
+  if (res.ok) {
+    health.value = res.data;
+    // Only admins can update; the note is for them.
+    if (!res.data.login?.on || res.data.login.user?.role === "admin") void loadUpdates();
+  } else down.value = true;
 }
 onMounted(async () => {
   await Promise.all([loadHealth(), loadSession()]);
@@ -146,6 +150,7 @@ const userItems = computed(() => [
         <span class="wordmark">Watchwright</span>
       </a>
       <span v-if="health" v-tip="`Data folder: ${health.dataDir}`" class="version num">v{{ health.version }}</span>
+      <a v-if="updates.status?.newer && can('admin')" v-tip="`Watchwright ${updates.status.latest} is out`" class="newer" href="#/settings?section=server"><CircleArrowUp :size="14" /> Update</a>
       <span v-else-if="down" class="down" role="alert">Server unreachable</span>
       <nav class="nav" aria-label="Main">
         <a v-for="n in nav.filter((x) => x.main)" :key="n.value" :href="n.href" class="link" :aria-current="n.current ? 'page' : undefined">{{ n.label }}</a>
@@ -218,6 +223,22 @@ const userItems = computed(() => [
   color: var(--muted);
   font-size: 12px;
   margin-left: calc(-1 * var(--space-2));
+}
+.newer {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-chip);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.newer:hover {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
 }
 .down {
   color: var(--bad);

@@ -5,13 +5,11 @@ import { VERSION } from "../version.js";
 import { UsageError } from "./args.js";
 import { Client, clientName, DEFAULT_SERVER, serverUrl } from "./client.js";
 import { actionCommand, actionsCommand, EXIT, guarded, processIo, resultsCommand, runCommand, statusCommand, waitCommand, type RunOpts } from "./commands.js";
-import { demoCommand } from "./demo.js";
-import { initAgentCommand } from "./init-agent.js";
-import { mcpCommand } from "./mcp.js";
-import { serveCommand } from "./serve.js";
-import { runnerCommand } from "./runner.js";
-import { usersCommand } from "./users.js";
-import { loginCommand, logoutCommand } from "./login.js";
+
+// The commands that need the server's code (the store, Playwright, esbuild) load it when they run.
+// The rest, `mcp` and `update` above all, must not: on Windows a loaded native module (the SQLite
+// driver) locks its file, and npm couldn't replace the package while Claude Desktop holds
+// `watchwright mcp` open. test/cli-imports.test.ts checks it.
 
 const HELP = `Watchwright ${VERSION}
 
@@ -30,6 +28,7 @@ Usage:
   watchwright logout
   watchwright runner [--server <address>] [--pair <code>] [--allow <list>]
   watchwright users list|add|reset-password|role|disable|enable|remove …  (--help for details)
+  watchwright update [--check] [--yes] [--now]
   watchwright <plugin> <verb> [args] [--options]     any action, such as: watchwright runs pause 0a1b2c3d
   watchwright --version
 
@@ -90,6 +89,13 @@ users      Accounts for login, on this machine's data folder (works with the ser
            list, add <name> [--role admin|user|viewer], reset-password <name>, role <name> <role>,
            disable <name>, enable <name>, remove <name>. Passwords are asked for at the terminal,
            or read from standard input with --password-stdin.
+update     Installs the newest Watchwright from npm over this global install. With the server
+           running it stops, updates and starts again with the same options; \`watchwright mcp\`
+           (Claude Desktop) keeps working through it. In Docker, pull the new image instead.
+  --check    Only say whether there is a newer version.
+  --yes      Don't ask first.
+  --now      Update even while runs go: they are interrupted and go on after the server is back.
+  --version  Install this version instead of the newest.
 actions    Every action the server has. Each one is a command: its name's words, path parameters
            in order, the rest as --options (--help after it lists them). Prints the data as JSON.
 
@@ -153,18 +159,20 @@ async function main(argv: string[]): Promise<number> {
     return command === undefined ? EXIT.usage : EXIT.ok;
   }
   // These parse their own options; --help after them shows the help above, where they are described.
-  if ((command === "serve" || command === "demo" || command === "mcp" || command === "init-agent" || command === "login" || command === "logout") && (argv.includes("--help") || argv.includes("-h"))) {
+  if ((command === "serve" || command === "demo" || command === "mcp" || command === "init-agent" || command === "login" || command === "logout" || command === "update") && (argv.includes("--help") || argv.includes("-h"))) {
     console.log(HELP);
     return EXIT.ok;
   }
-  if (command === "serve") return serveCommand(argv.slice(1));
-  if (command === "demo") return demoCommand(argv.slice(1));
-  if (command === "mcp") return mcpCommand(argv.slice(1));
-  if (command === "users") return usersCommand(argv.slice(1));
-  if (command === "runner") return guarded(processIo, false, () => runnerCommand(argv.slice(1)));
-  if (command === "login") return guarded(processIo, false, () => loginCommand(argv.slice(1)));
-  if (command === "logout") return guarded(processIo, false, () => logoutCommand(argv.slice(1)));
-  if (command === "init-agent") return guarded(processIo, false, () => initAgentCommand(processIo, argv.slice(1)));
+  const rest = argv.slice(1);
+  if (command === "serve") return (await import("./serve.js")).serveCommand(rest);
+  if (command === "demo") return (await import("./demo.js")).demoCommand(rest);
+  if (command === "mcp") return (await import("./mcp.js")).mcpCommand(rest);
+  if (command === "update") return guarded(processIo, false, async () => (await import("./update.js")).updateCommand(rest));
+  if (command === "users") return (await import("./users.js")).usersCommand(rest);
+  if (command === "runner") return guarded(processIo, false, async () => (await import("./runner.js")).runnerCommand(rest));
+  if (command === "login") return guarded(processIo, false, async () => (await import("./login.js")).loginCommand(rest));
+  if (command === "logout") return guarded(processIo, false, async () => (await import("./login.js")).logoutCommand(rest));
+  if (command === "init-agent") return guarded(processIo, false, async () => (await import("./init-agent.js")).initAgentCommand(processIo, rest));
 
   const args = argv.slice(1);
   const io = processIo;

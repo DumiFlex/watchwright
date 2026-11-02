@@ -56,7 +56,7 @@ npx playwright install chromium firefox
 npx watchwright serve     # the server and its web page at http://127.0.0.1:7420/
 ```
 
-Then add a test pack on the Packs page (a folder with a `pack.ts` or `pack.yaml`, or a new one from a starter) and start a run. [Getting started](https://dumiflex.github.io/watchwright/guide/getting-started) walks through it, and the [command line](https://dumiflex.github.io/watchwright/reference/cli) lists every option.
+Then add a test pack on the Packs page (a folder with a `pack.ts` or `pack.yaml`, or a new one from a starter) and start a run. [Getting started](https://dumiflex.github.io/watchwright/guide/getting-started) walks through it, and the [command line](https://dumiflex.github.io/watchwright/reference/cli) lists every option. Installed with `npm install -g watchwright`, it updates itself with `watchwright update` or a button in Settings, without closing your agents. [Updating](https://dumiflex.github.io/watchwright/guide/updating)
 
 ## On a server, with Docker
 

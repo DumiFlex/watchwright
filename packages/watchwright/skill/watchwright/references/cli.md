@@ -23,6 +23,7 @@ watchwright login [--name <name>] [--password-stdin] [--token <token>]
 watchwright logout
 watchwright runner [--server <address>] [--pair <code>] [--allow <list>]
 watchwright users list|add|reset-password|role|disable|enable|remove …
+watchwright update [--check] [--yes] [--now] [--version <version>]
 watchwright <plugin> <verb> [args] [--options]
 ```
 
@@ -88,6 +89,8 @@ A run's attempts in brief: each with its outcome, the first line of its error, a
 
 The [MCP server](mcp.md) over stdio, for agents that start a process instead of connecting to `http://127.0.0.1:7420/api/v1/mcp`. It passes every call to the server at `--server`, and starts one in the background when none answers, unless `--no-start` is given. `--as <name>` names the caller.
 
+It keeps running while the server restarts or [updates](https://dumiflex.github.io/watchwright/guide/updating): a call made while the server is away waits for it, and when the server comes back the tools follow its actions (the client is told the tool list changed). It loads none of the server's code, so on Windows it doesn't stop npm from replacing the package.
+
 ### init-agent
 
 Sets up a project for AI agents, on this machine (no server needed): the Watchwright skill where each agent looks for skills, and the MCP server in the project's settings. The folder is the current one unless given.
@@ -142,6 +145,19 @@ Accounts for [login](https://dumiflex.github.io/watchwright/guide/safety#login),
 | `users remove <name>` | Removes the user with their sign-ins and tokens. |
 
 Passwords (at least 10 characters) are asked for at the terminal, twice, without showing them. `--password-stdin` reads the first line of standard input instead, for scripts.
+
+### update
+
+Installs the newest Watchwright from npm over a global npm install (`npm install -g watchwright`). With a server running at `--server`, the server does it: it stops, runs `npm install -g watchwright@<version>` and starts again with the same options, and the command waits until it answers with the new version. With no server running, the command runs npm itself. It asks first unless `--yes` is given; without a terminal it needs `--yes`. See [Updating](https://dumiflex.github.io/watchwright/guide/updating).
+
+| Option | |
+|---|---|
+| `--check` | Only say whether there is a newer version. |
+| `--yes` | Don't ask first. |
+| `--now` | Update even while runs go: they are interrupted and go on after the server is back. |
+| `--version` | Install this version instead of the newest. |
+
+In Docker, with npx or as a project's dependency it says how to update instead. `WATCHWRIGHT_NPM_REGISTRY` sets the registry it asks (default npm's `registry` setting, else npmjs.org).
 
 ### actions
 

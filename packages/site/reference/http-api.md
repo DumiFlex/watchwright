@@ -16,6 +16,8 @@ Everything the web page does goes through this API, so scripts and AI agents can
 | `GET /health` | Whether the server is up, its version, its data folder, the loaded plugins with the newest store migration each one applied, `pages`: the web app pages the plugins bring (`{ plugin, name, title, path, icon, menu, order, words? }`, in menu order), which the web app builds its menu from, and `login: { on, user, setupNeeded }`. With login on and nobody signed in, only `name`, `version` and `login`. |
 | `GET /actions` | Every action: `name`, `title`, `method`, `path`, JSON Schema `input`, `access` (who may call it with login on: `public`, `viewer`, `user` or `admin`), and where set `output` (the JSON Schema of its data), `agent` (`{ tool, say? }`: the MCP tool it is offered as, and a hint for agents) and `destructive: true` (it deletes data or stops the server). |
 | `POST /stop` | Stops the server, as Ctrl+C in its terminal does. It answers `{ stopping: true }` first. Runs going at the time become `interrupted` and can be resumed after it starts again (by themselves with `runs.resumeOnStart`). 409 `cant_stop` for a server that wasn't started by the `watchwright` command. |
+| `GET /updates` | This server's `version`, the newest on npm (`latest`, null until a check answered), `newer`, `checkedAt`, `error` (why the last check failed), `check` (the `updates.check` setting), `install` (`npm`, `docker`, `npx` or `other`), `canUpdate`, `how` (what to do, in words, when it can't update itself) and `last` (how the last update went: `{ from, to, ok, message, at }`). `?refresh=true` asks npm now. |
+| `POST /updates` | Admin. Updates this server: answers `{ updating, from, to, log }`, stops, installs the version with npm and starts again with the same options ([Updating](../guide/updating)). `{ version?, now? }`: the version (default the newest), and `now: true` to update while runs go (they are interrupted). 409 `cant_update` (Docker, npx, a project's dependency, or a server not started by the `watchwright` command; `message` says how instead), `runs_going` (with `detail.runs`) or `up_to_date`. |
 
 ## Login
 
@@ -119,6 +121,7 @@ The settings so far:
 - `runs.resumeOnStart`: when the server starts, resume the runs its last stop (or a crash) interrupted, where they were (default false: they wait for `POST /runs/:id/resume`).
 - `runs.storageWarnGB`: free space (GB) on the drive with the data folder below which a run warns (default 5).
 - `runs.storageStopGB`: free space (GB) below which a run records no more videos; it goes on without them (default 1).
+- `updates.check`: whether the server asks npm for a newer Watchwright twice a day (default true; see [Updating](../guide/updating)).
 - `runs.keepDays`, `runs.keepPerPack`: cleanup keeps ended runs younger than this many days, and each pack's newest this many runs (both 0, the default, keep every run). A run either rule keeps stays; a labeled run and a run that is going always do. Once a rule is set, a sweep deletes the rest once a day.
 
 ## Secrets and sign-ins
