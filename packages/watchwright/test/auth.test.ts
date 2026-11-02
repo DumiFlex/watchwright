@@ -110,6 +110,13 @@ describe("login on", () => {
     expect(health.body.data).toHaveProperty("dataDir");
   });
 
+  it("ends setup when the first admin is made another way while it runs (watchwright users add)", async () => {
+    const { auth, call } = await make();
+    expect((await call("GET", "/health")).body.data).toMatchObject({ login: { setupNeeded: true } });
+    await auth.add({ name: "dumi", password: PASSWORD, role: "admin" });
+    expect((await call("GET", "/health")).body.data).toMatchObject({ login: { setupNeeded: false } });
+  });
+
   it("signs in with a cookie, signs out, and refuses wrong passwords", async () => {
     const { auth, call, signIn } = await make();
     await auth.add({ name: "dumi", password: PASSWORD, role: "admin" });

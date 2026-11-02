@@ -67,6 +67,7 @@ export default pack({
 | `site.key` | Runs of packs with the same key wait for each other, so two runs never change the same app at once. |
 | `site.baseURL` | Relative URLs in `h.goto()` resolve against it. |
 | `site.signIn` | `"saved"`: every run starts with the sign-in saved for this site key (see [Saved sign-ins](yaml-tests.md#saved-sign-ins)). |
+| `site.network` | Where runs reach the site from: `server` (the default) or a [runner](https://dumiflex.github.io/watchwright/guide/self-hosting#runners)'s name, for a site only another machine can reach. A run can choose otherwise. |
 | `browser` | `name` (`chromium`, `firefox`, `webkit`), `viewport`, `headless` (default `true`; you watch through the live view), and raw Playwright `launch` and `context` options. |
 | `params` | Values chosen per run. A param has a `default`, optional `choices` (with optional display `labels`: `{ q9: "Qwen3.5 9B" }`), and an optional `type` (`string`, `number`, `boolean`). Tests get them as `params`. |
 | `flags` | Flags tests may raise, with their kind: `robot` (the harness or test went wrong: the attempt is **broken**), `finding` (the site did something wrong: the attempt **failed**), `info` (changes nothing). |

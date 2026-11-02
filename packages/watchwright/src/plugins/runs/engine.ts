@@ -238,6 +238,8 @@ export interface EngineOptions {
   secrets?: { get(name: string): string | undefined; mask(text: string): string; maskBytes?(data: Buffer): Buffer | null } | undefined;
   /** Saved sign-ins: runs that start signed in get the site's storage state, and `h.saveSignIn` saves one. */
   signIns?: { get(siteKey: string): StorageState | undefined; save(siteKey: string, state: StorageState, source: string): unknown } | undefined;
+  /** Runners: runs whose `network` names one send their browser's connections through it (a proxy per run). */
+  runners?: { proxy(name: string, onRefused: (message: string) => void): Promise<{ server: string; close(): Promise<void> }> } | undefined;
   /** Free space on the drive below which a run warns, and below which it stops recording videos (the settings; 5 and 1 GB by default). */
   storageLimits?: (() => StorageLimits) | undefined;
   /** How long ended runs are kept (Settings > Storage); both 0, the default, keeps every run. */
@@ -1024,6 +1026,26 @@ export class Engine {
         return;
       }
     }
+    // Through a runner: the site is reached from that machine (docs/plans/self-hosting.md, section 6).
+    const network = options.network ?? o.site.network ?? "server";
+    let proxy: { server: string; close(): Promise<void> } | null = null;
+    if (network !== "server") {
+      if (!this.o.runners) {
+        failStart(`This server has no runners, so the run can't reach the site from "${network}".`);
+        return;
+      }
+      try {
+        let warned = 0;
+        proxy = await this.o.runners.proxy(network, (message) => {
+          // One line per refusal, up to 20, so a page full of blocked requests doesn't flood the log.
+          if (++warned <= 20) this.emit("run.log", { level: "warn", message: `Runner ${network} didn't open ${message}` }, row.id);
+        });
+      } catch (err) {
+        failStart(err instanceof Error ? err.message : String(err));
+        return;
+      }
+      this.emit("run.log", { level: "info", message: `The browser reaches the site from the runner ${network}.` }, row.id);
+    }
     let session: BrowserSession;
     try {
       session = await BrowserSession.launch(
@@ -1032,7 +1054,7 @@ export class Engine {
           // A machine with no screen (a container) can't show a browser, so it runs headless whatever the pack asks.
           headless: (o.browser?.headless ?? true) || !hasDesktop(),
           viewport: o.browser?.viewport ?? { width: 1280, height: 800 },
-          launch: o.browser?.launch,
+          launch: proxy ? { ...o.browser?.launch, proxy: { server: proxy.server } } : o.browser?.launch,
           context: signIn ? { ...o.browser?.context, storageState: signIn } : o.browser?.context,
           size: o.run?.screencastSize,
           quality: o.run?.frameQuality ?? 70,
@@ -1059,6 +1081,7 @@ export class Engine {
         },
       );
     } catch (err) {
+      await proxy?.close();
       failStart(`The browser didn't start: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`);
       return;
     }
@@ -1155,6 +1178,7 @@ export class Engine {
       await this.stopRunVideo(run);
       await session.stopCapture();
       await session.close();
+      await proxy?.close();
       run.session = null;
     }
     const status = run.shutdown ? "interrupted" : run.control.stopMode ? "stopped" : "finished";

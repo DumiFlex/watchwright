@@ -61,6 +61,7 @@ export {
   Info,
   Keyboard,
   KeyRound,
+  Laptop,
   Layers,
   Lightbulb,
   Link,

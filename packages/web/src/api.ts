@@ -161,6 +161,8 @@ export interface PackRunDefaults {
   runVideo?: boolean;
   /** Runs start with the site's saved sign-in (`site.signIn: saved`); older servers leave it out. */
   signIn?: boolean;
+  /** Where runs reach the site from (`site.network`): "server" or a runner's name; older servers leave it out. */
+  network?: string;
 }
 
 /** What a run sets for itself; anything left out comes from the pack. */
@@ -172,6 +174,8 @@ export interface RunOptions {
   video?: VideoMode | boolean;
   runVideo?: boolean;
   signIn?: boolean;
+  /** "server" or a runner's name. */
+  network?: string;
 }
 
 /** What a run starts with apart from its pack: what a preset keeps. */

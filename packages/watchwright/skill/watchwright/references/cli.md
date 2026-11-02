@@ -21,6 +21,7 @@ watchwright mcp [--no-start]
 watchwright init-agent [folder] [--agent claude,codex,cursor] [--no-mcp] [--auth]
 watchwright login [--name <name>] [--password-stdin] [--token <token>]
 watchwright logout
+watchwright runner [--server <address>] [--pair <code>] [--allow <list>]
 watchwright users list|add|reset-password|role|disable|enable|remove …
 watchwright <plugin> <verb> [args] [--options]
 ```
@@ -110,6 +111,22 @@ Saved tokens live in `credentials.json` in your config folder (`%APPDATA%\watchw
 ### logout
 
 Removes the saved token for the server, both on the server and on this machine.
+
+### runner
+
+Lets a server reach sites through this machine (see [Runners](https://dumiflex.github.io/watchwright/guide/self-hosting#runners)). Add the runner in the server's **Settings › Runners**, which shows the command with a pair code:
+
+```bash
+npx watchwright runner --server https://watchwright.example.com --pair 7KQ-M2X-PLD
+```
+
+| Option | |
+|---|---|
+| `--server <address>` | The server (default: `WATCHWRIGHT_URL`, else the one paired last). |
+| `--pair <code>` | A pair code from Settings › Runners. Works once, within 15 minutes; the token it gives is saved in `runner.json` in your config folder, readable only by you. |
+| `--allow <list>` | What the server may open here: `loopback` (any port on this machine; the default), `host:port` or `host:*`, comma-separated. Saved for next time; only this machine can change it. |
+
+It runs until you stop it (Ctrl+C), reconnecting by itself when the link drops, and exits with 1 when the server removes the runner.
 
 ### users
 

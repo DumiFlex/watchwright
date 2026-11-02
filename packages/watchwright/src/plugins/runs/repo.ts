@@ -175,6 +175,8 @@ export interface RunOptions {
   testTimeout?: number;
   /** Start with the site's saved sign-in (true) or without it (false), instead of the pack's `site.signIn`. */
   signIn?: boolean;
+  /** Where the browser reaches the site from: "server", or a runner's name, instead of the pack's `site.network`. */
+  network?: string;
   /** Queue edits made while the run went (order, skipped attempts). */
   queue?: QueueEdits;
   /** Items the job kind added while the run went (`AttemptEnv.addItem`), in the order added. */
@@ -192,6 +194,7 @@ export interface RunChoices {
   video?: VideoSetting;
   runVideo?: boolean;
   signIn?: boolean;
+  network?: string;
 }
 
 export interface Preset {

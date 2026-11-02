@@ -63,9 +63,11 @@ export interface PackRunDefaults {
   runVideo: boolean;
   /** Runs start with the site's saved sign-in (`site.signIn: "saved"`). */
   signIn: boolean;
+  /** Where runs reach the site from (`site.network`): "server" or a runner's name. */
+  network: string;
 }
 
-const RUN_DEFAULTS: PackRunDefaults = { pauseOnBroken: true, pauseLimitMinutes: 20, trace: "problems", video: "always", runVideo: false, signIn: false };
+const RUN_DEFAULTS: PackRunDefaults = { pauseOnBroken: true, pauseLimitMinutes: 20, trace: "problems", video: "always", runVideo: false, signIn: false, network: "server" };
 
 interface Row {
   id: string;
@@ -247,6 +249,7 @@ export class PackRegistry {
         video: videoMode(o.run?.video ?? RUN_DEFAULTS.video),
         runVideo: o.run?.runVideo ?? RUN_DEFAULTS.runVideo,
         signIn: o.site.signIn === "saved",
+        network: o.site.network ?? RUN_DEFAULTS.network,
       },
       rubric: rubricFor(o.rubric, undefined),
       tests: pack.tests.map((t) => testSummary(t, o.rubric)),

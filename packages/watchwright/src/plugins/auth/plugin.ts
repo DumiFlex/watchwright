@@ -131,7 +131,11 @@ export const authPlugin = definePlugin({
         const cookie = cookieValue(headers.cookie);
         return cookie ? store.session(cookie) : null;
       },
-      setupCode: () => state.setupCode,
+      // A first admin made another way (`watchwright users add` while the server runs) ends setup too.
+      setupCode: () => {
+        if (state.setupCode && store.count() > 0) state.setupCode = null;
+        return state.setupCode;
+      },
     };
     ctx.services.provide(LOGIN, login);
   },

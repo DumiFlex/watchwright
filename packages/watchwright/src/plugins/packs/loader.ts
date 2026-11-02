@@ -272,6 +272,7 @@ function checkOptions(o: PackOptions): void {
     }
   }
   if (o.site?.signIn !== undefined && o.site.signIn !== "saved") problems.push('`site.signIn` must be "saved" (or left out).');
+  if (o.site?.network !== undefined && (typeof o.site.network !== "string" || o.site.network.trim() === "" || o.site.network.length > 60)) problems.push('`site.network` must be "server" or a runner\'s name.');
   if (o.browser?.name !== undefined && !["chromium", "firefox", "webkit"].includes(o.browser.name)) problems.push("`browser.name` must be chromium, firefox or webkit.");
   for (const [name, kind] of Object.entries(o.flags ?? {})) if (!FLAG_KINDS.includes(kind)) problems.push(`Flag "${name}" must be robot, finding or info.`);
   problems.push(...rubricProblems(o.rubric, "rubric"));
