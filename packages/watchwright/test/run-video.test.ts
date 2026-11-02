@@ -33,7 +33,8 @@ describe("finding Playwright's ffmpeg", () => {
 
   it("fits frames of another size into the video's size", () => {
     const args = ffmpegArgs("/v.webm", 1280, 800);
-    expect(args.join(" ")).toContain("scale=1280:800:force_original_aspect_ratio=decrease,pad=1280:800");
+    expect(args.join(" ")).toContain("crop=w=min(iw\\,1280):h=min(ih\\,800),pad=1280:800");
+    expect(args.join(" ")).not.toContain("scale=");
     expect(args.at(-1)).toBe("/v.webm");
   });
 });
@@ -78,8 +79,9 @@ describe.skipIf(!ffmpeg)("recording", () => {
     await new Promise((r) => setTimeout(r, 500));
     frame = { data: square, width: 300, height: 300 };
     await new Promise((r) => setTimeout(r, 500));
-    expect(await v.stop()).toBe(true);
+    const written = await v.stop();
     expect(errors).toEqual([]);
+    expect(written).toBe(true);
     expect(existsSync(file)).toBe(true);
     // A WebM starts with the EBML magic number.
     const head = Buffer.alloc(4);

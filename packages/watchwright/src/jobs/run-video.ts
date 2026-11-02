@@ -42,9 +42,11 @@ export function findFfmpeg(env: NodeJS.ProcessEnv = process.env, root = browsers
   return null;
 }
 
-/** The ffmpeg arguments for a run video of `width`×`height` (even numbers). Frames of another size are fitted in. */
+/** The ffmpeg arguments for a run video of `width`×`height` (even numbers). Frames of another size are cropped or padded to it. */
 export function ffmpegArgs(file: string, width: number, height: number, fps = RUN_VIDEO_FPS): string[] {
-  const fit = `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`;
+  // Crop a bigger frame and pad a smaller one, both centered: Playwright's ffmpeg is built with
+  // only the filters its own videos use (crop and pad, no scale).
+  const fit = `crop=w=min(iw\\,${width}):h=min(ih\\,${height}),pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`;
   return [
     "-loglevel", "error",
     "-f", "image2pipe", "-c:v", "mjpeg", "-framerate", String(fps), "-i", "pipe:0",
