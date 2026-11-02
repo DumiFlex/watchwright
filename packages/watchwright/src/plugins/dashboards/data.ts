@@ -467,16 +467,33 @@ export function dashboardData(src: DashboardSource, dashboard: Dashboard, q: Das
           }),
         };
       case "flaky": {
-        const by = new Map<string, { title: string; outcomes: AttemptStatus[] }>();
+        // `history` has what the pack page's strip shows: each attempt's run, try, time and params.
+        const by = new Map<string, { title: string; history: Att[] }>();
         for (const r of [...runs].reverse())
           for (const a of decided(attemptsOf(t, [r]))) {
-            const e = by.get(a.row.item_id) ?? { title: a.row.title, outcomes: [] };
-            e.outcomes.push(a.row.status);
+            const e = by.get(a.row.item_id) ?? { title: a.row.title, history: [] };
+            e.history.push(a);
             by.set(a.row.item_id, e);
           }
         return {
           tests: [...by.entries()]
-            .map(([testId, e]) => ({ testId, title: tests.get(testId)?.title ?? e.title, flips: e.outcomes.reduce((n, o, i) => n + (i > 0 && (o === "passed") !== (e.outcomes[i - 1] === "passed") ? 1 : 0), 0), outcomes: e.outcomes.slice(-20) }))
+            .map(([testId, e]) => ({
+              testId,
+              title: tests.get(testId)?.title ?? e.title,
+              flips: e.history.reduce((n, a, i) => n + (i > 0 && (a.row.status === "passed") !== (e.history[i - 1]!.row.status === "passed") ? 1 : 0), 0),
+              outcomes: e.history.slice(-20).map((a) => a.row.status),
+              history: e.history.slice(-20).map((a) => ({
+                attemptId: a.row.id,
+                runId: a.run.row.id,
+                runLabel: a.run.row.label ?? "",
+                number: a.row.number,
+                try: a.row.try,
+                status: a.row.status,
+                startedAt: a.row.started_at,
+                durationMs: a.durationMs,
+                params: a.run.params,
+              })),
+            }))
             .filter((x) => x.flips > 0)
             .sort((a, b) => b.flips - a.flips || a.testId.localeCompare(b.testId))
             .slice(0, t.limit ?? 10),

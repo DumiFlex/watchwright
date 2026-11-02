@@ -303,10 +303,13 @@ describe("dashboard data", () => {
       ["W2", ["failed", "passed"]],
       ["C1", ["passed", "broken"]],
     ]);
-    expect((tileOf(d, "flaky").data as { tests: unknown[] }).tests).toEqual([
+    const flaky = (tileOf(d, "flaky").data as { tests: { history: { runId: string; params: unknown }[] }[] }).tests;
+    expect(flaky).toMatchObject([
       { testId: "C1", title: "Combine", flips: 1, outcomes: ["passed", "failed", "broken"] },
       { testId: "W2", title: "Wildcard two", flips: 1, outcomes: ["failed", "passed", "passed"] },
     ]);
+    expect(flaky[0]!.history.map((e) => e.runId)).toEqual(["00000001", "00000002", "00000003"]);
+    expect(flaky[0]!.history[1]).toMatchObject({ status: "failed", params: { model: "opus" }, runLabel: "run 2", try: 1 });
     expect(tileOf(d, "failures").data).toMatchObject({ items: [{ testId: "W2", runId: "00000001", flags: [{ name: "wrong-card", detail: "Showed the wrong card" }] }] });
     expect((tileOf(d, "lowest", 0).data as { items: { testId: string; runId: string; value: number }[] }).items.map((i) => [i.runId, i.testId, i.value])).toEqual([
       ["00000001", "W2", 1],
