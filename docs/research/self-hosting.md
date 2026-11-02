@@ -128,13 +128,15 @@ Each a PR to `dev`, each with tests, site docs and screenshots:
 - **Firefox/WebKit over the bridge** may not proxy loopback (section 4). Checked before building on it.
 - **Bridge throughput** for heavy media sites.
 
-## 8. Questions for Dumi
+## 8. Dumi's answers (2026-11-02)
 
-1. **Roles:** admin and user only, or also a read-only viewer?
-2. **Single sign-on:** add the trusted-header option (Authelia, Authentik, Tailscale Serve) in this round, or later? Full OIDC later?
-3. **Network:** agree on the runner bridge as the built answer, with Tailscale and SSH as docs only?
-4. **Docker image:** publish to GitHub's registry (`ghcr.io/dumiflex/watchwright`) on each release?
-5. **Homelab:** what does it run (plain Docker, Unraid, TrueNAS, Proxmox LXC, Kubernetes), and amd64 or arm64? That decides which install guide is tested for real.
+1. **Roles:** admin, user and a read-only **viewer**. Also wanted: **guest or public access** to chosen results and a dashboard without signing in.
+2. **Single sign-on:** yes, for many users through Authelia or Authentik; Dumi runs **VoidAuth** behind **NPMplus** (Nginx Proxy Manager Plus). VoidAuth offers OpenID Connect and forward auth, so **OIDC** (option C) moves into this round as the main single sign-on path: one generic OIDC client covers VoidAuth, Authentik, Authelia, Pocket ID and Keycloak, and needs no reverse-proxy config. The trusted-header option (B) stays as a small extra for proxies already doing forward auth.
+3. **Network:** the runner bridge is the built answer, and setting it up must be one command the page gives you.
+4. **Image:** published to GitHub's registry.
+5. **Homelab:** Proxmox, with Portainer inside it. The Docker guide targets a Portainer stack (compose pasted into Portainer) on Docker in a Proxmox VM or LXC, x86-64, behind NPMplus.
+
+The plan is [docs/plans/self-hosting.md](../plans/self-hosting.md).
 
 ## 9. Sources
 
@@ -142,4 +144,5 @@ Each a PR to `dev`, each with tests, site docs and screenshots:
 - Playwright 1.64.1 (`playwright-core` package): `lib/coreBundle.js` (`shouldProxyLoopback`, Chromium `proxyBypassList` `<-loopback>`), `types/types.d.ts` (`proxy`, `connect` `exposeNetwork`).
 - Playwright docs: Docker (`mcr.microsoft.com/playwright`, `--init`, `--ipc=host`), `browserType.connect`, `browser.newContext({ proxy })`.
 - Tailscale docs: `tailscale serve`, Docker sidecar, `Tailscale-User-Login` identity headers.
+- VoidAuth (OIDC provider, forward auth, LDAP): https://github.com/voidauth/voidauth. NPMplus: https://github.com/ZoeyVid/NPMplus. nginx `auth_request` (forward auth).
 - Vite `server.allowedHosts`; MDN "Secure contexts" (localhost counts as potentially trustworthy).
