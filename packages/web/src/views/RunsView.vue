@@ -5,7 +5,7 @@
 import { Bot, CalendarClock, ChartColumn, Ellipsis, Eye, Package, Play, SearchX } from "../icons";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, sendJson, type Pack, type RunSummary } from "../api";
-import { ago, countsText, done, duration, isActive, runDuration, when } from "../format";
+import { ago, countsText, done, duration, fileSize, isActive, runDuration, when } from "../format";
 import { PERIODS, SERIES, anything, bars, tiles, type RunStats } from "../runstats";
 import { LiveConnection } from "../live";
 import { offerNotify } from "../notify";
@@ -340,6 +340,7 @@ onBeforeUnmount(() => {
             <th>Results</th>
             <th>Started</th>
             <th>Took</th>
+            <th>Size</th>
             <th><span class="sr-only">Actions</span></th>
           </tr>
         </thead>
@@ -369,6 +370,10 @@ onBeforeUnmount(() => {
               <template v-else>{{ r.startedBy }}</template>
             </td>
             <td class="c-took muted small num">{{ duration(runDuration(r)) || "–" }}</td>
+            <td class="c-size muted small num">
+              <span v-if="r.sizeBytes != null" v-tip="'On the drive: results, screenshots, videos and traces'">{{ fileSize(r.sizeBytes) }}</span>
+              <template v-else>–</template>
+            </td>
             <td class="c-act">
               <MenuButton :items="rowMenu(r)" :label="`Actions for run ${r.id}`" @select="onRowMenu(r, $event)">
                 <template #button><Ellipsis :size="16" /></template>
@@ -536,6 +541,9 @@ onBeforeUnmount(() => {
   font-size: 12px;
   padding: 4px 12px 6px 0;
 }
+.c-size {
+  white-space: nowrap;
+}
 .runs td {
   padding: 8px 12px 8px 0;
   border-top: var(--border-width) solid var(--line);
@@ -660,7 +668,8 @@ onBeforeUnmount(() => {
     justify-self: end;
   }
   .c-res,
-  .c-when {
+  .c-when,
+  .c-size {
     grid-column: 1;
   }
   .c-took {

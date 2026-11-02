@@ -30,6 +30,8 @@ export const RUNS_ARTIFACT_SET_SQL = `ALTER TABLE runs_artifacts ADD COLUMN set_
 
 /** Migration 3: facts a run learns while it runs (`info(key, value)` in setup and tests). */
 export const RUNS_INFO_SQL = `ALTER TABLE runs ADD COLUMN info TEXT NOT NULL DEFAULT '{}';`;
+/** Bytes a run's folder takes; null until measured. */
+export const RUNS_SIZE_SQL = `ALTER TABLE runs ADD COLUMN size_bytes INTEGER;`;
 export const RUNS_STEPS_SQL = `ALTER TABLE runs_attempts ADD COLUMN steps TEXT NOT NULL DEFAULT '[]';`;
 
 /** Migration 4: a run's optional label, and presets (named run choices per pack). */
@@ -128,6 +130,7 @@ export interface RunRow {
   created_at: string;
   started_at: string | null;
   finished_at: string | null;
+  size_bytes: number | null;
 }
 
 export interface AttemptRow {
@@ -259,6 +262,8 @@ export interface RunSummary {
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
+  /** Bytes the run's folder takes on the drive (results, screenshots, videos, traces); null until measured. */
+  sizeBytes: number | null;
   counts: Record<AttemptStatus, number> & { planned: number };
 }
 
@@ -284,7 +289,7 @@ const EMPTY_COUNTS = (): RunSummary["counts"] => ({ passed: 0, failed: 0, broken
 export class RunsRepo {
   constructor(readonly db: Database.Database) {}
 
-  insertRun(r: Omit<RunRow, "plan" | "state" | "info" | "label" | "mode" | "error" | "started_at" | "finished_at" | "job_kind"> & { job_kind: string; label?: string }): void {
+  insertRun(r: Omit<RunRow, "plan" | "state" | "info" | "label" | "mode" | "error" | "started_at" | "finished_at" | "job_kind" | "size_bytes"> & { job_kind: string; label?: string }): void {
     this.db
       .prepare(
         `INSERT INTO runs (id, pack_id, pack_name, pack_path, site_key, job_kind, tests, params, options, label, status, started_by, created_at)
@@ -336,11 +341,27 @@ export class RunsRepo {
     return this.db.prepare("DELETE FROM runs WHERE id = ?").run(id).changes > 0;
   }
 
+  /** Ended runs whose size isn't measured yet, newest first. */
+  unmeasured(): string[] {
+    return (this.db.prepare("SELECT id FROM runs WHERE size_bytes IS NULL AND status NOT IN ('queued', 'running', 'pausing', 'paused') ORDER BY created_at DESC").all() as { id: string }[]).map((r) => r.id);
+  }
+
+  /** Runs, their measured bytes, and how many aren't measured yet. */
+  sizeTotals(): { runs: number; bytes: number; unmeasured: number } {
+    const r = this.db.prepare("SELECT COUNT(*) AS runs, COALESCE(SUM(size_bytes), 0) AS bytes, SUM(CASE WHEN size_bytes IS NULL THEN 1 ELSE 0 END) AS unmeasured FROM runs").get() as { runs: number; bytes: number; unmeasured: number | null };
+    return { runs: r.runs, bytes: r.bytes, unmeasured: r.unmeasured ?? 0 };
+  }
+
+  /** The runs that take the most room, largest first. */
+  largest(limit: number): RunRow[] {
+    return this.db.prepare("SELECT * FROM runs WHERE size_bytes IS NOT NULL ORDER BY size_bytes DESC LIMIT ?").all(limit) as RunRow[];
+  }
+
   queued(): RunRow[] {
     return this.db.prepare("SELECT * FROM runs WHERE status = 'queued' ORDER BY created_at, rowid").all() as RunRow[];
   }
 
-  updateRun(id: string, fields: Partial<Pick<RunRow, "status" | "mode" | "tests" | "plan" | "options" | "state" | "info" | "label" | "error" | "started_at" | "finished_at">>): void {
+  updateRun(id: string, fields: Partial<Pick<RunRow, "status" | "mode" | "tests" | "plan" | "options" | "state" | "info" | "label" | "error" | "started_at" | "finished_at" | "size_bytes">>): void {
     const keys = Object.keys(fields);
     if (keys.length === 0) return;
     this.db.prepare(`UPDATE runs SET ${keys.map((k) => `${k} = @${k}`).join(", ")} WHERE id = @id`).run({ ...fields, id });
@@ -563,6 +584,7 @@ export function runSummary(r: RunRow, counts: RunSummary["counts"]): RunSummary 
     createdAt: r.created_at,
     startedAt: r.started_at,
     finishedAt: r.finished_at,
+    sizeBytes: r.size_bytes ?? null,
     counts,
   };
 }

@@ -9,7 +9,7 @@ import { CHANNEL_TYPES, checkUrl, outgoing, send, shownUrl, type AlertMessage, t
 // a schedule's) outcome instead of one per run. A send that fails is tried three more times with
 // back-off, then logged as `alert.failed`.
 
-export const TRIGGERS = ["failed", "broken", "stopped", "passed", "failed_to_start", "recovered", "test_broken", "schedule_missed", "approval"] as const;
+export const TRIGGERS = ["failed", "broken", "stopped", "passed", "failed_to_start", "recovered", "test_broken", "schedule_missed", "approval", "storage_low"] as const;
 export type Trigger = (typeof TRIGGERS)[number];
 
 export interface Channel {
@@ -378,6 +378,9 @@ export class Alerter {
       case "schedule.skipped":
         this.onSchedule(e);
         return;
+      case "storage.low":
+        if (e.runId) this.onStorageLow(e, e.runId);
+        return;
       case "approval.requested":
         this.fire(this.rules().filter((r) => r.enabled && r.triggers.includes("approval")), {
           trigger: "approval",
@@ -457,6 +460,24 @@ export class Alerter {
         event: { seq: e.seq, type: e.type, runId: run.id, data: e.data },
       },
       run.id,
+    );
+  }
+
+  private onStorageLow(e: WwEvent, runId: string): void {
+    const run = this.d.run(runId);
+    const rules = this.rules().filter((r) => r.enabled && r.triggers.includes("storage_low"));
+    const free = Number(e.data.freeBytes ?? 0) / 1024 ** 3;
+    const what = e.data.videosOff ? "Runs record no more videos until there is room again." : `Below ${String(e.data.stopBelowGB)} GB, runs stop recording videos.`;
+    this.fire(
+      rules,
+      {
+        trigger: "storage_low",
+        title: "Watchwright: the drive is almost full",
+        text: `Only ${free.toFixed(1)} GB free on the drive with Watchwright's data folder${run ? `, during ${this.runName(run).replace(/^Run/, "run")}` : ""}. ${what} Delete old runs in Settings > Storage.`,
+        link: `${this.d.base()}#/settings?section=storage`,
+        event: { seq: e.seq, type: e.type, runId, data: e.data },
+      },
+      runId,
     );
   }
 

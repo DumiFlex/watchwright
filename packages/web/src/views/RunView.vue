@@ -517,6 +517,9 @@ async function remove() {
             <StatusChip :status="run.status" />
             <span v-if="run.mode !== 'normal'">&nbsp;{{ run.mode === "redo" ? "redoing broken tests" : "resumed" }}</span>
             · started by {{ run.startedBy }}
+            <template v-if="run.sizeBytes != null && (run.sizeBytes > 0 || !active)">
+              · <span v-tip="'On the drive: results, screenshots, videos and traces'">{{ fileSize(run.sizeBytes) }}{{ active ? " so far" : "" }}</span>
+            </template>
             <template v-for="(v, k) in run.params" :key="k"> · {{ k }}={{ v }}</template>
           </p>
           <p v-if="Object.keys(run.info ?? {}).length" class="facts small" aria-label="Run facts">
@@ -551,6 +554,11 @@ async function remove() {
       <p v-if="actionError" class="error" role="alert">{{ actionError }}</p>
       <p v-if="run.error" class="error">{{ run.error }}</p>
       <p v-if="markSaved" class="muted small" role="status">{{ markSaved }}</p>
+      <p v-if="live?.storageLow" class="banner warn" role="alert">
+        <strong>The drive is almost full:</strong> {{ fileSize(live.storageLow.freeBytes) }} free.
+        {{ live.storageLow.videosOff ? "This run records no more videos, so it can finish." : "Below the limit in Settings, runs stop recording videos." }}
+        <a href="#/settings?section=storage">See what takes the room</a>
+      </p>
 
       <div v-if="live" class="banner" :class="{ warn: live.state !== 'running' }" role="status">
         <template v-if="pausedBroken">
@@ -882,6 +890,7 @@ async function remove() {
   gap: 8px;
 }
 .banner {
+  margin: 0;
   padding: 10px 14px;
   border-radius: var(--radius);
   border: var(--border-width) solid var(--line);

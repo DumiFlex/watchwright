@@ -9,6 +9,7 @@ import type { JobKinds } from "../../jobs/kinds.js";
 import type { AttemptRuntime } from "../../jobs/runtime.js";
 import { AttemptRecorder, MAX_LOG_LINES, safeRelative, slug, type ArtifactInfo } from "../../jobs/recorder.js";
 import { findFfmpeg, nextRunVideoFile, RunVideo, runVideoFiles } from "../../jobs/run-video.js";
+import { dirSize, driveSpace, GB, sizeText } from "../../jobs/storage.js";
 import { unzip, zip } from "../../jobs/zip.js";
 import { BrowserSession } from "../../session/session.js";
 import type { FrameHub } from "../live/hub.js";
@@ -98,6 +99,23 @@ export interface LiveSnapshot {
   activePageId: string | null;
   /** The settings in effect, which `runs.settings` changes; null while the run sets up. */
   settings: RunSettings | null;
+  /** Set once the drive ran low during the run: its free bytes, and whether videos stopped. */
+  storageLow: { freeBytes: number; videosOff: boolean } | null;
+}
+
+export interface StorageReport {
+  /** The data folder; runs are in its `runs/`. */
+  dataDir: string;
+  /** Free and total bytes of its drive; null when the system can't say. */
+  freeBytes: number | null;
+  totalBytes: number | null;
+  runs: number;
+  /** Bytes every measured run takes. */
+  runsBytes: number;
+  /** Runs not measured yet (they are measured in the background after a start). */
+  unmeasured: number;
+  largest: RunSummary[];
+  limits: StorageLimits;
 }
 
 /** What can change while a run goes (`runs.settings`), as in effect. */
@@ -146,6 +164,11 @@ interface ActiveRun {
   ctx: RunCtx | null;
   /** The recorder of the top-level attempt that is running, for marks. */
   recorder: AttemptRecorder | null;
+  /** Bytes the run's folder takes, measured every so often while it goes. */
+  sizeBytes: number | null;
+  /** Set once the drive ran low during the run: free bytes then, and whether videos stopped. */
+  storageLow: { freeBytes: number; videosOff: boolean } | null;
+  storageTimer: ReturnType<typeof setInterval> | null;
 }
 
 interface RunCtx {
@@ -179,6 +202,14 @@ function withAdded(plan: KindPlan, added: RunOptions["added"]): KindPlan {
   return extra.length === 0 ? plan : { ...plan, items: [...plan.items, ...extra] };
 }
 
+export interface StorageLimits {
+  warnBelowGB: number;
+  stopBelowGB: number;
+}
+
+export const DEFAULT_STORAGE_LIMITS: StorageLimits = { warnBelowGB: 5, stopBelowGB: 1 };
+const STORAGE_CHECK_MS = 60_000;
+
 export interface EngineOptions {
   repo: RunsRepo;
   events: EventLog;
@@ -191,6 +222,10 @@ export interface EngineOptions {
   secrets?: { get(name: string): string | undefined; mask(text: string): string; maskBytes?(data: Buffer): Buffer | null } | undefined;
   /** Saved sign-ins: runs that start signed in get the site's storage state, and `h.saveSignIn` saves one. */
   signIns?: { get(siteKey: string): StorageState | undefined; save(siteKey: string, state: StorageState, source: string): unknown } | undefined;
+  /** Free space on the drive below which a run warns, and below which it stops recording videos (the settings; 5 and 1 GB by default). */
+  storageLimits?: (() => StorageLimits) | undefined;
+  /** How often a going run measures its folder and the drive's free space (default once a minute). */
+  storageCheckMs?: number | undefined;
 }
 
 /** A copy of `value` with `mask` applied to every string in it (event data, attempt results). */
@@ -227,7 +262,88 @@ export class Engine {
   }
 
   list(filter: RunFilter = {}): RunSummary[] {
-    return this.o.repo.runs(filter).map((r) => runSummary(r, this.o.repo.counts(r.id)));
+    return this.o.repo.runs(filter).map((r) => this.summary(r));
+  }
+
+  /** A run's summary; a going run's size is the one measured last. */
+  private summary(r: RunRow): RunSummary {
+    const s = runSummary(r, this.o.repo.counts(r.id));
+    const run = this.active.get(r.id);
+    return run && run.sizeBytes !== null ? { ...s, sizeBytes: run.sizeBytes } : s;
+  }
+
+  /** Measures a run's folder and keeps the size with the run, unless it is going (then it changes). */
+  async measure(id: string): Promise<number | null> {
+    if (this.active.has(id)) return null;
+    return this.keepSize(id, () => !this.active.has(id));
+  }
+
+  private async keepSize(id: string, still: () => boolean = () => true): Promise<number | null> {
+    try {
+      const bytes = await dirSize(path.join(this.o.dataDir, "runs", id));
+      // Deleted or started again while measuring, or the server is closing.
+      if (!still() || !this.o.repo.run(id)) return null;
+      this.o.repo.updateRun(id, { size_bytes: bytes });
+      this.o.events.append("run.measured", { sizeBytes: bytes }, { runId: id });
+      return bytes;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Measures every ended run whose size isn't known yet (runs from before sizes were kept), one at a time. */
+  async measureMissing(): Promise<number> {
+    let n = 0;
+    for (const id of this.o.repo.unmeasured()) {
+      if (this.closing) break;
+      if ((await this.measure(id)) !== null) n++;
+    }
+    return n;
+  }
+
+  /** What runs take on the drive, and how much room the drive has left. */
+  async storage(top = 10): Promise<StorageReport> {
+    for (const run of this.active.values()) if (run.sizeBytes === null) run.sizeBytes = await dirSize(path.join(this.o.dataDir, "runs", run.id));
+    const totals = this.o.repo.sizeTotals();
+    const going = [...this.active.values()].reduce((s, r) => s + (r.sizeBytes ?? 0), 0);
+    const drive = await driveSpace(this.o.dataDir);
+    return {
+      dataDir: this.o.dataDir,
+      freeBytes: drive?.freeBytes ?? null,
+      totalBytes: drive?.totalBytes ?? null,
+      runs: totals.runs,
+      runsBytes: totals.bytes + going,
+      unmeasured: Math.max(0, totals.unmeasured - this.active.size),
+      largest: this.o.repo.largest(top).map((r) => this.summary(r)),
+      limits: this.limits(),
+    };
+  }
+
+  private limits(): StorageLimits {
+    return this.o.storageLimits?.() ?? DEFAULT_STORAGE_LIMITS;
+  }
+
+  /**
+   * Measures a going run's folder and checks the drive. Below the warning line it says so once
+   * (a log line, `storage.low` for alerts, a banner); below the floor it stops recording videos
+   * for the rest of the run so the run can finish without filling the drive. It never stops a run.
+   */
+  private async checkStorage(run: ActiveRun): Promise<void> {
+    run.sizeBytes = await dirSize(path.join(this.o.dataDir, "runs", run.id));
+    const drive = await driveSpace(this.o.dataDir);
+    if (!drive || !this.active.has(run.id)) return;
+    const { warnBelowGB, stopBelowGB } = this.limits();
+    const free = drive.freeBytes;
+    if (free < stopBelowGB * GB && !run.storageLow?.videosOff) {
+      run.storageLow = { freeBytes: free, videosOff: true };
+      await this.stopRunVideo(run);
+      this.emit("run.log", { level: "warn", message: `Only ${sizeText(free)} free on the drive with the data folder (under ${stopBelowGB} GB): this run records no more videos. Free some room, or delete old runs in Settings > Storage.` }, run.id);
+      this.emit("storage.low", { freeBytes: free, warnBelowGB, stopBelowGB, videosOff: true }, run.id);
+    } else if (free < warnBelowGB * GB && !run.storageLow) {
+      run.storageLow = { freeBytes: free, videosOff: false };
+      this.emit("run.log", { level: "warn", message: `Only ${sizeText(free)} free on the drive with the data folder (under ${warnBelowGB} GB). Below ${stopBelowGB} GB, runs stop recording videos.` }, run.id);
+      this.emit("storage.low", { freeBytes: free, warnBelowGB, stopBelowGB, videosOff: false }, run.id);
+    } else if (run.storageLow) run.storageLow = { ...run.storageLow, freeBytes: free };
   }
 
   private planEntries(kind: JobKind, pack: LoadedPack, plan: KindPlan, queue: RunQueue): PlanEntry[] {
@@ -448,7 +564,7 @@ export class Engine {
       const rel = `runs/${id}/${v.name}`;
       return { path: rel, url: fileUrl(rel), size: v.size };
     });
-    return { ...runSummary(r, this.o.repo.counts(id)), plan, attempts, live: this.snapshot(id), runVideos };
+    return { ...this.summary(r), plan, attempts, live: this.snapshot(id), runVideos };
   }
 
   /** A run's status alone, from one row: cheap enough to check on every event. Null when there is no such run. */
@@ -481,6 +597,7 @@ export class Engine {
       pages: run.session?.openPages() ?? [],
       activePageId: run.session?.activePage ?? null,
       settings: run.ctx ? this.settingsOf(run.ctx) : null,
+      storageLow: run.storageLow,
     };
   }
 
@@ -766,6 +883,9 @@ export class Engine {
       runVideoWarned: false,
       ctx: null,
       recorder: null,
+      sizeBytes: null,
+      storageLow: null,
+      storageTimer: null,
     };
     this.active.set(row.id, run);
     run.done = this.execute(row, run)
@@ -773,7 +893,10 @@ export class Engine {
         this.o.repo.updateRun(row.id, { status: "interrupted", error: err instanceof Error ? err.message : String(err) });
         this.emit("run.interrupted", { reason: "engine_error", message: err instanceof Error ? err.message : String(err) }, row.id);
       })
-      .finally(() => {
+      .finally(async () => {
+        if (run.storageTimer) clearInterval(run.storageTimer);
+        // Once the run is over its folder doesn't grow; measure it for good.
+        await this.keepSize(row.id);
         this.active.delete(row.id);
         this.o.frames.forget(row.id);
         this.schedule();
@@ -864,6 +987,8 @@ export class Engine {
       return;
     }
     run.session = session;
+    await this.checkStorage(run);
+    run.storageTimer = setInterval(() => void this.checkStorage(run).catch(() => undefined), this.o.storageCheckMs ?? STORAGE_CHECK_MS);
     if (options.runVideo ?? o.run?.runVideo ?? false) this.startRunVideo(run);
 
     try {
@@ -965,7 +1090,7 @@ export class Engine {
 
   /** Starts a video of the whole run, of the page the live view follows; a new part when the run already has one. */
   private startRunVideo(run: ActiveRun): void {
-    if (run.runVideo) return;
+    if (run.runVideo || run.storageLow?.videosOff) return;
     const warn = (message: string) => {
       if (run.runVideoWarned) return;
       run.runVideoWarned = true;
@@ -1117,7 +1242,7 @@ export class Engine {
     if (top) run.recorder = recorder;
     const o = pack.options.run ?? {};
     const traceMode = ctx.options.trace ?? o.trace ?? "problems";
-    const video = videoMode(ctx.options.video ?? o.video ?? "always");
+    const video = run.storageLow?.videosOff ? "never" : videoMode(ctx.options.video ?? o.video ?? "always");
     if (top) {
       // Tabs and popups the last test opened would keep their screencasts going and catch the live view.
       if (!o.keepTabs) {

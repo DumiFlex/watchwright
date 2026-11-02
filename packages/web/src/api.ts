@@ -239,6 +239,8 @@ export interface RunSummary {
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
+  /** Bytes the run's folder takes on the drive; null until measured (older servers leave it out). */
+  sizeBytes?: number | null;
   counts: Record<AttemptStatus, number> & { planned: number };
 }
 
@@ -272,6 +274,20 @@ export interface LiveSnapshot {
   activePageId: string | null;
   /** The settings in effect, which POST /runs/:id/settings changes; null while the run sets up. */
   settings: RunSettings | null;
+  /** Set once the drive ran low during the run; older servers leave it out. */
+  storageLow?: { freeBytes: number; videosOff: boolean } | null;
+}
+
+/** GET /storage: what runs take on the drive. */
+export interface StorageReport {
+  dataDir: string;
+  freeBytes: number | null;
+  totalBytes: number | null;
+  runs: number;
+  runsBytes: number;
+  unmeasured: number;
+  largest: RunSummary[];
+  limits: { warnBelowGB: number; stopBelowGB: number };
 }
 
 export interface RunSettings {

@@ -42,5 +42,6 @@ describe("format", () => {
     expect(fileSize(820)).toBe("820 B");
     expect(fileSize(12 * 1024)).toBe("12 KB");
     expect(fileSize(3.4 * 1024 * 1024)).toBe("3.4 MB");
+    expect(fileSize(29.3 * 1024 ** 3)).toBe("29.3 GB");
   });
 });
