@@ -9,13 +9,16 @@
 [![GitHub Sponsors](https://img.shields.io/github/sponsors/DumiFlex?logo=githubsponsors&color=db61a2)](https://github.com/sponsors/DumiFlex)
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-ffdd00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/dumiflex)
 
-**Browser test and benchmark runs you can watch, pause, fix and score, on your own machine, driven by your own AI agent.**
+**Browser tests you can watch live, pause, fix and review, on your own computer or your own server.**
 
-Watchwright is a test harness built on [Playwright](https://playwright.dev). It's for the runs plain `npx playwright test` isn't made for: long ones that take minutes or hours, where a broken step should pause rather than end the run, where you score what each attempt produced, or where your agent does the driving while you look on.
+Watchwright runs [Playwright](https://playwright.dev) tests from its own server and web page. You see the browser while each test runs, a broken step pauses the run so you can fix the test and retry it, and every attempt keeps its screenshots, video, trace and log for review. Runs can start on a schedule, and AI coding agents can drive it too.
 
-- **Bench your AI feature across models.** One pack runs per model or setting (`runs: { by: "model", q9: 3, haiku: 1 }`), every attempt keeps its screenshots, text and video, a rubric scores it, and Compare lines the runs up side by side.
-- **Let your agent test and fix your site while you watch.** Claude Code, Codex or any MCP client starts runs, reads results and writes tests. You see the browser live, a broken test pauses for you to fix and retry, and anything that deletes data waits for your approval.
-- **Check your site on a schedule.** Schedules start runs by themselves and alerts reach your phone or chat. The attempt that broke keeps its video, trace and log.
+It's good for:
+
+- **End-to-end tests of a web app**, written in TypeScript in the Playwright style, in YAML, or recorded by clicking through the site.
+- **Long or fragile flows**, where a failure should pause for you rather than end a run that took an hour to get there.
+- **Comparing setups**: the same tests with different settings (a browser, a language, a feature flag), runs side by side, and scores when a person judges the result.
+- **Watching a live site**, with scheduled runs and alerts to your phone or chat.
 
 Try it in one command (Node.js 22 or newer):
 
@@ -28,12 +31,14 @@ It starts a run of the [TodoMVC example pack](examples/todomvc) against Playwrig
 ## What it does
 
 - **Watch it.** Every run streams a live picture of the browser to Watchwright's own web page, with the current test, step and log.
-- **Control it from the page.** Start, pause, resume, retry, skip and stop runs on the website, and review what each test saved: screenshots, text, metrics, video and Playwright traces. Or let a schedule start them, and an alert on your phone or in a chat tell you when one fails.
-- **Test any site.** You write test packs for your own websites: a folder with a `pack` file and test files in the familiar Playwright style.
-- **Let your agents drive.** Everything the page does is an API call, and AI coding agents (Claude Code, Codex, any MCP client) get it through a CLI, an MCP server and an agent skill. Watchwright has no AI assistant of its own.
-- **Built to grow.** Every capability is a plugin on one core of browser sessions, jobs, events and actions. Testing comes first; scraping, crawling and other Playwright capabilities can be added later without reworking the base.
+- **Control it from the page.** Start, pause, resume, retry, skip and stop runs, and review what each test saved: screenshots, text, metrics, video and Playwright traces. [Reviewing](https://dumiflex.github.io/watchwright/guide/reviewing)
+- **Test any site.** A test pack is a folder with a `pack` file and tests in the familiar Playwright style, or in YAML. [Writing a test pack](https://dumiflex.github.io/watchwright/guide/test-packs)
+- **See each pack at a glance.** A pack's dashboard shows what matters for it: pass rates, run times, metrics, review scores, a leaderboard per model. [Dashboards](https://dumiflex.github.io/watchwright/guide/dashboards)
+- **Run it by itself.** Schedules start runs, and alerts reach your phone or chat when one fails. [Schedules](https://dumiflex.github.io/watchwright/guide/schedules) · [Alerts](https://dumiflex.github.io/watchwright/guide/alerts)
+- **Let your agents drive.** Everything the page does is an API call, and AI coding agents (Claude Code, Codex, any MCP client) get it through a CLI, an MCP server and an agent skill. Watchwright has no AI assistant of its own. [Agents](https://dumiflex.github.io/watchwright/guide/agents)
+- **Host it for a team.** A Docker image, login with roles and single sign-on, share links and a public status page, and runners that let a server reach sites on your own PC. [Self-hosting](https://dumiflex.github.io/watchwright/guide/self-hosting)
 
-> **Status: early (0.x).** The run engine, test packs in TypeScript or YAML, the live view, the web app (runs, review, compare, a pack editor and Record), schedules, alerts, secrets, saved sign-ins, the HTTP API, the command line, the MCP server and the agent skill work; see [docs/plan.md](docs/plan.md) for the plan and what is built so far.
+> **Status: early (0.x).** Everything above works today; any release may still change how things work. See the [changelog](CHANGELOG.md).
 
 **Docs:** [dumiflex.github.io/watchwright](https://dumiflex.github.io/watchwright/)
 
@@ -42,71 +47,53 @@ It starts a run of the [TodoMVC example pack](examples/todomvc) against Playwrig
   <img alt="A run in progress, with the live browser picture, the controls and the queue" src="docs/screenshots/run-live-light.png">
 </picture>
 
-## Requirements
+## On your computer
 
-- Node.js 22 or newer
-- Windows, macOS or Linux. Windows is the first platform the run engine is checked on.
-
-## Getting started
+Needs Node.js 22 or newer, on Windows, macOS or Linux.
 
 ```bash
 npx playwright install chromium firefox
-npx watchwright serve     # starts the server at http://127.0.0.1:7420/ and opens it
+npx watchwright serve     # the server and its web page at http://127.0.0.1:7420/
 ```
 
-The package is [`watchwright` on npm](https://www.npmjs.com/package/watchwright). To run it from a clone instead (pnpm 9; `corepack enable` sets it up from `package.json`):
+Then add a test pack on the Packs page (a folder with a `pack.ts` or `pack.yaml`, or a new one from a starter) and start a run. [Getting started](https://dumiflex.github.io/watchwright/guide/getting-started) walks through it, and the [command line](https://dumiflex.github.io/watchwright/reference/cli) lists every option.
+
+## On a server, with Docker
+
+```bash
+docker run -d --name watchwright --init --shm-size 1g --restart unless-stopped \
+  -p 7420:7420 \
+  -v /opt/watchwright/data:/data -v /opt/watchwright/packs:/packs \
+  -e WATCHWRIGHT_PUBLIC_URL=http://192.168.1.20:7420 \
+  ghcr.io/dumiflex/watchwright:latest
+```
+
+The image (`linux/amd64` and `linux/arm64`) holds the server, the web app and the browsers. Login is always on: the log prints a link that creates the first admin. Make the two folders first, owned by uid 1001.
+
+- [Self-hosting](https://dumiflex.github.io/watchwright/guide/self-hosting): Docker Compose, Portainer, reverse proxies (NPMplus, Caddy, Tailscale), updates and backups.
+- [Runners](https://dumiflex.github.io/watchwright/guide/self-hosting#runners): a server's runs reach a site that only runs on your PC, such as `localhost:3000`, with one copied command on that PC.
+- [Single sign-on](https://dumiflex.github.io/watchwright/guide/single-sign-on): OpenID Connect (Authelia, Authentik, VoidAuth…) or a trusted proxy header.
+- [Sharing](https://dumiflex.github.io/watchwright/guide/sharing): read-only share links for one run, and a public status page.
+
+## Safety
+
+On your computer the server listens on `127.0.0.1` only, refuses requests for any other address, and refuses changes from other sites' pages, so a web page open in your browser can't drive it. On a server, login is on and every action checks the person's role. Test packs are code that runs with the server's permissions: only load packs you trust. [Safety](https://dumiflex.github.io/watchwright/guide/safety)
+
+## Development
+
+From a clone (pnpm 9; `corepack enable` sets it up):
 
 ```bash
 pnpm install
 pnpm --filter watchwright exec playwright install chromium firefox
-pnpm serve            # builds, starts the server and opens it
-```
-
-`npx watchwright demo` does all of this for the TodoMVC example: it gets Chromium if it's missing, starts the server and starts a run.
-
-Then add a test pack on the Packs page (browse to a folder with a `pack.ts` or `pack.yaml` file, or start a new one from a starter) and start a run. The [TodoMVC example](examples/todomvc) is a small pack to try first. [Writing a test pack](packages/site/guide/test-packs.md) explains how to write a pack, and the [HTTP and WebSocket API](packages/site/reference/http-api.md) lists every route, event and the live WebSocket.
-
-`watchwright serve` options:
-
-| Option | Default | What it does |
-|---|---|---|
-| `--port` | `7420` | Port for the web page and the API. |
-| `--host` | `127.0.0.1` | Address to bind. Only loopback addresses are allowed until token auth is built. |
-| `--data` | see below | Folder for the database and everything runs save. |
-| `--no-open` | off | Don't open the web page in your browser on start. |
-
-The data folder is, in order: `--data`, the `WATCHWRIGHT_DATA` environment variable, or the usual app data folder (`%LOCALAPPDATA%\Watchwright` on Windows, `~/Library/Application Support/Watchwright` on macOS, `~/.local/share/watchwright` on Linux).
-
-## Development
-
-```bash
 pnpm dev              # server (watch mode) + web dev server at http://127.0.0.1:5173/
-pnpm test             # Vitest, server and web (engine tests need the Playwright browsers)
-pnpm typecheck        # tsc + vue-tsc
-pnpm lint             # ESLint
-pnpm build            # server to packages/watchwright/dist, web app to packages/watchwright/dist/web
-pnpm site:dev         # docs site at http://localhost:5173/watchwright/
-pnpm site:build       # docs site to packages/site/dist
+pnpm serve            # build, then run the server
+pnpm lint && pnpm typecheck && pnpm test
 ```
 
-The repository is a pnpm workspace:
+`packages/watchwright` is the server, run engine and CLI, `packages/web` the Vue web app, `packages/site` the docs site, and `docs/` the plans and research notes. [AGENTS.md](AGENTS.md) has the layout and conventions.
 
-| Path | What |
-|---|---|
-| `packages/watchwright` | The `watchwright` package: server, plugin host, store, run engine, pack API and CLI. |
-| `packages/web` | The Vue 3 + Vite web app. Its build is served by `watchwright serve`. |
-| `packages/site` | The docs site (VitePress): landing page, guide and API reference. |
-| `docs/` | The plan and research notes. |
-
-## Contributing and releases
-
-Pull requests go to the `dev` branch and need a [Conventional Commits](https://www.conventionalcommits.org) title such as `feat: pause a run from the page` or `fix: keep the live view after a reload`. When `dev` is merged into `main`, a release is cut automatically: the version is worked out from those titles, and the notes go to [CHANGELOG.md](CHANGELOG.md) and the GitHub releases page. Watchwright is in 0.x, so any release may change how things work.
-
-## Safety
-
-The server listens on `127.0.0.1` only. It refuses requests whose `Host` header isn't its own loopback address and port, and refuses changes and WebSocket connections from other origins, so web pages open in your browser can't drive it.
-
-Test packs are code that runs on your machine with your permissions. Only load packs you trust.
+Pull requests go to the `dev` branch with a [Conventional Commits](https://www.conventionalcommits.org) title such as `feat: pause a run from the page`. Merging `dev` into `main` cuts a release by itself: the version comes from those titles, and the notes go to [CHANGELOG.md](CHANGELOG.md).
 
 ## Support
 
