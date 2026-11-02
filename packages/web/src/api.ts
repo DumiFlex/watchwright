@@ -330,6 +330,8 @@ export interface SharedRun extends Pick<RunDetail, "id" | "packName" | "label" |
 /** A share link (`GET /shares`); the token itself is shown only once, when it is made. */
 export interface ShareLink {
   id: string;
+  /** The page to open (`#/s/<token>`), to copy again; null for links made before links were kept. */
+  page: string | null;
   runId: string;
   traces: boolean;
   createdBy: string | null;

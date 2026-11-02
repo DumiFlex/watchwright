@@ -255,12 +255,12 @@ Run statuses: `queued`, `running`, `pausing`, `paused`, `finished`, `stopped`, `
 
 ## Sharing
 
-Share links and the public status page ([Sharing](../guide/sharing)). A share link's token is 22 characters; only its hash is kept, so `POST /shares` is the only answer that holds it.
+Share links and the public status page ([Sharing](../guide/sharing)). A share link's token is 22 characters; links are looked up by the token's hash.
 
 | Method and path | Does |
 |---|---|
-| `GET /shares?run=` | Share links that still work, of one run or all: `[{ id, runId, traces, createdBy, createdAt, expiresAt, views, viewedAt, run }]`, `run` being `{ packName, label, status, createdAt }`. User role. |
-| `POST /shares` `{ run, days?, traces? }` | Makes a link (201): the link's fields plus `token` and `page` (`#/s/<token>`, to put after the server's address). `days` from 1 to 365; without it the link works until removed. `traces` shares traces and collector files too. 404 `not_found` for an unknown run. User role. |
+| `GET /shares?run=` | Share links that still work, of one run or all: `[{ id, page, runId, traces, createdBy, createdAt, expiresAt, views, viewedAt, run }]`, `run` being `{ packName, label, status, createdAt }`. User role. |
+| `POST /shares` `{ run, days?, traces? }` | Makes a link (201): the link's fields plus `token`. `page` is `#/s/<token>`, to put after the server's address. `days` from 1 to 365; without it the link works until removed. `traces` shares traces and collector files too. 404 `not_found` for an unknown run. User role. |
 | `DELETE /shares/:id` | Takes a link back. User role. |
 | `GET /shares/dashboard` | The public status page's settings (admin): `{ on, packs, linkRuns, title }`. |
 | `POST /shares/dashboard` `{ on?, packs?, linkRuns?, title? }` | Changes them (admin). `packs` is a list of pack ids, in the order shown. |

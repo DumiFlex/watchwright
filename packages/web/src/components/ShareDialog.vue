@@ -1,12 +1,13 @@
 <script setup lang="ts">
 // Share a run: make a link that opens its results, screenshots, video and files read-only for
 // anyone who has it, without an account; and see or take back the run's links that still work
-// (docs/plans/self-hosting.md, section 4). The token shows only once, right after it is made.
+// (docs/plans/self-hosting.md, section 4). Each link can be copied again from the list.
 import { computed, ref, watch } from "vue";
-import { Trash2 } from "../icons";
+import { Copy, Trash2 } from "../icons";
 import { getJson, sendJson, type ShareLink } from "../api";
 import { ago } from "../format";
 import { session } from "../session";
+import { copyShare, shareUrl } from "../share";
 import { toast } from "../toasts";
 import { vTip } from "../tooltip";
 import CodeView from "./CodeView.vue";
@@ -47,7 +48,7 @@ async function make() {
   const res = await sendJson<ShareLink & { page: string }>("/api/v1/shares", { run: props.runId, traces: traces.value, ...(days.value ? { days: days.value } : {}) });
   busy.value = false;
   if (!res.ok) return void (error.value = res.error.message);
-  made.value = `${location.origin}/${res.data.page}`;
+  made.value = res.data.page ? shareUrl(res.data.page, location.origin) : null;
   await loadLinks();
 }
 async function remove(l: ShareLink) {
@@ -69,7 +70,7 @@ const linkText = (l: ShareLink) => [`Made ${ago(l.createdAt)}${l.createdBy ? ` b
       <p v-if="local" class="note small">This server's address only works on this computer. To share with others, open Watchwright at the address they use, or start it with <code>--public-url</code>.</p>
       <template v-if="made">
         <CodeView :code="made" label="Share link" />
-        <p class="muted small">Copy it now: it isn't shown again. You can take it back below.</p>
+        <p class="muted small">You can copy it again or take it back below.</p>
       </template>
       <form v-else class="form" @submit.prevent="make">
         <div class="fld">
@@ -91,6 +92,7 @@ const linkText = (l: ShareLink) => [`Made ${ago(l.createdAt)}${l.createdBy ? ` b
         <ul>
           <li v-for="l in links" :key="l.id">
             <span class="small">{{ linkText(l) }}<span v-if="l.traces" class="tag">traces</span></span>
+            <button v-if="l.page" v-tip="'Copy the link'" type="button" class="ib copy" aria-label="Copy the link" @click="copyShare(l.page)"><Copy :size="14" /></button>
             <button v-tip="'Take this link back'" type="button" class="ib" aria-label="Take this link back" @click="remove(l)"><Trash2 :size="14" /></button>
           </li>
         </ul>
@@ -144,8 +146,11 @@ const linkText = (l: ShareLink) => [`Made ${ago(l.createdAt)}${l.createdBy ? ` b
 .links li {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
+  gap: var(--space-1);
+}
+.links li > .small {
+  flex: 1;
+  min-width: 0;
 }
 .tag {
   margin-left: var(--space-2);
@@ -171,5 +176,8 @@ const linkText = (l: ShareLink) => [`Made ${ago(l.createdAt)}${l.createdBy ? ` b
 .ib:hover {
   background: var(--hover);
   color: var(--bad);
+}
+.ib.copy:hover {
+  color: var(--text);
 }
 </style>
