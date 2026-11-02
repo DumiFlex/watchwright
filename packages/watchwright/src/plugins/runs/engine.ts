@@ -95,7 +95,22 @@ export interface LiveSnapshot {
   step: string | null;
   pages: { id: string; url: string }[];
   activePageId: string | null;
+  /** The settings in effect, which `runs.settings` changes; null while the run sets up. */
+  settings: RunSettings | null;
 }
+
+/** What can change while a run goes (`runs.settings`), as in effect. */
+export interface RunSettings {
+  pauseOnBroken: boolean;
+  pauseLimitMinutes: number;
+  /** The run's time limit for every attempt; null when each test's (or the pack's) limit holds. */
+  testTimeoutMinutes: number | null;
+  trace: "problems" | "always" | "never";
+  video: boolean;
+}
+
+/** A change to a run's settings; fields left out stay. `testTimeoutMinutes: null` goes back to each test's own limit. */
+export type SettingsChange = Partial<Omit<RunSettings, "testTimeoutMinutes">> & { testTimeoutMinutes?: number | null };
 
 export interface RunDetail extends RunSummary {
   plan: (PlanEntry & { status: AttemptStatus | "pending"; attemptId: string | null })[];
@@ -238,6 +253,58 @@ export class Engine {
     const entries = this.planEntries(ctx.kind, ctx.pack, ctx.plan, ctx.queue);
     this.o.repo.updateRun(id, { plan: JSON.stringify(entries), options: JSON.stringify(ctx.options) });
     this.emit("run.planned", { plan: entries }, id);
+    return this.get(id)!;
+  }
+
+  private settingsOf(ctx: RunCtx): RunSettings {
+    const o = ctx.pack.options.run ?? {};
+    return {
+      pauseOnBroken: ctx.pauseOnBroken,
+      pauseLimitMinutes: ctx.pauseLimitMs / 60_000,
+      testTimeoutMinutes: ctx.options.testTimeout === undefined ? null : ctx.options.testTimeout / 60_000,
+      trace: ctx.options.trace ?? o.trace ?? "problems",
+      video: ctx.options.video ?? o.video ?? true,
+    };
+  }
+
+  /**
+   * Changes the settings of a run that is going or queued. They are kept with the run (a resume
+   * keeps them) and take effect at the next attempt; a new pause limit applies at once to a broken
+   * pause that is going, counted from when it began.
+   */
+  changeSettings(id: string, change: SettingsChange, by = "api"): RunDetail {
+    const r = this.requireRun(id);
+    const keys = (Object.keys(change) as (keyof SettingsChange)[]).filter((k) => change[k] !== undefined);
+    if (keys.length === 0) throw new EngineError("bad_input", "Name at least one setting to change.");
+    const apply = (options: RunOptions): RunOptions => {
+      const next: RunOptions = { ...options };
+      if (change.pauseOnBroken !== undefined) next.pauseOnBroken = change.pauseOnBroken;
+      if (change.pauseLimitMinutes !== undefined) next.pauseLimitMinutes = change.pauseLimitMinutes;
+      if (change.trace !== undefined) next.trace = change.trace;
+      if (change.video !== undefined) next.video = change.video;
+      if (change.testTimeoutMinutes === null) delete next.testTimeout;
+      else if (change.testTimeoutMinutes !== undefined) next.testTimeout = Math.round(change.testTimeoutMinutes * 60_000);
+      return next;
+    };
+    const changed = Object.fromEntries(keys.map((k) => [k, change[k]]));
+    if (r.status === "queued") {
+      this.o.repo.updateRun(id, { options: JSON.stringify(apply(JSON.parse(r.options) as RunOptions)) });
+      this.emit("run.settings", { changed, by }, id);
+      return this.get(id)!;
+    }
+    const run = this.active.get(id);
+    if (!run) throw new EngineError("not_running", "Only a run that is going or queued takes new settings.", 409);
+    const ctx = run.ctx;
+    if (!ctx) throw new EngineError("not_running", "The run is still setting up; try again in a moment.", 409);
+    ctx.options = apply(ctx.options);
+    if (change.pauseOnBroken !== undefined) ctx.pauseOnBroken = change.pauseOnBroken;
+    let deadline: string | null = null;
+    if (change.pauseLimitMinutes !== undefined) {
+      ctx.pauseLimitMs = change.pauseLimitMinutes * 60_000;
+      deadline = run.control.setBrokenLimit(ctx.pauseLimitMs);
+    }
+    this.o.repo.updateRun(id, { options: JSON.stringify(ctx.options) });
+    this.emit("run.settings", { changed, by, settings: this.settingsOf(ctx), ...(deadline ? { deadline } : {}) }, id);
     return this.get(id)!;
   }
 
@@ -398,6 +465,7 @@ export class Engine {
       step: run.step,
       pages: run.session?.openPages() ?? [],
       activePageId: run.session?.activePage ?? null,
+      settings: run.ctx ? this.settingsOf(run.ctx) : null,
     };
   }
 
@@ -1064,11 +1132,13 @@ export class Engine {
       const stopped = run.control.whenStoppedNow.then(() => new Promise<void>((r) => setTimeout(r, STOP_GRACE_MS)));
       if (!top) await Promise.race([body, stopped]);
       else {
-        const limit = kind.describe(pack, item.itemId).timeout ?? o.testTimeout ?? DEFAULT_TEST_TIMEOUT;
+        const ownLimit = kind.describe(pack, item.itemId).timeout ?? o.testTimeout ?? DEFAULT_TEST_TIMEOUT;
         const started = Date.now();
         const pausedBefore = run.control.pausedMs();
         const timedOut = new Promise<never>((_, reject) => {
           watchdog = setInterval(() => {
+            // Read on every tick: the run's limit can change while the attempt goes.
+            const limit = ctx.options.testTimeout ?? ownLimit;
             if (Date.now() - started - (run.control.pausedMs() - pausedBefore) <= limit) return;
             run.control.abort = new AttemptAborted(`The attempt ran longer than its time limit (${Math.round(limit / 1000)} s).`);
             reject(run.control.abort);

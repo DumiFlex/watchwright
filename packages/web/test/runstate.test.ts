@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { noteFor, progress, runTitle, runTone } from "../src/runstate";
+import { noteFor, progress, runTitle, runTone, settingsText } from "../src/runstate";
 
 const counts = { passed: 3, failed: 0, broken: 0, skipped: 1, stopped: 0, running: 1, interrupted: 0, planned: 12 };
 const run = { id: "3011fc76", label: "", packName: "Shop smoke", status: "running" as const, counts };
@@ -36,5 +36,15 @@ describe("run state", () => {
     expect(noteFor("run.paused", { reason: "manual" }, run)).toBeNull();
     expect(noteFor("run.failed_to_start", { message: "No browser" }, run)?.body).toBe("No browser");
     expect(noteFor("attempt.step", {}, run)).toBeNull();
+  });
+});
+
+describe("settingsText", () => {
+  it("says who changed what", () => {
+    expect(settingsText({ changed: { pauseLimitMinutes: 30, video: false }, by: "web" })).toBe("Settings changed (web): skip a broken test after 30 min, video off.");
+    expect(settingsText({ changed: { testTimeoutMinutes: null, trace: "always", pauseOnBroken: false } })).toBe(
+      "Settings changed: don't pause when a test breaks, each test's own time limit, trace always.",
+    );
+    expect(settingsText({ changed: { testTimeoutMinutes: 5 } })).toBe("Settings changed: 5 min per test.");
   });
 });

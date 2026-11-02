@@ -436,6 +436,26 @@ export const runsPlugin = definePlugin({
           return readRunFile(dataDir, id, rel) ?? notFound(`${id}: ${rel}`);
         },
       }),
+      defineAction<{ id: string; pauseOnBroken?: boolean; pauseLimitMinutes?: number; testTimeoutMinutes?: number; trace?: "problems" | "always" | "never"; video?: boolean }>({
+        name: "runs.settings",
+        title: "Change a going or queued run's settings: they're kept with the run and apply from the next attempt; a new pause limit applies at once to a broken pause",
+        method: "POST",
+        path: "/runs/:id/settings",
+        input: {
+          type: "object",
+          properties: {
+            id: RUN_ID,
+            pauseOnBroken: CHOICE_PROPS.pauseOnBroken,
+            pauseLimitMinutes: { ...CHOICE_PROPS.pauseLimitMinutes, description: "How long a broken pause waits before it skips, counted from when the pause began." },
+            testTimeoutMinutes: { type: "number", minimum: 0, maximum: 1440, description: "A time limit for every attempt, over the tests' own; 0 goes back to each test's limit." },
+            trace: CHOICE_PROPS.trace,
+            video: CHOICE_PROPS.video,
+          },
+          required: ["id"],
+        },
+        handler: ({ id, testTimeoutMinutes, ...rest }, { client }) =>
+          guard(() => engine.changeSettings(id, { ...rest, ...(testTimeoutMinutes === undefined ? {} : { testTimeoutMinutes: testTimeoutMinutes === 0 ? null : testTimeoutMinutes }) }, client)),
+      }),
       control("runs.pause", "pause", "Pause at the next step", (id, client) => engine.pause(id, client)),
       control("runs.resume", "resume", "Resume a paused run, or continue an interrupted or stopped run where it was", (id) => engine.resume(id)),
       control("runs.retry", "retry", "Run the broken attempt the run paused on again", (id) => engine.retry(id)),

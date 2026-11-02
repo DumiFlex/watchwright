@@ -261,6 +261,17 @@ export interface LiveSnapshot {
   step: string | null;
   pages: { id: string; url: string }[];
   activePageId: string | null;
+  /** The settings in effect, which POST /runs/:id/settings changes; null while the run sets up. */
+  settings: RunSettings | null;
+}
+
+export interface RunSettings {
+  pauseOnBroken: boolean;
+  pauseLimitMinutes: number;
+  /** The run's limit for every attempt; null when each test's own holds. */
+  testTimeoutMinutes: number | null;
+  trace: "problems" | "always" | "never";
+  video: boolean;
 }
 
 export interface RunDetail extends RunSummary {
