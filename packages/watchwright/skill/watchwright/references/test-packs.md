@@ -17,11 +17,12 @@ my-site/watchwright/
 
 ## Adding a pack
 
-There are four ways, and they all end the same: the server loads the pack and lists its tests.
+There are five ways, and they all end the same: the server loads the pack and lists its tests.
 
 - **On the Packs page**, type or paste the folder's path. The field suggests folders as you type (Tab completes, like a terminal) and says when the folder has a pack file. A path pasted with quotes (Windows Explorer's "Copy as path"), a `file://` address and `~` all work.
 - **Browse…** opens a folder browser of the server's machine: your home folder, the drives, the folders of packs already added and the folders you used recently on the side. Open the folder with the pack file and press **Add this pack**. Type to filter the list, or type a whole path and press Enter to jump there.
 - In the folder browser, **Find packs here** searches the open folder and the four levels below it for pack files (skipping `node_modules`, build output and hidden folders) and adds the ones you tick. Handy for a folder of projects. The Ctrl+K command **Find packs in a folder** opens the browser ready to search.
+- **Upload .zip…** (admins only, since pack code runs on the server) takes a zip with the pack file at its top or in one folder at its top, unpacks it into a new folder and adds it. This is the way onto a [server in Docker](https://dumiflex.github.io/watchwright/guide/self-hosting#getting-packs-onto-the-server). **Download .zip** in a pack's menu gives the pack's folder back as a zip, without `node_modules` and `.git`.
 - **When you start the server**: `watchwright serve ./watchwright` adds that folder (or reloads it when it's already added). When the server is already running, the same command adds the pack there and opens the page.
 
 Through the [API](https://dumiflex.github.io/watchwright/reference/http-api#packs) it's `POST /api/v1/packs` with `{ "path": "/abs/path/to/my-site/watchwright" }`.
