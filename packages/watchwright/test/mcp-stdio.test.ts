@@ -2,6 +2,9 @@ import { fileURLToPath } from "node:url";
 import { Client, type CallToolResult } from "@modelcontextprotocol/client";
 import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { afterEach, describe, expect, it } from "vitest";
+import { defineAction } from "../src/actions/registry.js";
+import { removeLock, writeLock } from "../src/cli/update-lock.js";
+import { definePlugin } from "../src/core/plugin.js";
 import { APPROVALS } from "../src/plugins/approvals/plugin.js";
 import { cleanTempDirs, tempDir } from "./helpers/fixtures.js";
 import { freePort, startHarness, type Harness } from "./helpers/harness.js";
@@ -69,6 +72,38 @@ describe("watchwright mcp", { timeout: 60_000 }, () => {
     expect(packs.isError).toBeFalsy();
     const health = (await (await fetch(`http://127.0.0.1:${port}/api/v1/health`)).json()) as { data: { name: string } };
     expect(health.data.name).toBe("watchwright");
+  });
+
+  it("keeps working through an update: waits for the server instead of starting the old one, then offers its new tools", async () => {
+    const config = tempDir("ww-config-");
+    const data = tempDir("ww-data-");
+    const first = await startHarness(data, { listen: true });
+    harnesses.push(first);
+    const client = await connect(["--server", String(first.port), "--no-start"], { WATCHWRIGHT_CONFIG_DIR: config });
+    let changed = false;
+    client.setNotificationHandler("notifications/tools/list_changed", () => {
+      changed = true;
+    });
+    expect((await client.listTools()).tools.map((t) => t.name)).not.toContain("say_hello");
+
+    // An update is going on: the server is gone, and the new version has a tool more.
+    writeLock({ pid: process.pid, from: "1.0.0", to: "1.1.0", startedAt: new Date().toISOString() }, { WATCHWRIGHT_CONFIG_DIR: config });
+    await first.close();
+    const call = client.callTool({ name: "list_packs", arguments: {} }) as Promise<CallToolResult>;
+    await new Promise((r) => setTimeout(r, 1500));
+    const hello = definePlugin({
+      name: "hello",
+      actions: () => [defineAction({ name: "hello.say", agent: { tool: "say_hello", say: "Says hello." }, title: "Say hello", method: "GET", path: "/hello", handler: () => ({ hello: true }) })],
+    });
+    const second = await startHarness(data, { listen: true, port: first.port, plugins: [hello] });
+    harnesses.push(second);
+    removeLock({ WATCHWRIGHT_CONFIG_DIR: config });
+
+    expect((await call).isError).toBeFalsy();
+    expect((await client.listTools()).tools.map((t) => t.name)).toContain("say_hello");
+    expect(changed).toBe(true);
+    const said = (await client.callTool({ name: "say_hello", arguments: {} })) as CallToolResult;
+    expect(said.content[0]).toEqual({ type: "text", text: '{"hello":true}' });
   });
 
   it("says so and stops when no server answers and starting one is off", async () => {

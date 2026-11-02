@@ -146,13 +146,13 @@ Chromium, Firefox and WebKit all send `localhost` through the runner. Remove a r
 
 ## Updating
 
-Pull the new image and start the container again; the data folder upgrades itself on start.
+Settings › Server says when a newer version is out. Pull the new image and start the container again; the data folder upgrades itself on start. In Portainer, open the stack and press **Update the stack** with **Re-pull image and redeploy** on. With Compose:
 
 ```bash
 docker compose pull && docker compose up -d
 ```
 
-A run in progress stops when the container stops and shows as interrupted, and **Resume run** goes on from where it stopped. Update between runs.
+A run in progress stops when the container stops and shows as interrupted, and **Resume run** goes on from where it stopped. Update between runs. A tool such as [Watchtower](https://containrrr.dev/watchtower/) can do this by itself; see [Updating](./updating).
 
 ## Backup
 

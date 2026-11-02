@@ -32,7 +32,9 @@ RUN set -eux; \
 
 # Server mode: no desktop (headless browsers, no file manager), login always on, the folder
 # browser kept inside /packs. WATCHWRIGHT_PUBLIC_URL is the address people open; set it when running.
+# WATCHWRIGHT_INSTALL=docker: the page says to pull a new image instead of offering Update.
 ENV WATCHWRIGHT_DATA=/data \
+    WATCHWRIGHT_INSTALL=docker \
     WATCHWRIGHT_FOLDERS=/packs \
     WATCHWRIGHT_AUTH=on \
     WATCHWRIGHT_SERVER_HOST=1 \

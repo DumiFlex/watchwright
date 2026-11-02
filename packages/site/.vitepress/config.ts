@@ -41,6 +41,7 @@ export default defineConfig({
           { text: "Single sign-on", link: "/guide/single-sign-on" },
           { text: "Sharing", link: "/guide/sharing" },
           { text: "Self-hosting", link: "/guide/self-hosting" },
+          { text: "Updating", link: "/guide/updating" },
         ],
       },
       {

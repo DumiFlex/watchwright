@@ -74,6 +74,7 @@ describe("server", () => {
           { name: "dashboards", schemaVersion: 1 },
           { name: "shares", schemaVersion: 3 },
           { name: "agents", schemaVersion: 1 },
+          { name: "updates", schemaVersion: 0 },
         ],
         pages: [
           { plugin: "runs", name: "runs", title: "Runs", path: "/", icon: "ListChecks", menu: "main", order: 10, words: "history list" },

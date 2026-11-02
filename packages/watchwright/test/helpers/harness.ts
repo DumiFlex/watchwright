@@ -37,8 +37,8 @@ export interface Harness {
   close(): Promise<void>;
 }
 
-export async function startHarness(dataDir: string, opts: { listen?: boolean; plugins?: WatchwrightPlugin[] } = {}): Promise<Harness> {
-  const port = await freePort();
+export async function startHarness(dataDir: string, opts: { listen?: boolean; plugins?: WatchwrightPlugin[]; port?: number } = {}): Promise<Harness> {
+  const port = opts.port ?? (await freePort());
   const plugins = [...BUILTIN_PLUGINS, ...(opts.plugins ?? [])];
   const store = openStore(dataDir, migrationsOf(plugins));
   const app = await buildServer({ store, port, plugins });
