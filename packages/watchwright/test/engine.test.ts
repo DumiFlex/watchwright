@@ -360,6 +360,25 @@ test("S3", async () => {});`,
     expect(byTest(detail)).toEqual({ "B1#1": "broken", "B2#1": "broken", "B3#1": "passed" });
   });
 
+  it("keeps going after a promise nobody awaited fails, and logs it on the running attempt", async () => {
+    const before = process.listeners("unhandledRejection").length;
+    const { h, packId } = await setup({
+      "tests/stray.ts": `import { test } from "watchwright"; test("T1", async ({ h }) => { await h.goto("/"); await h.wait(1500); }); test("T2", async () => {});`,
+    });
+    expect(process.listeners("unhandledRejection").length).toBe(before + 1);
+    const runId = await startRun(h, { packId });
+    await h.waitFor((e) => e.type === "page.navigated" && e.runId === runId);
+    const message = engineOf(h).strayError(new Error("page.waitForSelector: Timeout 1500ms exceeded.\nCall log: …"));
+    expect(message).toMatch(/without await.*Timeout 1500ms exceeded\.$/);
+    const detail = await finished(h, runId);
+    expect(byTest(detail)).toEqual({ "T1#1": "passed", "T2#1": "passed" });
+    const t1 = (await h.api<ResultDocument>("GET", `/runs/${runId}/attempts/${detail.attempts[0]!.id}`)).data;
+    expect(t1.log.some((l) => l.level === "warn" && l.message === message)).toBe(true);
+    await h.close();
+    harnesses.splice(harnesses.indexOf(h), 1);
+    expect(process.listeners("unhandledRejection").length).toBe(before);
+  });
+
   it("stops now, filing the attempt in progress as stopped", async () => {
     const { h, packId } = await setup({
       "tests/long.ts": `import { test } from "watchwright"; test("L1", async ({ h }) => { await h.goto("/"); await h.page.waitForTimeout(20000); }); test("L2", async () => {});`,

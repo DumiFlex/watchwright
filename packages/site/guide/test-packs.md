@@ -120,6 +120,8 @@ Every attempt ends as one of:
 
 Throw `StepError` (from `watchwright`) when your own helper can't do its job, so the attempt reads as broken, not failed.
 
+`await` every Playwright call. A call left without `await` can fail after its test has ended, when nothing can catch it any more. The server keeps going and writes a warning ("A promise failed after nothing waited on it") to the log of whatever is running then, which may be a later test.
+
 ### The `h` helper
 
 Every `h` call is a pause point: Pause takes effect at the next one.

@@ -126,6 +126,9 @@ function filesRoot(dataDir: string): string {
   return dataDir === ":memory:" ? mkdtempSync(path.join(tmpdir(), "watchwright-files-")) : dataDir;
 }
 
+/** Each engine's listener for unhandled rejections, taken off when its server closes. */
+const strays = new WeakMap<Engine, (reason: unknown) => void>();
+
 /** Runs: starting, controlling and reading them, and the files they save. */
 export const runsPlugin = definePlugin({
   name: "runs",
@@ -165,13 +168,21 @@ export const runsPlugin = definePlugin({
     });
     engine.recover();
     services.provide(ENGINE, engine);
+    // With a listener here, Node no longer exits on an unhandled rejection (its default), so one
+    // test that forgot an `await` can't stop every run on the server.
+    const stray = (reason: unknown) => console.error(engine.strayError(reason));
+    process.on("unhandledRejection", stray);
+    strays.set(engine, stray);
   },
   // Queued runs start once every plugin has registered its job kinds.
   ready({ services }) {
     services.get(ENGINE).schedule();
   },
   async close({ services }) {
-    await services.get(ENGINE).close();
+    const engine = services.get(ENGINE);
+    const stray = strays.get(engine);
+    if (stray) process.off("unhandledRejection", stray);
+    await engine.close();
   },
   actions: ({ services, events }) => {
     const engine = services.get(ENGINE);
