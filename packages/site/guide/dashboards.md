@@ -4,9 +4,7 @@ A pack's dashboard shows how its runs went over time, at a glance: outcomes and 
 
 A pack's page shows its dashboard at the top, once the pack has run. Pick a value of each filter, or another range (the last 10, 50 or 200 runs, the last 7 or 30 days), and every tile reads only those runs. Agents get the same numbers with the `pack_dashboard` tool.
 
-::: info Planned
-The tiles on the public status page and in shares come next.
-:::
+The [public status page](./sharing#public-status-page) shows each pack's public tiles, and a [shared run](./sharing#share-links) starts with them for that one run.
 
 Everything a tile shows is something any pack can record: `h.metric` and collectors' metrics, `h.text`, `h.file`, screenshots, flags, review scores, a run's params and the facts it saved with `info`, and tests' sections and tags.
 
@@ -137,7 +135,7 @@ A change is kept as a `dashboard` block too, so the API takes the same thing: `P
 
 ## Keeping things out of shares
 
-A `share` block keeps a pack's outputs out of share links and the public status page:
+A tile with `public: false` stays on the pack's page only. A `share` block keeps a pack's outputs out of share links and the public status page, both from the run's own page and from the tiles:
 
 ```yaml
 share:

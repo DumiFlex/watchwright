@@ -287,20 +287,20 @@ Share links and the public status page ([Sharing](../guide/sharing)). A share li
 
 | Method and path | Does |
 |---|---|
-| `GET /shares?run=` | Share links that still work, of one run or all: `[{ id, page, runId, traces, createdBy, createdAt, expiresAt, views, viewedAt, run }]`, `run` being `{ packName, label, status, createdAt }`. User role. |
-| `POST /shares` `{ run, days?, traces? }` | Makes a link (201): the link's fields plus `token`. `page` is `#/s/<token>`, to put after the server's address. `days` from 1 to 365; without it the link works until removed. `traces` shares traces and collector files too. 404 `not_found` for an unknown run. User role. |
+| `GET /shares?run=` | Share links that still work, of one run or all: `[{ id, page, runId, traces, names, createdBy, createdAt, expiresAt, views, viewedAt, run }]`, `run` being `{ packName, label, status, createdAt }`. User role. |
+| `POST /shares` `{ run, days?, traces?, names? }` | Makes a link (201): the link's fields plus `token`. `page` is `#/s/<token>`, to put after the server's address. `days` from 1 to 365; without it the link works until removed. `traces` shares traces and collector files too. `names` shows reviewers by name instead of "Reviewer 1". 404 `not_found` for an unknown run. User role. |
 | `DELETE /shares/:id` | Takes a link back. User role. |
-| `GET /shares/dashboard` | The public status page's settings (admin): `{ on, packs, linkRuns, title }`. |
-| `POST /shares/dashboard` `{ on?, packs?, linkRuns?, title? }` | Changes them (admin). `packs` is a list of pack ids, in the order shown. |
+| `GET /shares/dashboard` | The public status page's settings (admin): `{ on, packs, linkRuns, title, tiles }`. |
+| `POST /shares/dashboard` `{ on?, packs?, linkRuns?, title?, tiles? }` | Changes them (admin). `tiles` shows each pack's public dashboard tiles. `packs` is a list of pack ids, in the order shown. |
 
 These answer anyone, without a cookie or token, and are limited to 600 requests a minute per address (429 `too_many_requests` past that):
 
 | Method and path | Does |
 |---|---|
-| `GET /shared/:token` | The shared run: `{ id, packName, label, status, startedBy, createdAt, startedAt, finishedAt, error, params, info, counts, plan, attempts, running, runVideos, traces }`. Each run video is `{ url, size }`. 404 `not_shared` when the link was taken back, expired or its run was deleted. |
-| `GET /shared/:token/attempts/:attemptId` | An attempt's result document, as in `GET /runs/:id/attempts/:attemptId`, with file urls under the link. Traces and collector files are left out unless the link shares them. |
+| `GET /shared/:token` | The shared run: `{ id, packName, label, status, startedBy, createdAt, startedAt, finishedAt, error, params, info, counts, plan, attempts, running, runVideos, traces, tiles }`. Each run video is `{ url, size }`. `tiles` is the pack's public dashboard tiles for this run, as `groups` in `GET /packs/:id/dashboard` (null without a dashboard). 404 `not_shared` when the link was taken back, expired or its run was deleted. |
+| `GET /shared/:token/attempts/:attemptId` | An attempt's result document, as in `GET /runs/:id/attempts/:attemptId`, with file urls under the link, plus `reviews`: `{ criteria, list: [{ reviewer, scores, note, updatedAt }] }` (reviewers as "Reviewer 1" unless the link names them; null when the pack's `share` block keeps reviews out). Traces and collector files are left out unless the link shares them, and so is what the pack's `share` block keeps out. |
 | `GET /shared/:token/files/<path>` | One file the run recorded and the link shares (ranges supported); 404 for anything else. |
-| `GET /public/status` | The public status page: `{ title, linkRuns, packs: [{ packId, name, runs }] }`, each pack's last 20 runs newest first, each `{ id, label, status, counts, startedAt, finishedAt, durationMs }`. 404 `dashboard_off` while it is off. |
+| `GET /public/status` | The public status page: `{ title, linkRuns, packs: [{ packId, name, runs, tiles }] }`, each pack's last 20 runs newest first, each `{ id, label, status, counts, startedAt, finishedAt, durationMs }`; `tiles` the pack's public dashboard tiles (null when the page's `tiles` setting is off), with file urls under `/public/runs/<id>/`. 404 `dashboard_off` while it is off. |
 | `GET /public/runs/:id`, `…/attempts/:attemptId`, `…/files/<path>` | A run on the status page, the same as through a share link without traces, while **Runs open read-only** is on. 404 for runs of packs not on the page. |
 
 ## Approvals

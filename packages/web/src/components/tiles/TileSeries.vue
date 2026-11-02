@@ -48,7 +48,8 @@ const goalText = computed(() => (props.goal ? (props.goal.below !== undefined ? 
         <span class="latest num" :class="{ ok: r.ok === true, off: r.ok === false }">
           {{ r.latest === null ? "–" : fmt(r.latest) }}<span v-if="scale" class="of muted">/{{ scale }}</span>
         </span>
-        <SparkLine class="spark" :values="r.values" :labels="r.labels" :label="`${label}${r.group ? `, ${r.group}` : ''}`" :format="fmt" :height="split ? 28 : 40" />
+        <!-- One run (a shared run's own tiles) has no trend to draw. -->
+        <SparkLine v-if="r.values.length > 1" class="spark" :values="r.values" :labels="r.labels" :label="`${label}${r.group ? `, ${r.group}` : ''}`" :format="fmt" :height="split ? 28 : 40" />
         <span v-if="r.total !== undefined" v-tip="'Attempts of the latest run with a score'" class="scored muted small num">{{ r.scored }} of {{ r.total }} scored</span>
       </div>
       <p v-if="goal" class="muted small goal">{{ goalText }}</p>

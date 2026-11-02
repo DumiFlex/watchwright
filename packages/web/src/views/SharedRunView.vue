@@ -5,7 +5,7 @@
 // answers only for this run (docs/plans/self-hosting.md, section 4).
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { ArrowLeft, ChevronDown, ChevronRight, Download, Link } from "../icons";
-import { getJson, type Artifact, type ResultDocument, type SharedRun } from "../api";
+import { getJson, type Artifact, type Score, type SharedAttempt, type SharedRun } from "../api";
 import { attemptOrder, shotGroups } from "../attempt";
 import { countsText, duration, fileSize, runDuration, when } from "../format";
 import EmptyState from "../components/EmptyState.vue";
@@ -13,6 +13,10 @@ import ImageViewer from "../components/ImageViewer.vue";
 import PageSkeleton from "../components/PageSkeleton.vue";
 import StatusChip from "../components/StatusChip.vue";
 import VideoPlayer from "../components/VideoPlayer.vue";
+import MarkdownView from "../components/MarkdownView.vue";
+import TileGroups from "../components/TileGroups.vue";
+import { scoreText } from "../review";
+import { provideTileLinks, publicLinks } from "../tilelinks";
 import { resetHead, setTitle } from "../pagehead";
 
 const props = defineProps<{
@@ -22,9 +26,12 @@ const props = defineProps<{
   back?: string | null;
 }>();
 
+// Tiles here read only this run; nothing in them opens another page.
+provideTileLinks(publicLinks(false));
+
 const run = ref<SharedRun | null>(null);
 const error = ref<string | null>(null);
-const open = ref<Record<string, ResultDocument | "loading" | string>>({});
+const open = ref<Record<string, SharedAttempt | "loading" | string>>({});
 let timer: ReturnType<typeof setTimeout> | null = null;
 
 async function load() {
@@ -74,19 +81,19 @@ async function toggle(id: string) {
     return;
   }
   open.value = { ...open.value, [id]: "loading" };
-  const res = await getJson<ResultDocument>(`${props.api}/attempts/${id}`);
+  const res = await getJson<SharedAttempt>(`${props.api}/attempts/${id}`);
   open.value = { ...open.value, [id]: res.ok ? res.data : res.error.message };
 }
-const docOf = (id: string): ResultDocument | null => {
+const docOf = (id: string): SharedAttempt | null => {
   const d = open.value[id];
   return d && typeof d === "object" ? d : null;
 };
-const shots = (d: ResultDocument) => shotGroups(d.artifacts).flatMap((g) => g.shots);
-const videos = (d: ResultDocument) => d.artifacts.filter((a) => a.kind === "video");
-const files = (d: ResultDocument) => d.artifacts.filter((a) => !["shot", "mark", "video", "text"].includes(a.kind));
+const shots = (d: SharedAttempt) => shotGroups(d.artifacts).flatMap((g) => g.shots);
+const videos = (d: SharedAttempt) => d.artifacts.filter((a) => a.kind === "video");
+const files = (d: SharedAttempt) => d.artifacts.filter((a) => !["shot", "mark", "video", "text"].includes(a.kind));
 
 const viewer = ref<{ images: Artifact[]; index: number | null }>({ images: [], index: null });
-const showShot = (d: ResultDocument, a: Artifact) => {
+const showShot = (d: SharedAttempt, a: Artifact) => {
   const images = shots(d);
   viewer.value = { images, index: images.indexOf(a) };
 };
@@ -94,6 +101,15 @@ const viewerIndex = computed({
   get: () => viewer.value.index,
   set: (i: number | null) => (viewer.value = { ...viewer.value, index: i }),
 });
+const isMarkdown = (name: string) => /\.(md|markdown)$/i.test(name);
+const criterionOf = (d: SharedAttempt, id: string) => d.reviews?.criteria.find((c) => c.id === id) ?? null;
+const scoreLine = (d: SharedAttempt, scores: Record<string, Score>) =>
+  Object.entries(scores)
+    .map(([id, v]) => {
+      const c = criterionOf(d, id);
+      return `${c?.title ?? id} ${c ? scoreText(c, v) : String(v)}`;
+    })
+    .join(" · ");
 const errorTitle = (kind: string) => (kind === "assertion" ? "A check failed" : kind === "timeout" ? "Timed out" : kind === "stopped" ? "Stopped" : kind === "skipped" ? "Skipped" : "The harness couldn't go on");
 </script>
 
@@ -125,6 +141,11 @@ const errorTitle = (kind: string) => (kind === "assertion" ? "A check failed" : 
       </header>
       <p v-if="run.running" class="banner" role="status"><strong>Still running.</strong> This page updates by itself.</p>
       <p v-if="run.error" class="error">{{ run.error }}</p>
+
+      <section v-if="run.tiles?.length" class="card" aria-labelledby="sh-tiles">
+        <h2 id="sh-tiles" class="display">At a glance</h2>
+        <TileGroups :groups="run.tiles" pack-id="" />
+      </section>
 
       <section v-if="run.runVideos.length" class="card" aria-labelledby="sh-video">
         <h2 id="sh-video" class="display">Video of the run</h2>
@@ -162,6 +183,21 @@ const errorTitle = (kind: string) => (kind === "assertion" ? "A check failed" : 
                 <p v-if="Object.keys(d.metrics).length" class="facts small">
                   <span v-for="(m, k) in d.metrics" :key="k" class="fact"><span class="muted">{{ k }}</span> {{ m.value }}{{ m.unit ? ` ${m.unit}` : "" }}</span>
                 </p>
+                <article v-for="(text, name) in d.texts" :key="name" class="text">
+                  <h3 class="small">{{ name }}</h3>
+                  <MarkdownView v-if="isMarkdown(String(name))" :source="text" :label="String(name)" :id-prefix="`t-${d.attemptId}-`" />
+                  <pre v-else>{{ text }}</pre>
+                </article>
+                <div v-if="d.reviews?.list.length" class="reviews">
+                  <h3 class="small">Reviews</h3>
+                  <ul>
+                    <li v-for="(r, i) in d.reviews.list" :key="i">
+                      <span class="who">{{ r.reviewer }}</span>
+                      <span v-if="Object.keys(r.scores).length" class="small">{{ scoreLine(d, r.scores) }}</span>
+                      <p v-if="r.note" class="note small">{{ r.note }}</p>
+                    </li>
+                  </ul>
+                </div>
                 <div v-if="shots(d).length" class="gallery">
                   <button v-for="s in shots(d)" :key="s.url" type="button" class="thumb" @click="showShot(d, s)">
                     <img :src="s.url" :alt="s.name" loading="lazy" />
@@ -178,7 +214,7 @@ const errorTitle = (kind: string) => (kind === "assertion" ? "A check failed" : 
                     <span class="muted">{{ f.kind }} · {{ fileSize(f.size) }}</span>
                   </li>
                 </ul>
-                <p v-if="!d.error && !d.notes.length && !d.artifacts.length" class="muted small">This attempt saved no screenshots or files.</p>
+                <p v-if="!d.error && !d.notes.length && !d.artifacts.length && !Object.keys(d.texts).length" class="muted small">This attempt saved no screenshots or files.</p>
               </template>
             </div>
           </li>
@@ -297,6 +333,49 @@ figure {
 .notes {
   margin: 0;
   padding-left: var(--space-4);
+}
+.text,
+.reviews {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.text h3,
+.reviews h3 {
+  margin: 0;
+  font-weight: 600;
+}
+.text pre {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.reviews ul {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.reviews li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+}
+.who {
+  font-weight: 600;
+}
+.note {
+  flex-basis: 100%;
+  margin: 0;
+  white-space: pre-wrap;
 }
 .gallery {
   display: grid;

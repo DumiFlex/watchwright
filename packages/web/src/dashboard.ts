@@ -70,6 +70,12 @@ export interface TileResult {
   error: string | null;
 }
 
+/** A group of tiles with their data, as the dashboard, the status page and shares answer them. */
+export interface TileGroupResult {
+  title: string | null;
+  tiles: TileResult[];
+}
+
 export interface DashboardReply {
   dashboard: Dashboard;
   source: "override" | "pack" | "default";

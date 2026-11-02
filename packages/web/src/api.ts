@@ -1,4 +1,5 @@
 // Talks to the Watchwright server. Shapes mirror packages/watchwright/src (plugins/packs, plugins/runs).
+import type { TileGroupResult } from "./dashboard";
 
 export interface HealthData {
   name: "watchwright";
@@ -333,6 +334,13 @@ export interface SharedRun extends Pick<RunDetail, "id" | "packName" | "label" |
   runVideos: { url: string; size: number }[];
   /** Traces and collector files are shared too. */
   traces: boolean;
+  /** The pack's public dashboard tiles for this one run; null without a dashboard. */
+  tiles: TileGroupResult[] | null;
+}
+
+/** One attempt as a share shows it: its reviews come along (reviewers anonymous unless the share names them). */
+export interface SharedAttempt extends ResultDocument {
+  reviews: { criteria: Criterion[]; list: { reviewer: string; scores: Record<string, Score>; note: string; updatedAt: string }[] } | null;
 }
 
 /** A share link (`GET /shares`); the token itself is shown only once, when it is made. */
@@ -342,6 +350,8 @@ export interface ShareLink {
   page: string | null;
   runId: string;
   traces: boolean;
+  /** Reviewers show by name, not as "Reviewer 1". */
+  names: boolean;
   createdBy: string | null;
   createdAt: string;
   expiresAt: string | null;
@@ -356,13 +366,15 @@ export interface DashboardSettings {
   packs: string[];
   linkRuns: boolean;
   title: string;
+  /** Each pack shows its dashboard's public tiles. */
+  tiles: boolean;
 }
 
 /** The public dashboard (`GET /public/status`): each pack's latest runs, newest first. */
 export interface PublicStatus {
   title: string;
   linkRuns: boolean;
-  packs: { packId: string; name: string; runs: { id: string; label: string; status: RunStatus; counts: RunSummary["counts"]; startedAt: string | null; finishedAt: string | null; durationMs: number | null }[] }[];
+  packs: { packId: string; name: string; runs: { id: string; label: string; status: RunStatus; counts: RunSummary["counts"]; startedAt: string | null; finishedAt: string | null; durationMs: number | null }[]; tiles: TileGroupResult[] | null }[];
 }
 
 export interface Artifact {

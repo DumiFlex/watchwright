@@ -27,6 +27,9 @@ export const SHARES_SQL = `
 /** The token goes into the address too, so the person who shared can copy the link again (links are read-only). */
 export const SHARES_TOKEN_SQL = `ALTER TABLE shares ADD COLUMN token TEXT;`;
 
+/** A share can show who reviewed by name; without it reviewers read "Reviewer 1", "Reviewer 2". */
+export const SHARES_NAMES_SQL = `ALTER TABLE shares ADD COLUMN names INTEGER NOT NULL DEFAULT 0;`;
+
 export interface ShareInfo {
   id: string;
   /** The page to open, `#/s/<token>`; null for links made before tokens were kept. */
@@ -34,6 +37,8 @@ export interface ShareInfo {
   runId: string;
   /** Traces and collector files (which can hold cookies and tokens) are shared too. */
   traces: boolean;
+  /** Reviewers show by name, not as "Reviewer 1". */
+  names: boolean;
   createdBy: string | null;
   createdAt: string;
   expiresAt: string | null;
@@ -49,15 +54,18 @@ export interface DashboardSettings {
   linkRuns: boolean;
   /** A title for the page; empty: "Status". */
   title: string;
+  /** Each pack shows its dashboard's public tiles. */
+  tiles: boolean;
 }
 
-export const DEFAULT_DASHBOARD: DashboardSettings = { on: false, packs: [], linkRuns: false, title: "" };
+export const DEFAULT_DASHBOARD: DashboardSettings = { on: false, packs: [], linkRuns: false, title: "", tiles: true };
 
 interface Row {
   id: string;
   token: string | null;
   run_id: string;
   traces: number;
+  names: number;
   created_by: string | null;
   created_at: string;
   expires_at: string | null;
@@ -70,6 +78,7 @@ const toInfo = (r: Row): ShareInfo => ({
   page: r.token ? `#/s/${r.token}` : null,
   runId: r.run_id,
   traces: r.traces === 1,
+  names: r.names === 1,
   createdBy: r.created_by,
   createdAt: r.created_at,
   expiresAt: r.expires_at,
@@ -98,14 +107,14 @@ export class SharesStore {
   }
 
   /** A new link: `token` goes in the address. */
-  add(runId: string, opts: { days?: number | undefined; traces?: boolean | undefined; by?: string | undefined }): { token: string; info: ShareInfo } {
+  add(runId: string, opts: { days?: number | undefined; traces?: boolean | undefined; names?: boolean | undefined; by?: string | undefined }): { token: string; info: ShareInfo } {
     const token = newToken();
     const id = randomBytes(6).toString("hex");
     const now = new Date();
     const expires = opts.days ? new Date(now.getTime() + opts.days * 24 * 60 * 60_000).toISOString() : null;
     this.db
-      .prepare("INSERT INTO shares (id, hash, token, run_id, traces, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(id, sha256(token), token, runId, opts.traces ? 1 : 0, opts.by ?? null, now.toISOString(), expires);
+      .prepare("INSERT INTO shares (id, hash, token, run_id, traces, names, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(id, sha256(token), token, runId, opts.traces ? 1 : 0, opts.names ? 1 : 0, opts.by ?? null, now.toISOString(), expires);
     return { token, info: this.get(id)! };
   }
 

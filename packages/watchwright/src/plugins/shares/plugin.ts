@@ -6,11 +6,15 @@ import { definePlugin } from "../../core/plugin.js";
 import { serviceKey } from "../../core/services.js";
 import { contentTypeOf } from "../../jobs/recorder.js";
 import { errorBody } from "../../server/errors.js";
+import { DASHBOARDS } from "../dashboards/plugin.js";
+import type { ShareOptions } from "../packs/dashboard.js";
 import { PACKS } from "../packs/registry.js";
+import { REVIEWS } from "../reviews/plugin.js";
 import type { RunDetail } from "../runs/engine.js";
 import { byteRange, ENGINE, FILES_ROOT } from "../runs/plugin.js";
 import type { ResultDocument } from "../runs/results.js";
-import { DEFAULT_DASHBOARD, SHARES_SQL, SHARES_TOKEN_SQL, SharesStore, type DashboardSettings } from "./store.js";
+import { keptOut, publicGroups, shareDocument, type PublicPlace } from "./public.js";
+import { DEFAULT_DASHBOARD, SHARES_NAMES_SQL, SHARES_SQL, SHARES_TOKEN_SQL, SharesStore, type DashboardSettings } from "./store.js";
 
 // Sharing without an account (docs/plans/self-hosting.md, section 4): a share link opens one run's
 // results, screenshots, video and files read-only, for anyone with the link; the public dashboard
@@ -33,6 +37,8 @@ const PER_MINUTE = 600;
 interface Opened {
   runId: string;
   traces: boolean;
+  /** Reviewers show by name. */
+  names: boolean;
   /** Where its files are served from, ending in `/`. */
   base: string;
 }
@@ -42,6 +48,7 @@ export const sharesPlugin = definePlugin({
   migrations: [
     { id: 1, name: "init", sql: SHARES_SQL },
     { id: 2, name: "token", sql: SHARES_TOKEN_SQL },
+    { id: 3, name: "names", sql: SHARES_NAMES_SQL },
   ],
   setup({ store, services }) {
     services.provide(SHARES, new SharesStore(store.db));
@@ -71,7 +78,7 @@ export const sharesPlugin = definePlugin({
             });
         },
       }),
-      defineAction<{ run: string; days?: number; traces?: boolean }>({
+      defineAction<{ run: string; days?: number; traces?: boolean; names?: boolean }>({
         name: "shares.add",
         title: "Make a link that lets anyone who has it see a run's results, screenshots, video and files, read-only",
         method: "POST",
@@ -84,12 +91,13 @@ export const sharesPlugin = definePlugin({
             run: RUN_ID,
             days: { type: "integer", minimum: 1, maximum: 365, description: "The link stops working after this many days; none: it works until removed." },
             traces: { type: "boolean", default: false, description: "Share traces and collector files too. They can hold cookies and tokens the site set." },
+            names: { type: "boolean", default: false, description: "Show reviewers by name; without it they read Reviewer 1, Reviewer 2." },
           },
           required: ["run"],
         },
-        handler: ({ run, days, traces }, call) => {
+        handler: ({ run, days, traces, names }, call) => {
           if (!services.get(ENGINE).get(run)) throw new ActionError("not_found", `No run ${run}.`, 404);
-          const { token, info } = shares().add(run, { days, traces, by: call.user?.name ?? call.client });
+          const { token, info } = shares().add(run, { days, traces, names, by: call.user?.name ?? call.client });
           return { ...info, token };
         },
       }),
@@ -115,7 +123,7 @@ export const sharesPlugin = definePlugin({
       }),
       defineAction<Partial<DashboardSettings>>({
         name: "shares.set-dashboard",
-        title: "Change the public dashboard: on or off, which packs, whether its runs open read-only",
+        title: "Change the public dashboard: on or off, which packs, whether its runs open read-only, whether packs show their tiles",
         method: "POST",
         path: "/shares/dashboard",
         access: "admin",
@@ -126,6 +134,7 @@ export const sharesPlugin = definePlugin({
             packs: { type: "array", items: { type: "string", pattern: "^[0-9a-f]{8}$" }, maxItems: 50 },
             linkRuns: { type: "boolean" },
             title: { type: "string", maxLength: 80 },
+            tiles: { type: "boolean", description: "Each pack shows its dashboard's public tiles." },
           },
         },
         handler: (input) => {
@@ -163,16 +172,37 @@ export const sharesPlugin = definePlugin({
     /** The run a share token opens. */
     const byToken = (token: string, view = false): Opened | null => {
       const s = shares.open(token, view);
-      return s ? { runId: s.runId, traces: s.traces, base: `/api/v1/shared/${token}/` } : null;
+      return s ? { runId: s.runId, traces: s.traces, names: s.names, base: `/api/v1/shared/${token}/` } : null;
     };
     /** A run on the public dashboard, when its runs open. */
     const byDashboard = (runId: string): Opened | null => {
       const d = dashboard();
       if (!d.on || !d.linkRuns) return null;
       const r = engine.get(runId);
-      return r && d.packs.includes(r.packId) ? { runId, traces: false, base: `/api/v1/public/runs/${runId}/` } : null;
+      return r && d.packs.includes(r.packId) ? { runId, traces: false, names: false, base: `/api/v1/public/runs/${runId}/` } : null;
     };
 
+    const shareOf = (packId: string): ShareOptions | null => services.get(PACKS).get(packId)?.share ?? null;
+    const reviews = () => (services.has(REVIEWS) ? services.get(REVIEWS) : null);
+    /** A pack's dashboard as a public place shows it; null without one (or without the dashboards plugin). */
+    const tilesFor = (packId: string, where: PublicPlace, base: (runId: string) => string | null, run?: string) => {
+      if (!services.has(DASHBOARDS) || !services.get(PACKS).get(packId)) return null;
+      const result = services.get(DASHBOARDS).show(packId, run ? { run } : {});
+      return publicGroups(result, where, shareOf(packId), base);
+    };
+    /** A run's reviews as a share shows them: reviewers as "Reviewer 1", "Reviewer 2" (in the order they first reviewed in the run) unless the share names them. */
+    const reviewsOf = (o: Opened, r: RunDetail, attemptId: string, testId: string) => {
+      const repo = reviews();
+      if (!repo || shareOf(r.packId)?.reviews === false) return null;
+      const all = repo.list({ runId: r.id }).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      const order: string[] = [];
+      for (const rv of all) if (!order.includes(rv.reviewer)) order.push(rv.reviewer);
+      const mine = all.filter((rv) => rv.attemptId === attemptId && (Object.keys(rv.scores).length > 0 || rv.note.trim() !== ""));
+      return {
+        criteria: repo.rubrics(r.id)?.[testId] ?? services.get(PACKS).get(r.packId)?.rubric ?? [],
+        list: mine.map((rv) => ({ reviewer: o.names ? rv.reviewer : `Reviewer ${order.indexOf(rv.reviewer) + 1}`, scores: rv.scores, note: rv.note, updatedAt: rv.updatedAt })),
+      };
+    };
     const fileUrl = (o: Opened, rel: string) => `${o.base}files/${rel.split("/").map(encodeURIComponent).join("/")}`;
     /** The run as a share shows it: no live view or settings, files from the share's own address. */
     const runOut = (o: Opened, r: RunDetail) => ({
@@ -193,12 +223,21 @@ export const sharesPlugin = definePlugin({
       running: r.live !== null,
       runVideos: r.runVideos.map((v) => ({ size: v.size, url: fileUrl(o, v.path) })),
       traces: o.traces,
+      tiles: tilesFor(r.packId, { place: "run" }, (id) => (id === r.id ? o.base : null), r.id),
     });
-    const attemptOut = (o: Opened, d: ResultDocument) => ({ ...d, artifacts: d.artifacts.filter((a) => o.traces || !isPrivate(a)).map((a) => ({ ...a, url: fileUrl(o, a.path) })) });
+    const attemptOut = (o: Opened, r: RunDetail, d: ResultDocument) => {
+      const share = shareOf(r.packId);
+      return {
+        ...shareDocument(d, share),
+        artifacts: d.artifacts.filter((a) => (o.traces || !isPrivate(a)) && !keptOut(a, share)).map((a) => ({ ...a, url: fileUrl(o, a.path) })),
+        reviews: reviewsOf(o, r, d.attemptId, d.test.id),
+      };
+    };
     /** Files the run's attempts recorded that this share may hand out. */
     const allowed = (o: Opened, r: RunDetail): Set<string> => {
       const ok = new Set(r.runVideos.map((v) => v.path));
-      for (const a of r.attempts) for (const f of engine.result(r.id, a.id)?.artifacts ?? []) if (o.traces || !isPrivate(f)) ok.add(f.path);
+      const share = shareOf(r.packId);
+      for (const a of r.attempts) for (const f of engine.result(r.id, a.id)?.artifacts ?? []) if ((o.traces || !isPrivate(f)) && !keptOut(f, share)) ok.add(f.path);
       return ok;
     };
 
@@ -213,9 +252,10 @@ export const sharesPlugin = definePlugin({
       app.get<{ Params: { key: string; attemptId: string } }>(`${prefix}/attempts/:attemptId`, { config: { access: "public" } }, async (req, reply) => {
         if (limited(req, reply)) return reply;
         const o = open(req.params.key, false);
-        const d = o ? engine.result(o.runId, req.params.attemptId) : null;
-        if (!o || !d) return gone(reply);
-        return { data: attemptOut(o, d) };
+        const r = o ? engine.get(o.runId) : null;
+        const d = o && r ? engine.result(o.runId, req.params.attemptId) : null;
+        if (!o || !r || !d) return gone(reply);
+        return { data: attemptOut(o, r, d) };
       });
       app.get<{ Params: { key: string; "*": string } }>(`${prefix}/files/*`, { config: { access: "public" } }, async (req, reply) => {
         if (limited(req, reply)) return reply;
@@ -255,6 +295,7 @@ export const sharesPlugin = definePlugin({
           {
             packId: id,
             name: pack.name,
+            tiles: d.tiles ? tilesFor(id, { place: "status", linkRuns: d.linkRuns }, (runId) => (d.linkRuns ? `/api/v1/public/runs/${runId}/` : null)) : null,
             runs: runs.map((r) => ({
               id: r.id,
               label: r.label,

@@ -19,7 +19,7 @@ import ToggleSwitch from "./ToggleSwitch.vue";
 
 const links = ref<ShareLink[]>([]);
 const packs = ref<Pack[]>([]);
-const dash = ref<DashboardSettings>({ on: false, packs: [], linkRuns: false, title: "" });
+const dash = ref<DashboardSettings>({ on: false, packs: [], linkRuns: false, title: "", tiles: true });
 const loaded = ref(false);
 const busy = ref(false);
 const statusUrl = `${location.origin}/${href({ name: "status" })}`;
@@ -92,6 +92,8 @@ const linkText = (l: ShareLink) => [`made ${ago(l.createdAt)}${l.createdBy ? ` b
       </div>
       <ToggleSwitch id="dash-runs" v-model="dash.linkRuns">Runs open read-only</ToggleSwitch>
       <p class="muted small">Each run on the page opens like a share link, with its results, screenshots and video. Traces and network files stay private.</p>
+      <ToggleSwitch id="dash-tiles" v-model="dash.tiles">Packs show their dashboards</ToggleSwitch>
+      <p class="muted small">Each pack shows the tiles of its dashboard that are public (a tile with <code>public: false</code> never shows). Screenshots, outputs and failures show only while runs open read-only.</p>
       <div>
         <button type="submit" class="btn primary" :disabled="busy">Save</button>
       </div>

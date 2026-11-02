@@ -13,12 +13,20 @@ import { resetHead, setTitle } from "../pagehead";
 import { href } from "../router";
 import { runTone } from "../runstate";
 import { vTip } from "../tooltip";
+import TileGroups from "../components/TileGroups.vue";
+import { provideTileLinks } from "../tilelinks";
 
 type StatusRun = PublicStatus["packs"][number]["runs"][number];
 
 const status = ref<PublicStatus | null>(null);
 const error = ref<string | null>(null);
 let timer: ReturnType<typeof setInterval> | null = null;
+// A tile's runs and attempts open read-only when the page lets its runs open; nothing else links.
+provideTileLinks({
+  run: (id) => (status.value?.linkRuns ? href({ name: "status-run", id }) : null),
+  attempt: (runId) => (status.value?.linkRuns ? href({ name: "status-run", id: runId }) : null),
+  actions: false,
+});
 
 async function load() {
   const res = await getJson<PublicStatus>("/api/v1/public/status");
@@ -44,7 +52,7 @@ const tickText = (r: StatusRun) => [r.label || r.id, r.status === "finished" ? c
 const runLink = (r: StatusRun) => (status.value?.linkRuns ? href({ name: "status-run", id: r.id }) : undefined);
 
 // The latest run first in the card; the trend oldest to newest, left to right.
-const cards = computed(() => (status.value?.packs ?? []).map((p) => ({ ...p, latest: p.runs[0] ?? null, trend: p.runs.slice().reverse() })));
+const cards = computed(() => (status.value?.packs ?? []).map((p) => ({ ...p, latest: p.runs[0] ?? null, trend: p.runs.slice().reverse(), hasTiles: !!p.tiles?.length })));
 </script>
 
 <template>
@@ -64,7 +72,7 @@ const cards = computed(() => (status.value?.packs ?? []).map((p) => ({ ...p, lat
         <EmptyState compact :icon="Globe" heading="No packs shown yet">An admin picks the packs this page shows in Settings, Sharing.</EmptyState>
       </section>
       <div v-else class="cards">
-        <section v-for="p in cards" :key="p.packId" class="card pack" :aria-labelledby="`st-${p.packId}`">
+        <section v-for="p in cards" :key="p.packId" class="card pack" :class="{ wide: p.hasTiles }" :aria-labelledby="`st-${p.packId}`">
           <div class="top">
             <h2 :id="`st-${p.packId}`" class="display">{{ p.name }}</h2>
             <StatusChip v-if="p.latest" :status="p.latest.status" />
@@ -84,6 +92,7 @@ const cards = computed(() => (status.value?.packs ?? []).map((p) => ({ ...p, lat
             <a v-if="runLink(p.latest)" class="small" :href="runLink(p.latest)">See the latest run</a>
           </template>
           <p v-else class="muted small">No runs yet.</p>
+          <TileGroups v-if="p.hasTiles" class="ptiles" :groups="p.tiles!" :pack-id="p.packId" />
         </section>
       </div>
       <p class="muted small foot">Shown by Watchwright.</p>
@@ -101,6 +110,13 @@ const cards = computed(() => (status.value?.packs ?? []).map((p) => ({ ...p, lat
   display: grid;
   gap: var(--space-2);
   align-content: start;
+}
+/* A pack with tiles takes the whole row. */
+.pack.wide {
+  grid-column: 1 / -1;
+}
+.ptiles {
+  margin-top: var(--space-2);
 }
 .top {
   display: flex;

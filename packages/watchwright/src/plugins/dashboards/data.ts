@@ -27,6 +27,8 @@ export interface DashboardQuery {
   days?: number | undefined;
   /** Values picked for the dashboard's filters: only runs with these param values. */
   filters?: Record<string, string> | undefined;
+  /** Only this run (a shared run's own tiles): the range and filters don't apply. */
+  run?: string | undefined;
   now?: Date;
 }
 
@@ -147,7 +149,8 @@ export function dashboardData(src: DashboardSource, dashboard: Dashboard, q: Das
   const want = Math.max(baseRuns, ...tiles.map((t) => t.runs ?? 0)) * (tiles.some((t) => t.type === "stat") ? 2 : 1);
   const since = days !== null ? new Date(now.getTime() - days * 86_400_000).toISOString() : null;
   const statuses: RunStatus[] = ["running", "pausing", "paused", "finished", "stopped", "interrupted", "failed_to_start"];
-  const rows = src.runs.runs({ packId: src.pack.id, statuses, limit: days !== null ? 2000 : Math.min(want, 2000) });
+  const one = q.run !== undefined ? src.runs.run(q.run) : null;
+  const rows = q.run !== undefined ? (one && one.pack_id === src.pack.id ? [one] : []) : src.runs.runs({ packId: src.pack.id, statuses, limit: days !== null ? 2000 : Math.min(want, 2000) });
 
   const parse = (r: RunRow): Run => ({ row: r, params: JSON.parse(r.params) as Record<string, unknown>, info: JSON.parse(r.info ?? "{}") as Record<string, unknown>, attempts: [] });
   const all = rows.map(parse);
@@ -156,11 +159,11 @@ export function dashboardData(src: DashboardSource, dashboard: Dashboard, q: Das
     const picked = q.filters?.[name];
     return { name, values, value: picked !== undefined && picked !== "" ? picked : null };
   });
-  const matching = all.filter((r) => filters.every((f) => f.value === null || groupOf(r, f.name) === f.value));
+  const matching = q.run !== undefined ? all : all.filter((r) => filters.every((f) => f.value === null || groupOf(r, f.name) === f.value));
 
   // Newest first; with `days`, the ones in range plus as many before for the stats.
-  const inRange = since !== null ? matching.filter((r) => r.row.created_at >= since) : matching.slice(0, baseRuns);
-  const previousRange = since !== null ? matching.filter((r) => r.row.created_at < since && r.row.created_at >= new Date(Date.parse(since) - days! * 86_400_000).toISOString()) : matching.slice(baseRuns, baseRuns * 2);
+  const inRange = q.run !== undefined ? all : since !== null ? matching.filter((r) => r.row.created_at >= since) : matching.slice(0, baseRuns);
+  const previousRange = q.run !== undefined ? [] : since !== null ? matching.filter((r) => r.row.created_at < since && r.row.created_at >= new Date(Date.parse(since) - days! * 86_400_000).toISOString()) : matching.slice(baseRuns, baseRuns * 2);
 
   const tests = new Map(src.pack.tests.map((t, i) => [t.id, { ...t, order: i }]));
   const loaded = new Set<Run>();

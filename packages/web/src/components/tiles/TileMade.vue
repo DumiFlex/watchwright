@@ -2,7 +2,7 @@
 // What runs made: the latest value of a param or fact (and since when), the latest screenshot
 // (with the one before beside it), the latest text or file, and the latest run as a card.
 import { computed } from "vue";
-import { href } from "../../router";
+import { useTileLinks } from "../../tilelinks";
 import { ago, countsText, duration, fileSize, when } from "../../format";
 import { runName, type FileItem, type TileData } from "../../dashboard";
 import { FileText, ImageOff } from "../../icons";
@@ -14,7 +14,8 @@ const props = defineProps<
   { kind: "value"; data: TileData["value"] } | { kind: "shot"; data: TileData["shot"] } | { kind: "output"; data: TileData["output"] } | { kind: "latest"; data: TileData["latest"] }
 >();
 
-const attemptHref = (a: FileItem) => href({ name: "attempt", runId: a.runId, attemptId: a.attemptId });
+const links = useTileLinks();
+const attemptHref = (a: FileItem) => links.attempt(a.runId, a.attemptId) ?? undefined;
 const isMarkdown = (f: FileItem) => f.kind === "text" || /markdown/.test(f.contentType ?? "") || /\.md$/i.test(f.name);
 const isImage = (f: FileItem) => /^image\//.test(f.contentType ?? "");
 const shots = computed(() => (props.kind === "shot" ? [props.data.latest, props.data.previous].filter((x): x is FileItem => x !== null) : []));
@@ -37,7 +38,7 @@ const run = computed(() => (props.kind === "latest" ? props.data.run : null));
       <p v-if="!shots.length" class="none muted small"><ImageOff :size="15" /> No screenshot with this name in range.</p>
       <div v-else class="shots" :class="{ two: shots.length > 1 }">
         <figure v-for="(s, i) in shots" :key="s.attemptId + s.name">
-          <a :href="attemptHref(s)"><img :src="s.url" :alt="`${s.name} from ${s.testId}, ${runName(s)}`" loading="lazy" /></a>
+          <component :is="attemptHref(s) ? 'a' : 'span'" :href="attemptHref(s)"><img :src="s.url" :alt="`${s.name} from ${s.testId}, ${runName(s)}`" loading="lazy" /></component>
           <figcaption class="muted small">
             {{ shots.length > 1 ? (i === 0 ? "Latest" : "Before") : s.testId }} · <span v-tip="when(s.at)">{{ runName(s) }}, {{ ago(s.at) }}</span>
           </figcaption>
@@ -49,7 +50,7 @@ const run = computed(() => (props.kind === "latest" ? props.data.run : null));
       <p v-if="!data.latest" class="none muted small"><FileText :size="15" /> No text or file with this name in range.</p>
       <template v-else>
         <p class="muted small head">
-          <a :href="attemptHref(data.latest)">{{ data.latest.testId }}</a> · <span v-tip="when(data.latest.at)">{{ runName(data.latest) }}, {{ ago(data.latest.at) }}</span>
+          <component :is="attemptHref(data.latest) ? 'a' : 'span'" :href="attemptHref(data.latest)">{{ data.latest.testId }}</component> · <span v-tip="when(data.latest.at)">{{ runName(data.latest) }}, {{ ago(data.latest.at) }}</span>
           <a v-if="data.latest.url" class="open" :href="data.latest.url" target="_blank" rel="noopener">Open{{ data.latest.size ? ` (${fileSize(data.latest.size)})` : "" }}</a>
         </p>
         <div v-if="data.latest.text !== undefined" class="out">
@@ -64,7 +65,7 @@ const run = computed(() => (props.kind === "latest" ? props.data.run : null));
     <template v-else-if="run">
       <div class="run">
         <p class="rhead">
-          <a :href="href({ name: 'run', id: run.id })" class="rname">{{ runName(run) }}</a>
+          <component :is="links.run(run.id) ? 'a' : 'span'" :href="links.run(run.id) ?? undefined" class="rname">{{ runName(run) }}</component>
           <StatusChip :status="run.status" />
         </p>
         <p class="small">{{ countsText({ ...run.counts, running: 0, interrupted: 0, planned: 0 }) }}</p>

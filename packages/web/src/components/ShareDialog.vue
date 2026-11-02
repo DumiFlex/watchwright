@@ -26,6 +26,7 @@ const DAYS = [
 ];
 const days = ref(7);
 const traces = ref(false);
+const names = ref(false);
 const made = ref<string | null>(null);
 const links = ref<ShareLink[]>([]);
 const busy = ref(false);
@@ -45,7 +46,7 @@ watch(open, (o) => {
 async function make() {
   busy.value = true;
   error.value = null;
-  const res = await sendJson<ShareLink & { page: string }>("/api/v1/shares", { run: props.runId, traces: traces.value, ...(days.value ? { days: days.value } : {}) });
+  const res = await sendJson<ShareLink & { page: string }>("/api/v1/shares", { run: props.runId, traces: traces.value, names: names.value, ...(days.value ? { days: days.value } : {}) });
   busy.value = false;
   if (!res.ok) return void (error.value = res.error.message);
   made.value = res.data.page ? shareUrl(res.data.page, location.origin) : null;
@@ -66,7 +67,7 @@ const linkText = (l: ShareLink) => [`Made ${ago(l.createdAt)}${l.createdBy ? ` b
 <template>
   <ModalDialog v-model="open" heading="Share this run" width="520px">
     <div class="share">
-      <p class="muted small">Anyone with the link sees this run's results, screenshots, video and files, read-only, without signing in. {{ session.on ? "" : "Without login, anyone who can reach this server sees everything anyway." }}</p>
+      <p class="muted small">Anyone with the link sees this run's results, screenshots, video, files, texts, metrics and reviews, read-only, without signing in. {{ session.on ? "" : "Without login, anyone who can reach this server sees everything anyway." }}</p>
       <p v-if="local" class="note small">This server's address only works on this computer. To share with others, open Watchwright at the address they use, or start it with <code>--public-url</code>.</p>
       <template v-if="made">
         <CodeView :code="made" label="Share link" />
@@ -81,6 +82,10 @@ const linkText = (l: ShareLink) => [`Made ${ago(l.createdAt)}${l.createdBy ? ` b
           <ToggleSwitch id="share-traces" v-model="traces">Include traces and network files</ToggleSwitch>
           <p class="muted small">They can hold cookies and tokens the site set. Leave this off unless the person needs them.</p>
         </div>
+        <div class="fld">
+          <ToggleSwitch id="share-names" v-model="names">Show reviewers' names</ToggleSwitch>
+          <p class="muted small">Off: review scores and notes show as Reviewer 1, Reviewer 2.</p>
+        </div>
         <p v-if="error" class="error small" role="alert">{{ error }}</p>
         <div>
           <button type="submit" class="btn primary" :disabled="busy">Make a link</button>
@@ -91,7 +96,7 @@ const linkText = (l: ShareLink) => [`Made ${ago(l.createdAt)}${l.createdBy ? ` b
         <h3 class="sub">Links that work now</h3>
         <ul>
           <li v-for="l in links" :key="l.id">
-            <span class="small">{{ linkText(l) }}<span v-if="l.traces" class="tag">traces</span></span>
+            <span class="small">{{ linkText(l) }}<span v-if="l.traces" class="tag">traces</span><span v-if="l.names" class="tag">names</span></span>
             <button v-if="l.page" v-tip="'Copy the link'" type="button" class="ib copy" aria-label="Copy the link" @click="copyShare(l.page)"><Copy :size="14" /></button>
             <button v-tip="'Take this link back'" type="button" class="ib" aria-label="Take this link back" @click="remove(l)"><Trash2 :size="14" /></button>
           </li>
