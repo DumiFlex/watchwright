@@ -8,6 +8,7 @@ import { DEFAULT_HOST, DEFAULT_PORT, LOOPBACK_HOSTS, resolveDataDir } from "../c
 import { buildServer } from "../server/app.js";
 import { openStore } from "../store/db.js";
 import { VERSION } from "../version.js";
+import { startInBackground } from "./background.js";
 import { hideChildWindows } from "./hide-windows.js";
 
 // `watchwright serve`: the long-lived server (the web app, the HTTP API and the store).
@@ -32,6 +33,7 @@ export async function serveCommand(argv: string[], after?: AfterStart): Promise<
       host: { type: "string" },
       data: { type: "string" },
       "no-open": { type: "boolean" },
+      background: { type: "boolean" },
     },
   });
   const port = values.port === undefined ? DEFAULT_PORT : Number(values.port);
@@ -51,6 +53,22 @@ export async function serveCommand(argv: string[], after?: AfterStart): Promise<
   // Before the store opens: a second server on the same data folder would take over the first one's runs.
   const running = await watchwrightAt(url);
   if (running) return alreadyRunning(url, running, folders, !values["no-open"], after);
+  if (values.background) {
+    if (after) {
+      console.error("--background is for serve only. Start the server with `watchwright serve --background`, then run the demo.");
+      return 2;
+    }
+    const dataDir = resolveDataDir({ flag: values.data });
+    const started = await startInBackground({ argv, url, dataDir, up: () => watchwrightAt(url) });
+    if (!started.ok) {
+      console.error(`Watchwright didn't start in the background. Its log (${started.log}) ends with:\n${started.output || "(nothing)"}`);
+      return 1;
+    }
+    console.log(`Watchwright ${started.version} is running in the background at ${url} (process ${started.pid}).`);
+    console.log(`Its output goes to ${started.log}. Stop it from Settings > Server in the web app.`);
+    if (!values["no-open"]) openBrowser(url);
+    return 0;
+  }
 
   // Before anything starts a child process (a browser, ffmpeg, a pack's commands).
   hideChildWindows();

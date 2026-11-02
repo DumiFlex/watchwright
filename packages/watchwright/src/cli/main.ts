@@ -13,7 +13,7 @@ import { serveCommand } from "./serve.js";
 const HELP = `Watchwright ${VERSION}
 
 Usage:
-  watchwright serve [pack folder…] [--port ${DEFAULT_PORT}] [--host ${DEFAULT_HOST}] [--data <folder>] [--no-open]
+  watchwright serve [pack folder…] [--port ${DEFAULT_PORT}] [--host ${DEFAULT_HOST}] [--data <folder>] [--no-open] [--background]
   watchwright demo [--port ${DEFAULT_PORT}] [--data <folder>] [--no-open]
   watchwright status
   watchwright run <pack> [test…] [--param key=value]… [--preset <name>] [--label <text>] [--wait]
@@ -32,6 +32,9 @@ serve      Starts the server: the web app, the HTTP API and the store. It stays 
   --host     Address to bind. Only loopback addresses for now (127.0.0.1, localhost, ::1).
   --data     Folder for the database and run files (default: WATCHWRIGHT_DATA, else the OS's app data folder).
   --no-open  Don't open the web page in the browser on start.
+  --background  Run the server as its own process with no window, so no terminal has to stay
+             open. Its output goes to logs/server.log in the data folder. The command returns once
+             the server answers; stop the server from Settings > Server in the web app.
 
 demo       A first run in one command: gets Playwright's Chromium when it's missing, copies the
            TodoMVC example pack into the data folder (demo/todomvc), starts the server (or uses

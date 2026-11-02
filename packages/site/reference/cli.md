@@ -7,7 +7,7 @@ It comes with the [`watchwright` npm package](https://www.npmjs.com/package/watc
 ## Commands
 
 ```bash
-watchwright serve [pack folder…] [--port 7420] [--host 127.0.0.1] [--data <folder>] [--no-open]
+watchwright serve [pack folder…] [--port 7420] [--host 127.0.0.1] [--data <folder>] [--no-open] [--background]
 watchwright demo [--port 7420] [--data <folder>] [--no-open]
 watchwright status
 watchwright run <pack> [test…] [--param key=value]… [--preset <name>] [--label <text>] [--wait]
@@ -29,6 +29,7 @@ Starts the server: the web page, the [HTTP API](./http-api) and the store, on `h
 | `--host` | Address to bind. Only loopback addresses (`127.0.0.1`, `localhost`, `::1`). |
 | `--data` | Folder for the database and run files (default: `WATCHWRIGHT_DATA`, else the system's app data folder). |
 | `--no-open` | Don't open the web page on start. |
+| `--background` | Run the server as its own process with no window, so no terminal has to stay open. The command returns once the server answers (it waits up to 30 seconds and shows the end of the log when the server doesn't come up). The server's output goes to `logs/server.log` in the data folder (past 5 MB the old one is kept as `server.old.log`). Stop it with **Settings > Server > Stop Watchwright**. |
 
 ### demo
 
