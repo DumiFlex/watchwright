@@ -1,6 +1,6 @@
 # Alerts
 
-Alerts send a message to your phone or a chat when something needs you: a run fails, a pack passes again, a test breaks, a schedule misses a time, or an agent waits for your approval. Set them up in Settings, under Alerts. **Channels** say where messages go, and **rules** say when.
+Alerts send a message to your phone or a chat when something needs you: a run fails, a pack passes again, a test breaks, a schedule misses a time, an agent waits for your approval, or the drive runs low. Set them up in Settings, under Alerts. **Channels** say where messages go, and **rules** say when.
 
 ## Channels
 
@@ -23,11 +23,13 @@ A rule picks when to send, for which packs or schedules, and to which channels.
 
 - **A run fails**, **ends with broken tests**, **doesn't start**, **passes** or **is stopped**: when a run ends that way.
 - **A run passes again**: when a run passes after the last run of the same pack (or the same schedule, for a scheduled run) didn't.
+- **A run is interrupted**: Watchwright stopped, the computer restarted or it crashed while the run was going (sent when Watchwright starts again, saying whether the run goes on by itself), or an error stopped the run (sent at once). Turn on **Resume interrupted runs when Watchwright starts** under **Settings > New run** to have such runs go on where they were.
 - **A test breaks**: while the run is still going, so you can look before it ends. It links to the attempt.
 - **A schedule misses a time**: a time missed while Watchwright was off, or skipped because the schedule's last run was still going. See [Schedules](./schedules).
 - **An agent waits for approval**: an agent asked for something that needs you to approve it on the Watchwright page.
+- **The drive runs low**: during a run, the drive with the data folder has less free space than **Settings > Storage** allows. It is sent once per run when the warning limit is crossed, and again if the run stops recording videos.
 
-With no packs or schedules picked, a rule covers all of them. Approvals aren't about a pack, so a rule sends them whatever packs it covers.
+With no packs or schedules picked, a rule covers all of them. Approvals and a low drive aren't about a pack, so a rule sends them whatever packs it covers.
 
 **Only on change** (on by default) sends one message when a pack's outcome changes, not one for every run. A pack that fails every night tells you the first night, and then again when it passes ("passes again") and fails another time. Turn it off to hear about every run. A rule that tells about broken tests sends one message per run with it on.
 

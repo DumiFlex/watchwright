@@ -18,11 +18,13 @@ const RUN_WORDS: Record<string, string> = {
   recovered: "passes again",
   passed: "passes",
   stopped: "is stopped",
+  interrupted: "is interrupted",
 };
 const OTHER_WORDS: Record<string, string> = {
   test_broken: "a test breaks",
   schedule_missed: "a schedule misses a time",
   approval: "an agent waits for approval",
+  storage_low: "the drive runs low",
 };
 
 /** "a, b or c". */

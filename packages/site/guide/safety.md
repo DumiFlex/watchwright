@@ -4,12 +4,45 @@ Watchwright drives a real browser on your machine, so its server is careful abou
 
 ## Who can reach the server
 
-The server listens on `127.0.0.1` only. A server on localhost is still reachable from any web page open in the same browser, through a form post or a DNS-rebinding page, so it also checks every request:
+By default the server listens on `127.0.0.1` only. A server on localhost is still reachable from any web page open in the same browser, through a form post or a DNS-rebinding page, so it also checks every request:
 
-- The `Host` header must be `127.0.0.1`, `localhost` or `[::1]` with the server's port. Anything else gets `403` with the code `bad_host`.
-- A request that changes something, and every WebSocket connection, must come from the server's own page. A request with another `Origin` gets `403` with the code `bad_origin`. Requests with no `Origin` at all, such as curl, scripts and agents, are allowed.
+- The `Host` header must be `127.0.0.1`, `localhost` or `[::1]` with the server's port, or the host of a `--public-url`. Anything else gets `403` with the code `bad_host`.
+- A request that changes something, and every WebSocket connection, must come from the server's own page (its loopback address or a `--public-url`). A request with another `Origin` gets `403` with the code `bad_origin`. Requests with no `Origin` at all, such as curl, scripts and agents, are allowed.
 
-Binding to another address (`--host 0.0.0.0`) is refused until token auth is built.
+Binding to another address (`--host 0.0.0.0`, for a server or a homelab) needs [login](#login) on.
+
+## Login
+
+Login is off by default, and nothing changes while it is: whoever can reach `127.0.0.1` is you. Turn it on with `watchwright serve --auth` (or `WATCHWRIGHT_AUTH=on`) to run Watchwright where other people or machines can reach it.
+
+```bash
+watchwright serve --auth --host 0.0.0.0 --public-url http://192.168.1.20:7420
+```
+
+- **The first admin.** On the first start with no user, the server prints a link with a one-time code: open it and choose a name and password. Or run `watchwright users add <name> --role admin` on the server's machine (see [users](../reference/cli#users)), which also works with the server stopped and is the way back in if every admin forgets their password.
+- **More people.** There is no default admin or password. An admin adds people in Settings › Users, either by choosing their name and a first password, or by making an invitation link: the person opens it and chooses their own name and password, with the role you picked. A link works once and for up to 30 days; unused ones can be taken back there.
+- **On a server.** The [Docker image](./self-hosting) always has login on and runs without a screen. See [Self-hosting](./self-hosting).
+- **Single sign-on.** People can sign in through your sign-in provider (OpenID Connect: VoidAuth, Authentik, Authelia, Pocket ID, Keycloak) or a header your reverse proxy sets, with roles from their groups. See [Single sign-on](./single-sign-on).
+- **Sharing.** A share link opens one run read-only for anyone who has it, and an admin can turn on a public status page for chosen packs. Traces and network files stay private unless a link includes them. See [Sharing](./sharing).
+- **Signing in.** The web page asks for a name and password and keeps you signed in for 30 days from your last visit. After five wrong passwords for a name or an address within 15 minutes, each try waits longer, up to a minute.
+- **Tokens.** The CLI, scripts and agents send an API token as `Authorization: Bearer <token>` (the CLI reads `WATCHWRIGHT_TOKEN`, or the token [`watchwright login`](../reference/cli#login) saved). A token acts with its owner's role, and a token is never the web page: destructive actions it calls still wait for [approval](#approvals). See [Login](../reference/http-api#login) in the API.
+- **Roles.**
+
+| | viewer | user | admin |
+|---|---|---|---|
+| See packs, runs, results, files and the live view | yes | yes | yes |
+| Start, pause and stop runs, record, explore, review | | yes | yes |
+| Add and edit packs, presets, schedules | | yes | yes |
+| Use secrets and saved sign-ins by name | | yes | yes |
+| Change secrets, saved sign-ins, settings and alerts | | | yes |
+| Users, start at sign-in, clean up old runs, stop the server | | | yes |
+
+::: warning Users can run code on the server
+A test pack is code that runs on the server, and it can read every secret. Anyone who can add or edit a pack can do anything the server's account can. Give the user role only to people you'd trust with that, and the viewer role to everyone else.
+:::
+
+- **Who did it.** Runs, approvals and controls name the person: `Dumi`, or `Dumi via Claude Code` for an agent with Dumi's token. An approval is answered by the person whose agent asked, or by an admin.
+- **Behind a reverse proxy** (NPMplus, Caddy, Traefik), pass the address people use with `--public-url https://watchwright.home.lan`, and the proxy's address with `--trust-proxy` so the server knows a request came in over https. The proxy must pass WebSockets (the live view uses them).
 
 ## Approvals
 

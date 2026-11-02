@@ -1,4 +1,5 @@
 // Talks to the Watchwright server. Shapes mirror packages/watchwright/src (plugins/packs, plugins/runs).
+import type { TileGroupResult } from "./dashboard";
 
 export interface HealthData {
   name: "watchwright";
@@ -7,6 +8,8 @@ export interface HealthData {
   plugins: { name: string; schemaVersion: number }[];
   /** The web app's pages the loaded plugins bring, in menu order. */
   pages: HealthPage[];
+  /** Login: on, who is signed in, whether the first admin is still to be made. */
+  login?: { on: boolean; user: { id: string; name: string; role: string } | null; setupNeeded: boolean };
 }
 
 /** A page a plugin brings (`PluginPage` on the server). */
@@ -123,8 +126,12 @@ export interface FolderListing {
 
 export interface FolderPlaces {
   home: string;
+  /** Where the folder browser opens (the first allowed folder on a server that limits browsing); older servers leave it out. */
+  start?: string;
   sep: string;
   roots: string[];
+  /** Folders can be shown in a file manager (not on a server without a screen); older servers leave it out. */
+  canOpen?: boolean;
   recent: { path: string; usedAt: string; exists: boolean }[];
 }
 
@@ -139,14 +146,24 @@ export function folderUrl(path: string): string {
 }
 
 export type TraceMode = "problems" | "always" | "never";
+export type VideoMode = "always" | "problems" | "never";
+
+/** The mode a stored video setting means: `true` is always, `false` never (older runs and presets). */
+export function videoMode(v: VideoMode | boolean | undefined, fallback: VideoMode = "always"): VideoMode {
+  return v === undefined ? fallback : v === true ? "always" : v === false ? "never" : v;
+}
 
 export interface PackRunDefaults {
   pauseOnBroken: boolean;
   pauseLimitMinutes: number;
   trace: TraceMode;
-  video: boolean;
+  /** Older servers say true or false. */
+  video: VideoMode | boolean;
+  runVideo?: boolean;
   /** Runs start with the site's saved sign-in (`site.signIn: saved`); older servers leave it out. */
   signIn?: boolean;
+  /** Where runs reach the site from (`site.network`): "server" or a runner's name; older servers leave it out. */
+  network?: string;
 }
 
 /** What a run sets for itself; anything left out comes from the pack. */
@@ -155,8 +172,11 @@ export interface RunOptions {
   pauseLimitMinutes?: number;
   attempts?: number;
   trace?: TraceMode;
-  video?: boolean;
+  video?: VideoMode | boolean;
+  runVideo?: boolean;
   signIn?: boolean;
+  /** "server" or a runner's name. */
+  network?: string;
 }
 
 /** What a run starts with apart from its pack: what a preset keeps. */
@@ -230,6 +250,8 @@ export interface RunSummary {
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
+  /** Bytes the run's folder takes on the drive; null until measured (older servers leave it out). */
+  sizeBytes?: number | null;
   counts: Record<AttemptStatus, number> & { planned: number };
 }
 
@@ -261,12 +283,98 @@ export interface LiveSnapshot {
   step: string | null;
   pages: { id: string; url: string }[];
   activePageId: string | null;
+  /** The settings in effect, which POST /runs/:id/settings changes; null while the run sets up. */
+  settings: RunSettings | null;
+  /** Set once the drive ran low during the run; older servers leave it out. */
+  storageLow?: { freeBytes: number; videosOff: boolean } | null;
+}
+
+/** GET /storage: what runs take on the drive. */
+export interface StorageReport {
+  dataDir: string;
+  freeBytes: number | null;
+  totalBytes: number | null;
+  runs: number;
+  runsBytes: number;
+  unmeasured: number;
+  largest: RunSummary[];
+  limits: { warnBelowGB: number; stopBelowGB: number };
+}
+
+/** What cleanup deletes now under the keep rules (0 turns a rule off): the runs, oldest first, and their room. */
+export interface CleanupPlan {
+  rules: { keepDays: number; keepPerPack: number };
+  runs: RunSummary[];
+  bytes: number;
+  unmeasured: number;
+}
+
+export interface RunSettings {
+  pauseOnBroken: boolean;
+  pauseLimitMinutes: number;
+  /** The run's limit for every attempt; null when each test's own holds. */
+  testTimeoutMinutes: number | null;
+  trace: "problems" | "always" | "never";
+  video: VideoMode;
+  runVideo: boolean;
 }
 
 export interface RunDetail extends RunSummary {
   plan: { testId: string; title: string; number: number; of: number; children?: string[]; skip?: boolean; status: AttemptStatus | "pending"; attemptId: string | null }[];
   attempts: Attempt[];
   live: LiveSnapshot | null;
+  /** Videos of the whole run, in parts; older servers leave it out. */
+  runVideos?: { path: string; url: string; size: number }[];
+}
+
+/** A run as a share link or the public dashboard shows it: no live view, files from the share's own address. */
+export interface SharedRun extends Pick<RunDetail, "id" | "packName" | "label" | "status" | "startedBy" | "createdAt" | "startedAt" | "finishedAt" | "error" | "params" | "info" | "counts" | "plan" | "attempts"> {
+  /** Still running: the page asks again now and then. */
+  running: boolean;
+  runVideos: { url: string; size: number }[];
+  /** Traces and collector files are shared too. */
+  traces: boolean;
+  /** The pack's public dashboard tiles for this one run; null without a dashboard. */
+  tiles: TileGroupResult[] | null;
+}
+
+/** One attempt as a share shows it: its reviews come along (reviewers anonymous unless the share names them). */
+export interface SharedAttempt extends ResultDocument {
+  reviews: { criteria: Criterion[]; list: { reviewer: string; scores: Record<string, Score>; note: string; updatedAt: string }[] } | null;
+}
+
+/** A share link (`GET /shares`); the token itself is shown only once, when it is made. */
+export interface ShareLink {
+  id: string;
+  /** The page to open (`#/s/<token>`), to copy again; null for links made before links were kept. */
+  page: string | null;
+  runId: string;
+  traces: boolean;
+  /** Reviewers show by name, not as "Reviewer 1". */
+  names: boolean;
+  createdBy: string | null;
+  createdAt: string;
+  expiresAt: string | null;
+  views: number;
+  viewedAt: string | null;
+  run: { packName: string; label: string; status: RunStatus; createdAt: string } | null;
+}
+
+/** The public dashboard's settings (`GET /shares/dashboard`, admins). */
+export interface DashboardSettings {
+  on: boolean;
+  packs: string[];
+  linkRuns: boolean;
+  title: string;
+  /** Each pack shows its dashboard's public tiles. */
+  tiles: boolean;
+}
+
+/** The public dashboard (`GET /public/status`): each pack's latest runs, newest first. */
+export interface PublicStatus {
+  title: string;
+  linkRuns: boolean;
+  packs: { packId: string; name: string; runs: { id: string; label: string; status: RunStatus; counts: RunSummary["counts"]; startedAt: string | null; finishedAt: string | null; durationMs: number | null }[]; tiles: TileGroupResult[] | null }[];
 }
 
 export interface Artifact {
@@ -371,10 +479,17 @@ export interface WwEvent {
   data: Record<string, unknown>;
 }
 
+let signedOutHandler: (() => void) | null = null;
+/** Called when the server answers 401 `sign_in_needed` (login on, and the sign-in ran out). */
+export function onSignedOut(handler: () => void): void {
+  signedOutHandler = handler;
+}
+
 async function call<T>(url: string, init: RequestInit, fetcher: typeof fetch): Promise<ApiResult<T>> {
   try {
     const res = await fetcher(url, init);
     const body = (await res.json().catch(() => null)) as { data?: T; error?: ApiError } | null;
+    if (res.status === 401 && body?.error?.code === "sign_in_needed") signedOutHandler?.();
     if (res.ok && body && "data" in body) return { ok: true, data: body.data as T };
     return { ok: false, error: body?.error ?? { code: `http_${res.status}`, message: `The server answered ${res.status}.` } };
   } catch {
@@ -393,6 +508,11 @@ export function sendJson<T>(url: string, body: unknown = {}, method: "POST" | "D
       ? { method, headers: { accept: "application/json", "x-watchwright-client": "web" } }
       : { method, headers: { accept: "application/json", "content-type": "application/json", "x-watchwright-client": "web" }, body: JSON.stringify(body) };
   return call<T>(url, init, fetcher);
+}
+
+/** POST a file as the request body (a pack .zip), with its type. */
+export function sendFile<T>(url: string, file: Blob, type = "application/zip", fetcher: typeof fetch = fetch): Promise<ApiResult<T>> {
+  return call<T>(url, { method: "POST", headers: { accept: "application/json", "content-type": type, "x-watchwright-client": "web" }, body: file }, fetcher);
 }
 
 /** The live WebSocket address for the page's own origin (http → ws, https → wss). */

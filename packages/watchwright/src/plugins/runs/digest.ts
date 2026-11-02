@@ -123,7 +123,7 @@ const MAX_HAPPENED = 100;
  * person keeps a run paused isn't answered again and again.
  */
 export async function waitForRun(engine: Engine, events: EventLog, id: string, after: number | undefined, timeoutMs: number, signal: AbortSignal): Promise<WaitResult | null> {
-  if (!engine.get(id)) return null;
+  if (engine.status(id) === null) return null;
   const end = Date.now() + timeoutMs;
   let cursor = after ?? events.head();
   let pausedSince = after === undefined;
@@ -142,10 +142,15 @@ export async function waitForRun(engine: Engine, events: EventLog, id: string, a
   for (;;) {
     // Everything logged so far, before reading the state: a pause logs right after the event that woke the wait.
     take(events.after(cursor, { runId: id }, 1000));
-    const run = engine.get(id)!;
-    const done = (reason: WaitReason): WaitResult => ({ reason, cursor, happened, run: digest(run) });
-    if (!(ACTIVE_STATUSES as readonly string[]).includes(run.status) && run.status !== "queued") return done("ended");
-    if (run.status === "paused" && pausedSince) return done("paused");
+    // Only the status on each wake: the whole run (every attempt) is read once, when the wait returns.
+    const status = engine.status(id);
+    const done = (reason: WaitReason): WaitResult | null => {
+      const run = engine.get(id);
+      return run ? { reason, cursor, happened, run: digest(run) } : null;
+    };
+    if (status === null) return null;
+    if (!(ACTIVE_STATUSES as readonly string[]).includes(status) && status !== "queued") return done("ended");
+    if (status === "paused" && pausedSince) return done("paused");
     if (signal.aborted) return done("gone");
     const left = end - Date.now();
     if (left <= 0) return done("timeout");

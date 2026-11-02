@@ -3,7 +3,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { RunsRepo, type RunStatus, type RunSummary } from "../src/plugins/runs/repo.js";
 import { cleanTempDirs, tempDir } from "./helpers/fixtures.js";
-import { startHarness, type Harness } from "./helpers/harness.js";
+import { engineOf, startHarness, type Harness } from "./helpers/harness.js";
 
 // Listing runs with filters and a cursor, and deleting them. Rows are written straight into the
 // store, so these tests need no browser.
@@ -100,5 +100,75 @@ describe("runs list and delete", () => {
     const queued = await h.api("DELETE", "/runs/00000004");
     expect(queued.status).toBe(409);
     expect((await h.api("DELETE", "/runs/0000000f")).status).toBe(404);
+  });
+
+  it("cleans up ended runs no keep rule keeps, never labeled or going ones, with their files and events", async () => {
+    const day = 86_400_000;
+    const at = (daysAgo: number) => new Date(Date.now() - daysAgo * day).toISOString();
+    const { h, dataDir } = await withRuns([
+      { id: "000000c1", pack: "aaaaaaaa", status: "finished", at: at(40) },
+      { id: "000000c2", pack: "aaaaaaaa", status: "finished", at: at(35), label: "baseline" },
+      { id: "000000c3", pack: "aaaaaaaa", status: "interrupted", at: at(31) },
+      { id: "000000c4", pack: "aaaaaaaa", status: "finished", at: at(2) },
+      { id: "000000c5", pack: "aaaaaaaa", status: "finished", at: at(1) },
+      { id: "000000c6", pack: "bbbbbbbb", status: "stopped", at: at(50) },
+      { id: "000000c7", pack: "bbbbbbbb", status: "paused", at: at(45) },
+    ]);
+    mkdirSync(path.join(dataDir, "runs", "000000c1"), { recursive: true });
+    writeFileSync(path.join(dataDir, "runs", "000000c1", "result.json"), "{}");
+    h.app.watchwright.events.append("run.log", { message: "old" }, { runId: "000000c1" });
+    type Plan = { rules: { keepDays: number; keepPerPack: number }; runs: RunSummary[]; bytes: number; unmeasured: number };
+    const plan = async () => (await h.api<Plan>("GET", "/storage/cleanup")).data;
+    const set = (values: Record<string, number>) => h.api("POST", "/settings", { values });
+
+    // Off by default: nothing goes.
+    expect(await plan()).toMatchObject({ rules: { keepDays: 0, keepPerPack: 0 }, runs: [] });
+
+    // Older than 30 days, oldest first; the labeled and the paused run stay.
+    await set({ "runs.keepDays": 30 });
+    expect(ids((await plan()).runs)).toEqual(["000000c6", "000000c1", "000000c3"]);
+
+    // The last 2 of each pack: with both rules, a run either rule keeps stays.
+    await set({ "runs.keepDays": 0, "runs.keepPerPack": 2 });
+    expect(ids((await plan()).runs)).toEqual(["000000c1", "000000c3"]);
+    await set({ "runs.keepDays": 30, "runs.keepPerPack": 1 });
+    expect(ids((await plan()).runs)).toEqual(["000000c6", "000000c1", "000000c3"]);
+    await set({ "runs.keepDays": 3, "runs.keepPerPack": 4 });
+    expect(ids((await plan()).runs)).toEqual(["000000c1"]);
+
+    h.app.watchwright.store.db.prepare("UPDATE runs SET size_bytes = 2048 WHERE id = '000000c1'").run();
+    expect(await plan()).toMatchObject({ bytes: 2048, unmeasured: 0 });
+    // Deleting asks for approval unless the web page asks, as here.
+    const res = await h.app.inject({ method: "POST", url: "/api/v1/storage/cleanup", headers: { host: h.host, origin: `http://${h.host}` }, payload: {} });
+    expect(res.statusCode).toBe(200);
+    expect(ids((res.json() as { data: Plan }).data.runs)).toEqual(["000000c1"]);
+    expect(existsSync(path.join(dataDir, "runs", "000000c1"))).toBe(false);
+    const events = h.app.watchwright.events.after(0);
+    expect(events.filter((e) => e.runId === "000000c1").map((e) => e.type)).toEqual(["run.deleted"]);
+    expect(events.find((e) => e.type === "runs.cleaned")?.data).toMatchObject({ count: 1, bytes: 2048, rules: { keepDays: 3, keepPerPack: 4 } });
+    expect(ids((await h.api<RunSummary[]>("GET", "/runs")).data)).toEqual(["000000c5", "000000c4", "000000c3", "000000c2", "000000c7", "000000c6"]);
+    expect((await plan()).runs).toEqual([]);
+  });
+
+  it("after a restart, reports the runs the stop interrupted once, and resumes them when asked", async () => {
+    const { h } = await withRuns([
+      { id: "000000d1", pack: "aaaaaaaa", status: "interrupted", at: "2026-10-01T10:00:00.000Z" },
+      { id: "000000d2", pack: "aaaaaaaa", status: "interrupted", at: "2026-10-02T10:00:00.000Z" },
+      { id: "000000d3", pack: "aaaaaaaa", status: "finished", at: "2026-10-03T10:00:00.000Z" },
+    ]);
+    const db = h.app.watchwright.store.db;
+    const engine = engineOf(h);
+    db.prepare("UPDATE runs SET stopped_by_server = 1 WHERE id IN ('000000d1', '000000d3')").run();
+    expect(engine.afterRestart(false)).toEqual({ interrupted: ["000000d1"], resumed: [] });
+    expect(h.app.watchwright.events.after(0).find((e) => e.type === "runs.restarted")?.data).toEqual({ interrupted: ["000000d1"], resumed: [] });
+    // Each run once: a later start doesn't report it again.
+    expect(engine.afterRestart(true)).toEqual({ interrupted: [], resumed: [] });
+    expect((await h.api<RunSummary>("GET", "/runs/000000d1")).data.status).toBe("interrupted");
+
+    db.prepare("UPDATE runs SET stopped_by_server = 1 WHERE id = '000000d2'").run();
+    expect(engine.afterRestart(true)).toEqual({ interrupted: ["000000d2"], resumed: ["000000d2"] });
+    const log = h.app.watchwright.events.after(0).filter((e) => e.runId === "000000d2").map((e) => e.type);
+    expect(log).toContain("run.queued");
+    expect(log).toContain("run.log");
   });
 });

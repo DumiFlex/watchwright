@@ -6,10 +6,12 @@ import { computed } from "vue";
 import type { HistoryEntry } from "../api";
 import { entryText } from "../history";
 import { duration, when } from "../format";
-import { href } from "../router";
+import { useTileLinks } from "../tilelinks";
 import { vTip } from "../tooltip";
 
 const props = defineProps<{ entries: readonly HistoryEntry[]; label: string }>();
+// In the app each tick opens its attempt; a public page may have no page to open.
+const links = useTileLinks();
 
 const ticks = computed(() =>
   props.entries.map((e) => ({
@@ -17,7 +19,7 @@ const ticks = computed(() =>
     tone: e.status === "passed" ? "ok" : e.status === "failed" ? "bad" : e.status === "broken" ? "warn" : "rest",
     retried: e.try > 1,
     text: entryText(e, duration, when),
-    to: href({ name: "attempt", runId: e.runId, attemptId: e.attemptId }),
+    to: links.attempt(e.runId, e.attemptId) ?? undefined,
   })),
 );
 </script>
@@ -25,7 +27,7 @@ const ticks = computed(() =>
 <template>
   <ul class="history-strip" :aria-label="label">
     <li v-for="t in ticks" :key="t.key">
-      <a v-tip="t.text" class="tick" :class="[t.tone, { retried: t.retried }]" :href="t.to" :aria-label="t.text" />
+      <component :is="t.to ? 'a' : 'span'" v-tip="t.text" class="tick" :class="[t.tone, { retried: t.retried }]" :href="t.to" :aria-label="t.text" :tabindex="t.to ? undefined : 0" />
     </li>
   </ul>
 </template>

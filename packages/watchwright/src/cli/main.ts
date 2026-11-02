@@ -9,11 +9,15 @@ import { demoCommand } from "./demo.js";
 import { initAgentCommand } from "./init-agent.js";
 import { mcpCommand } from "./mcp.js";
 import { serveCommand } from "./serve.js";
+import { runnerCommand } from "./runner.js";
+import { usersCommand } from "./users.js";
+import { loginCommand, logoutCommand } from "./login.js";
 
 const HELP = `Watchwright ${VERSION}
 
 Usage:
-  watchwright serve [pack folder…] [--port ${DEFAULT_PORT}] [--host ${DEFAULT_HOST}] [--data <folder>] [--no-open]
+  watchwright serve [pack folder…] [--port ${DEFAULT_PORT}] [--host ${DEFAULT_HOST}] [--data <folder>] [--no-open] [--background]
+                    [--auth] [--public-url <address>]… [--trust-proxy <address>]…
   watchwright demo [--port ${DEFAULT_PORT}] [--data <folder>] [--no-open]
   watchwright status
   watchwright run <pack> [test…] [--param key=value]… [--preset <name>] [--label <text>] [--wait]
@@ -21,7 +25,11 @@ Usage:
   watchwright results <run> [--attempt <id>]
   watchwright actions
   watchwright mcp [--no-start]
-  watchwright init-agent [folder] [--agent claude,codex,cursor] [--no-mcp]
+  watchwright init-agent [folder] [--agent claude,codex,cursor] [--no-mcp] [--auth]
+  watchwright login [--name <name>] [--password-stdin] [--token <token>]
+  watchwright logout
+  watchwright runner [--server <address>] [--pair <code>] [--allow <list>]
+  watchwright users list|add|reset-password|role|disable|enable|remove …  (--help for details)
   watchwright <plugin> <verb> [args] [--options]     any action, such as: watchwright runs pause 0a1b2c3d
   watchwright --version
 
@@ -29,9 +37,20 @@ serve      Starts the server: the web app, the HTTP API and the store. It stays 
            Pack folders given after it are added (or reloaded when already added). When the
            server is already running on the port, it adds them there and opens the page.
   --port     Port to listen on (default ${DEFAULT_PORT}).
-  --host     Address to bind. Only loopback addresses for now (127.0.0.1, localhost, ::1).
+  --host     Address to bind (default: WATCHWRIGHT_HOST, else 127.0.0.1). Any address other than
+             127.0.0.1, localhost or ::1 needs --auth.
+  --auth     Login on: the web page asks people to sign in, and the CLI, scripts and agents send a
+             token (WATCHWRIGHT_TOKEN). Also WATCHWRIGHT_AUTH=on. The first start prints a link that
+             creates the first admin.
+  --public-url  An address people reach the server at, such as https://watchwright.home.lan
+             (repeat it, or WATCHWRIGHT_PUBLIC_URL with commas). Requests may name these hosts.
+  --trust-proxy  The reverse proxy whose X-Forwarded-* headers count (an address or a range such
+             as 172.18.0.0/16; repeat it, or WATCHWRIGHT_TRUST_PROXY with commas).
   --data     Folder for the database and run files (default: WATCHWRIGHT_DATA, else the OS's app data folder).
   --no-open  Don't open the web page in the browser on start.
+  --background  Run the server as its own process with no window, so no terminal has to stay
+             open. Its output goes to logs/server.log in the data folder. The command returns once
+             the server answers; stop the server from Settings > Server in the web app.
 
 demo       A first run in one command: gets Playwright's Chromium when it's missing, copies the
            TodoMVC example pack into the data folder (demo/todomvc), starts the server (or uses
@@ -53,7 +72,24 @@ mcp        The MCP server over stdio, for agents that start a process (Claude De
 init-agent Sets up a project (default: this folder) for AI agents: the Watchwright skill where
            Claude Code, Codex or Cursor look for skills, and the MCP server in the project's
            settings (merged; Codex gets a command to run). Without --agent: the agents whose
-           folders the project has, else all three. --no-mcp writes only the skill.
+           folders the project has, else all three. --no-mcp writes only the skill. When the server
+           has login on (or with --auth), the settings send the token from WATCHWRIGHT_TOKEN.
+login      Signs in to a server that has login on (asks for name and password, or --name and
+           --password-stdin), makes an API token named after this machine and saves it for that
+           server, so commands and \`watchwright mcp\` send it. --token <token> saves a token made on
+           the web page instead (for single sign-on accounts).
+logout     Removes the saved token, on the server and here.
+runner     Lets a server reach sites through this machine (a site on this PC's localhost, for a
+           server in Docker or elsewhere). Add the runner in the server's Settings › Runners, which
+           shows the command with a one-time pair code; afterwards \`watchwright runner\` connects
+           again by itself. Runs until stopped.
+  --pair     The pair code (works once, for 15 minutes). The token it gives is saved in the config folder.
+  --allow    What the server may open here: loopback (the default: any port on this machine),
+             host:port or host:*, separated by commas. Saved; only this machine can change it.
+users      Accounts for login, on this machine's data folder (works with the server stopped):
+           list, add <name> [--role admin|user|viewer], reset-password <name>, role <name> <role>,
+           disable <name>, enable <name>, remove <name>. Passwords are asked for at the terminal,
+           or read from standard input with --password-stdin.
 actions    Every action the server has. Each one is a command: its name's words, path parameters
            in order, the rest as --options (--help after it lists them). Prints the data as JSON.
 
@@ -62,6 +98,7 @@ Everywhere:
   --as <name>         Who is calling, shown on runs (default: WATCHWRIGHT_CLIENT, else the agent
                       this runs under, such as Claude Code or Codex, else cli).
   --json              Print the data as JSON instead of text.
+  WATCHWRIGHT_TOKEN   An API token for a server with login on; wins over the one \`login\` saved.
 
 Exit codes: 0 done (a run passed), 1 failed, 2 bad usage, 3 no server, 4 the run had failed or
 broken attempts, 5 the run is paused, 6 the run still goes, 7 an action waits for approval on
@@ -116,14 +153,18 @@ async function main(argv: string[]): Promise<number> {
     return command === undefined ? EXIT.usage : EXIT.ok;
   }
   // These parse their own options; --help after them shows the help above, where they are described.
-  if ((command === "serve" || command === "demo" || command === "mcp" || command === "init-agent") && (argv.includes("--help") || argv.includes("-h"))) {
+  if ((command === "serve" || command === "demo" || command === "mcp" || command === "init-agent" || command === "login" || command === "logout") && (argv.includes("--help") || argv.includes("-h"))) {
     console.log(HELP);
     return EXIT.ok;
   }
   if (command === "serve") return serveCommand(argv.slice(1));
   if (command === "demo") return demoCommand(argv.slice(1));
   if (command === "mcp") return mcpCommand(argv.slice(1));
-  if (command === "init-agent") return guarded(processIo, false, () => Promise.resolve(initAgentCommand(processIo, argv.slice(1))));
+  if (command === "users") return usersCommand(argv.slice(1));
+  if (command === "runner") return guarded(processIo, false, () => runnerCommand(argv.slice(1)));
+  if (command === "login") return guarded(processIo, false, () => loginCommand(argv.slice(1)));
+  if (command === "logout") return guarded(processIo, false, () => logoutCommand(argv.slice(1)));
+  if (command === "init-agent") return guarded(processIo, false, () => initAgentCommand(processIo, argv.slice(1)));
 
   const args = argv.slice(1);
   const io = processIo;

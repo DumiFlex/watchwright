@@ -1,0 +1,35 @@
+# Watchwright behind Caddy, which gets an HTTPS certificate for your domain by itself.
+# Point the domain's DNS at this machine, open ports 80 and 443, put your domain in the
+# Caddyfile next to this file and below, then: docker compose -f compose.caddy.yml up -d
+# See https://dumiflex.github.io/watchwright/guide/self-hosting#caddy
+
+services:
+  watchwright:
+    image: ghcr.io/dumiflex/watchwright:latest
+    restart: unless-stopped
+    init: true
+    shm_size: 1gb
+    volumes:
+      - /opt/watchwright/data:/data
+      - /opt/watchwright/packs:/packs
+    environment:
+      WATCHWRIGHT_PUBLIC_URL: "https://watchwright.example.com"
+      # Caddy reaches Watchwright over this stack's network.
+      WATCHWRIGHT_TRUST_PROXY: "172.16.0.0/12"
+      TZ: "Etc/UTC"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  caddy-data:
+  caddy-config:

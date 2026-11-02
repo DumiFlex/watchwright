@@ -1,4 +1,5 @@
 import { ActionError, defineAction } from "../../actions/registry.js";
+import { hasDesktop } from "../../host.js";
 import { definePlugin } from "../../core/plugin.js";
 import { serviceKey } from "../../core/services.js";
 import { FRAMES } from "../live/hub.js";
@@ -7,6 +8,7 @@ import { PACKS } from "../packs/registry.js";
 import { STEP_BY_NAME, type StepArgs } from "../packs/yaml/steps.js";
 import type { Target } from "../packs/yaml/targets.js";
 import { ENGINE, FILES_ROOT } from "../runs/plugin.js";
+import { RUNNERS } from "../runners/plugin.js";
 import { SECRETS } from "../secrets/plugin.js";
 import { SIGNINS } from "../signins/plugin.js";
 import { stepsYaml } from "./explore.js";
@@ -52,10 +54,8 @@ export class Recordings {
 export const RECORDINGS = serviceKey<Recordings>("record.sessions");
 
 /** True when a browser window can open on the server's machine (Record in a window). */
-export function canOpenWindow(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): boolean {
-  if (platform === "win32" || platform === "darwin") return true;
-  return Boolean(env.DISPLAY || env.WAYLAND_DISPLAY);
-}
+/** Whether a recording can open a window on this machine: only on a desktop (see host.ts). */
+export const canOpenWindow = hasDesktop;
 
 const REC = { type: "string", pattern: "^[0-9a-f]{8}$", description: "Recording id." } as const;
 const STEP_ID = { type: "string", pattern: "^s[0-9]+$" } as const;
@@ -151,6 +151,7 @@ export const recordPlugin = definePlugin({
               secret: (name) => services.get(SECRETS).get(name),
               signIn: (k) => services.get(SIGNINS).get(k),
               saveSignIn: (k, state, source) => void services.get(SIGNINS).save(k, state, source),
+              proxy: (network) => services.get(RUNNERS).proxy(network, () => undefined),
             },
           );
           recordings.add(session);
@@ -237,6 +238,7 @@ export const recordPlugin = definePlugin({
       }),
       defineAction<{ id: string }>({
         name: "record.save-sign-in",
+        access: "admin",
         destructive: true,
         explain: ({ id }) => `Save the sign-in of recording ${id} for its site, replacing the one saved before`,
         title: "Save the recording's cookies and local storage as its site's sign-in, for runs that start signed in",

@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type Database from "better-sqlite3";
 import type { ArtifactInfo, FlagRecord, LogLine, MetricRecord, StepRecord } from "../../jobs/recorder.js";
-import type { Outcome, ParamValues } from "../packs/api.js";
+import type { Outcome, ParamValues, VideoSetting } from "../packs/api.js";
 import type { AttemptError } from "../../jobs/kind.js";
 import type { QueueEdits } from "./queue.js";
 import type { StatsRows } from "./stats.js";
@@ -30,6 +30,11 @@ export const RUNS_ARTIFACT_SET_SQL = `ALTER TABLE runs_artifacts ADD COLUMN set_
 
 /** Migration 3: facts a run learns while it runs (`info(key, value)` in setup and tests). */
 export const RUNS_INFO_SQL = `ALTER TABLE runs ADD COLUMN info TEXT NOT NULL DEFAULT '{}';`;
+/** Bytes a run's folder takes; null until measured. */
+export const RUNS_SIZE_SQL = `ALTER TABLE runs ADD COLUMN size_bytes INTEGER;`;
+
+/** Migration 7: runs the server's stop interrupted, to resume (or report) when it starts again. */
+export const RUNS_STOPPED_BY_SERVER_SQL = `ALTER TABLE runs ADD COLUMN stopped_by_server INTEGER NOT NULL DEFAULT 0;`;
 export const RUNS_STEPS_SQL = `ALTER TABLE runs_attempts ADD COLUMN steps TEXT NOT NULL DEFAULT '[]';`;
 
 /** Migration 4: a run's optional label, and presets (named run choices per pack). */
@@ -128,6 +133,7 @@ export interface RunRow {
   created_at: string;
   started_at: string | null;
   finished_at: string | null;
+  size_bytes: number | null;
 }
 
 export interface AttemptRow {
@@ -161,10 +167,16 @@ export interface RunOptions {
   attempts?: number;
   /** Which attempts keep a trace, instead of the pack's setting. */
   trace?: "problems" | "always" | "never";
-  /** Record video, instead of the pack's setting. */
-  video?: boolean;
+  /** Which attempts keep a video, instead of the pack's setting (`true` is always, `false` never). */
+  video?: VideoSetting;
+  /** Record one video of the whole run, instead of the pack's setting. */
+  runVideo?: boolean;
+  /** Time limit for every attempt in ms, over the tests' and the pack's own (set while the run goes). */
+  testTimeout?: number;
   /** Start with the site's saved sign-in (true) or without it (false), instead of the pack's `site.signIn`. */
   signIn?: boolean;
+  /** Where the browser reaches the site from: "server", or a runner's name, instead of the pack's `site.network`. */
+  network?: string;
   /** Queue edits made while the run went (order, skipped attempts). */
   queue?: QueueEdits;
   /** Items the job kind added while the run went (`AttemptEnv.addItem`), in the order added. */
@@ -179,8 +191,10 @@ export interface RunChoices {
   pauseLimitMinutes?: number;
   attempts?: number;
   trace?: "problems" | "always" | "never";
-  video?: boolean;
+  video?: VideoSetting;
+  runVideo?: boolean;
   signIn?: boolean;
+  network?: string;
 }
 
 export interface Preset {
@@ -254,6 +268,8 @@ export interface RunSummary {
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
+  /** Bytes the run's folder takes on the drive (results, screenshots, videos, traces); null until measured. */
+  sizeBytes: number | null;
   counts: Record<AttemptStatus, number> & { planned: number };
 }
 
@@ -279,7 +295,7 @@ const EMPTY_COUNTS = (): RunSummary["counts"] => ({ passed: 0, failed: 0, broken
 export class RunsRepo {
   constructor(readonly db: Database.Database) {}
 
-  insertRun(r: Omit<RunRow, "plan" | "state" | "info" | "label" | "mode" | "error" | "started_at" | "finished_at" | "job_kind"> & { job_kind: string; label?: string }): void {
+  insertRun(r: Omit<RunRow, "plan" | "state" | "info" | "label" | "mode" | "error" | "started_at" | "finished_at" | "job_kind" | "size_bytes"> & { job_kind: string; label?: string }): void {
     this.db
       .prepare(
         `INSERT INTO runs (id, pack_id, pack_name, pack_path, site_key, job_kind, tests, params, options, label, status, started_by, created_at)
@@ -326,16 +342,52 @@ export class RunsRepo {
     return this.db.prepare(sql).all(...args, filter.limit ?? 100) as RunRow[];
   }
 
-  /** Removes a run with its attempts and artifacts (the events stay in the log). */
+  /** Removes a run with its attempts and artifacts. */
   deleteRun(id: string): boolean {
     return this.db.prepare("DELETE FROM runs WHERE id = ?").run(id).changes > 0;
+  }
+
+  /** Ended runs whose size isn't measured yet, newest first. */
+  unmeasured(): string[] {
+    return (this.db.prepare("SELECT id FROM runs WHERE size_bytes IS NULL AND status NOT IN ('queued', 'running', 'pausing', 'paused') ORDER BY created_at DESC").all() as { id: string }[]).map((r) => r.id);
+  }
+
+  /** Runs, their measured bytes, and how many aren't measured yet. */
+  sizeTotals(): { runs: number; bytes: number; unmeasured: number } {
+    const r = this.db.prepare("SELECT COUNT(*) AS runs, COALESCE(SUM(size_bytes), 0) AS bytes, SUM(CASE WHEN size_bytes IS NULL THEN 1 ELSE 0 END) AS unmeasured FROM runs").get() as { runs: number; bytes: number; unmeasured: number | null };
+    return { runs: r.runs, bytes: r.bytes, unmeasured: r.unmeasured ?? 0 };
+  }
+
+  /**
+   * Ended runs that no cleanup rule keeps, oldest first. A rule left at 0 is off; with both on, a
+   * run is kept when either keeps it (younger than `keepDays`, or among the `keepPerPack` newest
+   * runs of its pack). Labeled runs are always kept.
+   */
+  cleanupCandidates(o: { keepDays: number; keepPerPack: number; now?: Date }): RunRow[] {
+    if (o.keepDays <= 0 && o.keepPerPack <= 0) return [];
+    const before = new Date((o.now ?? new Date()).getTime() - o.keepDays * 86_400_000).toISOString();
+    const keep: string[] = [];
+    if (o.keepDays > 0) keep.push("created_at >= @before");
+    if (o.keepPerPack > 0) keep.push("rank <= @keepPerPack");
+    return this.db
+      .prepare(
+        `SELECT * FROM (SELECT runs.*, runs.rowid AS row_no, ROW_NUMBER() OVER (PARTITION BY pack_id ORDER BY created_at DESC, runs.rowid DESC) AS rank FROM runs)
+         WHERE label = '' AND status NOT IN ('queued', 'running', 'pausing', 'paused') AND NOT (${keep.join(" OR ")})
+         ORDER BY created_at, row_no`,
+      )
+      .all({ before, keepPerPack: o.keepPerPack }) as RunRow[];
+  }
+
+  /** The runs that take the most room, largest first. */
+  largest(limit: number): RunRow[] {
+    return this.db.prepare("SELECT * FROM runs WHERE size_bytes IS NOT NULL ORDER BY size_bytes DESC LIMIT ?").all(limit) as RunRow[];
   }
 
   queued(): RunRow[] {
     return this.db.prepare("SELECT * FROM runs WHERE status = 'queued' ORDER BY created_at, rowid").all() as RunRow[];
   }
 
-  updateRun(id: string, fields: Partial<Pick<RunRow, "status" | "mode" | "tests" | "plan" | "options" | "state" | "info" | "label" | "error" | "started_at" | "finished_at">>): void {
+  updateRun(id: string, fields: Partial<Pick<RunRow, "status" | "mode" | "tests" | "plan" | "options" | "state" | "info" | "label" | "error" | "started_at" | "finished_at" | "size_bytes">>): void {
     const keys = Object.keys(fields);
     if (keys.length === 0) return;
     this.db.prepare(`UPDATE runs SET ${keys.map((k) => `${k} = @${k}`).join(", ")} WHERE id = @id`).run({ ...fields, id });
@@ -345,10 +397,24 @@ export class RunsRepo {
   interruptLeftovers(): string[] {
     const ids = (this.db.prepare(`SELECT id FROM runs WHERE status IN ('running', 'pausing', 'paused')`).all() as { id: string }[]).map((r) => r.id);
     this.db.transaction(() => {
-      this.db.prepare(`UPDATE runs SET status = 'interrupted' WHERE status IN ('running', 'pausing', 'paused')`).run();
+      this.db.prepare(`UPDATE runs SET status = 'interrupted', stopped_by_server = 1 WHERE status IN ('running', 'pausing', 'paused')`).run();
       this.db.prepare(`UPDATE runs_attempts SET status = 'interrupted' WHERE status = 'running'`).run();
     })();
     return ids;
+  }
+
+  /** Marks a run the server's stop interrupted. */
+  markStoppedByServer(id: string): void {
+    this.db.prepare("UPDATE runs SET stopped_by_server = 1 WHERE id = ?").run(id);
+  }
+
+  /** The runs the last stop interrupted, oldest first, and forgets them. */
+  takeStoppedByServer(): string[] {
+    return this.db.transaction(() => {
+      const ids = (this.db.prepare("SELECT id FROM runs WHERE stopped_by_server = 1 AND status = 'interrupted' ORDER BY created_at, rowid").all() as { id: string }[]).map((r) => r.id);
+      this.db.prepare("UPDATE runs SET stopped_by_server = 0 WHERE stopped_by_server = 1").run();
+      return ids;
+    })();
   }
 
   /** Starts a new try of an attempt: older tries of the same (item, number) stop being current. */
@@ -558,6 +624,7 @@ export function runSummary(r: RunRow, counts: RunSummary["counts"]): RunSummary 
     createdAt: r.created_at,
     startedAt: r.started_at,
     finishedAt: r.finished_at,
+    sizeBytes: r.size_bytes ?? null,
     counts,
   };
 }

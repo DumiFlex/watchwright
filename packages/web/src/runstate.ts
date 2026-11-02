@@ -91,3 +91,22 @@ export function noteFor(type: string, data: Record<string, unknown>, run: Pick<R
   if (type === "run.failed_to_start") return { title: `Didn't start: ${name}`, body: String(data.message ?? ""), tag };
   return null;
 }
+
+const TRACE_WORDS: Record<string, string> = { problems: "only on problems", always: "always", never: "never" };
+
+/** A log line for a `run.settings` event: who changed what. */
+export function settingsText(data: Record<string, unknown>): string {
+  const c = (data.changed ?? {}) as Record<string, unknown>;
+  const bits: string[] = [];
+  if (typeof c.pauseOnBroken === "boolean") bits.push(c.pauseOnBroken ? "pause when a test breaks" : "don't pause when a test breaks");
+  if (typeof c.pauseLimitMinutes === "number") bits.push(`skip a broken test after ${c.pauseLimitMinutes} min`);
+  if (c.testTimeoutMinutes === null) bits.push("each test's own time limit");
+  else if (typeof c.testTimeoutMinutes === "number") bits.push(`${c.testTimeoutMinutes} min per test`);
+  if (typeof c.trace === "string") bits.push(`trace ${TRACE_WORDS[c.trace] ?? c.trace}`);
+  if (c.video === true || c.video === "always") bits.push("video of every attempt");
+  else if (c.video === "problems") bits.push("video only on problems");
+  else if (c.video === false || c.video === "never") bits.push("no video");
+  if (typeof c.runVideo === "boolean") bits.push(c.runVideo ? "run video on" : "run video off");
+  const by = typeof data.by === "string" && data.by ? ` (${data.by})` : "";
+  return `Settings changed${by}: ${bits.join(", ") || "nothing"}.`;
+}

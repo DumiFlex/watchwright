@@ -83,6 +83,9 @@ export function slug(name: string): string {
   return s || "item";
 }
 
+/** Most log lines one attempt keeps (and announces). */
+export const MAX_LOG_LINES = 10_000;
+
 export class AttemptRecorder {
   readonly artifacts: ArtifactInfo[] = [];
   readonly log: LogLine[] = [];
@@ -143,8 +146,21 @@ export class AttemptRecorder {
     step.status = ok ? "passed" : "failed";
   }
 
+  /** Log lines past `MAX_LOG_LINES` that weren't kept. */
+  droppedLog = 0;
+
   addLog(level: LogLine["level"], message: string): void {
-    const line = { time: new Date().toISOString(), level, message };
+    const time = new Date().toISOString();
+    if (this.log.length >= MAX_LOG_LINES) {
+      // A test logging in a loop must not grow one row and the event log without end.
+      if (this.droppedLog++ === 0) {
+        const line = { time, level: "warn" as const, message: `The attempt has logged ${MAX_LOG_LINES} lines, its limit; later lines aren't kept.` };
+        this.log.push(line);
+        this.onLog(line);
+      }
+      return;
+    }
+    const line = { time, level, message };
     this.log.push(line);
     this.onLog(line);
   }

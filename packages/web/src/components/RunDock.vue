@@ -9,6 +9,7 @@ import { firstOwnFrame, type SourceSpot } from "../editor";
 import { countsText } from "../format";
 import { ExternalLink } from "../icons";
 import { LiveConnection, type LiveState } from "../live";
+import { AttemptPatches, eventAttempt } from "../run-patch";
 import { href } from "../router";
 import LiveViewer from "./LiveViewer.vue";
 import StatusChip from "./StatusChip.vue";
@@ -47,8 +48,11 @@ async function loadResult() {
 }
 watch(() => [lastAttempt.value?.id, lastAttempt.value?.status, pausedBroken.value], () => void loadResult());
 
+const patches = new AttemptPatches();
 async function load() {
+  patches.begin();
   const res = await getJson<RunDetail>(`/api/v1/runs/${props.runId}`);
+  patches.end(res.ok ? res.data : null);
   if (!res.ok) {
     error.value = res.error.message;
     return;
@@ -82,7 +86,14 @@ function onEvent(e: WwEvent) {
     if (p) p.url = String(d.url ?? "");
   } else if (e.type === "page.closed") pages.value = pages.value.filter((p) => p.id !== d.pageId);
   else if (e.type === "page.active") activePageId.value = String(d.pageId);
-  if (e.type.startsWith("run.") || e.type.startsWith("attempt.started") || e.type.startsWith("attempt.finished")) later();
+  if (e.type === "attempt.started" || e.type === "attempt.finished") {
+    // The attempt's row comes with the event; the whole run is fetched only when it didn't.
+    const a = eventAttempt(e);
+    if (a && run.value && !timer) patches.apply(run.value, a, e.type === "attempt.started");
+    else later();
+  } else if (e.type === "run.measured") {
+    if (run.value && typeof d.sizeBytes === "number") run.value.sizeBytes = d.sizeBytes;
+  } else if (e.type.startsWith("run.") && e.type !== "run.log") later();
 }
 
 let conn: LiveConnection | null = null;
@@ -90,8 +101,12 @@ function connect() {
   conn?.close();
   pages.value = [];
   step.value = null;
-  conn = new LiveConnection({ runId: props.runId, frames: true, after: 0 }, { onState: (s) => (liveState.value = s), onEvent, onFrame: (h, jpeg) => void viewer.value?.push(h, jpeg) });
-  void load();
+  // From now on only: the run's state (pages, step, attempts) comes from load(), so the dock never
+  // replays a long run's events, nor shows an old step as the current one while it would.
+  conn = new LiveConnection(
+    { runId: props.runId, frames: true },
+    { onState: (s) => (liveState.value = s), onHello: () => void load(), onEvent, onFrame: (h, jpeg) => void viewer.value?.push(h, jpeg) },
+  );
 }
 watch(() => props.runId, connect, { immediate: true });
 onBeforeUnmount(() => {

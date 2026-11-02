@@ -1,23 +1,28 @@
-import { createReadStream, existsSync, mkdtempSync, statSync } from "node:fs";
+import { createReadStream, existsSync, mkdtempSync, realpathSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import fastifyStatic from "@fastify/static";
 import { ActionError, defineAction, type ObjectSchema } from "../../actions/registry.js";
 import { MAX_EVENT_WAIT_S } from "../../core/core-plugin.js";
+import { whoCalls } from "../../core/access.js";
 import { definePlugin } from "../../core/plugin.js";
+import { withAccess } from "../../core/route-access.js";
 import { serviceKey } from "../../core/services.js";
 import { contentTypeOf } from "../../jobs/recorder.js";
+import { sizeText } from "../../jobs/storage.js";
 import { errorBody } from "../../server/errors.js";
 import { FRAMES } from "../live/hub.js";
 import { PACKS } from "../packs/registry.js";
 import { SETTINGS } from "../settings/plugin.js";
 import { JobKinds } from "../../jobs/kinds.js";
 import { SECRETS } from "../secrets/plugin.js";
+import { RUNNERS } from "../runners/plugin.js";
 import { SIGNINS } from "../signins/plugin.js";
 import { digest, readRunFile, waitForRun } from "./digest.js";
-import { Engine, EngineError } from "./engine.js";
-import { RUNS_ARTIFACT_SET_SQL, RUNS_INFO_SQL, RUNS_LABELS_PRESETS_SQL, RUNS_MIGRATION_SQL, RUNS_STEPS_SQL, RunsRepo, type RunChoices, type RunOptions, type RunStatus } from "./repo.js";
+import { DEFAULT_STORAGE_LIMITS, Engine, EngineError } from "./engine.js";
+import { RUNS_ARTIFACT_SET_SQL, RUNS_INFO_SQL, RUNS_LABELS_PRESETS_SQL, RUNS_MIGRATION_SQL, RUNS_SIZE_SQL, RUNS_STEPS_SQL, RUNS_STOPPED_BY_SERVER_SQL, RunsRepo, type RunChoices, type RunOptions, type RunStatus } from "./repo.js";
+import type { VideoSetting } from "../packs/api.js";
 
 export const ENGINE = serviceKey<Engine>("runs.engine");
 /** Job kinds by name: a plugin registers its kinds here in `setup` (the testing plugin registers `test`). */
@@ -73,8 +78,13 @@ const CHOICE_PROPS = {
   pauseLimitMinutes: { type: "number", minimum: 0.05, maximum: 1440 },
   attempts: { type: "integer", minimum: 1, maximum: 100, description: "Attempts for every test, instead of each test's own count." },
   trace: { type: "string", enum: ["problems", "always", "never"], description: "Which attempts keep a Playwright trace (default: the pack's setting, else problems)." },
-  video: { type: "boolean", description: "Record a video per attempt (default: the pack's setting, else true)." },
+  video: {
+    anyOf: [{ type: "boolean" }, { type: "string", enum: ["always", "problems", "never"] }],
+    description: "Which attempts keep a video: always (also true), problems (failed or broken) or never (also false). Default: the pack's setting, else always.",
+  },
+  runVideo: { type: "boolean", description: "Record one video of the whole run, of what the live view follows (default: the pack's setting, else false)." },
   signIn: { type: "boolean", description: "Start with the site's saved sign-in (default: the pack's site.signIn)." },
+  network: { type: "string", minLength: 1, maxLength: 60, description: 'Where the browser reaches the site from: "server" or a runner\'s name (default: the pack\'s site.network, else server). GET /runners lists the runners.' },
 } as const;
 const CHOICE_KEYS = Object.keys(CHOICE_PROPS) as (keyof RunChoices)[];
 const PACK_ID = { type: "string", pattern: "^[0-9a-f]{8}$" } as const;
@@ -108,7 +118,9 @@ function runOptions(input: RunChoices): RunOptions {
   if (input.attempts !== undefined) o.attempts = input.attempts;
   if (input.trace !== undefined) o.trace = input.trace;
   if (input.video !== undefined) o.video = input.video;
+  if (input.runVideo !== undefined) o.runVideo = input.runVideo;
   if (input.signIn !== undefined) o.signIn = input.signIn;
+  if (input.network !== undefined) o.network = input.network;
   return o;
 }
 
@@ -126,6 +138,13 @@ function filesRoot(dataDir: string): string {
   return dataDir === ":memory:" ? mkdtempSync(path.join(tmpdir(), "watchwright-files-")) : dataDir;
 }
 
+/** Each engine's listener for unhandled rejections, taken off when its server closes. */
+const strays = new WeakMap<Engine, (reason: unknown) => void>();
+const sweeps = new WeakMap<Engine, ReturnType<typeof setTimeout>>();
+/** The cleanup sweep runs a minute after start (once every plugin is ready), then once a day. */
+const FIRST_SWEEP_MS = 60_000;
+const SWEEP_EVERY_MS = 24 * 60 * 60_000;
+
 /** Runs: starting, controlling and reading them, and the files they save. */
 export const runsPlugin = definePlugin({
   name: "runs",
@@ -139,6 +158,8 @@ export const runsPlugin = definePlugin({
     { id: 3, name: "run-info", sql: RUNS_INFO_SQL },
     { id: 4, name: "labels-presets", sql: RUNS_LABELS_PRESETS_SQL },
     { id: 5, name: "attempt-steps", sql: RUNS_STEPS_SQL },
+    { id: 6, name: "run-size", sql: RUNS_SIZE_SQL },
+    { id: 7, name: "stopped-by-server", sql: RUNS_STOPPED_BY_SERVER_SQL },
   ],
   setup({ store, events, services }) {
     const dataDir = filesRoot(store.dataDir);
@@ -148,6 +169,37 @@ export const runsPlugin = definePlugin({
       title: "What New run starts from: the pack's latest run, or the pack's defaults",
       schema: { type: "string", enum: ["latest", "defaults"] },
       default: "latest",
+    });
+    const settings = services.get(SETTINGS);
+    settings.define({
+      key: "runs.storageWarnGB",
+      title: "Warn when the drive with the data folder has less free space than this, in GB",
+      schema: { type: "number", minimum: 0, maximum: 100000 },
+      default: DEFAULT_STORAGE_LIMITS.warnBelowGB,
+    });
+    settings.define({
+      key: "runs.storageStopGB",
+      title: "Stop recording videos when the drive has less free space than this, in GB (runs go on)",
+      schema: { type: "number", minimum: 0, maximum: 100000 },
+      default: DEFAULT_STORAGE_LIMITS.stopBelowGB,
+    });
+    settings.define({
+      key: "runs.resumeOnStart",
+      title: "Resume runs a stop or crash of Watchwright interrupted when it starts again",
+      schema: { type: "boolean" },
+      default: false,
+    });
+    settings.define({
+      key: "runs.keepDays",
+      title: "Delete ended runs older than this many days (0 keeps them; labeled runs are always kept)",
+      schema: { type: "integer", minimum: 0, maximum: 36500 },
+      default: 0,
+    });
+    settings.define({
+      key: "runs.keepPerPack",
+      title: "Keep only this many of each pack's newest runs (0 keeps them all; labeled runs are always kept)",
+      schema: { type: "integer", minimum: 0, maximum: 100000 },
+      default: 0,
     });
     const repo = new RunsRepo(store.db);
     services.provide(RUNS_REPO, repo);
@@ -162,16 +214,53 @@ export const runsPlugin = definePlugin({
       kinds,
       secrets: services.has(SECRETS) ? services.get(SECRETS) : undefined,
       signIns: services.has(SIGNINS) ? services.get(SIGNINS) : undefined,
+      runners: services.has(RUNNERS) ? services.get(RUNNERS) : undefined,
+      storageLimits: () => ({ warnBelowGB: settings.get<number>("runs.storageWarnGB"), stopBelowGB: settings.get<number>("runs.storageStopGB") }),
+      cleanupRules: () => ({ keepDays: settings.get<number>("runs.keepDays"), keepPerPack: settings.get<number>("runs.keepPerPack") }),
     });
     engine.recover();
     services.provide(ENGINE, engine);
+    // With a listener here, Node no longer exits on an unhandled rejection (its default), so one
+    // test that forgot an `await` can't stop every run on the server.
+    const stray = (reason: unknown) => console.error(engine.strayError(reason));
+    process.on("unhandledRejection", stray);
+    strays.set(engine, stray);
   },
   // Queued runs start once every plugin has registered its job kinds.
   ready({ services }) {
-    services.get(ENGINE).schedule();
+    const engine = services.get(ENGINE);
+    // After every plugin's ready (alerts listen from theirs), so runs.restarted reaches them.
+    const settings = services.get(SETTINGS);
+    engine.schedule();
+    setImmediate(() => {
+      try {
+        engine.afterRestart(settings.get<boolean>("runs.resumeOnStart") === true);
+      } catch {
+        // The server closed before it got here (the store is gone): the runs wait for the next start.
+      }
+    });
+    // Runs from before sizes were kept, measured in the background.
+    void engine.measureMissing().catch(() => undefined);
+    // Cleanup: off until a rule is set in Settings > Storage, then a sweep a day.
+    const sweep = (delay: number) => {
+      const timer = setTimeout(() => {
+        void engine
+          .cleanup("schedule")
+          .catch((err: unknown) => console.error(`Cleanup failed: ${err instanceof Error ? err.message : String(err)}`))
+          .finally(() => sweeps.has(engine) && sweep(SWEEP_EVERY_MS));
+      }, delay);
+      timer.unref();
+      sweeps.set(engine, timer);
+    };
+    sweep(FIRST_SWEEP_MS);
   },
   async close({ services }) {
-    await services.get(ENGINE).close();
+    const engine = services.get(ENGINE);
+    const stray = strays.get(engine);
+    if (stray) process.off("unhandledRejection", stray);
+    clearTimeout(sweeps.get(engine));
+    sweeps.delete(engine);
+    await engine.close();
   },
   actions: ({ services, events }) => {
     const engine = services.get(ENGINE);
@@ -191,7 +280,7 @@ export const runsPlugin = definePlugin({
       return { ...preset.choices, ...choicesOf(input), packId: input.packId, ...(input.label !== undefined ? { label: input.label } : {}), ...(input.kind !== undefined ? { kind: input.kind } : {}) };
     };
     const control = (name: string, verb: string, title: string, fn: (id: string, client: string) => unknown) =>
-      defineAction<{ id: string }>({ name, title, method: "POST", path: `/runs/:id/${verb}`, input: byId, handler: ({ id }, { client }) => guard(() => fn(id, client)) });
+      defineAction<{ id: string }>({ name, title, method: "POST", path: `/runs/:id/${verb}`, input: byId, handler: ({ id }, { client: caller, user }) => guard(() => fn(id, whoCalls(caller, user))) });
     const CONTROLS = {
       pause: (id: string, client: string) => engine.pause(id, client),
       resume: (id: string) => engine.resume(id),
@@ -270,9 +359,9 @@ export const runsPlugin = definePlugin({
         path: "/runs",
         status: 201,
         input: START_INPUT,
-        handler: (body, { client }) => {
+        handler: (body, { client: caller, user }) => {
           const input = withPreset(body);
-          return guard(() => engine.start({ packId: input.packId, tests: input.tests, params: input.params, startedBy: client, options: runOptions(input), label: input.label, kind: input.kind }));
+          return guard(() => engine.start({ packId: input.packId, tests: input.tests, params: input.params, startedBy: whoCalls(caller, user), options: runOptions(input), label: input.label, kind: input.kind }));
         },
       }),
       defineAction<{ id: string }>({
@@ -282,7 +371,7 @@ export const runsPlugin = definePlugin({
         path: "/runs/:id/again",
         status: 201,
         input: byId,
-        handler: ({ id }, { client }) => guard(() => engine.again(id, client)),
+        handler: ({ id }, { client: caller, user }) => guard(() => engine.again(id, whoCalls(caller, user))),
       }),
       defineAction<{ id: string; label: string }>({
         name: "runs.label",
@@ -408,8 +497,8 @@ export const runsPlugin = definePlugin({
         method: "POST",
         path: "/runs/:id/control",
         input: { type: "object", properties: { id: RUN_ID, do: { type: "string", enum: Object.keys(CONTROLS) } }, required: ["id", "do"] },
-        handler: async ({ id, do: what }, { client }) => {
-          await guard(() => CONTROLS[what](id, client));
+        handler: async ({ id, do: what }, { client: caller, user }) => {
+          await guard(() => CONTROLS[what](id, whoCalls(caller, user)));
           return digest(engine.get(id)!);
         },
       }),
@@ -424,6 +513,57 @@ export const runsPlugin = definePlugin({
           if (!engine.get(id)) notFound(id);
           return readRunFile(dataDir, id, rel) ?? notFound(`${id}: ${rel}`);
         },
+      }),
+      defineAction<{ id: string; pauseOnBroken?: boolean; pauseLimitMinutes?: number; testTimeoutMinutes?: number; trace?: "problems" | "always" | "never"; video?: VideoSetting; runVideo?: boolean }>({
+        name: "runs.settings",
+        title: "Change a going or queued run's settings: they're kept with the run and apply from the next attempt; a new pause limit applies at once to a broken pause, and the run video starts or stops at once",
+        method: "POST",
+        path: "/runs/:id/settings",
+        input: {
+          type: "object",
+          properties: {
+            id: RUN_ID,
+            pauseOnBroken: CHOICE_PROPS.pauseOnBroken,
+            pauseLimitMinutes: { ...CHOICE_PROPS.pauseLimitMinutes, description: "How long a broken pause waits before it skips, counted from when the pause began." },
+            testTimeoutMinutes: { type: "number", minimum: 0, maximum: 1440, description: "A time limit for every attempt, over the tests' own; 0 goes back to each test's limit." },
+            trace: CHOICE_PROPS.trace,
+            video: CHOICE_PROPS.video,
+            runVideo: { type: "boolean", description: "Record a video of the whole run; turning it on starts a new part at once, off ends it." },
+          },
+          required: ["id"],
+        },
+        handler: ({ id, testTimeoutMinutes, ...rest }, { client: caller, user }) =>
+          guard(() => engine.changeSettings(id, { ...rest, ...(testTimeoutMinutes === undefined ? {} : { testTimeoutMinutes: testTimeoutMinutes === 0 ? null : testTimeoutMinutes }) }, whoCalls(caller, user))),
+      }),
+      defineAction<Record<string, never>>({
+        name: "runs.storage",
+        title: "What runs take on the drive: free space, the space runs take, the largest runs, and the warning limits",
+        method: "GET",
+        path: "/storage",
+        input: { type: "object", properties: {} },
+        handler: () => engine.storage(),
+      }),
+      defineAction<Record<string, never>>({
+        name: "runs.cleanup-preview",
+        title: "What cleanup would delete now under the keep rules in Settings > Storage: the runs, oldest first, and the room they take",
+        method: "GET",
+        path: "/storage/cleanup",
+        input: { type: "object", properties: {} },
+        handler: () => engine.cleanupPlan(),
+      }),
+      defineAction<Record<string, never>>({
+        name: "runs.cleanup",
+        access: "admin",
+        destructive: true,
+        explain: () => {
+          const plan = engine.cleanupPlan();
+          return `Delete ${plan.runs.length} ${plan.runs.length === 1 ? "run" : "runs"} the keep rules don't keep, with their files (${sizeText(plan.bytes)})`;
+        },
+        title: "Delete the ended runs the keep rules in Settings > Storage don't keep, now (the daily sweep does the same)",
+        method: "POST",
+        path: "/storage/cleanup",
+        input: { type: "object", properties: {} },
+        handler: (_body, { client: caller, user }) => engine.cleanup(whoCalls(caller, user)),
       }),
       control("runs.pause", "pause", "Pause at the next step", (id, client) => engine.pause(id, client)),
       control("runs.resume", "resume", "Resume a paused run, or continue an interrupted or stopped run where it was", (id) => engine.resume(id)),
@@ -498,12 +638,14 @@ export const runsPlugin = definePlugin({
     const dataDir = services.get(FILES_ROOT);
     const root = path.resolve(dataDir, "runs");
     // Artifact files, from the data folder's runs/ only. Ranges are served so videos can seek.
-    app.get("/files/*", async (req, reply) => {
+    app.get("/files/*", { config: { access: "viewer" } }, async (req, reply) => {
       // Fastify has already decoded the path once; decoding again would turn "%25" into "%".
       const rel = (req.params as { "*": string })["*"] ?? "";
       if (!rel.startsWith("runs/")) return reply.code(404).send(errorBody("not_found", "No such file."));
       const abs = path.resolve(dataDir, ...rel.split("/"));
       if (!abs.startsWith(root + path.sep) || !existsSync(abs) || !statSync(abs).isFile()) return reply.code(404).send(errorBody("not_found", "No such file."));
+      // A link inside the runs folder must not lead out of it.
+      if (!realpathSync(abs).startsWith(realpathSync(root) + path.sep)) return reply.code(404).send(errorBody("not_found", "No such file."));
       const size = statSync(abs).size;
       reply.type(contentTypeOf(abs)).header("cache-control", "no-cache").header("accept-ranges", "bytes");
       const range = byteRange(req.headers.range, size);
@@ -518,6 +660,6 @@ export const runsPlugin = definePlugin({
     });
     // Playwright's trace viewer, from our own origin: open /api/v1/trace-viewer/index.html?trace=<file url>.
     const viewer = traceViewerDir();
-    if (viewer) await app.register(fastifyStatic, { root: viewer, prefix: "/trace-viewer/", decorateReply: false, cacheControl: false });
+    if (viewer) await withAccess(app, "viewer", (scope) => scope.register(fastifyStatic, { root: viewer, prefix: "/trace-viewer/", decorateReply: false, cacheControl: false }));
   },
 });

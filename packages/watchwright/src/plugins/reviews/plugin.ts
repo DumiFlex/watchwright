@@ -13,7 +13,7 @@ import { pickPrevious, runChanges, type RunChanges } from "./changes.js";
 import { compare, type CompareCell, type CompareFile, type CompareShot, type Comparison } from "./compare.js";
 import { toMarkdown } from "./markdown.js";
 import { REVIEWS_MIGRATION_SQL, ReviewsRepo, type Review } from "./repo.js";
-import { zip, type ZipEntry } from "./zip.js";
+import { zip, type ZipEntry } from "../../jobs/zip.js";
 
 // Reviews: people and agents score each attempt on the run's rubric and leave a note. One review
 // per attempt per reviewer; the web app reviews as "web", an agent as its client name.
@@ -249,14 +249,14 @@ export const reviewsPlugin = definePlugin({
       }
     };
     const attachment = (name: string) => `attachment; filename="${name}"`;
-    app.get("/export.md", async (req, reply) => {
+    app.get("/export.md", { config: { access: "viewer" } }, async (req, reply) => {
       const c = load(req, reply);
       if (!c) return reply;
       const origin = `http://${req.headers.host ?? "127.0.0.1"}`;
       const md = toMarkdown(c, { link: (s) => origin + s.url, now: new Date().toISOString() });
       return reply.type("text/markdown; charset=utf-8").header("content-disposition", attachment(exportName(c, "md"))).send(md);
     });
-    app.get("/export.zip", async (req, reply) => {
+    app.get("/export.zip", { config: { access: "viewer" } }, async (req, reply) => {
       const c = load(req, reply);
       if (!c) return reply;
       const entries: ZipEntry[] = [];

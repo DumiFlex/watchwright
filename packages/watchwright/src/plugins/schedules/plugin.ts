@@ -4,7 +4,7 @@ import { ACTIONS, SERVER_PORT } from "../../core/keys.js";
 import { serviceKey } from "../../core/services.js";
 import { ENGINE, FILES_ROOT } from "../runs/plugin.js";
 import { ScheduleError, Scheduler, type MissedPolicy, type RunInput, type Schedule, type ScheduleInput } from "./scheduler.js";
-import { hostPlace, setStartup, startupInfo, type StartupPlace } from "./startup.js";
+import { hostPlace, refreshStartup, setStartup, startupInfo, type StartupPlace } from "./startup.js";
 import type { When } from "./when.js";
 
 // Schedules: runs that start by themselves, every so often or on a cron expression. A due schedule
@@ -97,6 +97,9 @@ export const schedulesPlugin = definePlugin({
       },
       going: (runId) => GOING.has(engine.get(runId)?.status ?? ""),
     });
+    // A start-at-sign-in file an older version wrote starts the server the current way from now on.
+    const port = services.has(SERVER_PORT) ? services.get(SERVER_PORT) : 0;
+    if (port > 0) void refreshStartup(services.has(STARTUP_PLACE) ? services.get(STARTUP_PLACE) : hostPlace(), port, services.get(FILES_ROOT));
   },
   close({ services }) {
     services.get(SCHEDULER).close();
@@ -228,6 +231,7 @@ export const schedulesPlugin = definePlugin({
       }),
       defineAction({
         name: "schedules.startup",
+        access: "admin",
         title: "Start at sign-in: whether this server starts when you sign in to the computer (Windows), and the command that starts it",
         method: "GET",
         path: "/startup",
@@ -235,6 +239,7 @@ export const schedulesPlugin = definePlugin({
       }),
       defineAction<{ enabled: boolean }>({
         name: "schedules.set-startup",
+        access: "admin",
         destructive: true,
         explain: ({ enabled }) => (enabled ? "Start this Watchwright server when you sign in to the computer" : "Stop starting this Watchwright server when you sign in"),
         title: "Turn start at sign-in on or off (Windows: a file in your Startup folder that starts this server with its port and data folder)",

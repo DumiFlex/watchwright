@@ -1,7 +1,7 @@
-import { deflateRawSync } from "node:zlib";
+import { deflateRawSync, inflateRawSync } from "node:zlib";
 
-// A small zip writer for exports: deflates text, stores files that are already compressed (PNG,
-// JPEG), no folders entries, no zip64 (exports stay far below 4 GB).
+// A small zip writer and reader: exports (deflates text, stores files that are already compressed,
+// PNG, JPEG) and traces the engine rewrites. No folder entries, no zip64 (both stay far below 4 GB).
 
 export interface ZipEntry {
   /** Path inside the zip, with forward slashes. */
@@ -78,4 +78,50 @@ export function zip(entries: readonly ZipEntry[], now = new Date()): Buffer {
   end.writeUInt32LE(dir.length, 12);
   end.writeUInt32LE(offset, 16);
   return Buffer.concat([...locals, dir, end]);
+}
+
+/** Limits for a zip that came from someone else: how many entries, and how many bytes once unpacked. */
+export interface UnzipLimits {
+  maxEntries?: number;
+  maxBytes?: number;
+}
+
+/** Thrown when a zip is over its limits. */
+export class ZipLimitError extends Error {}
+
+/** Every entry of a zip (stored or deflated), in order. Throws when `buf` isn't a zip this reads. */
+export function unzip(buf: Buffer, limits: UnzipLimits = {}): ZipEntry[] {
+  const end = buf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  if (end < 0) throw new Error("Not a zip file.");
+  const count = buf.readUInt16LE(end + 10);
+  if (limits.maxEntries !== undefined && count > limits.maxEntries) throw new ZipLimitError(`The zip has ${count} entries; at most ${limits.maxEntries} are allowed.`);
+  let left = limits.maxBytes ?? Infinity;
+  let at = buf.readUInt32LE(end + 16);
+  const out: ZipEntry[] = [];
+  for (let i = 0; i < count; i++) {
+    if (buf.readUInt32LE(at) !== 0x02014b50) throw new Error("Broken zip directory.");
+    const method = buf.readUInt16LE(at + 10);
+    const size = buf.readUInt32LE(at + 20);
+    const nameLen = buf.readUInt16LE(at + 28);
+    const extraLen = buf.readUInt16LE(at + 30);
+    const commentLen = buf.readUInt16LE(at + 32);
+    const local = buf.readUInt32LE(at + 42);
+    const name = buf.toString("utf8", at + 46, at + 46 + nameLen);
+    const dataAt = local + 30 + buf.readUInt16LE(local + 26) + buf.readUInt16LE(local + 28);
+    const raw = buf.subarray(dataAt, dataAt + size);
+    if (method !== 0 && method !== 8) throw new Error(`Zip method ${method} isn't supported.`);
+    if (dataAt + size > buf.length) throw new Error("Broken zip entry.");
+    let data: Buffer;
+    try {
+      data = method === 8 ? inflateRawSync(raw, Number.isFinite(left) ? { maxOutputLength: Math.max(1, left) } : {}) : Buffer.from(raw);
+    } catch (err) {
+      if (err instanceof RangeError) throw new ZipLimitError(`The zip unpacks to more than ${limits.maxBytes} bytes.`);
+      throw err;
+    }
+    left -= data.length;
+    if (left < 0) throw new ZipLimitError(`The zip unpacks to more than ${limits.maxBytes} bytes.`);
+    out.push({ name, data });
+    at += 46 + nameLen + extraLen + commentLen;
+  }
+  return out;
 }

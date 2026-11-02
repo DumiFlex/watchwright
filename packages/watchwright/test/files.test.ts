@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -38,6 +38,33 @@ describe("trace viewer", () => {
     } finally {
       await h.close();
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("run files", () => {
+  it("serves files of the runs folder, but not through a link that leads out of it", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "ww-files-"));
+    const outside = mkdtempSync(path.join(tmpdir(), "ww-outside-"));
+    const h = await startHarness(dir);
+    try {
+      mkdirSync(path.join(dir, "runs", "0a1b2c3d"), { recursive: true });
+      writeFileSync(path.join(dir, "runs", "0a1b2c3d", "ok.txt"), "fine");
+      writeFileSync(path.join(outside, "secret.txt"), "not yours");
+      try {
+        symlinkSync(path.join(outside, "secret.txt"), path.join(dir, "runs", "0a1b2c3d", "link.txt"));
+      } catch {
+        return; // no symlinks for this user (Windows without developer mode)
+      }
+      const ok = await h.app.inject({ url: "/api/v1/files/runs/0a1b2c3d/ok.txt", headers: { host: h.host } });
+      expect(ok.statusCode).toBe(200);
+      expect(ok.body).toBe("fine");
+      const link = await h.app.inject({ url: "/api/v1/files/runs/0a1b2c3d/link.txt", headers: { host: h.host } });
+      expect(link.statusCode).toBe(404);
+    } finally {
+      await h.close();
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
     }
   });
 });

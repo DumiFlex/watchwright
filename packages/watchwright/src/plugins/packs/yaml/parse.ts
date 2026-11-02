@@ -123,7 +123,9 @@ class Checker {
       }
       case "union": {
         const kind = isMap(node) ? "map" : isSeq(node) ? "list" : "scalar";
-        const fits = shape.of.find((s) => fitsKind(s, kind));
+        // Among members that take a scalar, the one of the value's own type (true picks a boolean, `problems` a string).
+        const own = isScalar(node) ? shape.of.find((s) => s.t === scalarType(node.value)) : undefined;
+        const fits = own ?? shape.of.find((s) => fitsKind(s, kind));
         if (!fits) return this.wrong(node, where, describeUnion(shape.of));
         return this.value(node, fits, where);
       }
@@ -252,6 +254,10 @@ function withComment(step: Step, node: Node): Step {
 function looksLikeFields(map: Node, fields: Record<string, Prop>): boolean {
   if (!isMap(map)) return false;
   return map.items.some((p) => isScalar(p.key) && String(p.key.value) in fields);
+}
+
+function scalarType(v: unknown): Shape["t"] | null {
+  return typeof v === "boolean" ? "boolean" : typeof v === "string" ? "string" : null;
 }
 
 function fitsKind(s: Shape, kind: "map" | "list" | "scalar"): boolean {

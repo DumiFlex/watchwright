@@ -3,7 +3,7 @@
 // file links open in, recent folders). Machine-wide values are kept by the server (`/settings`),
 // so every browser and agent sees the same; the look stays in this browser. A list of the sections
 // beside the cards jumps to each.
-import { computed, inject, onBeforeUnmount, onMounted, ref, type Ref } from "vue";
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, type Ref } from "vue";
 import { History, Power, Trash2 } from "../icons";
 import { getJson, runName, sendJson, type FolderPlaces, type RunSummary } from "../api";
 import { EDITOR_OPTIONS, editorUrl, type Editor } from "../editor";
@@ -15,10 +15,17 @@ import { notify, notifySupport, turnOffNotify, turnOnNotify, type NotifySupport 
 import { toast } from "../toasts";
 import { sectionAt } from "../toc";
 import AboutCard from "../components/AboutCard.vue";
+import AccountSettings from "../components/AccountSettings.vue";
+import SharingSettings from "../components/SharingSettings.vue";
+import SsoSettings from "../components/SsoSettings.vue";
+import UsersSettings from "../components/UsersSettings.vue";
+import { can, session } from "../session";
 import AgentsSettings from "../components/AgentsSettings.vue";
 import AlertsSettings from "../components/AlertsSettings.vue";
 import SecretsSettings from "../components/SecretsSettings.vue";
 import SigninsSettings from "../components/SigninsSettings.vue";
+import RunnersSettings from "../components/RunnersSettings.vue";
+import StorageSettings from "../components/StorageSettings.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import RadioGroup from "../components/RadioGroup.vue";
 import SelectMenu from "../components/SelectMenu.vue";
@@ -34,6 +41,10 @@ const modeOptions = MODES.map((m) => ({ value: m.id, label: m.name }));
 const editor = computed<Editor>({
   get: () => settings.values["settings.editor"],
   set: (v) => void save({ "settings.editor": v }),
+});
+const resumeOnStart = computed<boolean>({
+  get: () => settings.values["runs.resumeOnStart"] === true,
+  set: (v) => void save({ "runs.resumeOnStart": v }),
 });
 const newRunFrom = computed<"latest" | "defaults">({
   get: () => settings.values["runs.newRunFrom"],
@@ -117,21 +128,31 @@ async function stopServer() {
 // The section list: a link per card, down the side on wide screens and above the cards on narrow
 // ones. The one marked is the last whose heading has passed the top bar (the last one at the
 // bottom of the page, which may never get that far).
-const SECTIONS = [
-  { id: "s-look", label: "Look and mode" },
-  { id: "s-editor", label: "Editor" },
-  { id: "s-newrun", label: "New run" },
-  { id: "s-notify", label: "Notifications" },
-  { id: "s-secrets", label: "Secrets" },
-  { id: "s-signins", label: "Sign-ins" },
-  { id: "s-alerts", label: "Alerts" },
-  { id: "s-agents", label: "Agents" },
-  { id: "s-recent", label: "Recent folders" },
-  { id: "s-server", label: "Server" },
-  { id: "s-about", label: "About" },
+// With login on, a section shows only to roles that can use it (docs/plans/self-hosting.md, 2.4);
+// the server refuses the rest anyway.
+const ALL_SECTIONS = [
+  { id: "s-account", label: "Your account", show: () => session.on && session.user !== null },
+  { id: "s-look", label: "Look and mode", show: () => true },
+  { id: "s-editor", label: "Editor", show: () => can("admin") },
+  { id: "s-newrun", label: "New run", show: () => can("admin") },
+  { id: "s-notify", label: "Notifications", show: () => true },
+  { id: "s-users", label: "Users", show: () => session.on && can("admin") },
+  { id: "s-sso", label: "Single sign-on", show: () => session.on && can("admin") },
+  { id: "s-secrets", label: "Secrets", show: () => can("user") },
+  { id: "s-signins", label: "Sign-ins", show: () => can("user") },
+  { id: "s-sharing", label: "Sharing", show: () => can("user") },
+  { id: "s-runners", label: "Runners", show: () => can("viewer") },
+  { id: "s-alerts", label: "Alerts", show: () => can("admin") },
+  { id: "s-agents", label: "Agents", show: () => can("user") },
+  { id: "s-storage", label: "Storage", show: () => can("user") },
+  { id: "s-recent", label: "Recent folders", show: () => can("user") },
+  { id: "s-server", label: "Server", show: () => can("admin") },
+  { id: "s-about", label: "About", show: () => true },
 ];
+const SECTIONS = computed(() => ALL_SECTIONS.filter((s) => s.show()));
+const shows = (id: string) => SECTIONS.value.some((s) => s.id === id);
 const TOP_BAR = 56;
-const current = ref(SECTIONS[0]!.id);
+const current = ref(SECTIONS.value[0]!.id);
 function goTo(id: string) {
   const card = document.getElementById(id)?.closest("section");
   if (!card) return;
@@ -143,17 +164,24 @@ function markCurrent() {
   frame = 0;
   const root = document.scrollingElement;
   const atBottom = !!root && root.scrollTop + window.innerHeight >= root.scrollHeight - 2;
-  const tops = SECTIONS.map((s) => document.getElementById(s.id)?.closest("section")?.getBoundingClientRect().top ?? null);
-  current.value = SECTIONS[sectionAt(tops, TOP_BAR + 24, atBottom)]!.id;
+  const tops = SECTIONS.value.map((s) => document.getElementById(s.id)?.closest("section")?.getBoundingClientRect().top ?? null);
+  current.value = SECTIONS.value[sectionAt(tops, TOP_BAR + 24, atBottom)]!.id;
 }
 const onScroll = () => {
   if (!frame) frame = requestAnimationFrame(markCurrent);
 };
 
+// `#/settings?section=storage` opens on that section.
+const props = defineProps<{ section?: string | undefined }>();
+
 onMounted(() => {
+  if (props.section) {
+    const id = `s-${props.section}`;
+    void nextTick(() => setTimeout(() => goTo(id), 300));
+  }
   void loadSettings(true);
-  void loadRecent();
-  void loadStartup();
+  if (can("user")) void loadRecent();
+  if (can("admin")) void loadStartup();
   window.addEventListener("scroll", onScroll, { passive: true });
 });
 onBeforeUnmount(() => {
@@ -167,7 +195,7 @@ onBeforeUnmount(() => {
     <div class="page-head">
       <div>
         <h1 class="display">Settings</h1>
-        <p class="muted">The look and notifications are kept by this browser. Everything else is kept by the server, so every browser and agent on this machine sees the same.</p>
+        <p class="muted">The look and notifications are kept by this browser. Everything else is kept by the server, so every browser and agent {{ session.on ? "using this server" : "on this machine" }} sees the same.</p>
       </div>
     </div>
 
@@ -180,6 +208,7 @@ onBeforeUnmount(() => {
         </ul>
       </nav>
       <div class="sections">
+        <AccountSettings v-if="shows('s-account')" />
         <section class="card" aria-labelledby="s-look">
           <h2 id="s-look" class="display">Look and mode</h2>
           <p class="muted small">Also in the Theme menu at the top, and in Ctrl+K.</p>
@@ -195,7 +224,7 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
-        <section class="card" aria-labelledby="s-editor">
+        <section v-if="shows('s-editor')" class="card" aria-labelledby="s-editor">
           <h2 id="s-editor" class="display">Editor</h2>
           <p class="muted small">Test files, build errors and the line a test broke on open in this editor, at the line.</p>
           <div class="row">
@@ -205,10 +234,12 @@ onBeforeUnmount(() => {
           <p v-if="sample" class="muted small">Links look like <code class="sample">{{ sample }}</code>. The editor must be installed on the computer you browse from.</p>
         </section>
 
-        <section class="card" aria-labelledby="s-newrun">
+        <section v-if="shows('s-newrun')" class="card" aria-labelledby="s-newrun">
           <h2 id="s-newrun" class="display">New run</h2>
           <p class="muted small">What the New run page fills in when it opens. A run's "New run like this" and presets always fill in their own choices.</p>
           <RadioGroup v-model="newRunFrom" :options="newRunOptions" label="New run starts from" />
+          <ToggleSwitch id="s-resume-on-start" v-model="resumeOnStart">Resume interrupted runs when Watchwright starts</ToggleSwitch>
+          <p class="muted small">Runs going when Watchwright stopped, or when the computer restarted or it crashed, go on where they were once it starts again. Off: they wait for Resume on their page. An alert rule can say when a run is interrupted.</p>
         </section>
 
         <section class="card" aria-labelledby="s-notify">
@@ -219,13 +250,19 @@ onBeforeUnmount(() => {
           <p v-else-if="support === 'denied'" class="muted small">The browser blocks notifications for this page. Allow them in its site settings, then switch this on.</p>
         </section>
 
-        <SecretsSettings />
-        <SigninsSettings />
-        <AlertsSettings />
+        <UsersSettings v-if="shows('s-users')" />
+        <SsoSettings v-if="shows('s-sso')" />
+        <SecretsSettings v-if="shows('s-secrets')" />
+        <SigninsSettings v-if="shows('s-signins')" />
+        <SharingSettings v-if="shows('s-sharing')" />
+        <RunnersSettings v-if="shows('s-runners')" />
+        <AlertsSettings v-if="shows('s-alerts')" />
 
-        <AgentsSettings />
+        <AgentsSettings v-if="shows('s-agents')" />
 
-        <section class="card" aria-labelledby="s-recent">
+        <StorageSettings v-if="shows('s-storage')" />
+
+        <section v-if="shows('s-recent')" class="card" aria-labelledby="s-recent">
           <h2 id="s-recent" class="display">Recent folders</h2>
           <p class="muted small">The folder browser lists the last ten folders packs were added or moved from.</p>
           <ul v-if="recent.length" class="recent">
@@ -240,13 +277,13 @@ onBeforeUnmount(() => {
           <button v-if="recent.length" class="btn" @click="forget()">Clear the list</button>
         </section>
 
-        <section class="card" aria-labelledby="s-server">
+        <section v-if="shows('s-server')" class="card" aria-labelledby="s-server">
           <h2 id="s-server" class="display">Server</h2>
           <p class="muted small">Schedules only start runs while Watchwright is running.</p>
           <template v-if="startup?.supported">
             <ToggleSwitch id="s-startup" v-model="startAtSignIn">Start at sign-in</ToggleSwitch>
             <p class="muted small">
-              Puts <code>Watchwright.cmd</code> in your Startup folder. It starts this server minimized when you sign in to Windows, on the same port and data folder, without opening the browser. Turning
+              Puts <code>Watchwright.cmd</code> in your Startup folder. It starts this server in the background, with no window, when you sign in to Windows, on the same port and data folder, without opening the browser. Turning
               this off deletes the file.
             </p>
           </template>

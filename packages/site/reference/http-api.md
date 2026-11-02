@@ -4,7 +4,8 @@ Everything the web page does goes through this API, so scripts and AI agents can
 
 - JSON in and out. Success is `{ "data": … }`. Failure is `{ "error": { "code", "message", "detail"? } }` with a snake_case `code` and a matching HTTP status.
 - Requests must pass the [request guard](../guide/safety#who-can-reach-the-server): a loopback `Host` with the server's port, and for changes no `Origin` header or the server's own (scripts and agents send none).
-- Send `x-watchwright-client: <name>` to be named as who started a run (default `api`).
+- With [login](../guide/safety#login) on, send an API token as `Authorization: Bearer <token>`; the web page uses its sign-in cookie. A call without them gets `401 sign_in_needed`, a call the role doesn't allow `403 not_allowed`. Each action lists its `access` level in `GET /actions`.
+- Send `x-watchwright-client: <name>` to be named as who started a run (default `api`). With login on, the person's name comes first: `Dumi via Claude Code`.
 - `GET /actions` lists every action with its JSON Schema input. The [CLI](./cli) builds its commands from the same list, and the [MCP server](./mcp) its tools.
 - `/api/v1/mcp` is the MCP endpoint (streamable HTTP), for AI agents.
 
@@ -12,15 +13,43 @@ Everything the web page does goes through this API, so scripts and AI agents can
 
 | Method and path | Does |
 |---|---|
-| `GET /health` | Whether the server is up, its version, its data folder, the loaded plugins with the newest store migration each one applied, and `pages`: the web app pages the plugins bring (`{ plugin, name, title, path, icon, menu, order, words? }`, in menu order), which the web app builds its menu from. |
-| `GET /actions` | Every action: `name`, `title`, `method`, `path`, JSON Schema `input`, and where set `output` (the JSON Schema of its data), `agent` (`{ tool, say? }`: the MCP tool it is offered as, and a hint for agents) and `destructive: true` (it deletes data or stops the server). |
-| `POST /stop` | Stops the server, as Ctrl+C in its terminal does. It answers `{ stopping: true }` first. Runs going at the time become `interrupted` and can be resumed after it starts again. 409 `cant_stop` for a server that wasn't started by the `watchwright` command. |
+| `GET /health` | Whether the server is up, its version, its data folder, the loaded plugins with the newest store migration each one applied, `pages`: the web app pages the plugins bring (`{ plugin, name, title, path, icon, menu, order, words? }`, in menu order), which the web app builds its menu from, and `login: { on, user, setupNeeded }`. With login on and nobody signed in, only `name`, `version` and `login`. |
+| `GET /actions` | Every action: `name`, `title`, `method`, `path`, JSON Schema `input`, `access` (who may call it with login on: `public`, `viewer`, `user` or `admin`), and where set `output` (the JSON Schema of its data), `agent` (`{ tool, say? }`: the MCP tool it is offered as, and a hint for agents) and `destructive: true` (it deletes data or stops the server). |
+| `POST /stop` | Stops the server, as Ctrl+C in its terminal does. It answers `{ stopping: true }` first. Runs going at the time become `interrupted` and can be resumed after it starts again (by themselves with `runs.resumeOnStart`). 409 `cant_stop` for a server that wasn't started by the `watchwright` command. |
+
+## Login
+
+These work with [login](../guide/safety#login) on. With it off, the user routes still work (anyone who can reach the server is trusted), which is how to prepare accounts before turning it on.
+
+| Method and path | Does |
+|---|---|
+| `GET /auth/me` | `{ on, user, setupNeeded }`: whether login is on, who is signed in (`{ id, name, displayName, role, via, tokenId? }`, `via` is `session` or `token`, and `tokenId` says which token a client called with), and `signin` (`{ oidc, passwords }`: the single sign-on button's name or null, and whether everyone may sign in with a password), and whether the first admin still has to be made. Anyone may call it. |
+| `POST /auth/signin` `{ name, password }` | Signs in: sets the `ww_session` cookie (HttpOnly, SameSite=Lax, Secure on https, 30 days from the last use). 401 `wrong_sign_in`; 429 `too_many_tries` after five wrong tries for a name or an address within 15 minutes (the wait doubles from one second to a minute); 403 `passwords_off` for anyone but an admin when password sign-in is turned off. |
+| `POST /auth/signout` | Ends this sign-in. |
+| `POST /auth/setup` `{ code, name, password }` | Creates the first admin with the one-time code the server printed at start, and signs in. 409 `set_up` once there is a user. |
+| `POST /auth/password` `{ current, password }` | Changes your own password. Your other sign-ins end; this one stays. |
+| `GET /auth/users` | Every user (admin). |
+| `POST /auth/users` `{ name, role, password?, displayName? }` | Adds a user (admin). Roles: `viewer` sees runs and results, `user` also starts runs, records, edits packs and reviews, `admin` also manages users, settings, secrets, sign-ins, alerts and the server. 409 `name_taken`, 400 `weak_password` (under 10 characters). |
+| `POST /auth/users/:id` `{ role?, password?, disabled?, displayName? }` | Changes a user (admin). A new password or disabling ends their sign-ins. 409 `last_admin` for the only admin. |
+| `DELETE /auth/users/:id` | Removes a user with their sign-ins and tokens (admin; waits for [approval](#approvals) from anything but the web page). |
+| `GET /auth/invites` | Invitations nobody has used yet (admin): `{ id, role, note, by, createdAt, expiresAt }`. |
+| `POST /auth/invites` `{ role, days?, note? }` | Makes a one-time invitation (admin): `{ code, … }`, the only time the code is shown. The link to send is `<server>/#/invite?code=<code>`. `days` is 1 to 30 (7 by default); `note` says who it is for. |
+| `DELETE /auth/invites/:id` | Takes an invitation back (admin). |
+| `GET /auth/invite?code=` | What an invitation is for: `{ role, expiresAt }`. 404 `bad_invite` when it's used, expired or taken back. Anyone may call it. |
+| `POST /auth/invite` `{ code, name, password }` | Makes the invited account with the invitation's role and signs in. 404 `bad_invite`, 409 `name_taken`, 400 `weak_password`, 429 `too_many_tries`. |
+| `GET /auth/sso` | [Single sign-on](../guide/single-sign-on) settings (admin): `{ oidc: { on, name, issuer, clientId, hasSecret, scopes, groupsClaim }, header: { on, user, groups, from }, roles: [{ group, role }], otherRole, passwords }`. The client secret is never answered. |
+| `POST /auth/sso` | Changes them (admin); fields left out stay. A `clientSecret` left out keeps the saved one. With OpenID Connect on, the provider must answer first: 400 `provider_unreachable`. |
+| `GET /auth/oidc/start` | Sends the browser to the provider to sign in (the sign-in page's button). |
+| `GET /auth/oidc/callback` | Where the provider sends it back: signs in and goes to `/#/`, or to `/#/signin?error=…`. |
+| `GET /auth/tokens` `?all=true` | Your API tokens (`{ id, name, kind, createdAt, usedAt, expiresAt }`); an admin's `all` lists everyone's. |
+| `POST /auth/tokens` `{ name, days? }` | Makes a token for the CLI, a script or an agent: `{ token, … }`, the only time the value is shown. `days` makes it expire. |
+| `DELETE /auth/tokens/:id` | Removes a token. |
 
 ## Packs
 
 | Method and path | Does |
 |---|---|
-| `GET /packs` | Every pack with its tests (each with its `file`, `line` (where a YAML test starts in its file; null for code), `description`, `inside` (a list, empty for top-level tests) and the `rubric` it is scored on), params, flag kinds, the pack's own `rubric`, run settings (`run`: `pauseOnBroken`, `pauseLimitMinutes`, `trace`, `video`, defaults filled in) and load errors. |
+| `GET /packs` | Every pack with its tests (each with its `file`, `line` (where a YAML test starts in its file; null for code), `description`, `inside` (a list, empty for top-level tests) and the `rubric` it is scored on), params, flag kinds, the pack's own `rubric`, run settings (`run`: `pauseOnBroken`, `pauseLimitMinutes`, `trace`, `video` (`always`, `problems` or `never`), `runVideo`, defaults filled in) and load errors. |
 | `POST /packs` `{ path }` | Adds a pack by its absolute folder (or pack file) path and loads it. Quotes around the path (Windows' "Copy as path"), `file://` addresses, `~` and either slash are accepted. A pack that doesn't load is still added, with its error. Adding the same folder again returns the pack already added. |
 | `GET /packs/:id` | One pack. Every pack carries `path` (its pack file), `dir` (its folder) and `missing` (true when the pack file is gone). |
 | `POST /packs/create` `{ path, name, baseURL, format? }` | Writes a starter pack into a folder, made when missing, and adds it: `pack.ts`, `tests/home.ts` and `README.md`, or with `format: "yaml"`, `pack.yaml`, `tests/home.yaml` and `README.md`. 201 with the pack. 400 `bad_starter` when the folder already has a pack or one of those files, or the address isn't `http(s)://`. |
@@ -30,6 +59,8 @@ Everything the web page does goes through this API, so scripts and AI agents can
 | `POST /packs/:id/convert` `{ file }` | Writes the YAML test file `file` (relative to the pack folder) as a TypeScript file beside it, and removes the YAML file once the pack loads with the new one. Returns `{ file, pack }`. 400 `bad_pack` when the YAML has problems, the `.ts` file exists, or the new file doesn't load (the YAML file is put back). |
 | `POST /packs/:id/move` `{ path }` | Points a pack whose folder moved at its new folder. It keeps its id and runs. 400 `bad_pack` when the folder has no pack file or another pack already uses it. |
 | `POST /packs/discover` `{ path, depth? }` | Finds pack files in a folder and up to `depth` (default 4, at most 8) levels below it, skipping `node_modules`, `dist`, `build` and hidden folders, and not looking inside a pack. Returns `{ root, found: [{ dir, packFile, packId }], truncated }`; `packId` is set for packs already added. |
+| `GET /packs/:id/download` | The pack's folder as a `.zip`, inside a folder of the same name. `node_modules`, `.git` and links are left out. 413 `too_big` over 200 MB or 5000 files. |
+| `POST /packs/upload?name=&folder=` | Admins only. The body is a `.zip` (content type `application/zip`, at most 50 MB, at most 200 MB unpacked) with a pack file at its top or inside one folder at its top, as `download` makes it. It is unpacked into the new folder `folder/name` (`folder` defaults to where the folder browser starts) and added. 201 with the pack. 400 `bad_zip` for a file that isn't a zip or has paths outside its folder, 400 `no_pack_file`, 403 when `folder` is outside the folders the server shows, 409 `exists` when the folder is already there, 413 `too_big`. |
 | `DELETE /packs/:id` | Forgets the pack (its files and past runs stay). |
 
 ## Editing files
@@ -85,6 +116,10 @@ The settings so far:
 
 - `settings.editor`: the editor that file links open in (`vscode`, `cursor`, `windsurf`, `idea`, `webstorm` or `none`; default `vscode`).
 - `runs.newRunFrom`: what the New run page fills in when it opens: `latest` (the pack's latest run, the default) or `defaults` (the pack's defaults).
+- `runs.resumeOnStart`: when the server starts, resume the runs its last stop (or a crash) interrupted, where they were (default false: they wait for `POST /runs/:id/resume`).
+- `runs.storageWarnGB`: free space (GB) on the drive with the data folder below which a run warns (default 5).
+- `runs.storageStopGB`: free space (GB) below which a run records no more videos; it goes on without them (default 1).
+- `runs.keepDays`, `runs.keepPerPack`: cleanup keeps ended runs younger than this many days, and each pack's newest this many runs (both 0, the default, keep every run). A run either rule keeps stays; a labeled run and a run that is going always do. Once a rule is set, a sweep deletes the rest once a day.
 
 ## Secrets and sign-ins
 
@@ -131,7 +166,7 @@ Messages to ntfy, Discord, Slack or a webhook when runs end a certain way; see [
 | `DELETE /alerts/channels/:id` | Deletes a channel and takes it out of every rule. |
 | `POST /alerts/channels/:id/test` | Sends a test message now: `{ sent: true }`, or 502 `send_failed` with the reason. |
 | `GET /alerts/rules` | `[{ id, name, triggers, packs, schedules, channels, onlyOnChange, enabled, createdAt, updatedAt }]`. |
-| `POST /alerts/rules` `{ name, triggers, channels, packs?, schedules?, onlyOnChange?, enabled? }` | Adds a rule (201). `triggers` are `failed`, `broken`, `stopped`, `passed`, `failed_to_start`, `recovered` (passes again), `test_broken`, `schedule_missed` and `approval`. `packs` and `schedules` are ids; both empty covers everything. `onlyOnChange` defaults to true. |
+| `POST /alerts/rules` `{ name, triggers, channels, packs?, schedules?, onlyOnChange?, enabled? }` | Adds a rule (201). `triggers` are `failed`, `broken`, `stopped`, `passed`, `failed_to_start`, `recovered` (passes again), `test_broken`, `schedule_missed`, `approval`, `storage_low` and `interrupted` (a run the server's stop or a crash interrupted, sent when it starts again, or one an error interrupted, sent at once). `packs` and `schedules` are ids; both empty covers everything. `onlyOnChange` defaults to true. |
 | `POST /alerts/rules/:id` | Changes any of the rule's fields. |
 | `DELETE /alerts/rules/:id` | Deletes a rule. |
 | `GET /alerts/log?limit=` | What was sent lately, newest first (default 50, at most 500): `{ id, at, ruleId, ruleName, channelId, channelName, trigger, title, runId, status, tries, error }`. `status` is `sending`, `sent` or `failed`. |
@@ -149,21 +184,39 @@ A web page can't learn a folder's path from the browser, so the server lists fol
 | `DELETE /folders/recent?path=` | Forgets one recent folder, or all of them without `path`. |
 | `POST /folders/open` `{ path }` | Shows a folder in Explorer, Finder or the desktop's file manager. Only pack folders (and the folders inside them) and the data folder; 403 `not_allowed` for anything else. |
 
+## Runners
+
+[Runners](../guide/self-hosting#runners) let runs reach sites only another machine can reach.
+
+| Method and path | Does |
+|---|---|
+| `GET /runners` | `[{ id, name, allow, online, connectedAt, streams, lastSeen, pairedAt, version, platform, createdBy, createdAt }]`. `allow` is what the runner said it may open when it last connected (else the list it was added with); `streams` the connections going through it now. |
+| `POST /runners` `{ name, allow?, server? }` | Adds a runner (201): `{ runner, code, expiresAt, minutes, command }`. `allow` is `loopback`, `host:port` or `host:*`, comma-separated (default `loopback`). `command` is the line to run on that machine; `server` is the address it uses there (default: the first `--public-url`). 409 `exists` for a name in use (names compare without case). |
+| `POST /runners/:id/pair-code` `{ server? }` | A new pair code for the runner, same shape. Its token keeps working until the code is used. |
+| `DELETE /runners/:id` | Removes the runner: it disconnects and its token stops working. From anything but the web page it waits for approval. |
+| `POST /runners/pair` `{ code }` | Public, for `watchwright runner --pair`: trades a pair code (once, within 15 minutes) for `{ id, name, allow, token }`. 404 `bad_code`; 20 tries a minute per address. |
+| `GET /runners/connect` | Public WebSocket for the runner. Its first message is `{ "type": "auth", "token", "version", "allow", "platform" }`; the server answers `hello` or `refused`. After that, binary frames carry the connections (`packages/watchwright/src/plugins/runners/protocol.ts`). |
+
+Events: `runner.connected` `{ id, name, version }` and `runner.disconnected` `{ id, name }`.
+
 ## Runs
 
 | Method and path | Does |
 |---|---|
-| `GET /runs?limit=&pack=&status=&before=&q=` | Runs, newest first, with counts. `pack` keeps one pack's runs, `status` a comma-separated list of statuses (`finished,stopped`). `q` searches: each word must appear in the run's id, label, pack name, values, facts or status, and a `name=value` word matches a value exactly (`lang=de`). For the next page, pass the `createdAt` of the last run as `before`. |
-| `POST /runs` `{ packId, tests?, params?, pauseOnBroken?, pauseLimitMinutes?, attempts?, trace?, video?, signIn?, label?, preset?, kind? }` | Queues a run. `kind` is the job kind (default `test`; `GET /kinds` lists the loaded ones, and an unknown kind is a 400 `bad_input`). `tests` defaults to all; tests they need, and parents and children, join by themselves. `attempts` gives every test the same number of attempts instead of its own `runs`; `trace` (`problems`, `always`, `never`) and `video` override the pack's settings for this run, and `signIn` starts it with (or without) the site's [saved sign-in](#secrets-and-sign-ins) instead of the pack's `site.signIn`; a run that should start signed in with none saved fails to start. `label` names the run (up to 120 characters). `preset` starts from the pack's preset with that name; the other fields given override it (404 when the pack has no such preset). |
+| `GET /runs?limit=&pack=&status=&before=&q=` | Runs, newest first, with counts. `pack` keeps one pack's runs, `status` a comma-separated list of statuses (`finished,stopped`). `q` searches: each word must appear in the run's id, label, pack name, values, facts or status, and a `name=value` word matches a value exactly (`lang=de`). For the next page, pass the `createdAt` of the last run as `before`. Each run has `sizeBytes`: what its folder takes on the drive (results, screenshots, videos, traces), measured once it ends and every minute while it goes; `null` until measured. Runs from before sizes were kept are measured in the background after a start. |
+| `GET /storage` | What runs take on the drive: `{ dataDir, freeBytes, totalBytes, runs, runsBytes, unmeasured, largest, limits }`. `freeBytes` and `totalBytes` are the data folder's drive (null when the system can't say), `largest` the ten runs that take the most room, `limits` the `warnBelowGB` and `stopBelowGB` settings. |
+| `GET /storage/cleanup` | What cleanup would delete now under `runs.keepDays` and `runs.keepPerPack`: `{ rules, runs, bytes, unmeasured }`, the runs oldest first, `bytes` the room the measured ones take. |
+| `POST /storage/cleanup` | Deletes those runs now, as `DELETE /runs/:id` does, and answers the same shape with what it deleted. From anything but the web page it waits for approval. |
+| `POST /runs` `{ packId, tests?, params?, pauseOnBroken?, pauseLimitMinutes?, attempts?, trace?, video?, runVideo?, signIn?, network?, label?, preset?, kind? }` | Queues a run. `kind` is the job kind (default `test`; `GET /kinds` lists the loaded ones, and an unknown kind is a 400 `bad_input`). `tests` defaults to all; tests they need, and parents and children, join by themselves. `attempts` gives every test the same number of attempts instead of its own `runs`; `trace` (`problems`, `always`, `never`), `video` (`always`, `problems`, `never`; `true` and `false` mean always and never) and `runVideo` (one video of the whole run) override the pack's settings for this run, and `signIn` starts it with (or without) the site's [saved sign-in](#secrets-and-sign-ins) instead of the pack's `site.signIn`; a run that should start signed in with none saved fails to start. `network` is `server` or a [runner](#runners)'s name, instead of the pack's `site.network`; a run whose runner is unknown or offline fails to start. `label` names the run (up to 120 characters). `preset` starts from the pack's preset with that name; the other fields given override it (404 when the pack has no such preset). |
 | `GET /kinds` | The job kinds the server has loaded, `[{ name, labels }]`. `labels` maps an outcome to the word the kind shows for it (an extraction could show `done` for `passed`); the outcome stays the value in every result. Runs and attempts carry their `kind`. |
 | `POST /runs/:id/again` | Queues a new run with the run's pack, tests, values, options and label (201). Queue edits made during the run aren't copied. |
 | `POST /runs/:id/label` `{ label }` | Names a run; an empty label takes the name away. Runs carry `label` (empty when none). |
 | `POST /runs/preview` (same body) | Plans the run without starting it: `plan` (every attempt in order), `attempts`, the resolved `params`, and `joined`: tests that run although they weren't chosen, with the reason (`needed`, `parent`, `inside`) and the tests that brought them in. |
-| `GET /runs/:id?history=` | The run, its plan (every planned attempt with its status), current attempts, and `live` (state, current test and step, pages) while it runs. `info` holds the facts the run saved with `info(key, value)`. `history=true` adds earlier tries of retried attempts. |
+| `GET /runs/:id?history=` | The run, its plan (every planned attempt with its status), current attempts, and `live` (state, current test and step, pages, `settings`: the settings in effect, which `POST /runs/:id/settings` changes, and `storageLow`: `{ freeBytes, videosOff }` once the drive ran low during the run) while it runs, and `runVideos`: the run's videos of the whole run (`{ path, url, size }`, in parts: `run-video.webm`, `run-video-2.webm`, …). `info` holds the facts the run saved with `info(key, value)`. `history=true` adds earlier tries of retried attempts. |
 | `GET /runs/:id/attempts/:attemptId` | One attempt's result document (`schemaVersion: 1`): status, error, flags, metrics, notes, kept texts, log, `steps` (`{ title, depth, startedAt, finishedAt, status }` for each `h.step`), artifacts with URLs. Shots from one `h.scrollShots` call carry the call's name as `set`. |
 | `GET /runs/stats?days=&pack=&tz=&until=` | Runs at a glance: `days` (one entry per day, oldest first, `days` of them, default 14, at most 90) with `{ date, runs, passed, failed, broken, skipped, stopped, medianMs }`, and the same totals for the period (`current`) and the `days` days before it (`previous`). Runs count on the day they were made, attempts on the day they started; only top-level attempts that finished count, and `medianMs` is the median time of the passed and failed ones. `tz` is the caller's `Date.getTimezoneOffset()` (minutes behind UTC), so days are the caller's calendar days; `until` (YYYY-MM-DD) is the last day, today by default. `pack` keeps one pack's runs. |
 | `GET /packs/:id/history?limit=` | Each test's last `limit` (default 20, at most 100) finished attempts across the pack's runs, oldest first, keyed by test id: `{ attemptId, runId, runLabel, number, try, status, startedAt, durationMs, params }`. Only the try that counts is listed; `try` above 1 means it was run again after it broke. `{}` for a pack with no runs. |
-| `DELETE /runs/:id` | Deletes a run that isn't queued or going, with its attempts and its folder in the data folder. Its events stay in the event log. |
+| `DELETE /runs/:id` | Deletes a run that isn't queued or going, with its attempts, its folder in the data folder and its events; a `run.deleted` event says it went. From anything but the web page it waits for approval. |
 | `GET /runs/:id/summary` | A run in brief, for agents and scripts: `{ id, label, pack: { id, name }, status, startedBy, page, live, counts, pending, attempts, error }`. `page` is the run's page in the web app (`/#/runs/<id>`); `live` is `{ state, pauseReason, pausedBy, deadline, stopping, testId, step }` while it runs; `counts` leaves out zeros; each attempt is `{ id, testId, title, number, try, parentId, status, error, robot, findings, durationMs }`, with the error's kind and first line and how many robot and finding flags it has. |
 | `GET /runs/:id/wait?after=&timeout=` | Waits until the run ends or pauses, at most `timeout` seconds (default 60, at most 110). Returns `{ reason, cursor, happened, run }`: `reason` is `ended`, `paused`, `timeout` or `gone` (the caller went away); `run` is the summary; `happened` lists what happened since `after` (or since the call): runs starting, pausing (`reason`, `testId`, `by`), resuming, stopping and finishing, and each attempt finishing (`testId`, `number`, `status`, `error`, `flags`). Pass `cursor` as `after` to the next wait. Without `after` a paused run answers at once; with it, only a pause after that cursor does, so a caller isn't answered again while a person keeps the run paused. |
 | `POST /runs/:id/control` `{ do }` | One door for `pause`, `resume`, `retry`, `skip`, `stop` (after this test) and `stop-now`. Returns the summary. |
@@ -172,6 +225,7 @@ A web page can't learn a folder's path from the browser, so the server lists fol
 | `POST /runs/:id/resume` | Resumes a manual pause. For an `interrupted`, `stopped` or `failed_to_start` run, queues it to continue: passed, failed and skipped attempts are kept, the rest run. |
 | `POST /runs/:id/retry`, `/skip` | Answers a pause on a broken attempt. |
 | `POST /runs/:id/stop` `{ when: "after" \| "now" }` | `after` finishes the current test first; `now` ends at once and files the current attempt as `stopped`. A queued run is cancelled. |
+| `POST /runs/:id/settings` `{ pauseOnBroken?, pauseLimitMinutes?, testTimeoutMinutes?, trace?, video?, runVideo? }` | Changes the settings of a run that is going or queued. They are kept with the run (a resume keeps them) and apply from the next attempt. A new `pauseLimitMinutes` also applies at once to a broken pause that is going, counted from when the pause began, so a limit already past skips the attempt now. `testTimeoutMinutes` is a time limit for every attempt, over the tests' and the pack's own; it applies to the attempt that is running too, and `0` goes back to each test's limit. `runVideo` starts or ends the run video at once; turned on again, it goes on in a new part. Announced as `run.settings` (`changed`, `by`, `settings`, and the new `deadline` when a pause got one). 400 when no setting is named; 409 for a run that has ended or is still setting up. |
 | `POST /runs/:id/queue/skip` `{ testId, number?, undo? }` | Skips attempt `number` (default 1) of a test that hasn't started yet; `undo: true` takes the skip back. A skipped attempt is filed as `skipped` when its turn comes. The plan marks it with `skip: true`. |
 | `POST /runs/:id/queue/move` `{ testId, direction: "up" \| "down" }` | Moves a test that hasn't started one place up or down, past the next test that hasn't started. Refused (400) when a test would run before a test it needs. Children move with their parent. |
 | `POST /runs/:id/queue/add` `{ tests }` | Adds tests to a run that is going. They go at the end of the queue in the pack's order, with the tests they need that the run doesn't have yet. The pack is read again first, so a test written since the run started can be added. 400 when every test is already in the run, 409 once the run has gone through its queue. Emits `run.tests-added`. |
@@ -187,7 +241,7 @@ Named run choices, kept per pack: tests, values and options, the same fields as 
 | Method and path | Does |
 |---|---|
 | `GET /presets?pack=` | Presets, by pack and name: `{ id, packId, name, choices, createdAt, updatedAt }`. |
-| `POST /presets` `{ packId, name, tests?, params?, pauseOnBroken?, pauseLimitMinutes?, attempts?, trace?, video? }` | Saves choices under a name (201). Saving a name the pack already has replaces that preset's choices. |
+| `POST /presets` `{ packId, name, tests?, params?, pauseOnBroken?, pauseLimitMinutes?, attempts?, trace?, video?, runVideo? }` | Saves choices under a name (201). Saving a name the pack already has replaces that preset's choices. |
 | `POST /presets/:id` `{ name }` | Renames a preset. 409 `conflict` when the pack has another preset with that name. |
 | `DELETE /presets/:id` | Deletes a preset. |
 
@@ -204,6 +258,17 @@ A review is one reviewer's scores and note for one attempt. The reviewer is the 
 
 Deleting a run deletes its reviews.
 
+## Dashboards
+
+A pack's [dashboard](../guide/dashboards): its tiles with each tile's numbers, worked out from the runs in range on every request.
+
+| Method and path | Does |
+|---|---|
+| `GET /packs/:id/dashboard?runs=&days=&filter=` | `{ dashboard, source, packHasOwn, updatedBy, updatedAt, range, filters, groups }`. `source` is `override` (changed on the page), `pack` (the pack's `dashboard` block) or `default`. `range` gives the runs read (`count`, `from`, `to`); `filters` each filter's `values` in recent runs and the `value` picked. `groups` holds each tile as `{ tile, title, data, error }`, `data` shaped by the tile's kind (`series` of `{ group, points: [{ runId, at, value }] }` for `metric`, `score` and `flags`; `rows` and `best` for `leaderboard`; `grids` for `matrix`; `items` for `failures` and `lowest`; …). `runs` or `days` read another range; `filter` picks param values, `model=q9,format=json`. |
+| `GET /packs/:id/dashboard/names` | What a dashboard can name, from the pack and its latest 50 runs: `params`, `info`, `metrics` (with units), `texts`, `files`, `shots`, `flags` (with kinds), `criteria`, `sections`, `tags`, `tests`. |
+| `POST /packs/:id/dashboard` `{ tiles \| groups, runs?, days?, filters? }` | Saves a change to the pack's dashboard, written as in the pack file. 400 `bad_dashboard` with `detail.problems` when it isn't valid. |
+| `DELETE /packs/:id/dashboard` | Drops the change: the dashboard is the pack's own again. |
+
 ## Compare and export
 
 | Method and path | Does |
@@ -215,6 +280,28 @@ Deleting a run deletes its reviews.
 | `GET /export.zip?runs=a,b` | A zip of the Markdown and its screenshots (`shots/<run>/<attempt>/…`), linked by relative paths, so it reads anywhere. |
 
 Run statuses: `queued`, `running`, `pausing`, `paused`, `finished`, `stopped`, `interrupted` (the server stopped mid-run), `failed_to_start`. Attempt statuses: `passed`, `failed`, `broken`, `skipped`, `stopped`, plus `running` and `interrupted`.
+
+## Sharing
+
+Share links and the public status page ([Sharing](../guide/sharing)). A share link's token is 22 characters; links are looked up by the token's hash.
+
+| Method and path | Does |
+|---|---|
+| `GET /shares?run=` | Share links that still work, of one run or all: `[{ id, page, runId, traces, names, createdBy, createdAt, expiresAt, views, viewedAt, run }]`, `run` being `{ packName, label, status, createdAt }`. User role. |
+| `POST /shares` `{ run, days?, traces?, names? }` | Makes a link (201): the link's fields plus `token`. `page` is `#/s/<token>`, to put after the server's address. `days` from 1 to 365; without it the link works until removed. `traces` shares traces and collector files too. `names` shows reviewers by name instead of "Reviewer 1". 404 `not_found` for an unknown run. User role. |
+| `DELETE /shares/:id` | Takes a link back. User role. |
+| `GET /shares/dashboard` | The public status page's settings (admin): `{ on, packs, linkRuns, title, tiles }`. |
+| `POST /shares/dashboard` `{ on?, packs?, linkRuns?, title?, tiles? }` | Changes them (admin). `tiles` shows each pack's public dashboard tiles. `packs` is a list of pack ids, in the order shown. |
+
+These answer anyone, without a cookie or token, and are limited to 600 requests a minute per address (429 `too_many_requests` past that):
+
+| Method and path | Does |
+|---|---|
+| `GET /shared/:token` | The shared run: `{ id, packName, label, status, startedBy, createdAt, startedAt, finishedAt, error, params, info, counts, plan, attempts, running, runVideos, traces, tiles }`. Each run video is `{ url, size }`. `tiles` is the pack's public dashboard tiles for this run, as `groups` in `GET /packs/:id/dashboard` (null without a dashboard). 404 `not_shared` when the link was taken back, expired or its run was deleted. |
+| `GET /shared/:token/attempts/:attemptId` | An attempt's result document, as in `GET /runs/:id/attempts/:attemptId`, with file urls under the link, plus `reviews`: `{ criteria, list: [{ reviewer, scores, note, updatedAt }] }` (reviewers as "Reviewer 1" unless the link names them; null when the pack's `share` block keeps reviews out). Traces and collector files are left out unless the link shares them, and so is what the pack's `share` block keeps out. |
+| `GET /shared/:token/files/<path>` | One file the run recorded and the link shares (ranges supported); 404 for anything else. |
+| `GET /public/status` | The public status page: `{ title, linkRuns, packs: [{ packId, name, runs, tiles }] }`, each pack's last 20 runs newest first, each `{ id, label, status, counts, startedAt, finishedAt, durationMs }`; `tiles` the pack's public dashboard tiles (null when the page's `tiles` setting is off), with file urls under `/public/runs/<id>/`. 404 `dashboard_off` while it is off. |
+| `GET /public/runs/:id`, `…/attempts/:attemptId`, `…/files/<path>` | A run on the status page, the same as through a share link without traces, while **Runs open read-only** is on. 404 for runs of packs not on the page. |
 
 ## Approvals
 
@@ -241,7 +328,7 @@ Everything that happens is an event with a growing sequence number: `{ seq, time
 
 `GET /events?after=<seq>&wait=<seconds>&runId=&types=&limit=` returns `{ events, next, head }`. With `wait` (up to 110 seconds) it holds the request until a matching event arrives, so an agent can follow a run with one request at a time: call again with `after=next`.
 
-Event types (open set, more come with later plugins): `run.queued`, `run.started`, `run.planned`, `run.pausing`, `run.paused`, `run.resumed`, `run.decision`, `run.stopping`, `run.labeled`, `run.finished`, `run.interrupted`, `run.failed_to_start`, `run.log`, `run.info`, `run.tests-added`, `run.items-added` (items a job kind added to its running run, in batches, with `total` so far; a run's `options.added` lists them, and a resumed run keeps them), `attempt.started`, `attempt.step`, `attempt.log`, `attempt.flag`, `attempt.artifact`, `attempt.finished`, `page.opened`, `page.navigated`, `page.active`, `page.closed`, `video.unavailable`, `pack.added`, `pack.loaded`, `pack.reload_failed`, `pack.reloaded`, `pack.removed`, `editor.file_changed`, `review.saved`, `record.started`, `record.status`, `record.replay-step`, `record.agent-step`, `record.step`, `record.step-updated`, `record.step-removed`, `record.ended`, `signin.saved`, `schedule.created`, `schedule.updated`, `schedule.deleted`, `schedule.fired`, `schedule.skipped`, `schedule.missed`, `schedule.failed`, `alert.sent`, `alert.failed`, `alert.channel_changed`, `alert.rule_changed`, `approval.requested`, `approval.answered`.
+Event types (open set, more come with later plugins): `run.queued`, `run.started`, `run.planned`, `run.pausing`, `run.paused`, `run.resumed`, `run.decision`, `run.stopping`, `run.labeled`, `run.settings`, `run.measured` (`sizeBytes`: when a run ends, and about once a minute while it goes), `storage.low` (`freeBytes`, `warnBelowGB`, `stopBelowGB`, `videosOff`), `runs.cleaned` (`by`, `count`, `bytes`, `rules`), `runs.restarted` (`interrupted`, `resumed`: the runs the last stop interrupted, once the server is up again), `run.finished`, `run.interrupted`, `run.failed_to_start`, `run.log`, `run.info`, `run.tests-added`, `run.items-added` (items a job kind added to its running run, in batches, with `total` so far; a run's `options.added` lists them, and a resumed run keeps them), `attempt.started`, `attempt.step`, `attempt.log`, `attempt.flag`, `attempt.artifact`, `attempt.finished` (both carry `attempt`, the attempt's row as `GET /runs/:id` lists it, so a page can patch it in instead of fetching the run), `page.opened`, `page.navigated`, `page.active`, `page.closed`, `video.unavailable`, `pack.added`, `pack.loaded`, `pack.reload_failed`, `pack.reloaded`, `pack.removed`, `editor.file_changed`, `review.saved`, `record.started`, `record.status`, `record.replay-step`, `record.agent-step`, `record.step`, `record.step-updated`, `record.step-removed`, `record.ended`, `signin.saved`, `schedule.created`, `schedule.updated`, `schedule.deleted`, `schedule.fired`, `schedule.skipped`, `schedule.missed`, `schedule.failed`, `alert.sent`, `alert.failed`, `alert.channel_changed`, `alert.rule_changed`, `approval.requested`, `approval.answered`.
 
 ## Live WebSocket
 
@@ -251,7 +338,7 @@ Event types (open set, more come with later plugins): `run.queued`, `run.started
 { "type": "subscribe", "runId": "1a2b3c4d", "after": 0, "frames": true }
 ```
 
-to get the run's events after `after` (then new ones) as `{ "type": "event", "data": <event> }` text messages, and, with `frames`, binary messages with the screencast: a 4-byte big-endian header length, a JSON header `{ runId, pageId, timestamp, width, height }`, then a JPEG. Leave out `runId` for every event and no frames. With `runId`, `"logTail": 5000` replays only the run's newest 5,000 log lines (`attempt.log`, `run.log`) and every other event; a `{ "type": "backlog", "data": { "skippedLogs": n } }` message first says how many older lines it left out. The run page does this, so a run with a long log opens at its tail. Send `subscribe` again to change it. A viewer that falls behind skips frames and only ever gets the newest one per page.
+to get the run's events after `after` (then new ones) as `{ "type": "event", "data": <event> }` text messages, and, with `frames`, binary messages with the screencast: a 4-byte big-endian header length, a JSON header `{ runId, pageId, timestamp, width, height }`, then a JPEG. Leave out `runId` for every event and no frames. With `runId`, `"logTail": 5000` replays only the run's newest 5,000 log lines (`attempt.log`, `run.log`) and every other event; a `{ "type": "backlog", "data": { "skippedLogs": n } }` message first says how many older lines it left out. The run page does this, so a run with a long log opens at its tail. With `"batch": true` the backlog comes as `{ "type": "events", "data": [<event>, …] }` messages of up to 1,000 events each (new events still come one by one), so a viewer can take a long log in one go. With `frames`, the newest frame of each page comes before the backlog. Send `subscribe` again to change it. A viewer that falls behind skips frames and only ever gets the newest one per page.
 
 ### Rewind
 

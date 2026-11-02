@@ -14,8 +14,22 @@ export type Route =
   | { name: "edit"; id: string; file: string | null; line: number | null; record?: boolean; watch?: string }
   | { name: "compare"; query: Record<string, string> }
   | { name: "kit" }
-  | { name: "settings" }
-  | { name: "schedules" };
+  | { name: "settings"; section?: string }
+  | { name: "schedules" }
+  /** The link the server prints when login is on and there is no user: creates the first admin. */
+  | { name: "setup"; code: string }
+  /** An invitation link: makes an account with the role an admin chose. */
+  | { name: "invite"; code: string }
+  /** The sign-in page, with what went wrong on the way back from single sign-on. */
+  | { name: "signin"; error: string }
+  /** A share link: one run, read-only, for anyone who has the link (no sign-in). */
+  | { name: "shared"; token: string }
+  /** The public dashboard, and one of its runs. */
+  | { name: "status" }
+  | { name: "status-run"; id: string };
+
+/** Routes anyone may open, signed in or not: they show only what was shared. */
+export const PUBLIC_ROUTES: readonly Route["name"][] = ["shared", "status", "status-run"];
 
 const ID8 = "([0-9a-f]{8})";
 
@@ -35,9 +49,15 @@ export function parseRoute(hash: string): Route {
   if (path === "/new") return { name: "new", query };
   if (path === "/packs") return { name: "packs", query };
   if (path === "/kit") return { name: "kit" };
-  if (path === "/settings") return { name: "settings" };
+  if (path === "/settings") return query.section && /^[a-z-]{1,40}$/.test(query.section) ? { name: "settings", section: query.section } : { name: "settings" };
   if (path === "/schedules") return { name: "schedules" };
+  if (path === "/setup") return { name: "setup", code: query.code ?? "" };
+  if (path === "/invite") return { name: "invite", code: query.code ?? "" };
+  if (path === "/signin") return { name: "signin", error: query.error ?? "" };
   if (path === "/compare") return { name: "compare", query };
+  if (path === "/status") return { name: "status" };
+  if ((m = /^\/s\/([A-Za-z0-9_-]{22})$/.exec(path))) return { name: "shared", token: m[1]! };
+  if ((m = new RegExp(`^/status/${ID8}$`).exec(path))) return { name: "status-run", id: m[1]! };
   if ((m = new RegExp(`^/runs/${ID8}$`).exec(path))) return { name: "run", id: m[1]! };
   if ((m = new RegExp(`^/runs/${ID8}/attempts/([0-9a-f]{12})$`).exec(path))) {
     const line = Number(query.line);
@@ -83,9 +103,21 @@ export function href(route: Route): string {
     case "kit":
       return "#/kit";
     case "settings":
-      return "#/settings";
+      return `#/settings${qs(route.section ? { section: route.section } : {})}`;
     case "schedules":
       return "#/schedules";
+    case "setup":
+      return `#/setup${qs({ code: route.code })}`;
+    case "invite":
+      return `#/invite${qs({ code: route.code })}`;
+    case "signin":
+      return `#/signin${qs({ error: route.error })}`;
+    case "shared":
+      return `#/s/${route.token}`;
+    case "status":
+      return "#/status";
+    case "status-run":
+      return `#/status/${route.id}`;
   }
 }
 

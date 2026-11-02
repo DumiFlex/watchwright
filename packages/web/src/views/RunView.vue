@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Ban, Keyboard, Pencil, Plus, Repeat, Undo2 } from "../icons";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Ban, Keyboard, Pencil, Plus, Repeat, Settings, Share2, Undo2 } from "../icons";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { AttemptPatches, eventAttempt } from "../run-patch";
 import { getJson, sendJson, type ChangeSide, type Criterion, type Pack, type Review, type RunChanges, type RunDetail, type WwEvent } from "../api";
 import { LiveConnection, type LiveState } from "../live";
 import DataTable from "../components/DataTable.vue";
@@ -11,13 +12,16 @@ import LogViewer from "../components/LogViewer.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import MultiSelect from "../components/MultiSelect.vue";
 import PageSkeleton from "../components/PageSkeleton.vue";
+import RunSettingsDialog from "../components/RunSettingsDialog.vue";
 import SelectMenu from "../components/SelectMenu.vue";
+import ShareDialog from "../components/ShareDialog.vue";
 import StatusChip from "../components/StatusChip.vue";
 import TextArea from "../components/TextArea.vue";
 import TextField from "../components/TextField.vue";
+import VideoPlayer from "../components/VideoPlayer.vue";
 import { CHANGES_SHOWN, splitChanges } from "../changes";
 import { exportUrl } from "../compare";
-import { countsText, duration } from "../format";
+import { countsText, duration, fileSize } from "../format";
 import { levelOf, type LogLine } from "../logview";
 import { href } from "../router";
 import { filterResults, resultRows, type ResultRow, type ResultShow } from "../review";
@@ -26,12 +30,14 @@ import { useShortcut } from "../keys";
 import { offerNotify } from "../notify";
 import { resetHead, setIconDot, setTitle } from "../pagehead";
 import { openModals } from "../popup";
-import { runTitle, runTone } from "../runstate";
+import { runTitle, runTone, settingsText } from "../runstate";
+import { can } from "../session";
 import { vTip } from "../tooltip";
 
 const props = defineProps<{ id: string }>();
 
 const run = ref<RunDetail | null>(null);
+const shareOpen = ref(false);
 const error = ref<string | null>(null);
 const actionError = ref<string | null>(null);
 const busy = ref(false);
@@ -52,6 +58,7 @@ function noteStep(time: string, label: string) {
 
 const active = computed(() => run.value !== null && ["running", "pausing", "paused"].includes(run.value.status));
 const live = computed(() => run.value?.live ?? null);
+const runVideos = computed(() => run.value?.runVideos ?? []);
 const pausedBroken = computed(() => live.value?.state === "paused" && live.value.pauseReason === "broken");
 const pausedManual = computed(() => live.value?.state === "paused" && live.value.pauseReason === "manual");
 const canResumeRun = computed(() => run.value !== null && ["interrupted", "stopped", "failed_to_start"].includes(run.value.status));
@@ -67,8 +74,11 @@ const testTitle = computed(() => {
   return id ? (run.value?.plan.find((p) => p.testId === id)?.title ?? id) : null;
 });
 
+const patches = new AttemptPatches();
 async function load() {
+  patches.begin();
   const res = await getJson<RunDetail>(`/api/v1/runs/${props.id}`);
+  patches.end(res.ok ? res.data : null);
   if (!res.ok) {
     error.value = res.error.message;
     return;
@@ -95,16 +105,42 @@ function scheduleLoad() {
 }
 
 const titles = computed(() => new Map((run.value?.plan ?? []).map((p) => [p.testId, p.title])));
+/** A test's id with its title, or the id alone when the title is the same or missing. */
+const testLabel = (id: string) => {
+  const t = titles.value.get(id);
+  return t && t !== id ? `${id} ${t}` : id;
+};
 // The log keeps its newest lines, and the server only replays that many when the page opens (a
 // long run has tens of thousands); line numbers count from the run's first line.
 const LOG_LIMIT = 5000;
 const logDropped = ref(0);
-function addLog(line: (typeof log.value)[number]) {
+type LogEntry = (typeof log.value)[number];
+// While a batch of the replayed backlog goes through `onEvent`, its lines gather here and join the
+// log in one change, so a long log opens at once instead of filling line by line.
+let gathering: LogEntry[] | null = null;
+function addLog(line: LogEntry) {
+  if (gathering) return void gathering.push(line);
   log.value.push(line);
+  trimLog();
+}
+function trimLog() {
   const over = log.value.length - LOG_LIMIT;
   if (over > 0) {
     log.value.splice(0, over);
     logDropped.value += over;
+  }
+}
+function onEvents(list: WwEvent[]) {
+  gathering = [];
+  try {
+    for (const e of list) onEvent(e);
+  } finally {
+    const lines = gathering;
+    gathering = null;
+    if (lines.length > 0) {
+      log.value = log.value.concat(lines);
+      trimLog();
+    }
   }
 }
 // Which test an attempt belongs to, so log lines can be filtered by test.
@@ -117,6 +153,13 @@ let backlogHead = 0;
 function onHello(head: number) {
   backlogHead = head;
   scheduleLoad();
+}
+// An attempt's row comes with its events; the whole run is fetched only when one didn't (or the
+// page has no run yet).
+function patchAttempt(e: WwEvent, started: boolean) {
+  const a = eventAttempt(e);
+  if (a && run.value && !refresh) patches.apply(run.value, a, started);
+  else scheduleLoad();
 }
 function onEvent(e: WwEvent) {
   if (e.runId !== props.id) return;
@@ -148,18 +191,25 @@ function onEvent(e: WwEvent) {
       break;
     case "attempt.started":
       if (e.attemptId) attemptTests.set(e.attemptId, String(d.testId));
-      addLog({ seq: e.seq, time: e.time, level: "info", message: `Started ${d.testId} ${titles.value.get(String(d.testId)) ?? ""} (attempt ${d.number} of ${d.of}${Number(d.try) > 1 ? `, try ${d.try}` : ""})`, test: String(d.testId) });
+      addLog({ seq: e.seq, time: e.time, level: "info", message: `Started ${testLabel(String(d.testId))} (attempt ${d.number} of ${d.of}${Number(d.try) > 1 ? `, try ${d.try}` : ""})`, test: String(d.testId) });
       if (replayed) break;
       step.value = null;
       noteStep(e.time, `${String(d.testId)} starts`);
-      scheduleLoad();
+      patchAttempt(e, true);
       break;
     case "attempt.finished":
       addLog({ seq: e.seq, time: e.time, level: d.status === "passed" ? "info" : "warn", message: `${d.testId} ${d.status}${d.error ? `: ${String(d.error).split("\n")[0]}` : ""}`, test: String(d.testId) });
-      if (!replayed) scheduleLoad();
+      if (!replayed) patchAttempt(e, false);
       break;
     case "review.saved":
       void loadReviews();
+      break;
+    case "run.settings":
+      addLog({ seq: e.seq, time: e.time, level: "info", message: settingsText(d), test: null });
+      if (!replayed) scheduleLoad();
+      break;
+    case "run.measured":
+      if (!replayed && run.value && typeof d.sizeBytes === "number") run.value.sizeBytes = d.sizeBytes;
       break;
     case "video.unavailable":
       addLog({ seq: e.seq, time: e.time, level: "warn", message: String(d.message), test: null });
@@ -229,6 +279,14 @@ async function act(path: string, body: unknown = {}) {
   busy.value = false;
   if (!res.ok) actionError.value = res.error.message;
   else run.value = res.data;
+}
+
+// Settings while the run goes, and more time for a broken pause.
+const settingsOpen = ref(false);
+const MORE_TIME_MINUTES = 10;
+function moreTime() {
+  const s = live.value?.settings;
+  if (s) void act("settings", { pauseLimitMinutes: Math.min(1440, s.pauseLimitMinutes + MORE_TIME_MINUTES) });
 }
 
 function openAttempt(attemptId: string | null) {
@@ -390,7 +448,7 @@ function connect() {
   markSaved.value = null;
   conn = new LiveConnection(
     { runId: props.id, frames: true, after: 0, logTail: LOG_LIMIT },
-    { onState: (s) => (liveState.value = s), onHello, onBacklog: (n) => (logDropped.value += n), onEvent, onFrame: (h, jpeg) => void viewer.value?.push(h, jpeg) },
+    { onState: (s) => (liveState.value = s), onHello, onBacklog: (n) => (logDropped.value += n), onEvent, onEvents, onFrame: (h, jpeg) => void viewer.value?.push(h, jpeg) },
   );
 }
 onMounted(() => {
@@ -402,6 +460,7 @@ watch(
   () => props.id,
   () => {
     run.value = null;
+    settingsOpen.value = markOpen.value = addOpen.value = confirmDelete.value = keysOpen.value = false;
     void load();
     connect();
   },
@@ -480,6 +539,9 @@ async function remove() {
             <StatusChip :status="run.status" />
             <span v-if="run.mode !== 'normal'">&nbsp;{{ run.mode === "redo" ? "redoing broken tests" : "resumed" }}</span>
             · started by {{ run.startedBy }}
+            <template v-if="run.sizeBytes != null && (run.sizeBytes > 0 || !active)">
+              · <span v-tip="'On the drive: results, screenshots, videos and traces'">{{ fileSize(run.sizeBytes) }}{{ active ? " so far" : "" }}</span>
+            </template>
             <template v-for="(v, k) in run.params" :key="k"> · {{ k }}={{ v }}</template>
           </p>
           <p v-if="Object.keys(run.info ?? {}).length" class="facts small" aria-label="Run facts">
@@ -492,9 +554,11 @@ async function remove() {
             <button v-if="live?.state === 'pausing' || pausedManual" v-tip="'Resume (Space)'" class="btn primary" aria-keyshortcuts="Space" :disabled="busy" @click="act('resume')">Resume</button>
             <button v-if="pausedBroken" v-tip="'Retry (R)'" class="btn primary" aria-keyshortcuts="R" :disabled="busy" @click="act('retry')">Retry</button>
             <button v-if="pausedBroken" v-tip="'Skip (S)'" class="btn" aria-keyshortcuts="S" :disabled="busy" @click="act('skip')">Skip</button>
+            <button v-if="pausedBroken" v-tip="`Wait ${MORE_TIME_MINUTES} minutes longer before it skips`" class="btn" :disabled="busy || !live?.settings" @click="moreTime">More time</button>
             <button v-tip="'Save the live view to this attempt, with a note (M)'" class="btn" aria-keyshortcuts="M" :disabled="busy || !live?.attemptId" @click="markOpen = true">Mark</button>
             <button v-tip="'Stop after this test (Shift+S)'" class="btn" aria-keyshortcuts="Shift+S" :disabled="busy || !!live?.stopping" @click="act('stop', { when: 'after' })">Stop after this test</button>
             <button class="btn danger" :disabled="busy || live?.stopping === 'now'" @click="act('stop', { when: 'now' })">Stop now</button>
+            <button v-tip="'Run settings: pause limit, time limit, trace, videos'" class="btn" aria-label="Run settings" :disabled="!live?.settings" @click="settingsOpen = true"><Settings :size="15" /> Settings</button>
             <button v-tip="'Keyboard shortcuts (?)'" class="btn keysbtn" aria-label="Keyboard shortcuts" aria-keyshortcuts="?" @click="keysOpen = true"><Keyboard :size="15" /></button>
           </template>
           <button v-if="run.status === 'queued'" class="btn danger" :disabled="busy" @click="act('stop', { when: 'now' })">Cancel</button>
@@ -502,6 +566,7 @@ async function remove() {
           <button v-if="canRedo" class="btn" :disabled="busy" @click="act('redo-broken')">Redo broken</button>
           <button v-if="!active && run.status !== 'queued'" v-tip="'Start the same pack, tests, values and options now'" class="btn" :disabled="busy" @click="again"><Repeat :size="15" /> Run again</button>
           <a v-if="!active" class="btn" :href="`#/new?pack=${run.packId}&from=${run.id}`">New run like this…</a>
+          <button v-if="run.status !== 'queued' && can('user')" v-tip="'A read-only link for people without an account'" class="btn" @click="shareOpen = true"><Share2 :size="15" /> Share</button>
           <a v-if="showResults" class="btn" :href="`#/compare?runs=${run.id}`">Compare</a>
           <MenuButton v-if="showResults" :items="exports" label="Export" class="export">
             <template #button><span class="exportlabel">Export</span></template>
@@ -512,10 +577,15 @@ async function remove() {
       <p v-if="actionError" class="error" role="alert">{{ actionError }}</p>
       <p v-if="run.error" class="error">{{ run.error }}</p>
       <p v-if="markSaved" class="muted small" role="status">{{ markSaved }}</p>
+      <p v-if="live?.storageLow" class="banner warn" role="alert">
+        <strong>The drive is almost full:</strong> {{ fileSize(live.storageLow.freeBytes) }} free.
+        {{ live.storageLow.videosOff ? "This run records no more videos, so it can finish." : "Below the limit in Settings, runs stop recording videos." }}
+        <a href="#/settings?section=storage">See what takes the room</a>
+      </p>
 
       <div v-if="live" class="banner" :class="{ warn: live.state !== 'running' }" role="status">
         <template v-if="pausedBroken">
-          <strong>{{ live.testId }} broke.</strong> Fix the test file and it retries by itself, or press Retry or Skip. Skips by itself in {{ countdown }}.
+          <strong>{{ live.testId }} broke.</strong> Fix the test file and it retries by itself, or press Retry, Skip or More time. Skips by itself in {{ countdown }}.
         </template>
         <template v-else-if="pausedManual"><strong>Paused</strong> during {{ live.testId ?? "the run" }}{{ step ? `, at ${step}` : "" }}.</template>
         <template v-else-if="live.state === 'pausing'"><strong>Pausing at the next step…</strong></template>
@@ -653,6 +723,23 @@ async function remove() {
         </DataTable>
       </section>
 
+      <section v-if="runVideos.length || live?.settings?.runVideo" class="card" aria-labelledby="run-video-title">
+        <div class="loghead">
+          <h2 id="run-video-title" class="display">Run video</h2>
+          <span v-if="live?.settings?.runVideo" class="live-tag">recording</span>
+        </div>
+        <template v-if="!active">
+          <div v-for="(v, i) in runVideos" :key="v.path" class="runvideo">
+            <p v-if="runVideos.length > 1" class="muted small">Part {{ i + 1 }} · {{ fileSize(v.size) }}</p>
+            <VideoPlayer :src="v.url" :label="`Run video${runVideos.length > 1 ? `, part ${i + 1}` : ''}`" />
+          </div>
+          <p v-if="runVideos.length === 1" class="muted small">{{ fileSize(runVideos[0]!.size) }}</p>
+        </template>
+        <p v-else class="muted small">
+          What the live view follows, pauses included. It plays here when the run ends<template v-if="runVideos.length">; {{ fileSize(runVideos.reduce((s, v) => s + v.size, 0)) }} so far</template>.
+        </p>
+      </section>
+
       <section class="card" aria-labelledby="log-title">
         <div class="loghead">
           <h2 id="log-title" class="display">Log</h2>
@@ -671,6 +758,7 @@ async function remove() {
           {{ duration(run.attempts.reduce((s, a) => s + (a.durationMs ?? 0), 0)) }} of test time
         </p>
       </section>
+      <ShareDialog v-model="shareOpen" :run-id="run.id" />
       <ModalDialog v-model="markOpen" heading="Mark this moment">
         <p class="muted small">Saves what the live view shows {{ rewound ? "at the rewound moment" : "now" }} to the running attempt{{ live?.testId ? ` (${live.testId})` : "" }}, with your note. It shows with the attempt's screenshots.</p>
         <TextArea v-model="markNote" :rows="3" placeholder="What you saw (optional)" />
@@ -696,6 +784,7 @@ async function remove() {
           <button class="btn danger" :disabled="busy" @click="remove">{{ busy ? "Deleting…" : "Delete run" }}</button>
         </template>
       </ModalDialog>
+      <RunSettingsDialog v-model="settingsOpen" :run-id="run.id" :settings="live?.settings ?? null" @saved="(r) => (run = r)" />
       <ModalDialog v-model="keysOpen" heading="Keyboard shortcuts">
         <dl class="shortcut-list">
           <template v-for="k in KEYS" :key="k.keys">
@@ -825,6 +914,7 @@ async function remove() {
   gap: 8px;
 }
 .banner {
+  margin: 0;
   padding: 10px 14px;
   border-radius: var(--radius);
   border: var(--border-width) solid var(--line);
@@ -1097,6 +1187,13 @@ async function remove() {
 }
 .logtest {
   width: 200px;
+}
+.runvideo {
+  display: grid;
+  gap: var(--space-2);
+}
+.runvideo + .runvideo {
+  margin-top: var(--space-4);
 }
 @media (max-width: 640px) {
   .logtest {

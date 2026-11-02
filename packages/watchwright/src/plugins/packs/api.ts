@@ -1,6 +1,7 @@
 import type { Browser, BrowserContext, BrowserContextOptions, LaunchOptions, Page } from "playwright";
 import type { expect as playwrightExpect } from "playwright/test";
 import type { RubricCriterion, TestReview } from "./rubric.js";
+import type { DashboardInput, ShareOptions } from "./dashboard.js";
 import type { Step } from "./yaml/steps.js";
 
 // The pack API: what a test pack's files import from "watchwright". A pack is a folder with a
@@ -181,6 +182,16 @@ export interface SetupContext {
   info(key: string, value: string | number | boolean): void;
 }
 
+/** Which attempts keep a video. */
+export type VideoMode = "always" | "problems" | "never";
+/** A video mode, or `true` (always) and `false` (never). */
+export type VideoSetting = VideoMode | boolean;
+
+/** The mode a video setting means: `true` is always, `false` never. */
+export function videoMode(v: VideoSetting): VideoMode {
+  return v === true ? "always" : v === false ? "never" : v;
+}
+
 export interface PackRunOptions {
   /** Pause the run when an attempt ends broken, waiting for Retry or Skip (default true). */
   pauseOnBroken?: boolean;
@@ -190,12 +201,19 @@ export interface PackRunOptions {
   testTimeout?: number;
   /** Which attempts keep a Playwright trace (default "problems": broken and failed). */
   trace?: "problems" | "always" | "never";
-  /** Record a video per attempt (default true; needs Playwright's ffmpeg). */
-  video?: boolean;
+  /**
+   * Record a video of each attempt (needs Playwright's ffmpeg): `"always"` (default, also `true`),
+   * `"problems"` (keep it only when the attempt fails or breaks) or `"never"` (also `false`).
+   */
+  video?: VideoSetting;
+  /** Record one video of the whole run, of what the live view follows (default false). */
+  runVideo?: boolean;
   /** Draw click points and action titles into the live view and video (default true). */
   showActions?: boolean;
   /** Show each `h.step` title as a small corner caption in the live view and video (default false). */
   chapters?: boolean;
+  /** Keep tabs and popups a test opened for the tests after it (default false: they close between tests). */
+  keepTabs?: boolean;
   /** Live view and video size (default: the viewport). */
   screencastSize?: { width: number; height: number };
   /** JPEG quality of live frames, 1 to 100 (default 70). */
@@ -211,6 +229,8 @@ export interface PackOptions {
     baseURL?: string;
     /** "saved": every run starts with the sign-in saved for this site key (Settings > Sign-ins). */
     signIn?: "saved";
+    /** Where runs reach the site from: "server" (the default) or a runner's name (Settings > Runners). A run can choose otherwise. */
+    network?: string;
   };
   browser?: {
     name?: BrowserName;
@@ -241,6 +261,10 @@ export interface PackOptions {
   run?: PackRunOptions;
   /** What reviewers score each attempt on (default: one 1-to-5 "overall"). */
   rubric?: readonly RubricCriterion[];
+  /** What the pack's dashboard shows (see the Dashboards guide): `{ tiles }` or `{ groups }`, with `runs`, `days`, `filters`. */
+  dashboard?: DashboardInput;
+  /** What shares and the public status page leave out: `{ texts: false, metrics: false, reviews: false, outputs: [names] }`. */
+  share?: ShareOptions;
 }
 
 export type RunsSpec = number | ((params: ParamValues) => number) | ({ by: string; default?: number } & Record<string, number | string | undefined>);

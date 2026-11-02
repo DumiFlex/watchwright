@@ -1,6 +1,6 @@
 import { ActionError, describeAction, defineAction } from "../actions/registry.js";
 import { EVENTS_MIGRATION_SQL } from "../events/log.js";
-import { ACTIONS, PAGES } from "./keys.js";
+import { ACTIONS, LOGIN, PAGES } from "./keys.js";
 import { VERSION } from "../version.js";
 import { definePlugin, type PluginPage } from "./plugin.js";
 
@@ -12,7 +12,12 @@ export interface HealthData {
   plugins: { name: string; schemaVersion: number }[];
   /** The web app's pages the loaded plugins bring, in menu order. */
   pages: (PluginPage & { plugin: string })[];
+  /** Login: whether it is on, who is signed in, and whether the first admin still has to be made. */
+  login: { on: boolean; user: { id: string; name: string; role: string } | null; setupNeeded: boolean };
 }
+
+/** What anyone may see while login is on and they aren't signed in: enough for the sign-in page. */
+export type PublicHealth = Pick<HealthData, "name" | "version" | "login">;
 
 /** Longest wait `GET /events` accepts, in seconds; under common proxy and client timeouts. */
 export const MAX_EVENT_WAIT_S = 110;
@@ -44,6 +49,7 @@ export const corePlugin = definePlugin({
     }),
     defineAction({
       name: "core.stop",
+        access: "admin",
       destructive: true,
       explain: () => "Stop the Watchwright server. Runs going now become interrupted, ready to resume when it starts again.",
       title: "Stop the server: runs going now become interrupted, ready to resume when it starts again",
@@ -79,13 +85,22 @@ export const corePlugin = definePlugin({
     }),
   ],
   routes(app, { store, plugins, services }) {
-    app.get("/health", async () => {
+    app.get("/health", { config: { access: "public" } }, async (req) => {
+      const login = services.has(LOGIN) ? services.get(LOGIN) : null;
+      const on = login?.on ?? false;
+      const user = req.watchwrightUser ?? null;
+      const loginInfo = { on, user: user ? { id: user.id, name: user.name, role: user.role } : null, setupNeeded: on && login!.setupCode() !== null };
+      if (on && !user) {
+        const data: PublicHealth = { name: "watchwright", version: VERSION, login: loginInfo };
+        return { data };
+      }
       const data: HealthData = {
         name: "watchwright",
         version: VERSION,
         dataDir: store.dataDir,
         plugins: plugins.map((name) => ({ name, schemaVersion: store.schemaVersion(name) })),
         pages: [...services.get(PAGES)],
+        login: loginInfo,
       };
       return { data };
     });

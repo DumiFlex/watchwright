@@ -1,4 +1,5 @@
-import { writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { hasDesktop } from "../../host.js";
 import { rm } from "node:fs/promises";
 import path from "node:path";
 import type { BrowserContext, Page } from "playwright";
@@ -7,10 +8,13 @@ import { AttemptAborted, RunControl, type BrokenDecision } from "../../jobs/cont
 import type { AttemptEnv, JobKind, KindPlan, PlanItem } from "../../jobs/kind.js";
 import type { JobKinds } from "../../jobs/kinds.js";
 import type { AttemptRuntime } from "../../jobs/runtime.js";
-import { AttemptRecorder, safeRelative, slug, type ArtifactInfo } from "../../jobs/recorder.js";
+import { AttemptRecorder, MAX_LOG_LINES, safeRelative, slug, type ArtifactInfo } from "../../jobs/recorder.js";
+import { findFfmpeg, nextRunVideoFile, RunVideo, runVideoFiles } from "../../jobs/run-video.js";
+import { dirSize, driveSpace, GB, sizeText } from "../../jobs/storage.js";
+import { unzip, zip } from "../../jobs/zip.js";
 import { BrowserSession } from "../../session/session.js";
 import type { FrameHub } from "../live/hub.js";
-import { StepError, type Collector, type CollectorAttempt, type CollectorRecord, type Outcome, type ParamValues } from "../packs/api.js";
+import { StepError, type Collector, type CollectorAttempt, type CollectorRecord, type Outcome, type ParamValues, videoMode, type VideoMode, type VideoSetting } from "../packs/api.js";
 import type { LoadedPack } from "../packs/loader.js";
 import { parentsOf, resolveParams } from "../packs/order.js";
 import type { PackRegistry } from "../packs/registry.js";
@@ -94,12 +98,62 @@ export interface LiveSnapshot {
   step: string | null;
   pages: { id: string; url: string }[];
   activePageId: string | null;
+  /** The settings in effect, which `runs.settings` changes; null while the run sets up. */
+  settings: RunSettings | null;
+  /** Set once the drive ran low during the run: its free bytes, and whether videos stopped. */
+  storageLow: { freeBytes: number; videosOff: boolean } | null;
 }
+
+export interface StorageReport {
+  /** The data folder; runs are in its `runs/`. */
+  dataDir: string;
+  /** Free and total bytes of its drive; null when the system can't say. */
+  freeBytes: number | null;
+  totalBytes: number | null;
+  runs: number;
+  /** Bytes every measured run takes. */
+  runsBytes: number;
+  /** Runs not measured yet (they are measured in the background after a start). */
+  unmeasured: number;
+  largest: RunSummary[];
+  limits: StorageLimits;
+}
+
+/** Which ended runs cleanup keeps. 0 turns a rule off; a run is kept when any rule keeps it, and a labeled run always is. */
+export interface CleanupRules {
+  keepDays: number;
+  keepPerPack: number;
+}
+
+/** What a cleanup deletes (or deleted): the runs, oldest first, and the room they take. */
+export interface CleanupPlan {
+  rules: CleanupRules;
+  runs: RunSummary[];
+  bytes: number;
+  /** Of `runs`, how many aren't measured yet, so `bytes` leaves them out. */
+  unmeasured: number;
+}
+
+/** What can change while a run goes (`runs.settings`), as in effect. */
+export interface RunSettings {
+  pauseOnBroken: boolean;
+  pauseLimitMinutes: number;
+  /** The run's time limit for every attempt; null when each test's (or the pack's) limit holds. */
+  testTimeoutMinutes: number | null;
+  trace: "problems" | "always" | "never";
+  video: VideoMode;
+  runVideo: boolean;
+}
+
+/** A change to a run's settings; fields left out stay. `testTimeoutMinutes: null` goes back to each test's own limit. */
+export type SettingsChange = Partial<Omit<RunSettings, "testTimeoutMinutes" | "video">> & { testTimeoutMinutes?: number | null; video?: VideoSetting };
 
 export interface RunDetail extends RunSummary {
   plan: (PlanEntry & { status: AttemptStatus | "pending"; attemptId: string | null })[];
   attempts: AttemptSummary[];
   live: LiveSnapshot | null;
+  /** Videos of the whole run (`runVideo`), in order: a resumed run, or one switched off and on, adds a part. */
+  runVideos: { path: string; url: string; size: number }[];
 }
 
 interface ActiveRun {
@@ -119,10 +173,18 @@ interface ActiveRun {
   shutdown: boolean;
   done: Promise<void>;
   videoWarned: boolean;
+  /** The video of the whole run while one is recorded. */
+  runVideo: RunVideo | null;
+  runVideoWarned: boolean;
   /** Set once the run is planned and set up. */
   ctx: RunCtx | null;
   /** The recorder of the top-level attempt that is running, for marks. */
   recorder: AttemptRecorder | null;
+  /** Bytes the run's folder takes, measured every so often while it goes. */
+  sizeBytes: number | null;
+  /** Set once the drive ran low during the run: free bytes then, and whether videos stopped. */
+  storageLow: { freeBytes: number; videosOff: boolean } | null;
+  storageTimer: ReturnType<typeof setInterval> | null;
 }
 
 interface RunCtx {
@@ -156,6 +218,14 @@ function withAdded(plan: KindPlan, added: RunOptions["added"]): KindPlan {
   return extra.length === 0 ? plan : { ...plan, items: [...plan.items, ...extra] };
 }
 
+export interface StorageLimits {
+  warnBelowGB: number;
+  stopBelowGB: number;
+}
+
+export const DEFAULT_STORAGE_LIMITS: StorageLimits = { warnBelowGB: 5, stopBelowGB: 1 };
+const STORAGE_CHECK_MS = 60_000;
+
 export interface EngineOptions {
   repo: RunsRepo;
   events: EventLog;
@@ -165,9 +235,17 @@ export interface EngineOptions {
   dataDir: string;
   kinds: JobKinds;
   /** Secrets for `h.secret` and `${secret.…}`; every value is masked in what runs record and announce. */
-  secrets?: { get(name: string): string | undefined; mask(text: string): string } | undefined;
+  secrets?: { get(name: string): string | undefined; mask(text: string): string; maskBytes?(data: Buffer): Buffer | null } | undefined;
   /** Saved sign-ins: runs that start signed in get the site's storage state, and `h.saveSignIn` saves one. */
   signIns?: { get(siteKey: string): StorageState | undefined; save(siteKey: string, state: StorageState, source: string): unknown } | undefined;
+  /** Runners: runs whose `network` names one send their browser's connections through it (a proxy per run). */
+  runners?: { proxy(name: string, onRefused: (message: string) => void): Promise<{ server: string; close(): Promise<void> }> } | undefined;
+  /** Free space on the drive below which a run warns, and below which it stops recording videos (the settings; 5 and 1 GB by default). */
+  storageLimits?: (() => StorageLimits) | undefined;
+  /** How long ended runs are kept (Settings > Storage); both 0, the default, keeps every run. */
+  cleanupRules?: (() => CleanupRules) | undefined;
+  /** How often a going run measures its folder and the drive's free space (default once a minute). */
+  storageCheckMs?: number | undefined;
 }
 
 /** A copy of `value` with `mask` applied to every string in it (event data, attempt results). */
@@ -192,6 +270,29 @@ export class Engine {
     for (const id of this.o.repo.interruptLeftovers()) this.o.events.append("run.interrupted", { reason: "server_stopped" }, { runId: id });
   }
 
+  /**
+   * Once the server is up again: the runs its last stop (or a crash) interrupted. With `resume`
+   * (the `runs.resumeOnStart` setting) they continue where they were. Either way one
+   * `runs.restarted` event lists them, for alerts. Each run is handled once.
+   */
+  afterRestart(resume: boolean): { interrupted: string[]; resumed: string[] } {
+    if (this.closing) return { interrupted: [], resumed: [] };
+    const interrupted = this.o.repo.takeStoppedByServer();
+    const resumed: string[] = [];
+    for (const id of interrupted) {
+      if (!resume) continue;
+      try {
+        this.resume(id);
+        resumed.push(id);
+        this.o.events.append("run.log", { level: "info", message: "Watchwright started again: the run goes on where it was (Settings > New run > Resume interrupted runs)." }, { runId: id });
+      } catch (err) {
+        this.o.events.append("run.log", { level: "warn", message: `Watchwright started again but couldn't resume the run: ${err instanceof Error ? err.message : String(err)}` }, { runId: id });
+      }
+    }
+    if (interrupted.length) this.o.events.append("runs.restarted", { interrupted, resumed });
+    return { interrupted, resumed };
+  }
+
   /** Runs and outcomes per day for the `days` days ending today, in a time zone `offset` minutes behind UTC. */
   stats(o: { days: number; offset: number; packId?: string | undefined; until?: string | undefined }): RunStats {
     const until = o.until ?? dayOf(new Date().toISOString(), o.offset);
@@ -204,7 +305,121 @@ export class Engine {
   }
 
   list(filter: RunFilter = {}): RunSummary[] {
-    return this.o.repo.runs(filter).map((r) => runSummary(r, this.o.repo.counts(r.id)));
+    return this.o.repo.runs(filter).map((r) => this.summary(r));
+  }
+
+  /** A run's summary; a going run's size is the one measured last. */
+  private summary(r: RunRow): RunSummary {
+    const s = runSummary(r, this.o.repo.counts(r.id));
+    const run = this.active.get(r.id);
+    return run && run.sizeBytes !== null ? { ...s, sizeBytes: run.sizeBytes } : s;
+  }
+
+  /** Measures a run's folder and keeps the size with the run, unless it is going (then it changes). */
+  async measure(id: string): Promise<number | null> {
+    if (this.active.has(id)) return null;
+    return this.keepSize(id, () => !this.active.has(id));
+  }
+
+  private async keepSize(id: string, still: () => boolean = () => true): Promise<number | null> {
+    try {
+      const bytes = await dirSize(path.join(this.o.dataDir, "runs", id));
+      // Deleted or started again while measuring, or the server is closing.
+      if (!still() || !this.o.repo.run(id)) return null;
+      this.o.repo.updateRun(id, { size_bytes: bytes });
+      this.o.events.append("run.measured", { sizeBytes: bytes }, { runId: id });
+      return bytes;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Measures every ended run whose size isn't known yet (runs from before sizes were kept), one at a time. */
+  async measureMissing(): Promise<number> {
+    let n = 0;
+    for (const id of this.o.repo.unmeasured()) {
+      if (this.closing) break;
+      if ((await this.measure(id)) !== null) n++;
+    }
+    return n;
+  }
+
+  /** What runs take on the drive, and how much room the drive has left. */
+  async storage(top = 10): Promise<StorageReport> {
+    for (const run of this.active.values()) if (run.sizeBytes === null) run.sizeBytes = await dirSize(path.join(this.o.dataDir, "runs", run.id));
+    const totals = this.o.repo.sizeTotals();
+    const going = [...this.active.values()].reduce((s, r) => s + (r.sizeBytes ?? 0), 0);
+    const drive = await driveSpace(this.o.dataDir);
+    return {
+      dataDir: this.o.dataDir,
+      freeBytes: drive?.freeBytes ?? null,
+      totalBytes: drive?.totalBytes ?? null,
+      runs: totals.runs,
+      runsBytes: totals.bytes + going,
+      unmeasured: Math.max(0, totals.unmeasured - this.active.size),
+      largest: this.o.repo.largest(top).map((r) => this.summary(r)),
+      limits: this.limits(),
+    };
+  }
+
+  /** The ended runs the cleanup rules don't keep, oldest first. */
+  cleanupPlan(rules: CleanupRules = this.cleanupRules()): CleanupPlan {
+    const runs = this.o.repo
+      .cleanupCandidates(rules)
+      .filter((r) => !this.active.has(r.id))
+      .map((r) => this.summary(r));
+    return { rules, runs, bytes: runs.reduce((n, r) => n + (r.sizeBytes ?? 0), 0), unmeasured: runs.filter((r) => r.sizeBytes == null).length };
+  }
+
+  /** Deletes the runs `cleanupPlan` lists, the same way `delete` does. `by` says who asked (`schedule` for the daily sweep). */
+  async cleanup(by: string): Promise<CleanupPlan> {
+    const plan = this.cleanupPlan();
+    const done: RunSummary[] = [];
+    for (const r of plan.runs) {
+      if (this.closing) break;
+      try {
+        await this.delete(r.id);
+        done.push(r);
+      } catch {
+        // Started again (redo, resume) since the plan: keep it.
+      }
+    }
+    const result = { ...plan, runs: done, bytes: done.reduce((n, r) => n + (r.sizeBytes ?? 0), 0), unmeasured: done.filter((r) => r.sizeBytes == null).length };
+    if (done.length) this.o.events.append("runs.cleaned", { by, count: done.length, bytes: result.bytes, rules: plan.rules });
+    return result;
+  }
+
+  private cleanupRules(): CleanupRules {
+    return this.o.cleanupRules?.() ?? { keepDays: 0, keepPerPack: 0 };
+  }
+
+  private limits(): StorageLimits {
+    return this.o.storageLimits?.() ?? DEFAULT_STORAGE_LIMITS;
+  }
+
+  /**
+   * Measures a going run's folder and checks the drive. Below the warning line it says so once
+   * (a log line, `storage.low` for alerts, a banner); below the floor it stops recording videos
+   * for the rest of the run so the run can finish without filling the drive. It never stops a run.
+   */
+  private async checkStorage(run: ActiveRun): Promise<void> {
+    const size = await dirSize(path.join(this.o.dataDir, "runs", run.id));
+    if (size !== run.sizeBytes && this.active.has(run.id)) this.o.events.append("run.measured", { sizeBytes: size }, { runId: run.id });
+    run.sizeBytes = size;
+    const drive = await driveSpace(this.o.dataDir);
+    if (!drive || !this.active.has(run.id)) return;
+    const { warnBelowGB, stopBelowGB } = this.limits();
+    const free = drive.freeBytes;
+    if (free < stopBelowGB * GB && !run.storageLow?.videosOff) {
+      run.storageLow = { freeBytes: free, videosOff: true };
+      await this.stopRunVideo(run);
+      this.emit("run.log", { level: "warn", message: `Only ${sizeText(free)} free on the drive with the data folder (under ${stopBelowGB} GB): this run records no more videos. Free some room, or delete old runs in Settings > Storage.` }, run.id);
+      this.emit("storage.low", { freeBytes: free, warnBelowGB, stopBelowGB, videosOff: true }, run.id);
+    } else if (free < warnBelowGB * GB && !run.storageLow) {
+      run.storageLow = { freeBytes: free, videosOff: false };
+      this.emit("run.log", { level: "warn", message: `Only ${sizeText(free)} free on the drive with the data folder (under ${warnBelowGB} GB). Below ${stopBelowGB} GB, runs stop recording videos.` }, run.id);
+      this.emit("storage.low", { freeBytes: free, warnBelowGB, stopBelowGB, videosOff: false }, run.id);
+    } else if (run.storageLow) run.storageLow = { ...run.storageLow, freeBytes: free };
   }
 
   private planEntries(kind: JobKind, pack: LoadedPack, plan: KindPlan, queue: RunQueue): PlanEntry[] {
@@ -237,6 +452,62 @@ export class Engine {
     const entries = this.planEntries(ctx.kind, ctx.pack, ctx.plan, ctx.queue);
     this.o.repo.updateRun(id, { plan: JSON.stringify(entries), options: JSON.stringify(ctx.options) });
     this.emit("run.planned", { plan: entries }, id);
+    return this.get(id)!;
+  }
+
+  private settingsOf(ctx: RunCtx): RunSettings {
+    const o = ctx.pack.options.run ?? {};
+    return {
+      pauseOnBroken: ctx.pauseOnBroken,
+      pauseLimitMinutes: ctx.pauseLimitMs / 60_000,
+      testTimeoutMinutes: ctx.options.testTimeout === undefined ? null : ctx.options.testTimeout / 60_000,
+      trace: ctx.options.trace ?? o.trace ?? "problems",
+      video: videoMode(ctx.options.video ?? o.video ?? "always"),
+      runVideo: ctx.run.runVideo !== null,
+    };
+  }
+
+  /**
+   * Changes the settings of a run that is going or queued. They are kept with the run (a resume
+   * keeps them) and take effect at the next attempt; a new pause limit applies at once to a broken
+   * pause that is going, counted from when it began.
+   */
+  async changeSettings(id: string, change: SettingsChange, by = "api"): Promise<RunDetail> {
+    const r = this.requireRun(id);
+    const keys = (Object.keys(change) as (keyof SettingsChange)[]).filter((k) => change[k] !== undefined);
+    if (keys.length === 0) throw new EngineError("bad_input", "Name at least one setting to change.");
+    const apply = (options: RunOptions): RunOptions => {
+      const next: RunOptions = { ...options };
+      if (change.pauseOnBroken !== undefined) next.pauseOnBroken = change.pauseOnBroken;
+      if (change.pauseLimitMinutes !== undefined) next.pauseLimitMinutes = change.pauseLimitMinutes;
+      if (change.trace !== undefined) next.trace = change.trace;
+      if (change.video !== undefined) next.video = change.video;
+      if (change.runVideo !== undefined) next.runVideo = change.runVideo;
+      if (change.testTimeoutMinutes === null) delete next.testTimeout;
+      else if (change.testTimeoutMinutes !== undefined) next.testTimeout = Math.round(change.testTimeoutMinutes * 60_000);
+      return next;
+    };
+    const changed = Object.fromEntries(keys.map((k) => [k, change[k]]));
+    if (r.status === "queued") {
+      this.o.repo.updateRun(id, { options: JSON.stringify(apply(JSON.parse(r.options) as RunOptions)) });
+      this.emit("run.settings", { changed, by }, id);
+      return this.get(id)!;
+    }
+    const run = this.active.get(id);
+    if (!run) throw new EngineError("not_running", "Only a run that is going or queued takes new settings.", 409);
+    const ctx = run.ctx;
+    if (!ctx) throw new EngineError("not_running", "The run is still setting up; try again in a moment.", 409);
+    ctx.options = apply(ctx.options);
+    if (change.pauseOnBroken !== undefined) ctx.pauseOnBroken = change.pauseOnBroken;
+    let deadline: string | null = null;
+    if (change.pauseLimitMinutes !== undefined) {
+      ctx.pauseLimitMs = change.pauseLimitMinutes * 60_000;
+      deadline = run.control.setBrokenLimit(ctx.pauseLimitMs);
+    }
+    if (change.runVideo === true) this.startRunVideo(run);
+    if (change.runVideo === false) await this.stopRunVideo(run);
+    this.o.repo.updateRun(id, { options: JSON.stringify(ctx.options) });
+    this.emit("run.settings", { changed, by, settings: this.settingsOf(ctx), ...(deadline ? { deadline } : {}) }, id);
     return this.get(id)!;
   }
 
@@ -352,6 +623,7 @@ export class Engine {
     if (this.active.has(id) || r.status === "queued") throw new EngineError("conflict", "Stop the run before deleting it.", 409);
     this.o.repo.deleteRun(id);
     await rm(path.join(this.o.dataDir, "runs", id), { recursive: true, force: true });
+    this.o.events.forgetRun(id);
     this.o.events.append("run.deleted", {}, { runId: id });
     return { id, deleted: true };
   }
@@ -365,7 +637,16 @@ export class Engine {
       const a = byKey.get(`${p.testId}#${p.number}`);
       return { ...p, status: a?.status ?? ("pending" as const), attemptId: a?.id ?? null };
     });
-    return { ...runSummary(r, this.o.repo.counts(id)), plan, attempts, live: this.snapshot(id) };
+    const runVideos = runVideoFiles(path.join(this.o.dataDir, "runs", id)).map((v) => {
+      const rel = `runs/${id}/${v.name}`;
+      return { path: rel, url: fileUrl(rel), size: v.size };
+    });
+    return { ...this.summary(r), plan, attempts, live: this.snapshot(id), runVideos };
+  }
+
+  /** A run's status alone, from one row: cheap enough to check on every event. Null when there is no such run. */
+  status(id: string): RunRow["status"] | null {
+    return this.o.repo.run(id)?.status ?? null;
   }
 
   history(id: string): AttemptSummary[] {
@@ -392,6 +673,8 @@ export class Engine {
       step: run.step,
       pages: run.session?.openPages() ?? [],
       activePageId: run.session?.activePage ?? null,
+      settings: run.ctx ? this.settingsOf(run.ctx) : null,
+      storageLow: run.storageLow,
     };
   }
 
@@ -617,6 +900,22 @@ export class Engine {
     await Promise.all(runs.map((r) => r.done.catch(() => undefined)));
   }
 
+  /**
+   * A promise that failed with nobody waiting on it, almost always test code that started a
+   * Playwright call without `await` and ended before it did. It must not take the server down:
+   * it goes on the log of every run that is going (the attempt that is running, else the run),
+   * since nothing tells which one it came from. Returns the message, for the server's own log.
+   */
+  strayError(reason: unknown): string {
+    const first = reason instanceof Error ? `${reason.name === "Error" ? "" : `${reason.name}: `}${reason.message.split("\n")[0]}` : String(reason);
+    const message = this.mask(`A promise failed after nothing waited on it (a call without await in a test?): ${first}`);
+    for (const run of this.active.values()) {
+      if (run.recorder) run.recorder.addLog("warn", message);
+      else this.emit("run.log", { level: "warn", message }, run.id);
+    }
+    return message;
+  }
+
   /** Resolves when the run is no longer active (for tests and the CLI). */
   async settled(id: string): Promise<void> {
     await this.active.get(id)?.done;
@@ -657,8 +956,13 @@ export class Engine {
       shutdown: false,
       done: Promise.resolve(),
       videoWarned: false,
+      runVideo: null,
+      runVideoWarned: false,
       ctx: null,
       recorder: null,
+      sizeBytes: null,
+      storageLow: null,
+      storageTimer: null,
     };
     this.active.set(row.id, run);
     run.done = this.execute(row, run)
@@ -666,7 +970,10 @@ export class Engine {
         this.o.repo.updateRun(row.id, { status: "interrupted", error: err instanceof Error ? err.message : String(err) });
         this.emit("run.interrupted", { reason: "engine_error", message: err instanceof Error ? err.message : String(err) }, row.id);
       })
-      .finally(() => {
+      .finally(async () => {
+        if (run.storageTimer) clearInterval(run.storageTimer);
+        // Once the run is over its folder doesn't grow; measure it for good.
+        await this.keepSize(row.id);
         this.active.delete(row.id);
         this.o.frames.forget(row.id);
         this.schedule();
@@ -719,14 +1026,35 @@ export class Engine {
         return;
       }
     }
+    // Through a runner: the site is reached from that machine (docs/plans/self-hosting.md, section 6).
+    const network = options.network ?? o.site.network ?? "server";
+    let proxy: { server: string; close(): Promise<void> } | null = null;
+    if (network !== "server") {
+      if (!this.o.runners) {
+        failStart(`This server has no runners, so the run can't reach the site from "${network}".`);
+        return;
+      }
+      try {
+        let warned = 0;
+        proxy = await this.o.runners.proxy(network, (message) => {
+          // One line per refusal, up to 20, so a page full of blocked requests doesn't flood the log.
+          if (++warned <= 20) this.emit("run.log", { level: "warn", message: `Runner ${network} didn't open ${message}` }, row.id);
+        });
+      } catch (err) {
+        failStart(err instanceof Error ? err.message : String(err));
+        return;
+      }
+      this.emit("run.log", { level: "info", message: `The browser reaches the site from the runner ${network}.` }, row.id);
+    }
     let session: BrowserSession;
     try {
       session = await BrowserSession.launch(
         {
           browser: o.browser?.name ?? "chromium",
-          headless: o.browser?.headless ?? true,
+          // A machine with no screen (a container) can't show a browser, so it runs headless whatever the pack asks.
+          headless: (o.browser?.headless ?? true) || !hasDesktop(),
           viewport: o.browser?.viewport ?? { width: 1280, height: 800 },
-          launch: o.browser?.launch,
+          launch: proxy ? { ...o.browser?.launch, proxy: { server: proxy.server } } : o.browser?.launch,
           context: signIn ? { ...o.browser?.context, storageState: signIn } : o.browser?.context,
           size: o.run?.screencastSize,
           quality: o.run?.frameQuality ?? 70,
@@ -753,10 +1081,14 @@ export class Engine {
         },
       );
     } catch (err) {
+      await proxy?.close();
       failStart(`The browser didn't start: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`);
       return;
     }
     run.session = session;
+    await this.checkStorage(run);
+    run.storageTimer = setInterval(() => void this.checkStorage(run).catch(() => undefined), this.o.storageCheckMs ?? STORAGE_CHECK_MS);
+    if (options.runVideo ?? o.run?.runVideo ?? false) this.startRunVideo(run);
 
     try {
       for (const c of o.collectors ?? []) run.collected.set(c.name, []);
@@ -843,15 +1175,49 @@ export class Engine {
       this.flushAdded(ctx);
       if (!run.control.stopMode && !run.shutdown && mode === "normal") this.fileUnrunChildren(ctx);
     } finally {
+      await this.stopRunVideo(run);
       await session.stopCapture();
       await session.close();
+      await proxy?.close();
       run.session = null;
     }
     const status = run.shutdown ? "interrupted" : run.control.stopMode ? "stopped" : "finished";
     repo.updateRun(row.id, { status, finished_at: status === "interrupted" ? null : new Date().toISOString() });
     const counts = repo.counts(row.id);
-    if (status === "interrupted") this.emit("run.interrupted", { reason: "server_stopped" }, row.id);
-    else this.emit("run.finished", { status, counts }, row.id);
+    if (status === "interrupted") {
+      repo.markStoppedByServer(row.id);
+      this.emit("run.interrupted", { reason: "server_stopped" }, row.id);
+    } else this.emit("run.finished", { status, counts }, row.id);
+  }
+
+  /** Starts a video of the whole run, of the page the live view follows; a new part when the run already has one. */
+  private startRunVideo(run: ActiveRun): void {
+    if (run.runVideo || run.storageLow?.videosOff) return;
+    const warn = (message: string) => {
+      if (run.runVideoWarned) return;
+      run.runVideoWarned = true;
+      this.emit("run.log", { level: "warn", message }, run.id);
+    };
+    const ffmpeg = findFfmpeg();
+    if (!ffmpeg) return warn("The run video can't be recorded: Playwright's ffmpeg isn't installed (npx playwright install ffmpeg). The run goes on without it.");
+    const dir = path.join(this.o.dataDir, "runs", run.id);
+    mkdirSync(dir, { recursive: true });
+    run.runVideo = new RunVideo({
+      file: nextRunVideoFile(dir),
+      ffmpeg,
+      frame: () => {
+        const list = this.o.frames.latestFrames(run.id);
+        return list.find((f) => f.pageId === run.session?.activePage) ?? list.at(-1) ?? null;
+      },
+      onError: (message) => warn(`The run video stopped: ${message}. The run goes on without it.`),
+    });
+    run.runVideo.start();
+  }
+
+  private async stopRunVideo(run: ActiveRun): Promise<void> {
+    const v = run.runVideo;
+    run.runVideo = null;
+    await v?.stop();
   }
 
   /** Which top-level attempts run, by mode. Keys are `test#number`. */
@@ -900,11 +1266,17 @@ export class Engine {
     return null;
   }
 
+  /** An attempt's row as the run's page lists it, sent with its events so pages patch instead of refetching the run. */
+  private attemptOf(id: string): AttemptSummary | null {
+    const a = this.o.repo.attempt(id);
+    return a ? attemptSummary(a) : null;
+  }
+
   private skipAttempt(ctx: RunCtx, item: PlanItem, parentId: string | null, reason: string): void {
     const id = newId(6);
     const title = ctx.kind.describe(ctx.pack, item.itemId).title;
     this.o.repo.insertSkipped({ id, runId: ctx.row.id, kind: ctx.kind.name, itemId: item.itemId, title, number: item.number, of: item.of, parentId, reason });
-    this.emit("attempt.finished", { testId: item.itemId, number: item.number, of: item.of, status: "skipped", reason, parentId }, ctx.row.id, id);
+    this.emit("attempt.finished", { testId: item.itemId, number: item.number, of: item.of, status: "skipped", reason, parentId, attempt: this.attemptOf(id) }, ctx.row.id, id);
   }
 
   /** The kind's helper object for one attempt (or the run's setup), built from the runtime every kind gets. */
@@ -972,15 +1344,20 @@ export class Engine {
     run.attemptId = id;
     run.testId = item.itemId;
     run.step = null;
-    this.emit("attempt.started", { testId: item.itemId, title, number: item.number, of: item.of, try: tryNo, parentId }, row.id, id);
+    this.emit("attempt.started", { testId: item.itemId, title, number: item.number, of: item.of, try: tryNo, parentId, attempt: this.attemptOf(id) }, row.id, id);
 
     const top = parentId === null;
     if (top) run.recorder = recorder;
     const o = pack.options.run ?? {};
     const traceMode = ctx.options.trace ?? o.trace ?? "problems";
-    const video = ctx.options.video ?? o.video ?? true;
+    const video = run.storageLow?.videosOff ? "never" : videoMode(ctx.options.video ?? o.video ?? "always");
     if (top) {
-      await session.restartCapture(video ? dir : null);
+      // Tabs and popups the last test opened would keep their screencasts going and catch the live view.
+      if (!o.keepTabs) {
+        const closed = await session.closeExtraPages();
+        if (closed > 0) recorder.addLog("info", `Closed ${closed === 1 ? "a tab" : `${closed} tabs`} the last test left open.`);
+      }
+      await session.restartCapture(video !== "never" ? dir : null);
       if (traceMode !== "never") await session.startTraceChunk();
     }
 
@@ -1037,11 +1414,13 @@ export class Engine {
       const stopped = run.control.whenStoppedNow.then(() => new Promise<void>((r) => setTimeout(r, STOP_GRACE_MS)));
       if (!top) await Promise.race([body, stopped]);
       else {
-        const limit = kind.describe(pack, item.itemId).timeout ?? o.testTimeout ?? DEFAULT_TEST_TIMEOUT;
+        const ownLimit = kind.describe(pack, item.itemId).timeout ?? o.testTimeout ?? DEFAULT_TEST_TIMEOUT;
         const started = Date.now();
         const pausedBefore = run.control.pausedMs();
         const timedOut = new Promise<never>((_, reject) => {
           watchdog = setInterval(() => {
+            // Read on every tick: the run's limit can change while the attempt goes.
+            const limit = ctx.options.testTimeout ?? ownLimit;
             if (Date.now() - started - (run.control.pausedMs() - pausedBefore) <= limit) return;
             run.control.abort = new AttemptAborted(`The attempt ran longer than its time limit (${Math.round(limit / 1000)} s).`);
             reject(run.control.abort);
@@ -1090,11 +1469,18 @@ export class Engine {
     for (const [name, mine] of added) recorder.write("collector", name, path.join("collectors", `${slug(name)}.json`), JSON.stringify(mine, null, 2), "application/json");
 
     if (top) {
-      for (const v of await session.restartCapture(null).catch(() => [])) recorder.register("video", `video ${v.pageId}`, v.path, "video/webm");
+      // "problems" keeps a video only when the attempt failed or broke, as "problems" does for traces.
+      const keepVideo = video === "always" || finalStatus === "broken" || finalStatus === "failed";
+      for (const v of await session.restartCapture(null).catch(() => [])) {
+        if (keepVideo) recorder.register("video", `video ${v.pageId}`, v.path, "video/webm");
+        else rmSync(v.path, { force: true });
+      }
       if (traceMode !== "never") {
         const keep = traceMode === "always" || finalStatus === "broken" || finalStatus === "failed";
         const file = path.join(dir, "trace.zip");
-        if (await session.stopTraceChunk(keep ? file : null)) recorder.register("trace", "trace", file, "application/zip");
+        if (await session.stopTraceChunk(keep ? file : null)) {
+          if (this.maskTrace(file, recorder)) recorder.register("trace", "trace", file, "application/zip");
+        }
       }
     }
 
@@ -1103,6 +1489,7 @@ export class Engine {
       this.o.repo.updateRun(row.id, { state: JSON.stringify(run.state) });
     }
 
+    if (recorder.droppedLog > 0) recorder.notes.push(`${recorder.droppedLog} log line${recorder.droppedLog === 1 ? "" : "s"} past the limit of ${MAX_LOG_LINES} weren't kept.`);
     this.o.repo.finishAttempt(
       id,
       {
@@ -1126,7 +1513,7 @@ export class Engine {
     }
     this.emit(
       "attempt.finished",
-      { testId: item.itemId, number: item.number, of: item.of, try: tryNo, status: finalStatus, error: attemptError?.message ?? null, flags: recorder.flags.map((f) => f.name), parentId },
+      { testId: item.itemId, number: item.number, of: item.of, try: tryNo, status: finalStatus, error: attemptError?.message ?? null, flags: recorder.flags.map((f) => f.name), parentId, attempt: this.attemptOf(id) },
       row.id,
       id,
     );
@@ -1147,6 +1534,31 @@ export class Engine {
     } finally {
       run.attemptId = prev.attemptId;
       run.testId = prev.testId;
+    }
+  }
+
+  /**
+   * A trace records every action with its arguments (the text a `fill` typed) and the network
+   * traffic, so a secret a test used is in it as typed. Rewrites the trace with every secret masked; false when it had to be dropped instead.
+   */
+  private maskTrace(file: string, recorder: AttemptRecorder): boolean {
+    const maskBytes = this.o.secrets?.maskBytes?.bind(this.o.secrets);
+    if (!maskBytes) return true;
+    try {
+      let changed = false;
+      const entries = unzip(readFileSync(file)).map((e) => {
+        const masked = maskBytes(e.data);
+        if (!masked) return e;
+        changed = true;
+        return { name: e.name, data: masked };
+      });
+      if (changed) writeFileSync(file, zip(entries));
+      return true;
+    } catch (err) {
+      // A trace that can't be checked isn't kept: it could hold a secret.
+      rmSync(file, { force: true });
+      recorder.addLog("warn", `The trace couldn't be checked for secrets, so it wasn't kept: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
     }
   }
 

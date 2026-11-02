@@ -130,7 +130,7 @@ export const editorPlugin = definePlugin({
     const registry = services.get(PACKS);
     // An image from the pack folder, for Markdown previews. The same path rules as the text files
     // apply. The headers keep an SVG opened on its own from running scripts on this origin.
-    app.get("/packs/:id/image", async (req, reply) => {
+    app.get("/packs/:id/image", { config: { access: "viewer" } }, async (req, reply) => {
       const { id } = req.params as { id: string };
       const rel = (req.query as { path?: unknown }).path;
       try {

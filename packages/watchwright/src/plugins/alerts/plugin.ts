@@ -118,6 +118,7 @@ export const alertsPlugin = definePlugin({
     return [
       defineAction({
         name: "alerts.channels",
+        access: "admin",
         title: "Alert channels: name, type (webhook, ntfy, discord, slack) and where they send (the site only; URLs and tokens are never answered)",
         method: "GET",
         path: "/alerts/channels",
@@ -125,6 +126,7 @@ export const alertsPlugin = definePlugin({
       }),
       defineAction<ChannelInput>({
         name: "alerts.channel-create",
+        access: "admin",
         destructive: true,
         secret: ["url", "token"],
         explain: ({ name, type }) => `Add the ${type} alert channel "${name}", which sends messages outside this computer`,
@@ -137,6 +139,7 @@ export const alertsPlugin = definePlugin({
       }),
       defineAction<Partial<ChannelInput> & { id: string }>({
         name: "alerts.channel-update",
+        access: "admin",
         destructive: true,
         secret: ["url", "token"],
         explain: ({ id }) => `Change the alert channel ${id}`,
@@ -148,6 +151,7 @@ export const alertsPlugin = definePlugin({
       }),
       defineAction<{ id: string }>({
         name: "alerts.channel-delete",
+        access: "admin",
         destructive: true,
         explain: ({ id }) => `Delete the alert channel ${id}`,
         title: "Delete an alert channel (rules stop sending to it)",
@@ -162,6 +166,7 @@ export const alertsPlugin = definePlugin({
       }),
       defineAction<{ id: string }>({
         name: "alerts.channel-test",
+        access: "admin",
         title: "Send a test message to an alert channel now; fails with the reason when it doesn't arrive",
         method: "POST",
         path: "/alerts/channels/:id/test",
@@ -170,6 +175,7 @@ export const alertsPlugin = definePlugin({
       }),
       defineAction({
         name: "alerts.rules",
+        access: "admin",
         title: "Alert rules: which triggers, for which packs or schedules, to which channels, and whether only on change",
         method: "GET",
         path: "/alerts/rules",
@@ -177,6 +183,7 @@ export const alertsPlugin = definePlugin({
       }),
       defineAction<RuleInput>({
         name: "alerts.rule-create",
+        access: "admin",
         destructive: true,
         explain: ({ name }) => `Add the alert rule "${name}"`,
         title: `Add an alert rule. Triggers: ${TRIGGERS.join(", ")}`,
@@ -188,6 +195,7 @@ export const alertsPlugin = definePlugin({
       }),
       defineAction<Partial<RuleInput> & { id: string }>({
         name: "alerts.rule-update",
+        access: "admin",
         destructive: true,
         explain: ({ id }) => `Change the alert rule ${id}`,
         title: "Change an alert rule",
@@ -198,6 +206,7 @@ export const alertsPlugin = definePlugin({
       }),
       defineAction<{ id: string }>({
         name: "alerts.rule-delete",
+        access: "admin",
         destructive: true,
         explain: ({ id }) => `Delete the alert rule ${id}`,
         title: "Delete an alert rule",
@@ -212,6 +221,7 @@ export const alertsPlugin = definePlugin({
       }),
       defineAction<{ limit?: number }>({
         name: "alerts.log",
+        access: "admin",
         title: "Alerts sent lately, newest first: rule, channel, what, sent or failed, tries and the error",
         method: "GET",
         path: "/alerts/log",

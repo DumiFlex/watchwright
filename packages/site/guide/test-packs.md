@@ -15,11 +15,12 @@ my-site/watchwright/
 
 ## Adding a pack
 
-There are four ways, and they all end the same: the server loads the pack and lists its tests.
+There are five ways, and they all end the same: the server loads the pack and lists its tests.
 
 - **On the Packs page**, type or paste the folder's path. The field suggests folders as you type (Tab completes, like a terminal) and says when the folder has a pack file. A path pasted with quotes (Windows Explorer's "Copy as path"), a `file://` address and `~` all work.
 - **Browse…** opens a folder browser of the server's machine: your home folder, the drives, the folders of packs already added and the folders you used recently on the side. Open the folder with the pack file and press **Add this pack**. Type to filter the list, or type a whole path and press Enter to jump there.
 - In the folder browser, **Find packs here** searches the open folder and the four levels below it for pack files (skipping `node_modules`, build output and hidden folders) and adds the ones you tick. Handy for a folder of projects. The Ctrl+K command **Find packs in a folder** opens the browser ready to search.
+- **Upload .zip…** (admins only, since pack code runs on the server) takes a zip with the pack file at its top or in one folder at its top, unpacks it into a new folder and adds it. This is the way onto a [server in Docker](./self-hosting#getting-packs-onto-the-server). **Download .zip** in a pack's menu gives the pack's folder back as a zip, without `node_modules` and `.git`.
 - **When you start the server**: `watchwright serve ./watchwright` adds that folder (or reloads it when it's already added). When the server is already running, the same command adds the pack there and opens the page.
 
 Through the [API](../reference/http-api#packs) it's `POST /api/v1/packs` with `{ "path": "/abs/path/to/my-site/watchwright" }`.
@@ -64,17 +65,20 @@ export default pack({
 | `site.key` | Runs of packs with the same key wait for each other, so two runs never change the same app at once. |
 | `site.baseURL` | Relative URLs in `h.goto()` resolve against it. |
 | `site.signIn` | `"saved"`: every run starts with the sign-in saved for this site key (see [Saved sign-ins](./yaml-tests#saved-sign-ins)). |
+| `site.network` | Where runs reach the site from: `server` (the default) or a [runner](./self-hosting#runners)'s name, for a site only another machine can reach. A run can choose otherwise. |
 | `browser` | `name` (`chromium`, `firefox`, `webkit`), `viewport`, `headless` (default `true`; you watch through the live view), and raw Playwright `launch` and `context` options. |
 | `params` | Values chosen per run. A param has a `default`, optional `choices` (with optional display `labels`: `{ q9: "Qwen3.5 9B" }`), and an optional `type` (`string`, `number`, `boolean`). Tests get them as `params`. |
 | `flags` | Flags tests may raise, with their kind: `robot` (the harness or test went wrong: the attempt is **broken**), `finding` (the site did something wrong: the attempt **failed**), `info` (changes nothing). |
 | `rubric` | What reviewers score each attempt on (see [Reviewing results](./reviewing)). Default: one 1-to-5 `overall` criterion. |
+| `dashboard` | What the pack's dashboard shows: tiles of outcomes, metrics, scores, setups compared, tests and outputs (see [Dashboards](./dashboards)). Default: outcomes, run times and the latest failures. |
+| `share` | What share links and the public status page leave out: `texts`, `metrics` or `reviews` set to `false`, and `outputs`, names of texts and files never shared (see [Dashboards](./dashboards#keeping-things-out-of-shares)). |
 | `tests` | Glob(s) of test files relative to the pack file. Default `tests/**/*.{ts,mts,js,mjs}`. |
 | `setup` | Runs once each time a run starts (or resumes), before the first test. Gets `{ page, context, browser, h, params, packDir, info }`; `info(key, value)` saves a fact about the run (see below). |
 | `beforeAttempt`, `afterAttempt` | Run around every attempt, children too (see [Attempt hooks](#attempt-hooks)). |
 | `collectors` | Record what the browser does for every attempt (see below). |
 | `helpers` | Adds your own helpers to `h` (see below). |
 | `idle` | Your app's busy check for `h.idle()`: resolve `true` when the app is idle. |
-| `run` | `pauseOnBroken` (default `true`), `pauseLimitMinutes` (default 20), `testTimeout` in ms (default 30 minutes), `trace` (`problems` (default), `always`, `never`), `video` (default `true`), `showActions` (default `true`), `chapters` (show each `h.step` title, after the titles of the steps it runs in, as a small caption in the bottom-left corner of the live view and video, default `false`), `screencastSize`, `frameQuality`. |
+| `run` | `pauseOnBroken` (default `true`), `pauseLimitMinutes` (default 20), `testTimeout` in ms (default 30 minutes), `trace` (`problems` (default), `always`, `never`), `video` (which attempts keep a video: `always` (default, also `true`), `problems` (only attempts that failed or broke) or `never` (also `false`); Playwright's videos take about 450 MB per hour of tests; in Firefox, whose screencast now and then sends a frame with whole tiles not painted yet, Watchwright drops those one-frame flashes from the live view and writes the videos itself from the frames it keeps), `runVideo` (also record one video of the whole run, of what the live view follows, pauses included, as `run-video.webm` in the run's folder; at most about 270 MB an hour (a still page takes far less); default `false`), `showActions` (default `true`), `keepTabs` (keep tabs and popups a test opened for the tests after it; by default they close before the next test), `chapters` (show each `h.step` title, after the titles of the steps it runs in, as a small caption in the bottom-left corner of the live view and video, default `false`), `screencastSize`, `frameQuality`. |
 
 ## Tests
 
@@ -119,6 +123,8 @@ Every attempt ends as one of:
 - **stopped**: the run was stopped while it ran.
 
 Throw `StepError` (from `watchwright`) when your own helper can't do its job, so the attempt reads as broken, not failed.
+
+`await` every Playwright call. A call left without `await` can fail after its test has ended, when nothing can catch it any more. The server keeps going and writes a warning ("A promise failed after nothing waited on it") to the log of whatever is running then, which may be a later test.
 
 ### The `h` helper
 

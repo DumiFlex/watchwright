@@ -49,7 +49,9 @@ type Place = { key: string; label: string; path: string; icon: Component; missin
 const sideGroups = computed(() => {
   const p = placesData.value;
   const groups: { title: string; items: Place[] }[] = [];
-  if (p) groups.push({ title: "Places", items: [{ key: "home", label: "Home", path: p.home, icon: House }, ...p.roots.map((r) => ({ key: `root:${r}`, label: r === "/" ? "Computer" : r.replace(/\\$/, ""), path: r, icon: HardDrive }))] });
+  // On a server that limits browsing (start isn't home), home is outside what may be shown.
+  const homeItem = !p?.start || p.start === p.home ? [{ key: "home", label: "Home", path: p?.home ?? "", icon: House }] : [];
+  if (p) groups.push({ title: "Places", items: [...homeItem, ...p.roots.map((r) => ({ key: `root:${r}`, label: r === "/" ? "Computer" : r.replace(/\\$/, ""), path: r, icon: HardDrive }))] });
   if (props.places.length) groups.push({ title: "Packs", items: props.places.map((x) => ({ key: `pack:${x.path}`, label: x.label, path: x.path, icon: Package })) });
   if (p?.recent.length) groups.push({ title: "Recent", items: p.recent.map((r) => ({ key: `recent:${r.path}`, label: tildify(r.path, p.home), path: r.path, icon: History, missing: !r.exists })) });
   return groups;
@@ -88,7 +90,7 @@ watch(path, (p) => {
 onMounted(async () => {
   const res = await getJson<FolderPlaces>("/api/v1/folders/places");
   if (res.ok) placesData.value = res.data;
-  const start = path.value ?? (res.ok ? res.data.home : null);
+  const start = path.value ?? (res.ok ? (res.data.start ?? res.data.home) : null);
   if (start) await load(start, true);
   await nextTick();
   field.value?.focus();

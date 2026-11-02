@@ -5,7 +5,7 @@
 import { Bot, CalendarClock, ChartColumn, Ellipsis, Eye, Package, Play, SearchX } from "../icons";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, sendJson, type Pack, type RunSummary } from "../api";
-import { ago, countsText, done, duration, isActive, runDuration, when } from "../format";
+import { ago, countsText, done, duration, fileSize, isActive, runDuration, when } from "../format";
 import { PERIODS, SERIES, anything, bars, tiles, type RunStats } from "../runstats";
 import { LiveConnection } from "../live";
 import { offerNotify } from "../notify";
@@ -23,6 +23,7 @@ import SkeletonBlock from "../components/SkeletonBlock.vue";
 import TextField from "../components/TextField.vue";
 import StatTile from "../components/StatTile.vue";
 import StatusChip from "../components/StatusChip.vue";
+import PackDashboard from "../components/PackDashboard.vue";
 import { vTip } from "../tooltip";
 
 const props = defineProps<{ query: Record<string, string> }>();
@@ -80,6 +81,9 @@ watch(chartOpen, (on) => {
 const glanceTiles = computed(() => (stats.value ? tiles(stats.value) : []));
 const glanceBars = computed(() => (stats.value ? bars(stats.value) : []));
 const showGlance = computed(() => stats.value !== null && anything(stats.value));
+// Filtered to one pack that has runs, the list shows that pack's own dashboard instead.
+const dashPack = computed(() => (packFilter.value && packName(packFilter.value) !== undefined && runs.value.some((r) => r.packId === packFilter.value) ? packFilter.value : null));
+const dashStamp = ref(0);
 async function loadStats() {
   const q = new URLSearchParams({ days: period.value, tz: String(new Date().getTimezoneOffset()) });
   if (packFilter.value) q.set("pack", packFilter.value);
@@ -123,6 +127,7 @@ async function load() {
     runs.value = r.data;
     more.value = r.data.length === PAGE;
   }
+  dashStamp.value++;
 }
 
 async function loadExploring() {
@@ -148,6 +153,13 @@ watch(
   () => props.query.q ?? "",
   (q) => {
     if (q !== search.value.trim()) search.value = q;
+  },
+);
+// …or with a pack (#/?pack=…).
+watch(
+  () => props.query.pack ?? "",
+  (p) => {
+    if (p !== packFilter.value) packFilter.value = p;
   },
 );
 // The search waits for a pause in typing.
@@ -281,7 +293,10 @@ onBeforeUnmount(() => {
       </ul>
     </section>
 
-    <section v-if="showGlance" class="card glance" aria-labelledby="glance-title">
+    <section v-if="dashPack" class="card">
+      <PackDashboard :pack-id="dashPack" :latest-runs="runs.map((r) => r.id)" :stamp="dashStamp" :heading="`Dashboard: ${packName(dashPack)}`" />
+    </section>
+    <section v-else-if="showGlance" class="card glance" aria-labelledby="glance-title">
       <div class="list-head">
         <h2 id="glance-title" class="display">At a glance<template v-if="packFilter && packName(packFilter)">: {{ packName(packFilter) }}</template></h2>
         <div class="glance-tools">
@@ -340,6 +355,7 @@ onBeforeUnmount(() => {
             <th>Results</th>
             <th>Started</th>
             <th>Took</th>
+            <th>Size</th>
             <th><span class="sr-only">Actions</span></th>
           </tr>
         </thead>
@@ -369,6 +385,10 @@ onBeforeUnmount(() => {
               <template v-else>{{ r.startedBy }}</template>
             </td>
             <td class="c-took muted small num">{{ duration(runDuration(r)) || "–" }}</td>
+            <td class="c-size muted small num">
+              <span v-if="r.sizeBytes != null" v-tip="'On the drive: results, screenshots, videos and traces'">{{ fileSize(r.sizeBytes) }}</span>
+              <template v-else>–</template>
+            </td>
             <td class="c-act">
               <MenuButton :items="rowMenu(r)" :label="`Actions for run ${r.id}`" @select="onRowMenu(r, $event)">
                 <template #button><Ellipsis :size="16" /></template>
@@ -536,6 +556,9 @@ onBeforeUnmount(() => {
   font-size: 12px;
   padding: 4px 12px 6px 0;
 }
+.c-size {
+  white-space: nowrap;
+}
 .runs td {
   padding: 8px 12px 8px 0;
   border-top: var(--border-width) solid var(--line);
@@ -660,7 +683,8 @@ onBeforeUnmount(() => {
     justify-self: end;
   }
   .c-res,
-  .c-when {
+  .c-when,
+  .c-size {
     grid-column: 1;
   }
   .c-took {

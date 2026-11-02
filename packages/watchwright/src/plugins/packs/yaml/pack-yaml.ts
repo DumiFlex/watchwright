@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { BrowserContextOptions } from "playwright";
 import type { Collector, PackOptions } from "../api.js";
+import type { DashboardInput, ShareOptions } from "../dashboard.js";
 import { consoleErrors, failedRequests, responses } from "../../testing/collectors.js";
 import { checkDocument, type Parsed } from "./parse.js";
 import { runSteps } from "./run.js";
@@ -51,6 +52,8 @@ function toOptions(y: PackYaml, file: string): PackOptions {
   if (y.run) options.run = y.run;
   if (y.rubric) options.rubric = y.rubric;
   if (y.collectors) options.collectors = collectorsOf(y.collectors);
+  if (y.dashboard !== undefined) options.dashboard = y.dashboard as DashboardInput; // checked by the loader
+  if (y.share !== undefined) options.share = y.share as ShareOptions;
   const setup = y.setup as Step[] | undefined;
   if (setup?.length) options.setup = ({ page, h, params, packDir }) => runSteps(setup, { page, h, params, packDir, file, attempt: 0, attempts: 0, last: false });
   const before = y.beforeEach as Step[] | undefined;

@@ -21,6 +21,11 @@ interface Subscribe {
    * are skipped and counted in a `backlog` message, so a long run opens at the tail of its log.
    */
   logTail?: number;
+  /**
+   * Send the backlog as `{ type: "events", data: [...] }` messages of up to 1000 events each
+   * instead of one `event` message per event, so a viewer can take a long log in one go.
+   */
+  batch?: boolean;
 }
 
 /** The events that are log lines, which a long run has by the ten thousand. */
@@ -37,8 +42,9 @@ function parse(raw: unknown): Subscribe | null {
 }
 
 /**
- * The live channel. A client sends `{ type: "subscribe", after?, runId?, frames?, logTail? }` (again
- * to change it) and gets JSON text messages `{ type: "event", data }` plus binary frame messages.
+ * The live channel. A client sends `{ type: "subscribe", after?, runId?, frames?, logTail?, batch? }`
+ * (again to change it) and gets JSON text messages `{ type: "event", data }` (the backlog as
+ * `{ type: "events", data: [...] }` with `batch`) plus binary frame messages.
  */
 export const livePlugin = definePlugin({
   name: "live",
@@ -65,7 +71,7 @@ export const livePlugin = definePlugin({
     const hub = services.get(FRAMES);
     const RUN = /^[0-9a-f]{8}$/;
     // A frame of the rewind buffer as a JPEG (the index is the `live.rewind` action).
-    app.get<{ Params: { runId: string; pageId: string; timestamp: string } }>("/live/:runId/rewind/:pageId/:timestamp", async (req, reply) => {
+    app.get<{ Params: { runId: string; pageId: string; timestamp: string } }>("/live/:runId/rewind/:pageId/:timestamp", { config: { access: "viewer" } }, async (req, reply) => {
       const { runId, pageId, timestamp } = req.params;
       const at = Number(timestamp.replace(/\.jpg$/, ""));
       if (!RUN.test(runId) || !Number.isFinite(at)) return reply.code(400).send(errorBody("bad_input", "Ask for /live/<run>/rewind/<page>/<timestamp>.jpg."));
@@ -73,7 +79,7 @@ export const livePlugin = definePlugin({
       if (!frame) return reply.code(404).send(errorBody("not_found", "That moment is no longer in the rewind buffer."));
       return reply.header("content-type", "image/jpeg").header("cache-control", "private, max-age=60").header("x-frame-timestamp", String(frame.timestamp)).send(frame.data);
     });
-    app.get("/live", { websocket: true }, (socket: WebSocket) => {
+    app.get("/live", { websocket: true, config: { access: "viewer" } }, (socket: WebSocket) => {
       let stopEvents: (() => void) | null = null;
       let stopFrames: (() => void) | null = null;
       let drainTimer: ReturnType<typeof setInterval> | null = null;
@@ -118,10 +124,18 @@ export const livePlugin = definePlugin({
         let last = msg.after ?? events.head();
         const n = msg.logTail;
         const tail = msg.runId && typeof n === "number" && Number.isInteger(n) && n > 0 ? events.newest(msg.runId, last, LOG_TYPES, n) : null;
+        // The picture goes first: a long backlog queued ahead of it would keep the viewer blank.
+        if (msg.frames && msg.runId) {
+          for (const f of hub.latestFrames(msg.runId)) sendFrame(f);
+          stopFrames = hub.subscribe(msg.runId, sendFrame);
+        }
         if (tail && tail.older > 0) socket.send(JSON.stringify({ type: "backlog", data: { skippedLogs: tail.older } }));
         for (;;) {
           const page = events.after(last, filter, 1000);
-          for (const e of page) if (!tail || e.seq > tail.cut || !LOG_TYPES.includes(e.type)) sendEvent(e);
+          const keep = page.filter((e) => !tail || e.seq > tail.cut || !LOG_TYPES.includes(e.type));
+          if (msg.batch) {
+            if (keep.length > 0) socket.send(JSON.stringify({ type: "events", data: keep }));
+          } else keep.forEach(sendEvent);
           if (page.length > 0) last = page[page.length - 1]!.seq;
           if (page.length < 1000) break;
         }
@@ -130,10 +144,6 @@ export const livePlugin = definePlugin({
           last = e.seq;
           sendEvent(e);
         });
-        if (msg.frames && msg.runId) {
-          for (const f of hub.latestFrames(msg.runId)) sendFrame(f);
-          stopFrames = hub.subscribe(msg.runId, sendFrame);
-        }
       });
       socket.on("close", stop);
     });

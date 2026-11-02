@@ -1,6 +1,8 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { chromium, firefox, webkit, type Browser, type BrowserContext, type BrowserContextOptions, type LaunchOptions, type Page } from "playwright";
+import { findFfmpeg, RunVideo, videoEncoder } from "../jobs/run-video.js";
+import { FlashFilter } from "./flash-filter.js";
 
 // A browser session: one browser, one context, every page in it, and their screencasts and trace.
 // It knows nothing about runs or tests (docs/plan.md, section 3, layer 1).
@@ -18,6 +20,12 @@ export interface SessionOptions {
   showActions: boolean;
   /** Keep a Playwright trace that chunks can be saved from (default true). */
   trace?: boolean;
+  /**
+   * Drop the one-frame flashes Firefox's screencast sends (tiles not painted yet) from the live
+   * frames and the videos (default: on for Firefox). The videos are then written by Watchwright
+   * from the kept frames, with Playwright's ffmpeg, instead of by Playwright.
+   */
+  filterFlashes?: boolean;
 }
 
 export interface SessionFrame {
@@ -44,7 +52,15 @@ interface PageEntry {
   /** Where this page's video goes for the current capture, if any. */
   videoPath: string | null;
   capturing: boolean;
+  /** With flash filtering: the filter, the newest kept frame, and the video written from those. */
+  filter?: FlashFilter<SessionFrame> | null;
+  latest?: { data: Buffer; width: number; height: number } | null;
+  video?: RunVideo | null;
 }
+
+/** Attempt videos written from filtered frames: the screencast's own rate and a bit rate close to Playwright's. */
+const VIDEO_FPS = 25;
+const VIDEO_BIT_RATE = "1M";
 
 const BROWSERS = { chromium, firefox, webkit };
 
@@ -134,6 +150,13 @@ export class BrowserSession {
     return page;
   }
 
+  /** Closes every page but the main one (tabs and popups the last test left open). Returns how many closed. */
+  async closeExtraPages(): Promise<number> {
+    const extra = [...this.pages.values()].slice(1);
+    await Promise.all(extra.map((e) => e.page.close().catch(() => undefined)));
+    return extra.length;
+  }
+
   pageId(page: Page): string | null {
     return this.pages.get(page)?.id ?? null;
   }
@@ -163,9 +186,38 @@ export class BrowserSession {
     if (this.closed) return;
     const videoPath = this.videoDir && !this.videoBroken ? path.join(this.videoDir, `video-${entry.id}.webm`) : null;
     const size = this.opts.size ?? this.opts.viewport;
-    const onFrame = (f: { data: Buffer; timestamp: number; viewportWidth: number; viewportHeight: number }) =>
-      this.hooks.onFrame?.({ pageId: entry.id, timestamp: f.timestamp, width: f.viewportWidth, height: f.viewportHeight, data: f.data });
-    await entry.page.screencast.start({ onFrame, size, quality: this.opts.quality, ...(videoPath ? { path: videoPath } : {}) });
+    const deliver = (f: SessionFrame) => {
+      entry.latest = { data: f.data, width: f.width, height: f.height };
+      this.hooks.onFrame?.(f);
+    };
+    const filtering = this.opts.filterFlashes ?? this.opts.browser === "firefox";
+    entry.filter = filtering ? new FlashFilter<SessionFrame>(deliver) : null;
+    entry.latest = null;
+    // With the filter on, the video is written from the kept frames; without ffmpeg, Playwright writes it as it is.
+    const ffmpeg = filtering && videoPath ? findFfmpeg() : null;
+    const ownVideo = !!(ffmpeg && videoPath && videoEncoder(ffmpeg));
+    entry.video =
+      ownVideo && videoPath && ffmpeg
+        ? new RunVideo({
+            file: videoPath,
+            ffmpeg,
+            fps: VIDEO_FPS,
+            bitRate: VIDEO_BIT_RATE,
+            frame: () => entry.latest ?? null,
+            onError: (message) => {
+              if (this.videoBroken) return;
+              this.videoBroken = true;
+              this.hooks.onVideoUnavailable?.(message);
+            },
+          })
+        : null;
+    const onFrame = (f: { data: Buffer; timestamp: number; viewportWidth: number; viewportHeight: number }) => {
+      const frame: SessionFrame = { pageId: entry.id, timestamp: f.timestamp, width: f.viewportWidth, height: f.viewportHeight, data: f.data };
+      if (entry.filter) entry.filter.push(frame);
+      else deliver(frame);
+    };
+    await entry.page.screencast.start({ onFrame, size, quality: this.opts.quality, ...(videoPath && !ownVideo ? { path: videoPath } : {}) });
+    entry.video?.start();
     entry.videoPath = videoPath;
     entry.capturing = true;
   }
@@ -175,10 +227,16 @@ export class BrowserSession {
     entry.capturing = false;
     const videoPath = entry.videoPath;
     entry.videoPath = null;
+    const video = entry.video ?? null;
+    entry.video = null;
     try {
       await entry.page.screencast.stop();
+      entry.filter?.flush();
+      if (video) return (await video.stop()) ? videoPath : null;
       return videoPath;
     } catch (err) {
+      entry.filter?.flush();
+      if (video) await video.stop().catch(() => false);
       if (entry.page.isClosed()) return null;
       if (videoPath && !this.videoBroken) {
         this.videoBroken = true;

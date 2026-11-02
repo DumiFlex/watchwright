@@ -52,14 +52,49 @@ export class SecretStore {
     return gone;
   }
 
-  /** Replaces every secret value in `text` with •••. Longer values first, so one inside another still masks whole. */
-  mask(text: string): string {
-    this.cache ??= (this.db.prepare("SELECT value FROM secrets").all() as { value: string }[])
-      .map((r) => r.value)
+  /**
+   * Every value as it can appear in text, longest first: as typed, URL-encoded (a query string or
+   * a form body, which a trace or a log can hold) and JSON-escaped.
+   */
+  private forms(): string[] {
+    this.cache ??= [
+      ...new Set(
+        (this.db.prepare("SELECT value FROM secrets").all() as { value: string }[]).flatMap((r) => {
+          const v = r.value;
+          const url = encodeURIComponent(v);
+          return [v, url, url.replace(/%20/g, "+"), JSON.stringify(v).slice(1, -1)];
+        }),
+      ),
+    ]
       .filter((v) => v.length >= MASK_MIN)
       .sort((a, b) => b.length - a.length);
+    return this.cache;
+  }
+
+  /** Replaces every secret value in `text` with •••. Longer values first, so one inside another still masks whole. */
+  mask(text: string): string {
     let out = text;
-    for (const v of this.cache) if (out.includes(v)) out = out.split(v).join(MASK);
+    for (const v of this.forms()) if (out.includes(v)) out = out.split(v).join(MASK);
+    return out;
+  }
+
+  /** `data` with every secret value's bytes replaced by •••, or null when it holds none (for files such as traces). */
+  maskBytes(data: Buffer): Buffer | null {
+    let out: Buffer | null = null;
+    const mask = Buffer.from(MASK, "utf8");
+    for (const v of this.forms()) {
+      const needle = Buffer.from(v, "utf8");
+      const from = out ?? data;
+      if (from.indexOf(needle) < 0) continue;
+      const parts: Buffer[] = [];
+      let at = 0;
+      for (let i = from.indexOf(needle); i >= 0; i = from.indexOf(needle, at)) {
+        parts.push(from.subarray(at, i), mask);
+        at = i + needle.length;
+      }
+      parts.push(from.subarray(at));
+      out = Buffer.concat(parts);
+    }
     return out;
   }
 }
@@ -79,6 +114,7 @@ export const secretsPlugin = definePlugin({
     return [
       defineAction({
         name: "secrets.list",
+        access: "user",
         title: "The secrets' names, lengths and when each was set (never their values)",
         method: "GET",
         path: "/secrets",
@@ -86,6 +122,7 @@ export const secretsPlugin = definePlugin({
       }),
       defineAction<{ name: string; value: string }>({
         name: "secrets.set",
+        access: "admin",
         destructive: true,
         secret: ["value"],
         explain: ({ name }) => (secrets.get(name) === undefined ? `Add the secret ${name}` : `Replace the value of the secret ${name}`),
@@ -98,6 +135,7 @@ export const secretsPlugin = definePlugin({
       }),
       defineAction<{ name: string }>({
         name: "secrets.delete",
+        access: "admin",
         destructive: true,
         explain: ({ name }) => `Delete the secret ${name}`,
         title: "Delete a secret",

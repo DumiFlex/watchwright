@@ -7,7 +7,7 @@
 // start from the pack's defaults instead). Presets are named choices kept per pack.
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { Ellipsis, Package } from "../icons";
-import { getJson, sendJson, type Pack, type ParamValue, type Preset, type RunChoices, type RunPreview, type RunSummary, type TraceMode } from "../api";
+import { getJson, sendJson, type Pack, type ParamValue, type Preset, type RunChoices, type RunPreview, type RunSummary, type TraceMode, type VideoMode, videoMode } from "../api";
 import { useShortcut } from "../keys";
 import { replaceRoute } from "../router";
 import { loadSettings, settings } from "../settings";
@@ -44,12 +44,23 @@ const presetId = ref("");
 const attemptsMode = ref<"pack" | "same">("pack");
 const attempts = ref(1);
 const trace = ref<TraceMode>("problems");
-const video = ref(true);
+const video = ref<VideoMode>("always");
+const runVideo = ref(false);
 const signIn = ref(false);
 // Site keys that have a saved sign-in (Settings > Sign-ins).
 const savedSignIns = ref<Set<string>>(new Set());
 const pauseOnBroken = ref(true);
 const pauseLimit = ref(20);
+// Where the browser reaches the site from: "server" or a runner's name (Settings > Runners).
+const network = ref("server");
+const runners = ref<{ name: string; online: boolean }[]>([]);
+const networkOptions = computed(() => {
+  const opts = [{ value: "server", label: "This server" }, ...runners.value.map((r) => ({ value: r.name, label: `${r.name} (${r.online ? "connected" : "offline"})` }))];
+  // A pack or an earlier run can name a runner that is gone.
+  if (!opts.some((o) => o.value.toLowerCase() === network.value.toLowerCase())) opts.push({ value: network.value, label: `${network.value} (not added)` });
+  return opts;
+});
+const networkRunner = computed(() => (network.value === "server" ? null : (runners.value.find((r) => r.name.toLowerCase() === network.value.toLowerCase()) ?? null)));
 
 const preview = ref<RunPreview | null>(null);
 const previewError = ref<string | null>(null);
@@ -80,6 +91,15 @@ const traceOptions = computed(() => {
     { value: "never" as const, label: `Never${mark("never")}` },
   ];
 });
+const videoOptions = computed(() => {
+  const d = pack.value ? videoMode(pack.value.run.video) : null;
+  const mark = (v: VideoMode) => (v === d ? " (pack default)" : "");
+  return [
+    { value: "always" as const, label: `Every attempt${mark("always")}`, note: "About 450 MB an hour of tests" },
+    { value: "problems" as const, label: `Only on problems${mark("problems")}`, note: "Keep a video when an attempt fails or breaks" },
+    { value: "never" as const, label: `Never${mark("never")}` },
+  ];
+});
 const attemptOptions = [
   { value: "pack" as const, label: "As each test says" },
   { value: "same" as const, label: "Same for every test" },
@@ -98,7 +118,9 @@ function choices(): RunChoices {
     pauseLimitMinutes: pauseLimit.value,
     trace: trace.value,
     video: video.value,
+    runVideo: runVideo.value,
     signIn: signIn.value,
+    ...(network.value !== (pack.value?.run.network ?? "server") ? { network: network.value } : {}),
     ...(attemptsMode.value === "same" ? { attempts: attempts.value } : {}),
   };
 }
@@ -110,8 +132,10 @@ function applyPack(p: Pack) {
   attemptsMode.value = "pack";
   attempts.value = 1;
   trace.value = p.run.trace;
-  video.value = p.run.video;
+  video.value = videoMode(p.run.video);
+  runVideo.value = p.run.runVideo ?? false;
   signIn.value = p.run.signIn ?? false;
+  network.value = p.run.network ?? "server";
   pauseOnBroken.value = p.run.pauseOnBroken;
   pauseLimit.value = p.run.pauseLimitMinutes;
   copiedFrom.value = null;
@@ -153,8 +177,10 @@ function applyChoices(c: RunChoices, p: Pack) {
     attempts.value = o.attempts;
   }
   if (o.trace !== undefined) trace.value = o.trace;
-  if (o.video !== undefined) video.value = o.video;
+  if (o.video !== undefined) video.value = videoMode(o.video);
+  if (o.runVideo !== undefined) runVideo.value = o.runVideo;
   if (o.signIn !== undefined) signIn.value = o.signIn;
+  if (o.network !== undefined) network.value = o.network;
   if (o.pauseOnBroken !== undefined) pauseOnBroken.value = o.pauseOnBroken;
   if (o.pauseLimitMinutes !== undefined) pauseLimit.value = o.pauseLimitMinutes;
 }
@@ -175,6 +201,9 @@ function useDefaults() {
 onMounted(async () => {
   void getJson<{ siteKey: string }[]>("/api/v1/signins").then((r) => {
     if (r.ok) savedSignIns.value = new Set(r.data.map((s) => s.siteKey));
+  });
+  void getJson<{ name: string; online: boolean }[]>("/api/v1/runners").then((r) => {
+    if (r.ok) runners.value = r.data;
   });
   const [res, latest] = await Promise.all([getJson<Pack[]>("/api/v1/packs"), getJson<RunSummary[]>("/api/v1/runs?limit=1"), loadSettings()]);
   loaded.value = true;
@@ -205,6 +234,17 @@ onMounted(async () => {
     if (run.ok && run.data.packId === wanted.id) {
       copyRun(run.data, wanted);
       replaceRoute({ name: "new", query: { pack: wanted.id, from } });
+      return;
+    }
+  }
+  // #/new?pack=…&preset=Nightly (a dashboard's link): the form filled from that preset.
+  const presetName = props.query.preset;
+  if (presetName) {
+    await loadPresets(wanted.id);
+    const p = presets.value.find((x) => x.name === presetName);
+    if (p) {
+      pickPreset(p.id);
+      replaceRoute({ name: "new", query: { pack: wanted.id } });
       return;
     }
   }
@@ -462,13 +502,23 @@ useShortcut("Mod+Enter", () => !namingOpen.value && void start());
                 </div>
                 <div class="opt">
                   <span class="name">Video</span>
-                  <ToggleSwitch id="nr-video" v-model="video">Record a video of each attempt</ToggleSwitch>
+                  <RadioGroup v-model="video" :options="videoOptions" label="Video" />
+                  <ToggleSwitch id="nr-run-video" v-model="runVideo">Also record the whole run</ToggleSwitch>
+                  <span v-if="runVideo" class="muted small">One video of what the live view follows, pauses included: at most about 270 MB an hour (a still page takes far less).</span>
                 </div>
                 <div class="opt">
                   <span class="name">Sign-in</span>
                   <ToggleSwitch id="nr-signin" v-model="signIn">Start signed in</ToggleSwitch>
                   <span v-if="signIn && !hasSignIn" class="warn small">Nothing is saved for {{ pack?.siteKey }} yet, so the run won't start. Save one from a recording (Save sign-in) or a login test.</span>
                   <span v-else class="muted small">With the cookies and local storage saved for {{ pack?.siteKey }} (Settings &gt; Sign-ins).</span>
+                </div>
+                <div v-if="runners.length || network !== 'server'" class="opt">
+                  <span class="name">Reach the site from</span>
+                  <SelectMenu id="nr-network" v-model="network" :options="networkOptions" />
+                  <span v-if="network !== 'server' && !networkRunner" class="warn small">No runner is called {{ network }}, so the run won't start. Add it in Settings &gt; Runners.</span>
+                  <span v-else-if="networkRunner && !networkRunner.online" class="warn small">{{ networkRunner.name }} is offline, so the run won't start. Start it on its machine with <code>watchwright runner</code>.</span>
+                  <span v-else-if="networkRunner" class="muted small">The browser's connections go through {{ networkRunner.name }}, so the site can be on that machine's localhost.</span>
+                  <span v-else class="muted small">The browser connects from this server.</span>
                 </div>
                 <div class="opt">
                   <span class="name">When a test breaks</span>

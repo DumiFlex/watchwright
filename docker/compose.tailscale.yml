@@ -1,0 +1,43 @@
+# Watchwright on your tailnet only, with HTTPS from Tailscale and no open ports.
+# Make an auth key at https://login.tailscale.com/admin/settings/keys, put it below, turn on
+# HTTPS certificates for the tailnet (admin console > DNS), then:
+#   docker compose -f compose.tailscale.yml up -d
+# Watchwright is then at https://watchwright.<your tailnet>.ts.net
+# See https://dumiflex.github.io/watchwright/guide/self-hosting#tailscale
+
+services:
+  tailscale:
+    image: tailscale/tailscale:stable
+    hostname: watchwright
+    restart: unless-stopped
+    environment:
+      TS_AUTHKEY: "tskey-auth-REPLACE-ME"
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_SERVE_CONFIG: /config/serve.json
+    volumes:
+      - tailscale-state:/var/lib/tailscale
+      - ./tailscale-serve.json:/config/serve.json:ro
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - net_admin
+
+  watchwright:
+    image: ghcr.io/dumiflex/watchwright:latest
+    restart: unless-stopped
+    # Shares the Tailscale container's network: reachable only on the tailnet.
+    network_mode: service:tailscale
+    init: true
+    shm_size: 1gb
+    volumes:
+      - /opt/watchwright/data:/data
+      - /opt/watchwright/packs:/packs
+    environment:
+      # Your tailnet's name, as in the admin console.
+      WATCHWRIGHT_PUBLIC_URL: "https://watchwright.your-tailnet.ts.net"
+      # Tailscale serve forwards from inside the same network.
+      WATCHWRIGHT_TRUST_PROXY: "127.0.0.1"
+      TZ: "Etc/UTC"
+
+volumes:
+  tailscale-state:

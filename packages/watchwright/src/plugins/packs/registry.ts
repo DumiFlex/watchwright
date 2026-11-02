@@ -4,10 +4,11 @@ import path from "node:path";
 import type Database from "better-sqlite3";
 import { serviceKey } from "../../core/services.js";
 import type { EventLog } from "../../events/log.js";
-import type { FlagKind, ParamDef, TestDefinition } from "./api.js";
+import { videoMode, type FlagKind, type ParamDef, type TestDefinition, type VideoMode } from "./api.js";
 import { currentStamp, findPackFile, loadPack, PACK_FILES, packChanged, PackLoadError, type LoadedPack } from "./loader.js";
 import { checkTests, paramType, parentsOf } from "./order.js";
 import { rubricFor, type Criterion, type RubricCriterion } from "./rubric.js";
+import { readDashboard, readShare, type Dashboard, type ShareOptions } from "./dashboard.js";
 
 export interface PackTestSummary {
   id: string;
@@ -52,6 +53,10 @@ export interface PackSummary {
   run: PackRunDefaults;
   /** The pack's review criteria (tests may add or drop some; see each test's `rubric`). */
   rubric: Criterion[];
+  /** The pack's own `dashboard:` block, checked; null when it has none. */
+  dashboard: Dashboard | null;
+  /** The pack's `share:` block; null when it has none. */
+  share: ShareOptions | null;
   tests: PackTestSummary[];
 }
 
@@ -59,12 +64,15 @@ export interface PackRunDefaults {
   pauseOnBroken: boolean;
   pauseLimitMinutes: number;
   trace: "problems" | "always" | "never";
-  video: boolean;
+  video: VideoMode;
+  runVideo: boolean;
   /** Runs start with the site's saved sign-in (`site.signIn: "saved"`). */
   signIn: boolean;
+  /** Where runs reach the site from (`site.network`): "server" or a runner's name. */
+  network: string;
 }
 
-const RUN_DEFAULTS: PackRunDefaults = { pauseOnBroken: true, pauseLimitMinutes: 20, trace: "problems", video: true, signIn: false };
+const RUN_DEFAULTS: PackRunDefaults = { pauseOnBroken: true, pauseLimitMinutes: 20, trace: "problems", video: "always", runVideo: false, signIn: false, network: "server" };
 
 interface Row {
   id: string;
@@ -243,10 +251,14 @@ export class PackRegistry {
         pauseOnBroken: o.run?.pauseOnBroken ?? RUN_DEFAULTS.pauseOnBroken,
         pauseLimitMinutes: o.run?.pauseLimitMinutes ?? RUN_DEFAULTS.pauseLimitMinutes,
         trace: o.run?.trace ?? RUN_DEFAULTS.trace,
-        video: o.run?.video ?? RUN_DEFAULTS.video,
+        video: videoMode(o.run?.video ?? RUN_DEFAULTS.video),
+        runVideo: o.run?.runVideo ?? RUN_DEFAULTS.runVideo,
         signIn: o.site.signIn === "saved",
+        network: o.site.network ?? RUN_DEFAULTS.network,
       },
       rubric: rubricFor(o.rubric, undefined),
+      dashboard: readDashboard(o.dashboard, []),
+      share: readShare(o.share, []),
       tests: pack.tests.map((t) => testSummary(t, o.rubric)),
     };
     this.db
@@ -275,6 +287,8 @@ export class PackRegistry {
       flags: s.flags ?? {},
       run: { ...RUN_DEFAULTS, ...s.run },
       rubric: s.rubric ?? rubricFor(undefined, undefined),
+      dashboard: s.dashboard ?? null,
+      share: s.share ?? null,
       tests: (s.tests ?? []).map((t) => ({ ...t, line: t.line ?? null, rubric: t.rubric ?? rubricFor(undefined, undefined) })),
     };
   }

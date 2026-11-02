@@ -22,6 +22,8 @@ export type {
   TestBody,
   TestContext,
   TestMeta,
+  VideoMode,
+  VideoSetting,
 } from "./plugins/packs/api.js";
 export type { RubricCriterion, TestReview } from "./plugins/packs/rubric.js";
 export { consoleErrors, failedRequests, responses } from "./plugins/testing/collectors.js";

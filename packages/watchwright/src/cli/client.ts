@@ -1,5 +1,6 @@
 import type { ActionInfo } from "../actions/registry.js";
 import { DEFAULT_PORT } from "../config.js";
+import { tokenFor } from "./credentials.js";
 
 // The CLI's (and the stdio MCP bridge's) way to a running server: the address, who is calling,
 // and calls by action, so every plugin's actions work without the client knowing them.
@@ -31,6 +32,15 @@ export function clientName(flag: string | undefined, env: NodeJS.ProcessEnv = pr
   return AGENTS.find(([, test]) => test(env))?.[0] ?? "cli";
 }
 
+/** `Authorization: Bearer` for a server with login on: WATCHWRIGHT_TOKEN, else the token `watchwright login` saved for it; nothing without either. */
+export function tokenHeader(base: string, env: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const token = tokenFor(base, env);
+  return token ? { authorization: `Bearer ${token}` } : {};
+}
+
+/** Seconds a request may take (past a wait's own timeout) before the command gives up. */
+export const REQUEST_LIMIT_S = 60;
+
 /** Nothing answers at the address, or something that isn't Watchwright does. */
 export class NoServer extends Error {}
 
@@ -58,11 +68,13 @@ export class Client {
   constructor(
     readonly base: string,
     readonly client: string,
+    /** Seconds a request may take past a wait's own timeout. */
+    private readonly limitS = REQUEST_LIMIT_S,
   ) {}
 
   /** The server's health, or null when no Watchwright answers. */
   async health(timeoutMs = 2000): Promise<Health | null> {
-    const res = await fetch(`${this.base}api/v1/health`, { signal: AbortSignal.timeout(timeoutMs) }).catch(() => null);
+    const res = await fetch(`${this.base}api/v1/health`, { headers: tokenHeader(this.base), signal: AbortSignal.timeout(timeoutMs) }).catch(() => null);
     if (!res) return null;
     const body = (await res.json().catch(() => null)) as { data?: Health } | null;
     return body?.data?.name === "watchwright" ? body.data : null;
@@ -77,16 +89,21 @@ export class Client {
       for (const [k, v] of Object.entries(input)) if (v !== undefined) qs.set(k, typeof v === "object" ? JSON.stringify(v) : String(v));
       if ([...qs].length) url += `?${qs}`;
     } else body = JSON.stringify(input);
+    // A server that hangs mustn't hang the command. Waits (an input with `timeout`, in seconds) get that long and more.
+    const waitS = typeof input.timeout === "number" ? input.timeout : 0;
+    const limitMs = (waitS + this.limitS) * 1000;
+    const limit = AbortSignal.timeout(limitMs);
     let res: Response;
     try {
       res = await fetch(url, {
         method,
-        headers: { "x-watchwright-client": this.client, ...(confirmed ? { "x-watchwright-confirmed": "terminal" } : {}), ...(body !== undefined ? { "content-type": "application/json" } : {}) },
+        headers: { "x-watchwright-client": this.client, ...tokenHeader(this.base), ...(confirmed ? { "x-watchwright-confirmed": "terminal" } : {}), ...(body !== undefined ? { "content-type": "application/json" } : {}) },
         ...(body !== undefined ? { body } : {}),
-        ...(signal ? { signal } : {}),
+        signal: signal ? AbortSignal.any([signal, limit]) : limit,
       });
     } catch (err) {
       if (signal?.aborted) throw err;
+      if (limit.aborted) throw new NoServer(`Watchwright at ${this.base} didn't answer within ${Math.round(limitMs / 1000)} s.`);
       throw new NoServer(`No Watchwright answers at ${this.base}. Start it with \`watchwright serve\`, or point at another one with --server or WATCHWRIGHT_URL.`);
     }
     const json = (await res.json().catch(() => null)) as { data?: T; error?: { code: string; message: string; detail?: unknown } } | null;

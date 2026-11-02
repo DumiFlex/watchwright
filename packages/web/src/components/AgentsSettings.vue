@@ -6,9 +6,11 @@ import { computed, onMounted, ref } from "vue";
 import { connectSnippets, mcpAddress, type AgentTab, type InstallAgent, type InstallResult, type SeenAgent } from "../agents";
 import { getJson, sendJson } from "../api";
 import { ago, when } from "../format";
-import { Bot, FolderPlus } from "../icons";
+import { Bot, FolderPlus, KeyRound } from "../icons";
 import { tildify } from "../paths";
+import { session } from "../session";
 import { settings } from "../settings";
+import { toast } from "../toasts";
 import { vTip } from "../tooltip";
 import CheckBox from "./CheckBox.vue";
 import CodeView from "./CodeView.vue";
@@ -19,9 +21,21 @@ import ToggleSwitch from "./ToggleSwitch.vue";
 
 const origin = window.location.origin;
 const address = mcpAddress(origin);
-const snippets = connectSnippets(origin);
+// With login on, an agent connects as the person, with one of their API tokens. One made here
+// fills the settings below, and is shown only until the page is left.
+const madeToken = ref<string | null>(null);
+const snippets = computed(() => connectSnippets(origin, session.on ? { token: madeToken.value ?? undefined } : undefined));
 const tab = ref<AgentTab>("claude");
-const current = computed(() => snippets.find((s) => s.value === tab.value)!);
+const current = computed(() => snippets.value.find((s) => s.value === tab.value)!);
+const making = ref(false);
+async function makeToken() {
+  making.value = true;
+  const res = await sendJson<{ token: string; name: string }>("/api/v1/auth/tokens", { name: current.value.label });
+  making.value = false;
+  if (!res.ok) return void toast(res.error.message, { tone: "bad" });
+  madeToken.value = res.data.token;
+  toast(`Made the token ${res.data.name}. It's in the settings below until you leave this page.`, { tone: "ok" });
+}
 
 const seen = ref<SeenAgent[] | null>(null);
 onMounted(async () => {
@@ -67,6 +81,16 @@ async function install() {
 
     <CodeView :code="address" label="MCP address" />
 
+    <div v-if="session.on" class="token">
+      <p class="small">
+        <template v-if="madeToken">The settings below hold your new token, so the agent acts as you. Copy them now: the token isn't shown again. Remove it in Your account when the agent no longer needs it.</template>
+        <template v-else>This server has login on, so an agent connects as you, with one of your API tokens. Make one here and the settings below come filled in, or set <code>WATCHWRIGHT_TOKEN</code> where the agent runs.</template>
+      </p>
+      <div v-if="!madeToken">
+        <button type="button" class="btn" :disabled="making" @click="makeToken"><KeyRound :size="15" /> Make a token for {{ current.label }}</button>
+      </div>
+    </div>
+
     <div class="connect">
       <TabBar v-model="tab" :tabs="snippets.map((s) => ({ value: s.value, label: s.label }))" id-prefix="ag" label="Connect an agent" />
       <div :id="`ag-panel-${tab}`" role="tabpanel" :aria-labelledby="`ag-tab-${tab}`" class="panel">
@@ -110,6 +134,7 @@ async function install() {
         <p class="small">Codex keeps MCP servers in its own settings. Run this once:</p>
         <CodeView v-for="c in result.commands" :key="c" :code="c" label="Codex setup" wrap />
       </template>
+      <p v-if="session.on && withMcp" class="small">The settings read your token from <code>WATCHWRIGHT_TOKEN</code>, never hold it, so they're safe to commit. Set it where the agent runs.</p>
       <p v-for="p in result.problems" :key="p" class="error small" role="alert">{{ p }}</p>
     </template>
     <template v-else>
@@ -144,6 +169,16 @@ async function install() {
 }
 .agents > h2:first-child + p {
   margin-top: calc(-1 * var(--space-2));
+}
+.token {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
 }
 .connect {
   display: grid;
@@ -203,6 +238,7 @@ async function install() {
   padding-left: var(--space-4);
 }
 @media (max-width: 640px) {
+  .token,
   .project {
     grid-template-columns: 1fr;
   }

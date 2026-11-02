@@ -1,3 +1,4 @@
+import path from "node:path";
 import Database from "better-sqlite3";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { RunDetail } from "../src/plugins/runs/engine.js";
@@ -5,6 +6,7 @@ import { maskDeep } from "../src/plugins/runs/engine.js";
 import type { ResultDocument } from "../src/plugins/runs/results.js";
 import { SecretStore } from "../src/plugins/secrets/plugin.js";
 import { cleanTempDirs, startSite, tempDir, writeFiles } from "./helpers/fixtures.js";
+import { readZip } from "./helpers/zip.js";
 import { engineOf, hasChromium, requireBrowsers, startHarness, type Harness } from "./helpers/harness.js";
 
 // Secrets: kept in the store, never answered by the API, masked in everything a run records.
@@ -58,6 +60,15 @@ describe("SecretStore", () => {
     expect(s.mask("token-long")).toBe("•••-long");
   });
 
+  it("masks a value URL-encoded and JSON-escaped too, and in bytes", () => {
+    const s = store();
+    s.set("PW", 'p@ss word"1');
+    expect(s.mask("q=p%40ss%20word%221 and p%40ss+word%221")).toBe("q=••• and •••");
+    expect(s.mask('{"value":"p@ss word\\"1"}')).toBe('{"value":"•••"}');
+    expect(s.maskBytes(Buffer.from("nothing here"))).toBeNull();
+    expect(s.maskBytes(Buffer.from('fill "p@ss word"1" twice: p@ss word"1'))?.toString()).toBe('fill "•••" twice: •••');
+  });
+
   it("masks strings deep inside objects and arrays, leaving other values", () => {
     const s = store();
     s.set("P", "hunter22");
@@ -67,7 +78,9 @@ describe("SecretStore", () => {
 
 describe("secrets through the API", () => {
   it("never answers with a value", async () => {
-    const h = await harness();
+    const dataDir = tempDir("ww-data-");
+    const h = await startHarness(dataDir);
+    harnesses.push(h);
     const web = { host: h.host, origin: `http://${h.host}`, "content-type": "application/json" };
     const set = await h.app.inject({ method: "POST", url: "/api/v1/secrets", headers: web, payload: { name: "TOKEN", value: "abcd1234" } });
     expect(set.statusCode).toBe(201);
@@ -101,7 +114,9 @@ engine("secrets in runs", { timeout: 90_000 }, () => {
   });
 
   it("fills ${secret.…} and h.secret values and masks them in the result and events", async () => {
-    const h = await harness();
+    const dataDir = tempDir("ww-data-");
+    const h = await startHarness(dataDir);
+    harnesses.push(h);
     const web = { host: h.host, origin: `http://${h.host}`, "content-type": "application/json" };
     await h.app.inject({ method: "POST", url: "/api/v1/secrets", headers: web, payload: { name: "SHOP_PASSWORD", value: "hunter22-secret" } });
     const dir = tempDir("ww-pack-");
@@ -122,7 +137,7 @@ engine("secrets in runs", { timeout: 90_000 }, () => {
 test("S3", async ({ h }) => { const pw = h.secret("SHOP_PASSWORD"); h.log("code saw " + pw); h.note("note " + pw); h.info("pw", pw); });`,
     });
     const added = await h.api<{ id: string }>("POST", "/packs", { path: dir });
-    const res = await h.api<{ id: string }>("POST", "/runs", { packId: added.data.id, pauseOnBroken: false, video: false });
+    const res = await h.api<{ id: string }>("POST", "/runs", { packId: added.data.id, pauseOnBroken: false, video: false, trace: "always" });
     const runId = res.data.id;
     await h.waitFor((e) => e.runId === runId && e.type === "run.finished", 45_000);
     await engineOf(h).settled(runId);
@@ -140,5 +155,18 @@ test("S3", async ({ h }) => { const pw = h.secret("SHOP_PASSWORD"); h.log("code 
     expect(detail.info.pw).toBe("•••");
     const events = JSON.stringify(h.app.watchwright.events.after(0).filter((e) => e.runId === runId));
     expect(events).not.toContain("hunter22-secret");
+
+    // A trace records what `fill` typed: the kept trace of S1 has it masked, and still reads.
+    const traces = docs.flatMap((d) => d.artifacts.filter((a) => a.kind === "trace"));
+    expect(traces.length).toBeGreaterThan(0);
+    for (const t of traces) {
+      const entries = readZip(path.join(dataDir, ...t.path.split("/")));
+      const text = [...entries.values()].map((b) => b.toString("utf8")).join("\n");
+      expect(text).not.toContain("hunter22-secret");
+      expect(entries.has("trace.trace")).toBe(true);
+    }
+    const s1 = docs.find((d) => d.test.id === "S1")!;
+    const s1Trace = readZip(path.join(dataDir, ...s1.artifacts.find((a) => a.kind === "trace")!.path.split("/")));
+    expect(s1Trace.get("trace.trace")!.toString("utf8")).toContain("•••");
   });
 });

@@ -21,6 +21,7 @@ import FileLink from "../components/FileLink.vue";
 import HistoryStrip from "../components/HistoryStrip.vue";
 import MenuButton from "../components/MenuButton.vue";
 import ModalDialog from "../components/ModalDialog.vue";
+import PackDashboard from "../components/PackDashboard.vue";
 import PackFolderDialog from "../components/PackFolderDialog.vue";
 import PageSkeleton from "../components/PageSkeleton.vue";
 import PathLine from "../components/PathLine.vue";
@@ -37,6 +38,8 @@ const RECENT = 5;
 
 const pack = ref<Pack | null>(null);
 const runs = ref<RunSummary[]>([]);
+/** Bumped on every load, so the dashboard reads its numbers again too. */
+const dashStamp = ref(0);
 const history = ref<Record<string, HistoryEntry[]>>({});
 const hasHistory = computed(() => Object.keys(history.value).length > 0);
 // Each test's history in one place for the template: the ticks, pass rate, typical time, flaky or not.
@@ -51,6 +54,7 @@ const testHistory = computed(() => {
 const error = ref<string | null>(null);
 const reloading = ref(false);
 const home = ref<string | null>(null);
+const canOpen = ref(true);
 const moveOpen = ref(false);
 const removeOpen = ref(false);
 
@@ -75,11 +79,13 @@ async function createRecording() {
   window.location.hash = href({ name: "edit", id: props.id, file: res.data.file.path, line: t.line, record: true });
 }
 const menu = [
+  { value: "download", label: "Download .zip" },
   { value: "move", label: "Move to another folder…" },
   { value: "remove", label: "Remove…", danger: true },
 ];
 function onMenu(v: string) {
-  if (v === "move") moveOpen.value = true;
+  if (v === "download") window.location.href = `/api/v1/packs/${props.id}/download`;
+  else if (v === "move") moveOpen.value = true;
   else if (v === "remove") removeOpen.value = true;
 }
 async function confirmRemove() {
@@ -214,6 +220,7 @@ async function load() {
   error.value = null;
   pack.value = p.data;
   if (r.ok) runs.value = r.data;
+  dashStamp.value++;
   if (h.ok) history.value = h.data;
   if (!p.data.missing) void loadReadme();
   else readme.value = null;
@@ -240,7 +247,10 @@ let live: LiveConnection | null = null;
 onMounted(async () => {
   void load();
   const places = await getJson<FolderPlaces>("/api/v1/folders/places");
-  if (places.ok) home.value = places.data.home;
+  if (places.ok) {
+    home.value = places.data.home;
+    canOpen.value = places.data.canOpen ?? true;
+  }
   live = new LiveConnection({}, { onEvent: (e) => (/^(pack|run)\./.test(e.type) ? void load() : e.type === "editor.file_changed" && void loadReadme()) });
 });
 onBeforeUnmount(() => live?.close());
@@ -259,7 +269,7 @@ onBeforeUnmount(() => live?.close());
             {{ pack.browser }}<template v-if="pack.baseURL"> · {{ pack.baseURL }}</template><template v-if="pack.siteKey"> · site key <code>{{ pack.siteKey }}</code></template>
             <template v-if="pack.loadedAt"> · <span v-tip="when(pack.loadedAt)">built {{ ago(pack.loadedAt) }}</span></template>
           </p>
-          <PathLine class="path" :path="pack.dir" :home="home" :openable="!pack.missing" />
+          <PathLine class="path" :path="pack.dir" :home="home" :openable="canOpen && !pack.missing" />
         </div>
         <div class="acts">
           <button v-if="pack.missing" class="btn primary" @click="moveOpen = true">Locate…</button>
@@ -291,6 +301,8 @@ onBeforeUnmount(() => live?.close());
         </ul>
         <p class="muted small">Fix the files and save: the server builds the pack again by itself.</p>
       </section>
+
+      <PackDashboard v-if="runs.length" :pack-id="pack.id" :latest-runs="runs.map((r) => r.id)" :stamp="dashStamp" />
 
       <section class="card" aria-labelledby="pk-runs">
         <div class="runs-head">

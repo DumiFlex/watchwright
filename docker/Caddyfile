@@ -1,0 +1,4 @@
+# Your domain: Caddy gets and renews its certificate. WebSockets (the live view) pass through by themselves.
+watchwright.example.com {
+	reverse_proxy watchwright:7420
+}

@@ -122,6 +122,8 @@ steps:
       `3:18 pack.browser.name is one of chromium, firefox, webkit.`,
       `4:62 pack.collectors[2] is one of consoleErrors, failedRequests, responses.`,
     ]);
+    for (const video of ["problems", "true", "never"]) expect(checkDocument(`name: P\nsite: { key: p }\nrun: { video: ${video}, runVideo: true }\n`, PACK_SHAPE, "pack").problems).toEqual([]);
+    expect(checkDocument(`name: P\nsite: { key: p }\nrun: { video: sometimes }\n`, PACK_SHAPE, "pack").problems).toHaveLength(1);
   });
 });
 

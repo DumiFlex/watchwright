@@ -2,8 +2,10 @@ import { existsSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
+import { findFfmpeg } from "../src/jobs/run-video.js";
+import { dirSize } from "../src/jobs/storage.js";
 import { decodeFrame } from "../src/plugins/live/hub.js";
-import type { RunDetail } from "../src/plugins/runs/engine.js";
+import type { RunDetail, StorageReport } from "../src/plugins/runs/engine.js";
 import type { ResultDocument } from "../src/plugins/runs/results.js";
 import { cleanTempDirs, startSite, tempDir, writeFiles } from "./helpers/fixtures.js";
 import { readZip } from "./helpers/zip.js";
@@ -211,6 +213,12 @@ test("H2", { title: "Counter", needs: ["H1"] }, async ({ h, expect }) => {
     const runId = await startRun(h, { packId, params: { label: "custom" } });
     const detail = await finished(h, runId);
     expect(detail.status).toBe("finished");
+    // Attempt events carry the attempt's row, so the run's page patches it in.
+    const row = detail.attempts.find((a) => a.testId === "H2")!;
+    const startedEv = await h.waitFor((e) => e.runId === runId && e.type === "attempt.started" && e.attemptId === row.id);
+    expect(startedEv.data.attempt).toMatchObject({ id: row.id, testId: "H2", status: "running", finishedAt: null });
+    const finishedEv = await h.waitFor((e) => e.runId === runId && e.type === "attempt.finished" && e.attemptId === row.id);
+    expect(finishedEv.data.attempt).toEqual(row);
     expect(byTest(detail)).toEqual({ "H1#1": "passed", "H1#2": "passed", "H2#1": "passed" });
     expect(detail.plan.map((p) => `${p.testId}#${p.number}/${p.of}:${p.status}`)).toEqual(["H1#1/2:passed", "H1#2/2:passed", "H2#1/1:passed"]);
     expect(detail.counts).toMatchObject({ passed: 3, planned: 3 });
@@ -360,6 +368,146 @@ test("S3", async () => {});`,
     expect(byTest(detail)).toEqual({ "B1#1": "broken", "B2#1": "broken", "B3#1": "passed" });
   });
 
+  it("changes settings while the run goes: a broken pause's limit at once, the time limit and video from then on", async () => {
+    const { h, packId } = await setup({
+      "tests/s.ts": `import { test } from "watchwright"; test("S1", async () => { throw new Error("x"); }); test("S2", async ({ h }) => { await h.goto("/"); await h.wait(3000); }); test("S3", async () => {});`,
+    });
+    const runId = await startRun(h, { packId, pauseLimitMinutes: 60 });
+    const paused = await h.waitFor((e) => e.type === "run.paused" && e.runId === runId && e.data.reason === "broken");
+    const before = Date.parse(String(paused.data.deadline));
+    const s = (await h.api<RunDetail>("GET", `/runs/${runId}`)).data.live?.settings;
+    expect(s).toEqual({ pauseOnBroken: true, pauseLimitMinutes: 60, testTimeoutMinutes: null, trace: "problems", video: "always", runVideo: false });
+
+    expect((await h.api("POST", `/runs/${runId}/settings`, {})).status).toBe(400);
+    const longer = await h.api<RunDetail>("POST", `/runs/${runId}/settings`, { pauseLimitMinutes: 70 });
+    expect(longer.status).toBe(200);
+    expect(Date.parse(longer.data.live!.deadline!) - before).toBe(10 * 60_000);
+    // A limit already past skips the broken attempt at once.
+    await h.api("POST", `/runs/${runId}/settings`, { pauseLimitMinutes: 0.05, video: false, testTimeoutMinutes: 0.02 });
+    const decision = await h.waitFor((e) => e.type === "run.decision" && e.runId === runId);
+    expect(decision.data).toMatchObject({ decision: "skip", testId: "S1" });
+    const changed = await h.waitFor((e) => e.type === "run.settings" && e.runId === runId && (e.data.changed as Record<string, unknown>).video === false);
+    expect(changed.data.changed).toEqual({ pauseLimitMinutes: 0.05, video: false, testTimeoutMinutes: 0.02 });
+
+    const detail = await finished(h, runId);
+    expect(byTest(detail)).toEqual({ "S1#1": "broken", "S2#1": "broken", "S3#1": "passed" });
+    const s2 = detail.attempts.find((a) => a.testId === "S2")!;
+    expect(s2.error?.message).toMatch(/time limit \(1 s\)/);
+    const doc = (await h.api<ResultDocument>("GET", `/runs/${runId}/attempts/${s2.id}`)).data;
+    expect(doc.artifacts.some((a) => a.kind === "video")).toBe(false);
+    // Kept with the run, so a resume keeps them.
+    expect(detail.options).toMatchObject({ pauseLimitMinutes: 0.05, video: false, testTimeout: 1200 });
+    expect((await h.api("POST", `/runs/${runId}/settings`, { video: true })).status).toBe(409);
+  });
+
+  it("keeps videos only of attempts with problems, and records the whole run in parts", async () => {
+    const { h, packId } = await setup({
+      "tests/v.ts": `import { test } from "watchwright";
+test("V1", async ({ h }) => { await h.goto("/"); await h.wait(1500); });
+test("V2", async ({ h }) => { await h.goto("/"); await h.wait(1500); throw new Error("broke"); });
+test("V3", async ({ h }) => { await h.goto("/"); await h.wait(1500); });`,
+    });
+    const runId = await startRun(h, { packId, video: "problems", runVideo: true, pauseOnBroken: false });
+    await h.waitFor((e) => e.type === "attempt.started" && e.runId === runId && e.data.testId === "V2");
+    expect((await h.api<RunDetail>("GET", `/runs/${runId}`)).data.live?.settings).toMatchObject({ video: "problems", runVideo: true });
+    // Off and on again: the run video goes on in a second part.
+    await h.api("POST", `/runs/${runId}/settings`, { runVideo: false });
+    await h.api("POST", `/runs/${runId}/settings`, { runVideo: true });
+    const detail = await finished(h, runId);
+    const videos = async (testId: string) => {
+      const a = detail.attempts.find((x) => x.testId === testId)!;
+      return (await h.api<ResultDocument>("GET", `/runs/${runId}/attempts/${a.id}`)).data.artifacts.filter((x) => x.kind === "video");
+    };
+    // Attempt videos come from Playwright's own ffmpeg; where it can't record, no attempt has one.
+    if ((await videos("V2")).length > 0) {
+      expect((await videos("V2")).length).toBe(1);
+      expect(await videos("V1")).toEqual([]);
+      expect(await videos("V3")).toEqual([]);
+    } else expect([...(await videos("V1")), ...(await videos("V3"))]).toEqual([]);
+    if (findFfmpeg()) {
+      expect(detail.runVideos.map((v) => v.path)).toEqual([`runs/${runId}/run-video.webm`, `runs/${runId}/run-video-2.webm`]);
+      expect(detail.runVideos.every((v) => v.size > 0)).toBe(true);
+      const file = await h.app.inject({ url: detail.runVideos[0]!.url, headers: { host: h.host } });
+      expect(file.headers["content-type"]).toBe("video/webm");
+    } else expect(detail.runVideos).toEqual([]);
+  });
+
+  it("measures each run, reports storage, and stops recording videos when the drive runs low", async () => {
+    const { h, packId } = await setup({
+      "tests/st.ts": `import { test } from "watchwright"; test("T1", async ({ h }) => { await h.goto("/"); await h.shot("home"); }); test("T2", async ({ h }) => { await h.goto("/"); });`,
+    });
+    const first = await startRun(h, { packId });
+    const done = await finished(h, first);
+    const dataDir = h.app.watchwright.store.dataDir;
+    expect(done.sizeBytes).toBe(await dirSize(path.join(dataDir, "runs", first)));
+    expect(done.sizeBytes).toBeGreaterThan(0);
+    const list = (await h.api<{ id: string; sizeBytes: number | null }[]>("GET", "/runs")).data;
+    expect(list.find((r) => r.id === first)?.sizeBytes).toBe(done.sizeBytes);
+
+    // Runs from before sizes were kept are measured in the background.
+    h.app.watchwright.store.db.prepare("UPDATE runs SET size_bytes = NULL WHERE id = ?").run(first);
+    let report = (await h.api<StorageReport>("GET", "/storage")).data;
+    expect(report).toMatchObject({ runs: 1, runsBytes: 0, unmeasured: 1, largest: [], limits: { warnBelowGB: 5, stopBelowGB: 1 } });
+    expect(report.totalBytes).toBeGreaterThan(0);
+    expect(await engineOf(h).measureMissing()).toBe(1);
+    report = (await h.api<StorageReport>("GET", "/storage")).data;
+    expect(report).toMatchObject({ runsBytes: done.sizeBytes, unmeasured: 0 });
+    expect(report.largest.map((r) => r.id)).toEqual([first]);
+
+    // Limits above any drive: the next run warns, then records no videos, and still finishes.
+    expect((await h.api("POST", "/settings", { values: { "runs.storageWarnGB": 100000, "runs.storageStopGB": 100000 } })).status).toBe(200);
+    const second = await startRun(h, { packId, runVideo: true });
+    const low = await h.waitFor((e) => e.type === "storage.low" && e.runId === second);
+    expect(low.data).toMatchObject({ videosOff: true, warnBelowGB: 100000, stopBelowGB: 100000 });
+    const detail = await finished(h, second);
+    expect(detail.status).toBe("finished");
+    expect(detail.runVideos).toEqual([]);
+    for (const a of detail.attempts) {
+      const doc = (await h.api<ResultDocument>("GET", `/runs/${second}/attempts/${a.id}`)).data;
+      expect(doc.artifacts.some((x) => x.kind === "video")).toBe(false);
+    }
+    const log = await h.waitFor((e) => e.type === "run.log" && e.runId === second && String(e.data.message).includes("records no more videos"));
+    expect(log.data.level).toBe("warn");
+  });
+
+  it("keeps going after a promise nobody awaited fails, and logs it on the running attempt", async () => {
+    const before = process.listeners("unhandledRejection").length;
+    const { h, packId } = await setup({
+      "tests/stray.ts": `import { test } from "watchwright"; test("T1", async ({ h }) => { await h.goto("/"); await h.wait(1500); }); test("T2", async () => {});`,
+    });
+    expect(process.listeners("unhandledRejection").length).toBe(before + 1);
+    const runId = await startRun(h, { packId });
+    await h.waitFor((e) => e.type === "page.navigated" && e.runId === runId);
+    const message = engineOf(h).strayError(new Error("page.waitForSelector: Timeout 1500ms exceeded.\nCall log: …"));
+    expect(message).toMatch(/without await.*Timeout 1500ms exceeded\.$/);
+    const detail = await finished(h, runId);
+    expect(byTest(detail)).toEqual({ "T1#1": "passed", "T2#1": "passed" });
+    const t1 = (await h.api<ResultDocument>("GET", `/runs/${runId}/attempts/${detail.attempts[0]!.id}`)).data;
+    expect(t1.log.some((l) => l.level === "warn" && l.message === message)).toBe(true);
+    await h.close();
+    harnesses.splice(harnesses.indexOf(h), 1);
+    expect(process.listeners("unhandledRejection").length).toBe(before);
+  });
+
+  it("closes tabs a test left open before the next test, unless the pack keeps them", async () => {
+    const tests = `import { test } from "watchwright";
+test("K1", async ({ h }) => { await h.goto("/"); const tab = await h.context.newPage(); await tab.goto(h.baseURL ?? "/"); });
+test("K2", async ({ h }) => { h.note("pages " + h.context.pages().length); });`;
+    for (const [extra, want] of [["", "pages 1"], ["run: { keepTabs: true },", "pages 2"]] as const) {
+      const packDir = tempDir("ww-pack-");
+      writeFiles(packDir, { "pack.ts": packFiles(extra), "tests/k.ts": tests });
+      const h = await startHarness(tempDir("ww-data-"));
+      harnesses.push(h);
+      const packId = (await h.api<{ id: string }>("POST", "/packs", { path: packDir })).data.id;
+      const runId = await startRun(h, { packId, video: false });
+      const detail = await finished(h, runId);
+      expect(byTest(detail)).toEqual({ "K1#1": "passed", "K2#1": "passed" });
+      const k2 = (await h.api<ResultDocument>("GET", `/runs/${runId}/attempts/${detail.attempts[1]!.id}`)).data;
+      expect(k2.notes).toEqual([want]);
+      if (!extra) expect(k2.log.map((l) => l.message)).toContain("Closed a tab the last test left open.");
+    }
+  });
+
   it("stops now, filing the attempt in progress as stopped", async () => {
     const { h, packId } = await setup({
       "tests/long.ts": `import { test } from "watchwright"; test("L1", async ({ h }) => { await h.goto("/"); await h.page.waitForTimeout(20000); }); test("L2", async () => {});`,
@@ -417,6 +565,9 @@ test("R3", async () => {});`,
     const before = (await second.api<RunDetail>("GET", `/runs/${runId}`)).data;
     expect(before.status).toBe("interrupted");
     expect(byTest(before)).toEqual({ "R1#1": "passed", "R2#1": "interrupted" });
+    // The new start says which runs the stop interrupted; with runs.resumeOnStart off they wait.
+    const restarted = await second.waitFor((e) => e.type === "runs.restarted");
+    expect(restarted.data).toEqual({ interrupted: [runId], resumed: [] });
     // Make R2 quick for the second go.
     rewrite(path.join(first.packDir, "tests", "r.ts"), files["tests/r.ts"].replace("await h.wait(20000);", ""));
     expect((await second.api("POST", `/runs/${runId}/resume`)).status).toBe(200);

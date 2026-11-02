@@ -13,7 +13,7 @@ type CollectorEntry =
 export interface PackYaml {
   name: string;
   description?: string;
-  site: { key: string; baseURL?: string; signIn?: "saved" };
+  site: { key: string; baseURL?: string; signIn?: "saved"; network?: string };
   browser?: { name?: "chromium" | "firefox" | "webkit"; viewport?: { width: number; height: number }; headless?: boolean; context?: Record<string, unknown> };
   params?: Record<string, ParamDef>;
   flags?: Record<string, FlagKind>;
@@ -21,6 +21,8 @@ export interface PackYaml {
   run?: PackRunOptions;
   rubric?: RubricCriterion[];
   collectors?: CollectorEntry[];
+  dashboard?: unknown;
+  share?: unknown;
   setup?: unknown[];
   beforeEach?: unknown[];
   afterEach?: unknown[];
@@ -66,9 +68,11 @@ const RUN = obj(
     pauseLimitMinutes: num("Minutes a broken pause waits before it skips (default 20).", { min: 0 }),
     testTimeout: int("Time limit per attempt in ms (default 30 minutes).", { min: 0 }),
     trace: str("Which attempts keep a trace (default problems).", { enum: ["problems", "always", "never"] }),
-    video: bool("Record a video per attempt (default true)."),
+    video: { t: "union", of: [bool(), str(undefined, { enum: ["always", "problems", "never"] })], doc: "Which attempts keep a video: always (default, also true), problems (failed or broken) or never (also false)." },
+    runVideo: bool("Record one video of the whole run, of what the live view follows (default false)."),
     showActions: bool("Draw click points and action titles into the live view (default true)."),
     chapters: bool("Show each step's title as a small caption in the bottom-left corner of the live view and video (default false)."),
+    keepTabs: bool("Keep tabs and popups a test opened for the tests after it (default false: they close between tests)."),
     screencastSize: size,
     frameQuality: int("JPEG quality of live frames (default 70).", { min: 1, max: 100 }),
   },
@@ -91,7 +95,7 @@ const COLLECTOR: Shape = {
 export const PACK_SHAPE: Shape = obj({
   name: req(str("The pack's name.")),
   description: str(),
-  site: req(obj({ key: req(str("Runs of packs with the same key wait for each other.", { pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" })), baseURL: str("Relative URLs in goto join to this."), signIn: str('"saved": runs start with the sign-in saved for this site (Settings > Sign-ins).', { enum: ["saved"] }) })),
+  site: req(obj({ key: req(str("Runs of packs with the same key wait for each other.", { pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" })), baseURL: str("Relative URLs in goto join to this."), signIn: str('"saved": runs start with the sign-in saved for this site (Settings > Sign-ins).', { enum: ["saved"] }), network: str('Where runs reach the site from: "server" (the default) or a runner\'s name (Settings > Runners).') })),
   browser: obj({ name: str(undefined, { enum: ["chromium", "firefox", "webkit"] }), viewport: size, headless: bool(), context: CONTEXT }),
   params: obj({}, "Values chosen when a run starts.", { extra: PARAM }),
   flags: obj({}, "Flags tests may raise, with their kind.", { extra: str(undefined, { enum: ["robot", "finding", "info"] }) }),
@@ -99,6 +103,8 @@ export const PACK_SHAPE: Shape = obj({
   run: RUN,
   rubric: list(CRITERION, "What reviewers score each attempt on."),
   collectors: list(COLLECTOR),
+  dashboard: { t: "any", doc: "What the pack's dashboard shows: `tiles` (or `groups` of them), `runs`, `days` and `filters`. See the Dashboards guide." },
+  share: { t: "any", doc: "What shares and the status page leave out: `texts: false`, `metrics: false`, `reviews: false`, `outputs: [names]`." },
   setup: { t: "steps", doc: "Steps run once per run, before the first test." },
   beforeEach: { t: "steps", doc: "Steps run before each attempt." },
   afterEach: { t: "steps", doc: "Steps run after each attempt, also when it failed." },

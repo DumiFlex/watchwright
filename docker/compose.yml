@@ -1,0 +1,31 @@
+# Watchwright with Docker Compose, or as a Portainer stack (Stacks > Add stack > Web editor:
+# paste this file). See https://dumiflex.github.io/watchwright/guide/self-hosting
+#
+# Before the first start, make the two folders and give them to the container's user (uid 1001):
+#   mkdir -p /opt/watchwright/data /opt/watchwright/packs && chown -R 1001:1001 /opt/watchwright
+# Then open the server's log: it prints a link to create the first admin.
+
+services:
+  watchwright:
+    image: ghcr.io/dumiflex/watchwright:latest
+    container_name: watchwright
+    restart: unless-stopped
+    # A small init reaps the browsers' child processes; Chromium needs more shared memory than Docker's 64 MB.
+    init: true
+    shm_size: 1gb
+    ports:
+      - "7420:7420"
+    volumes:
+      # The database, runs, screenshots and videos. Back this folder up.
+      - /opt/watchwright/data:/data
+      # Your test packs. The folder browser in the web app shows only this folder.
+      - /opt/watchwright/packs:/packs
+    environment:
+      # The address people open, exactly as they type it (with https:// behind a proxy). Requests
+      # for any other address are refused, so set it before the first start.
+      WATCHWRIGHT_PUBLIC_URL: "http://192.168.1.20:7420"
+      # Behind a reverse proxy (NPMplus, Caddy, Traefik): the proxy's address or network, so
+      # Watchwright sees people's own addresses. Leave empty without one.
+      WATCHWRIGHT_TRUST_PROXY: ""
+      # Times in schedules and on the page use this zone.
+      TZ: "Etc/UTC"

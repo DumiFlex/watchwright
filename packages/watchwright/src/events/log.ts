@@ -119,6 +119,11 @@ export class EventLog {
     return { cut: edge.seq, older: count.n };
   }
 
+  /** Removes a run's events (when the run is deleted). Returns how many went. */
+  forgetRun(runId: string): number {
+    return this.db.prepare("DELETE FROM events WHERE run_id = ?").run(runId).changes;
+  }
+
   /** The newest sequence number, 0 when the log is empty. */
   head(): number {
     const row = this.db.prepare("SELECT MAX(seq) AS seq FROM events").get() as { seq: number | null };

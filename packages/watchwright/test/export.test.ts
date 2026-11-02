@@ -4,7 +4,7 @@ import type { Criterion } from "../src/plugins/packs/rubric.js";
 import { compare, onFive, type CompareInput } from "../src/plugins/reviews/compare.js";
 import { toMarkdown } from "../src/plugins/reviews/markdown.js";
 import type { Review } from "../src/plugins/reviews/repo.js";
-import { crc32, zip } from "../src/plugins/reviews/zip.js";
+import { crc32, zip } from "../src/jobs/zip.js";
 import type { RunDetail } from "../src/plugins/runs/engine.js";
 import type { ResultDocument } from "../src/plugins/runs/results.js";
 
@@ -21,7 +21,7 @@ function runOf(id: string, params: Record<string, string>, plan: [string, number
     id, packId: "pack0001", packName: "Shop | checks", siteKey: "shop", kind: "test", tests: [], params, info: {}, options: {}, label: "", status: "finished", mode: "normal",
     startedBy: "web", error: null, createdAt: "2026-10-27T10:00:00.000Z", startedAt: "2026-10-27T10:00:01.000Z", finishedAt: null, counts: { ...counts, passed: plan.length },
     plan: plan.map(([testId, number]) => ({ testId, title: `Test ${testId}`, number, of: 2, status: "passed", attemptId: null })),
-    attempts: [], live: null,
+    attempts: [], live: null, runVideos: [], sizeBytes: null,
   };
 }
 function docOf(runId: string, attemptId: string, testId: string, number: number, extra: Partial<ResultDocument> = {}): ResultDocument {

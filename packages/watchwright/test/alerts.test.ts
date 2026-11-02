@@ -167,6 +167,44 @@ describe("Alerter", () => {
     expect(w.titles()).toEqual(["Schedule Nightly: skipped a time", "Watchwright: waiting for your approval"]);
   });
 
+  it("tells when the drive runs low during a run", async () => {
+    const w = make();
+    const ch = w.alerter.createChannel({ name: "Hook", type: "webhook", url: "https://hooks.example.com/a" });
+    w.alerter.createRule({ name: "Disk", triggers: ["storage_low"], channels: [ch.id], packs: ["bbbb2222"] });
+    w.runs.set("abcdef01", { id: "abcdef01", packId: "aaaa1111", packName: "Shop", label: "", status: "running", startedBy: "web", error: null, counts: { passed: 0, failed: 0, broken: 0, skipped: 0, stopped: 0, planned: 2 } });
+    w.events.append("storage.low", { freeBytes: 3.5 * 1024 ** 3, warnBelowGB: 5, stopBelowGB: 1, videosOff: false }, { runId: "abcdef01" });
+    await w.flush();
+    expect(w.sent).toHaveLength(1);
+    const body = JSON.parse(w.sent[0]!.body) as { title: string; text: string; link: string };
+    expect(body).toMatchObject({
+      title: "Watchwright: the drive is almost full",
+      text: "Only 3.5 GB free on the drive with Watchwright's data folder, during run abcdef01. Below 1 GB, runs stop recording videos. Delete old runs in Settings > Storage.",
+      link: "http://127.0.0.1:7420/#/settings?section=storage",
+    });
+  });
+
+  it("tells when a run is interrupted: by a stop once the server is back, by an error at once", async () => {
+    const w = make();
+    const ch = w.alerter.createChannel({ name: "Hook", type: "webhook", url: "https://hooks.example.com/a" });
+    w.alerter.createRule({ name: "Cut", triggers: ["interrupted"], channels: [ch.id], packs: ["aaaa1111"] });
+    const counts = { passed: 1, failed: 0, broken: 0, skipped: 0, stopped: 0, planned: 3 };
+    w.runs.set("abcdef01", { id: "abcdef01", packId: "aaaa1111", packName: "Shop", label: "", status: "interrupted", startedBy: "web", error: null, counts });
+    w.runs.set("abcdef02", { id: "abcdef02", packId: "aaaa1111", packName: "Shop", label: "nightly", status: "interrupted", startedBy: "web", error: null, counts });
+    w.runs.set("abcdef03", { id: "abcdef03", packId: "cccc3333", packName: "Other", label: "", status: "interrupted", startedBy: "web", error: null, counts });
+    // The stop itself says nothing: the server is going away.
+    w.events.append("run.interrupted", { reason: "server_stopped" }, { runId: "abcdef01" });
+    w.events.append("runs.restarted", { interrupted: ["abcdef01", "abcdef02", "abcdef03"], resumed: ["abcdef02"] });
+    w.events.append("run.interrupted", { reason: "engine_error", message: "browser crashed" }, { runId: "abcdef02" });
+    await w.flush();
+    const texts = w.sent.map((m) => (JSON.parse(m.body) as { text: string }).text);
+    expect(texts).toEqual([
+      "Run abcdef01 was interrupted by Watchwright stopping. Resume it on its page to go on where it was.",
+      "Run abcdef02 (nightly) was interrupted by Watchwright stopping. It goes on now where it was.",
+      "Run abcdef02 (nightly) was interrupted by an error: browser crashed. Resume it on its page to go on where it was.",
+    ]);
+    expect((JSON.parse(w.sent[0]!.body) as { title: string; link: string })).toMatchObject({ title: "Shop: interrupted", link: "http://127.0.0.1:7420/#/runs/abcdef01" });
+  });
+
   it("tries again with back-off, then logs alert.failed", async () => {
     let calls = 0;
     const w = make(async () => {

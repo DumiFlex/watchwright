@@ -29,6 +29,23 @@ Clients that start a process instead (Claude Desktop's local servers) run `watch
 
 Both doors offer the same tools and behave the same.
 
+### With login on
+
+On a server with [login](https://dumiflex.github.io/watchwright/guide/safety#login) on, there is still one MCP address, and each person's agent connects with that person's own API token, sent as `Authorization: Bearer <token>`. Tool calls then run as that person: their role decides which tools work, runs show who started them ("Sam via Claude Code"), and deletions wait for that person's approval. **Settings › Agents** makes a token for the agent and shows the settings with it filled in, once:
+
+```bash
+# Claude Code
+claude mcp add --transport http watchwright https://ww.example.com/api/v1/mcp --header "Authorization: Bearer $WATCHWRIGHT_TOKEN"
+# Codex reads the token from the environment
+codex mcp add watchwright --url https://ww.example.com/api/v1/mcp --bearer-token-env-var WATCHWRIGHT_TOKEN
+```
+
+```json
+{ "mcpServers": { "watchwright": { "url": "https://ww.example.com/api/v1/mcp", "headers": { "Authorization": "Bearer ${env:WATCHWRIGHT_TOKEN}" } } } }
+```
+
+`watchwright mcp --server <address>` sends `WATCHWRIGHT_TOKEN`, or the token [`watchwright login`](cli.md#login) saved for that server. The token goes in a header, never in the address, because addresses end up in logs and history. Removing the token in **Settings › Your account** cuts that agent off.
+
 ## Who is calling
 
 Runs, pauses, reviews and approvals carry the agent's name. It is the name the MCP client gives (`claude-code` shows as **Claude Code**), unless the request sets the `x-watchwright-client` header (over HTTP) or `watchwright mcp` gets `--as <name>`.
@@ -51,6 +68,7 @@ The tools are the [actions](https://dumiflex.github.io/watchwright/reference/htt
 | `test_format` | `packs.yaml-schema` | The JSON Schema of YAML tests. |
 | `start_run` | `runs.start` | Starts a run. The pack can be named by its id, its name or its folder. The answer ends with the run's page on this server ("Watch it live: …"), and the server's instructions give its web page address, so agents point people to the right port. |
 | `list_runs` | `runs.list` | Runs, newest first. |
+| `pack_dashboard` | `dashboards.get` | A pack's dashboard tiles with their numbers over the latest runs, to answer questions across runs (which setup scores best, what got slower, which tests flip). |
 | `get_run` | `runs.summary` | A run in brief: status, counts and one line per attempt. |
 | `wait_for_run` | `runs.wait` | Waits up to 110 seconds for the run to end or pause; call again with the cursor. |
 | `control_run` | `runs.control` | Pause, resume, retry, skip, stop or stop now. |
