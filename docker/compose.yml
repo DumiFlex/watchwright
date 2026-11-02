@@ -27,5 +27,6 @@ services:
       # Behind a reverse proxy (NPMplus, Caddy, Traefik): the proxy's address or network, so
       # Watchwright sees people's own addresses. Leave empty without one.
       WATCHWRIGHT_TRUST_PROXY: ""
-      # Times in schedules and on the page use this zone.
+      # The default time zone for schedules' cron times, such as "Europe/Berlin". A schedule can
+      # set its own; the web page always shows times in each viewer's own zone.
       TZ: "Etc/UTC"

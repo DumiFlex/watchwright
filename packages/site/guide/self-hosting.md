@@ -65,7 +65,7 @@ The image sets these, and you can change them with `-e` or in `environment:`:
 | `WATCHWRIGHT_FOLDERS` | `/packs` | The folders the web app's folder browser may show, with commas. |
 | `WATCHWRIGHT_SERVER_HOST` | `1` | No screen: browsers always run headless (a pack's `headless: false` is ignored), **Record in a window** isn't offered, and folders can't be shown in a file manager. The live view, videos and Record from the live view work as usual: they never needed a screen. |
 | `WATCHWRIGHT_HOST` | `0.0.0.0` | The address the server listens on inside the container. |
-| `TZ` | (UTC) | The time zone for schedules. |
+| `TZ` | (UTC) | The default time zone for schedules' cron times, such as `Europe/Berlin`. A schedule can set its own. The web page shows times in each viewer's own zone. |
 
 On a Linux server without Docker, `watchwright serve` notices there's no screen (no `DISPLAY` or `WAYLAND_DISPLAY`) and does the same as `WATCHWRIGHT_SERVER_HOST=1`. Set `WATCHWRIGHT_SERVER_HOST=0` to say there is one.
 
