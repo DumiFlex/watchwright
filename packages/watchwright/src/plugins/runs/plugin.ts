@@ -18,7 +18,7 @@ import { SECRETS } from "../secrets/plugin.js";
 import { SIGNINS } from "../signins/plugin.js";
 import { digest, readRunFile, waitForRun } from "./digest.js";
 import { DEFAULT_STORAGE_LIMITS, Engine, EngineError } from "./engine.js";
-import { RUNS_ARTIFACT_SET_SQL, RUNS_INFO_SQL, RUNS_LABELS_PRESETS_SQL, RUNS_MIGRATION_SQL, RUNS_SIZE_SQL, RUNS_STEPS_SQL, RunsRepo, type RunChoices, type RunOptions, type RunStatus } from "./repo.js";
+import { RUNS_ARTIFACT_SET_SQL, RUNS_INFO_SQL, RUNS_LABELS_PRESETS_SQL, RUNS_MIGRATION_SQL, RUNS_SIZE_SQL, RUNS_STEPS_SQL, RUNS_STOPPED_BY_SERVER_SQL, RunsRepo, type RunChoices, type RunOptions, type RunStatus } from "./repo.js";
 import type { VideoSetting } from "../packs/api.js";
 
 export const ENGINE = serviceKey<Engine>("runs.engine");
@@ -154,6 +154,7 @@ export const runsPlugin = definePlugin({
     { id: 4, name: "labels-presets", sql: RUNS_LABELS_PRESETS_SQL },
     { id: 5, name: "attempt-steps", sql: RUNS_STEPS_SQL },
     { id: 6, name: "run-size", sql: RUNS_SIZE_SQL },
+    { id: 7, name: "stopped-by-server", sql: RUNS_STOPPED_BY_SERVER_SQL },
   ],
   setup({ store, events, services }) {
     const dataDir = filesRoot(store.dataDir);
@@ -176,6 +177,12 @@ export const runsPlugin = definePlugin({
       title: "Stop recording videos when the drive has less free space than this, in GB (runs go on)",
       schema: { type: "number", minimum: 0, maximum: 100000 },
       default: DEFAULT_STORAGE_LIMITS.stopBelowGB,
+    });
+    settings.define({
+      key: "runs.resumeOnStart",
+      title: "Resume runs a stop or crash of Watchwright interrupted when it starts again",
+      schema: { type: "boolean" },
+      default: false,
     });
     settings.define({
       key: "runs.keepDays",
@@ -216,7 +223,16 @@ export const runsPlugin = definePlugin({
   // Queued runs start once every plugin has registered its job kinds.
   ready({ services }) {
     const engine = services.get(ENGINE);
+    // After every plugin's ready (alerts listen from theirs), so runs.restarted reaches them.
+    const settings = services.get(SETTINGS);
     engine.schedule();
+    setImmediate(() => {
+      try {
+        engine.afterRestart(settings.get<boolean>("runs.resumeOnStart") === true);
+      } catch {
+        // The server closed before it got here (the store is gone): the runs wait for the next start.
+      }
+    });
     // Runs from before sizes were kept, measured in the background.
     void engine.measureMissing().catch(() => undefined);
     // Cleanup: off until a rule is set in Settings > Storage, then a sweep a day.

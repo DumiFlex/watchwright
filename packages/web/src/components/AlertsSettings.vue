@@ -59,6 +59,7 @@ const TRIGGERS: { value: string; label: string; note?: string }[] = [
   { value: "recovered", label: "A run passes again", note: "After the last run of the pack or schedule didn't" },
   { value: "passed", label: "A run passes" },
   { value: "stopped", label: "A run is stopped" },
+  { value: "interrupted", label: "A run is interrupted", note: "Watchwright stopped or crashed during it (said when it starts again), or an error stopped it" },
   { value: "test_broken", label: "A test breaks", note: "While the run is still going" },
   { value: "schedule_missed", label: "A schedule misses a time", note: "Missed while Watchwright was off, or skipped because its last run was still going" },
   { value: "approval", label: "An agent waits for approval" },
@@ -479,6 +480,10 @@ async function remove() {
   align-items: flex-start;
   gap: var(--space-2);
   cursor: pointer;
+}
+/* The box keeps its size when a note makes the text wrap. */
+.check > :first-child {
+  flex: none;
 }
 .hint {
   margin-top: calc(-1 * var(--space-2));

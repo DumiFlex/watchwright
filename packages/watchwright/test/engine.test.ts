@@ -559,6 +559,9 @@ test("R3", async () => {});`,
     const before = (await second.api<RunDetail>("GET", `/runs/${runId}`)).data;
     expect(before.status).toBe("interrupted");
     expect(byTest(before)).toEqual({ "R1#1": "passed", "R2#1": "interrupted" });
+    // The new start says which runs the stop interrupted; with runs.resumeOnStart off they wait.
+    const restarted = await second.waitFor((e) => e.type === "runs.restarted");
+    expect(restarted.data).toEqual({ interrupted: [runId], resumed: [] });
     // Make R2 quick for the second go.
     rewrite(path.join(first.packDir, "tests", "r.ts"), files["tests/r.ts"].replace("await h.wait(20000);", ""));
     expect((await second.api("POST", `/runs/${runId}/resume`)).status).toBe(200);

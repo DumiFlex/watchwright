@@ -23,6 +23,7 @@ A rule picks when to send, for which packs or schedules, and to which channels.
 
 - **A run fails**, **ends with broken tests**, **doesn't start**, **passes** or **is stopped**: when a run ends that way.
 - **A run passes again**: when a run passes after the last run of the same pack (or the same schedule, for a scheduled run) didn't.
+- **A run is interrupted**: Watchwright stopped, the computer restarted or it crashed while the run was going (sent when Watchwright starts again, saying whether the run goes on by itself), or an error stopped the run (sent at once). Turn on **Resume interrupted runs when Watchwright starts** under **Settings > New run** to have such runs go on where they were.
 - **A test breaks**: while the run is still going, so you can look before it ends. It links to the attempt.
 - **A schedule misses a time**: a time missed while Watchwright was off, or skipped because the schedule's last run was still going. See [Schedules](./schedules).
 - **An agent waits for approval**: an agent asked for something that needs you to approve it on the Watchwright page.
