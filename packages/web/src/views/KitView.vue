@@ -38,6 +38,10 @@ import RangeSlider from "../components/RangeSlider.vue";
 import ScoreInput from "../components/ScoreInput.vue";
 import SelectMenu from "../components/SelectMenu.vue";
 import SideDrawer from "../components/SideDrawer.vue";
+import DashboardTile from "../components/tiles/DashboardTile.vue";
+import DashboardEditor from "../components/DashboardEditor.vue";
+import { KIT_TILES } from "../kitdash";
+import type { DashboardReply } from "../dashboard";
 import SkeletonBlock from "../components/SkeletonBlock.vue";
 import SparkLine from "../components/SparkLine.vue";
 import StatTile from "../components/StatTile.vue";
@@ -105,6 +109,17 @@ const runColumns = [
 ];
 const took = (s: number) => (s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`);
 const lastRow = ref("");
+const dashEditor = ref(false);
+const kitReply: DashboardReply = {
+  dashboard: { runs: 20, filters: [], groups: [{ title: "At a glance", tiles: KIT_TILES.slice(0, 4).map((t) => t.tile) }, { title: "To look at", tiles: KIT_TILES.slice(13, 16).map((t) => t.tile) }] },
+  source: "override",
+  packHasOwn: true,
+  updatedBy: "kit",
+  updatedAt: null,
+  range: { runs: 20, days: null, from: null, to: null, count: 8 },
+  filters: [],
+  groups: [],
+};
 const iconList = Object.entries(icons);
 const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
 const kitApprovals = ref([
@@ -841,6 +856,16 @@ const traces = [
     </section>
 
     <section class="card">
+      <h2 class="display">Dashboard tiles</h2>
+      <p class="muted note">Every kind of tile a pack's dashboard can show, with made-up data. Customize opens the drawer that changes them on a pack's page (here it has no pack to save to).</p>
+      <div class="row dash-actions"><button type="button" class="btn" @click="dashEditor = true"><icons.LayoutDashboard :size="15" /> Customize</button></div>
+      <div class="dash-grid">
+        <DashboardTile v-for="(t, i) in KIT_TILES" :key="i" :result="t" pack-id="kit" :latest-runs="['run8', 'run7', 'run6']" />
+      </div>
+      <DashboardEditor v-model="dashEditor" pack-id="kit" :reply="kitReply" />
+    </section>
+
+    <section class="card">
       <h2 class="display">Media</h2>
       <div class="grid">
         <div class="item wide">
@@ -1007,6 +1032,27 @@ header p {
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.dash-grid {
+  --cols: 4;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+.dash-actions {
+  margin-bottom: var(--space-3);
+}
+@media (max-width: 1000px) {
+  .dash-grid {
+    --cols: 2;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .dash-grid {
+    --cols: 1;
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .split-demo {
   display: grid;
