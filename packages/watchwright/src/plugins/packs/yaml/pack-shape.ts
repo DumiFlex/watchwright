@@ -21,6 +21,8 @@ export interface PackYaml {
   run?: PackRunOptions;
   rubric?: RubricCriterion[];
   collectors?: CollectorEntry[];
+  dashboard?: unknown;
+  share?: unknown;
   setup?: unknown[];
   beforeEach?: unknown[];
   afterEach?: unknown[];
@@ -101,6 +103,8 @@ export const PACK_SHAPE: Shape = obj({
   run: RUN,
   rubric: list(CRITERION, "What reviewers score each attempt on."),
   collectors: list(COLLECTOR),
+  dashboard: { t: "any", doc: "What the pack's dashboard shows: `tiles` (or `groups` of them), `runs`, `days` and `filters`. See the Dashboards guide." },
+  share: { t: "any", doc: "What shares and the status page leave out: `texts: false`, `metrics: false`, `reviews: false`, `outputs: [names]`." },
   setup: { t: "steps", doc: "Steps run once per run, before the first test." },
   beforeEach: { t: "steps", doc: "Steps run before each attempt." },
   afterEach: { t: "steps", doc: "Steps run after each attempt, also when it failed." },

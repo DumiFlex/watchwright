@@ -34,6 +34,7 @@ export default defineConfig({
           { text: "Recording", link: "/guide/recording" },
           { text: "Agents", link: "/guide/agents" },
           { text: "Reviewing results", link: "/guide/reviewing" },
+          { text: "Dashboards", link: "/guide/dashboards" },
           { text: "Schedules", link: "/guide/schedules" },
           { text: "Alerts", link: "/guide/alerts" },
           { text: "Safety", link: "/guide/safety" },

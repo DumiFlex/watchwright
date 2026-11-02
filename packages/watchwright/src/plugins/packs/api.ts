@@ -1,6 +1,7 @@
 import type { Browser, BrowserContext, BrowserContextOptions, LaunchOptions, Page } from "playwright";
 import type { expect as playwrightExpect } from "playwright/test";
 import type { RubricCriterion, TestReview } from "./rubric.js";
+import type { DashboardInput, ShareOptions } from "./dashboard.js";
 import type { Step } from "./yaml/steps.js";
 
 // The pack API: what a test pack's files import from "watchwright". A pack is a folder with a
@@ -260,6 +261,10 @@ export interface PackOptions {
   run?: PackRunOptions;
   /** What reviewers score each attempt on (default: one 1-to-5 "overall"). */
   rubric?: readonly RubricCriterion[];
+  /** What the pack's dashboard shows (see the Dashboards guide): `{ tiles }` or `{ groups }`, with `runs`, `days`, `filters`. */
+  dashboard?: DashboardInput;
+  /** What shares and the public status page leave out: `{ texts: false, metrics: false, reviews: false, outputs: [names] }`. */
+  share?: ShareOptions;
 }
 
 export type RunsSpec = number | ((params: ParamValues) => number) | ({ by: string; default?: number } & Record<string, number | string | undefined>);

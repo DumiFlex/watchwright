@@ -68,6 +68,7 @@ The tools are the [actions](https://dumiflex.github.io/watchwright/reference/htt
 | `test_format` | `packs.yaml-schema` | The JSON Schema of YAML tests. |
 | `start_run` | `runs.start` | Starts a run. The pack can be named by its id, its name or its folder. The answer ends with the run's page on this server ("Watch it live: …"), and the server's instructions give its web page address, so agents point people to the right port. |
 | `list_runs` | `runs.list` | Runs, newest first. |
+| `pack_dashboard` | `dashboards.get` | A pack's dashboard tiles with their numbers over the latest runs, to answer questions across runs (which setup scores best, what got slower, which tests flip). |
 | `get_run` | `runs.summary` | A run in brief: status, counts and one line per attempt. |
 | `wait_for_run` | `runs.wait` | Waits up to 110 seconds for the run to end or pause; call again with the cursor. |
 | `control_run` | `runs.control` | Pause, resume, retry, skip, stop or stop now. |

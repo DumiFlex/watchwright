@@ -72,6 +72,8 @@ export default pack({
 | `params` | Values chosen per run. A param has a `default`, optional `choices` (with optional display `labels`: `{ q9: "Qwen3.5 9B" }`), and an optional `type` (`string`, `number`, `boolean`). Tests get them as `params`. |
 | `flags` | Flags tests may raise, with their kind: `robot` (the harness or test went wrong: the attempt is **broken**), `finding` (the site did something wrong: the attempt **failed**), `info` (changes nothing). |
 | `rubric` | What reviewers score each attempt on (see [Reviewing results](https://dumiflex.github.io/watchwright/guide/reviewing)). Default: one 1-to-5 `overall` criterion. |
+| `dashboard` | What the pack's dashboard shows: tiles of outcomes, metrics, scores, setups compared, tests and outputs (see [Dashboards](https://dumiflex.github.io/watchwright/guide/dashboards)). Default: outcomes, run times and the latest failures. |
+| `share` | What share links and the public status page leave out: `texts`, `metrics` or `reviews` set to `false`, and `outputs`, names of texts and files never shared (see [Dashboards](https://dumiflex.github.io/watchwright/guide/dashboards#keeping-things-out-of-shares)). |
 | `tests` | Glob(s) of test files relative to the pack file. Default `tests/**/*.{ts,mts,js,mjs}`. |
 | `setup` | Runs once each time a run starts (or resumes), before the first test. Gets `{ page, context, browser, h, params, packDir, info }`; `info(key, value)` saves a fact about the run (see below). |
 | `beforeAttempt`, `afterAttempt` | Run around every attempt, children too (see [Attempt hooks](#attempt-hooks)). |
