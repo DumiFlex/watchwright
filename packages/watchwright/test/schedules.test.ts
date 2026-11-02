@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { EventLog } from "../src/events/log.js";
@@ -6,7 +6,7 @@ import { corePlugin } from "../src/core/core-plugin.js";
 import { migrationsOf } from "../src/core/plugin.js";
 import { schedulesPlugin } from "../src/plugins/schedules/plugin.js";
 import { Scheduler, type RunStarter } from "../src/plugins/schedules/scheduler.js";
-import { setStartup, startupInfo, startupScript, type StartupPlace } from "../src/plugins/schedules/startup.js";
+import { refreshStartup, setStartup, startupInfo, startupScript, type StartupPlace } from "../src/plugins/schedules/startup.js";
 import { checkWhen, describeWhen, nextDue } from "../src/plugins/schedules/when.js";
 import { openStore } from "../src/store/db.js";
 import type { RunDetail } from "../src/plugins/runs/engine.js";
@@ -232,12 +232,18 @@ describe("start at sign-in", () => {
     expect(on.enabled).toBe(true);
     expect(on.file).toBe(path.join(appData, "Microsoft", "Windows", "Start Menu", "Programs", "Startup", "Watchwright.cmd"));
     const text = readFileSync(on.file!, "utf8");
-    expect(text).toContain('start "Watchwright" /min "C:\\Program Files\\nodejs\\node.exe" C:\\ww\\dist\\cli\\main.js serve --port 7420 --data "C:\\Users\\me\\100%% data" --no-open');
+    expect(text).toContain('start "Watchwright" /min "C:\\Program Files\\nodejs\\node.exe" C:\\ww\\dist\\cli\\main.js serve --port 7420 --data "C:\\Users\\me\\100%% data" --no-open --background');
     expect(text).toBe(startupScript(p, 7420, data));
     expect(text).toContain("\r\n");
+    // A file an older version wrote is brought up to date; a current one is left alone.
+    writeFileSync(on.file!, "@echo off\r\nstart old\r\n");
+    expect(await refreshStartup(p, 7420, data)).toBe(true);
+    expect(readFileSync(on.file!, "utf8")).toBe(startupScript(p, 7420, data));
+    expect(await refreshStartup(p, 7420, data)).toBe(false);
     const off = await setStartup(p, 7420, data, false);
     expect(off.enabled).toBe(false);
     expect(existsSync(on.file!)).toBe(false);
+    expect(await refreshStartup(p, 7420, data)).toBe(false);
   });
 
   it("only gives the command elsewhere", async () => {
