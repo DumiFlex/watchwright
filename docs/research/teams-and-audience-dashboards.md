@@ -116,6 +116,24 @@ A YAML pack is data: `pack.yaml` and YAML tests are read by the built-in step ru
 
 This is a fix to an existing feature (FIX FIRST), about one PR, and it is what makes pack access below mean something for users.
 
+## Users propose code, admins review it
+
+Making code admin-only shouldn't stop a user from improving a pack's code: it should route the change through an admin. The web app already has the part that shows it: `DiffView` (one column or two, changed parts marked, unchanged stretches folded), used today for the editor's "changed on disk" conflict and on `#/kit`.
+
+**How it works**
+
+- **In the editor**, a user who changes a code file gets **Propose change** instead of **Save**. Several files can go into one proposal (edit `pack.ts` and a helper, then propose both), with a short note ("Wait for the toast before clicking Save"). Until it's sent, the draft stays in the browser like an unsent message; once sent, it's on the server.
+- **What is kept:** a `proposals` table in a new `proposals` plugin, with the pack, who proposed it, the note, when, and per file: path, the text it was based on (its hash and the text, for the diff) and the new text. Creating, renaming and deleting a code file can be proposed too.
+- **Admins review it** in a **Changes to review** list (Admin, plus a count on the pack page and in the top bar like approvals): each file as a `DiffView` against the version it was based on, then **Apply** or **Decline** with a reply. Apply writes the files with the editor's stale check: if a file changed on disk since the proposal, the admin sees a three-way choice (theirs, the proposal, or open it in the editor to merge), never a silent overwrite. After apply, the pack reloads and shows its problems, as a save does today.
+- **The person who proposed it** sees its state (waiting, applied, declined, with the reply) in the editor and in a list of their proposals, and can withdraw or update it while it waits (updating keeps one proposal, with its history).
+- **Agents:** `write_pack_file` from a user's token, on a code file, answers "proposed for review, id …" instead of failing, and a `wait_for_review` like `wait_for_approval` lets an agent wait for the answer. An admin's token writes directly, as now.
+- **Events and alerts:** `proposal.created`, `proposal.applied`, `proposal.declined` in the event log, so an alert rule can ping admins on ntfy/Discord when a change waits.
+- **Later, not in the first build:** **Run with this change** for an admin, which runs the pack from a copy with the proposal applied, so the admin can try it before it lands. It runs the proposed code, so only an admin can start it.
+
+**Why not reuse approvals?** Approvals hold one call from an agent for the same person to allow on the web page, and expire in minutes. A proposal is different: a different person answers it (an admin), it holds several files, it can wait days, and it needs a diff and a stale check. It can share the approvals list's look and the top-bar count.
+
+Cost: about two PRs on top of "code is admin-only" (server: plugin, actions, MCP, events; web: Propose in the editor, the review list with `DiffView`, screenshots).
+
 ## Pack access (Dumi expects to need it soon)
 
 With code admin-only, a smaller form of (b) holds for viewers **and** users: an admin decides who sees each pack.
@@ -135,16 +153,17 @@ Cost: about three PRs after the code fix: the access store and service with the 
 Don't build full teams. Build, in this order:
 
 1. **Code is admin-only** (one PR, a fix, now).
-2. **Only admins publish tiles** (one small PR, a fix, now).
-3. **Pack access** (about three PRs), since Dumi expects other people on the server soon.
-4. **Named dashboards with an audience** (about three PRs), with groups as an audience once pack access has them.
+2. **Users propose code changes, admins review them** (about two PRs, right after, so users don't lose anything they could do).
+3. **Only admins publish tiles** (one small PR, a fix, now).
+4. **Pack access** (about three PRs), since Dumi expects other people on the server soon.
+5. **Named dashboards with an audience** (about three PRs), with groups as an audience once pack access has them.
 
 ## Now or later
 
-Items 1 and 2 close gaps in what already shipped, so they fit FIX FIRST. Items 3 and 4 are new work on features that exist (login, dashboards), not new capabilities; recommended after the open audit fixes and the Settings split (which moves Sharing to Admin › Sharing and reworks Users, where pack access would show).
+Items 1 and 3 close gaps in what already shipped, so they fit FIX FIRST. Items 2, 4 and 5 are new work on features that exist (login, dashboards), not new capabilities; recommended after the open audit fixes and the Settings split (which moves Sharing to Admin › Sharing and reworks Users, where pack access would show).
 
 ## Questions for Dumi
 
-1. Make code admin-only (users keep YAML tests, data and runs)?
+1. Make code admin-only (users keep YAML tests, data and runs), with users proposing code changes for an admin to review?
 2. Make the "only admins publish tiles" fix now?
 3. Pack access as above (per pack: everyone, or chosen people and groups) before named dashboards?
