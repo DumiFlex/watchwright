@@ -4,7 +4,7 @@ Two ways show results to people who have no account: a **share link** for one ru
 
 ## Share links
 
-On a run's page, press **Share**. Choose how long the link works (1, 7 or 30 days, or until you take it back) and press **Make a link**. Copy the link right away: Watchwright keeps only a fingerprint of it, so it can't show it again.
+On a run's page, press **Share**. Choose how long the link works (1, 7 or 30 days, or until you take it back) and press **Make a link**, then copy it. Every link that still works can be copied again later, from the Share box or from **Settings › Sharing**.
 
 Anyone with the link sees the run's results, errors, screenshots, videos and files, without signing in. A run that is still going updates by itself.
 

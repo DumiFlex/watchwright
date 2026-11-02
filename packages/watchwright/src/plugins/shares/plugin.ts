@@ -10,7 +10,7 @@ import { PACKS } from "../packs/registry.js";
 import type { RunDetail } from "../runs/engine.js";
 import { byteRange, ENGINE, FILES_ROOT } from "../runs/plugin.js";
 import type { ResultDocument } from "../runs/results.js";
-import { DEFAULT_DASHBOARD, SHARES_SQL, SharesStore, type DashboardSettings } from "./store.js";
+import { DEFAULT_DASHBOARD, SHARES_SQL, SHARES_TOKEN_SQL, SharesStore, type DashboardSettings } from "./store.js";
 
 // Sharing without an account (docs/plans/self-hosting.md, section 4): a share link opens one run's
 // results, screenshots, video and files read-only, for anyone with the link; the public dashboard
@@ -39,7 +39,10 @@ interface Opened {
 
 export const sharesPlugin = definePlugin({
   name: "shares",
-  migrations: [{ id: 1, name: "init", sql: SHARES_SQL }],
+  migrations: [
+    { id: 1, name: "init", sql: SHARES_SQL },
+    { id: 2, name: "token", sql: SHARES_TOKEN_SQL },
+  ],
   setup({ store, services }) {
     services.provide(SHARES, new SharesStore(store.db));
   },
@@ -87,7 +90,7 @@ export const sharesPlugin = definePlugin({
         handler: ({ run, days, traces }, call) => {
           if (!services.get(ENGINE).get(run)) throw new ActionError("not_found", `No run ${run}.`, 404);
           const { token, info } = shares().add(run, { days, traces, by: call.user?.name ?? call.client });
-          return { ...info, token, page: `#/s/${token}` };
+          return { ...info, token };
         },
       }),
       defineAction<{ id: string }>({

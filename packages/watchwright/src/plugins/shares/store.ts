@@ -2,7 +2,8 @@ import { createHash, randomBytes } from "node:crypto";
 import type Database from "better-sqlite3";
 
 // Share links (one run, read-only, for people without an account) and the public dashboard's
-// settings (docs/plans/self-hosting.md, section 4). Only a link's hash is kept.
+// settings (docs/plans/self-hosting.md, section 4). Links are looked up by their hash; the token is
+// kept too, so a link can be copied again from the list.
 
 export const SHARES_SQL = `
   CREATE TABLE shares (
@@ -23,8 +24,13 @@ export const SHARES_SQL = `
   );
 `;
 
+/** The token goes into the address too, so the person who shared can copy the link again (links are read-only). */
+export const SHARES_TOKEN_SQL = `ALTER TABLE shares ADD COLUMN token TEXT;`;
+
 export interface ShareInfo {
   id: string;
+  /** The page to open, `#/s/<token>`; null for links made before tokens were kept. */
+  page: string | null;
   runId: string;
   /** Traces and collector files (which can hold cookies and tokens) are shared too. */
   traces: boolean;
@@ -49,6 +55,7 @@ export const DEFAULT_DASHBOARD: DashboardSettings = { on: false, packs: [], link
 
 interface Row {
   id: string;
+  token: string | null;
   run_id: string;
   traces: number;
   created_by: string | null;
@@ -60,6 +67,7 @@ interface Row {
 
 const toInfo = (r: Row): ShareInfo => ({
   id: r.id,
+  page: r.token ? `#/s/${r.token}` : null,
   runId: r.run_id,
   traces: r.traces === 1,
   createdBy: r.created_by,
@@ -89,15 +97,15 @@ export class SharesStore {
     return r ? toInfo(r) : null;
   }
 
-  /** A new link: `token` goes in the address and is shown this once. */
+  /** A new link: `token` goes in the address. */
   add(runId: string, opts: { days?: number | undefined; traces?: boolean | undefined; by?: string | undefined }): { token: string; info: ShareInfo } {
     const token = newToken();
     const id = randomBytes(6).toString("hex");
     const now = new Date();
     const expires = opts.days ? new Date(now.getTime() + opts.days * 24 * 60 * 60_000).toISOString() : null;
     this.db
-      .prepare("INSERT INTO shares (id, hash, run_id, traces, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-      .run(id, sha256(token), runId, opts.traces ? 1 : 0, opts.by ?? null, now.toISOString(), expires);
+      .prepare("INSERT INTO shares (id, hash, token, run_id, traces, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(id, sha256(token), token, runId, opts.traces ? 1 : 0, opts.by ?? null, now.toISOString(), expires);
     return { token, info: this.get(id)! };
   }
 

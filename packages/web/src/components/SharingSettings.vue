@@ -3,11 +3,12 @@
 // public dashboard at #/status, which shows the latest runs of the packs they pick to anyone
 // who can reach the server (docs/plans/self-hosting.md, section 4).
 import { computed, onMounted, ref } from "vue";
-import { Trash2 } from "../icons";
+import { Copy, Trash2 } from "../icons";
 import { getJson, sendJson, type DashboardSettings, type Pack, type ShareLink } from "../api";
 import { ago } from "../format";
 import { href } from "../router";
 import { can } from "../session";
+import { copyShare } from "../share";
 import { toast } from "../toasts";
 import { vTip } from "../tooltip";
 import CodeView from "./CodeView.vue";
@@ -67,7 +68,10 @@ const linkText = (l: ShareLink) => [`made ${ago(l.createdAt)}${l.createdBy ? ` b
           <span v-if="l.traces" class="tag">traces</span>
         </div>
         <span class="muted small">{{ linkText(l) }}</span>
-        <button v-tip="'Take this link back'" type="button" class="ib" aria-label="Take this link back" @click="remove(l)"><Trash2 :size="14" /></button>
+        <span class="acts">
+          <button v-if="l.page" v-tip="'Copy the link'" type="button" class="ib copy" aria-label="Copy the link" @click="copyShare(l.page)"><Copy :size="14" /></button>
+          <button v-tip="'Take this link back'" type="button" class="ib" aria-label="Take this link back" @click="remove(l)"><Trash2 :size="14" /></button>
+        </span>
       </li>
     </ul>
     <p v-else class="muted small">No links work right now.</p>
@@ -169,9 +173,16 @@ const linkText = (l: ShareLink) => [`made ${ago(l.createdAt)}${l.createdBy ? ` b
   color: var(--muted);
   cursor: pointer;
 }
+.acts {
+  display: flex;
+  gap: var(--space-1);
+}
 .ib:hover {
   background: var(--hover);
   color: var(--bad);
+}
+.ib.copy:hover {
+  color: var(--text);
 }
 @media (max-width: 640px) {
   .fields {
@@ -184,7 +195,7 @@ const linkText = (l: ShareLink) => [`made ${ago(l.createdAt)}${l.createdBy ? ` b
   .links li > .muted {
     grid-column: 1;
   }
-  .links li > .ib {
+  .links li > .acts {
     grid-row: 1 / span 2;
     grid-column: 2;
   }

@@ -67,8 +67,9 @@ describe("share links", () => {
     // The run's own routes still need the server.
     expect((await anon(`/api/v1/shared/${"x".repeat(22)}`)).statusCode).toBe(404);
 
-    const list = await h.api<{ id: string; views: number; run: { packName: string } }[]>("GET", `/shares?run=${RUN}`);
-    expect(list.data).toMatchObject([{ id: made.data.id, views: 1, run: { packName: "Shop" } }]);
+    // The link can be copied again from the list.
+    const list = await h.api<{ id: string; views: number; page: string; run: { packName: string } }[]>("GET", `/shares?run=${RUN}`);
+    expect(list.data).toMatchObject([{ id: made.data.id, views: 1, page: made.data.page, run: { packName: "Shop" } }]);
 
     expect((await h.api("DELETE", `/shares/${made.data.id}`)).status).toBe(200);
     const after = await anon(base);
