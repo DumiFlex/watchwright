@@ -71,6 +71,7 @@ describe("server", () => {
           { name: "alerts", schemaVersion: 1 },
           { name: "record", schemaVersion: 0 },
           { name: "reviews", schemaVersion: 1 },
+          { name: "dashboards", schemaVersion: 1 },
           { name: "shares", schemaVersion: 2 },
           { name: "agents", schemaVersion: 1 },
         ],

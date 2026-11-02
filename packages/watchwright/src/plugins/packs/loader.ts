@@ -6,6 +6,7 @@ import { build, type Plugin as EsbuildPlugin } from "esbuild";
 import { beginCollecting, endCollecting, type PackOptions, type TestDefinition, type TestMeta } from "./api.js";
 import { glob } from "./glob.js";
 import { rubricProblems } from "./rubric.js";
+import { readDashboard, readShare } from "./dashboard.js";
 import { readPackYaml } from "./yaml/pack-yaml.js";
 import { formatProblems, parseTestFile } from "./yaml/parse.js";
 import { yamlBody } from "./yaml/run.js";
@@ -276,5 +277,7 @@ function checkOptions(o: PackOptions): void {
   if (o.browser?.name !== undefined && !["chromium", "firefox", "webkit"].includes(o.browser.name)) problems.push("`browser.name` must be chromium, firefox or webkit.");
   for (const [name, kind] of Object.entries(o.flags ?? {})) if (!FLAG_KINDS.includes(kind)) problems.push(`Flag "${name}" must be robot, finding or info.`);
   problems.push(...rubricProblems(o.rubric, "rubric"));
+  readDashboard(o.dashboard, problems);
+  readShare(o.share, problems);
   if (problems.length > 0) throw new PackLoadError("The pack's options aren't valid.", problems);
 }

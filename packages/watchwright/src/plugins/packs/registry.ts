@@ -8,6 +8,7 @@ import { videoMode, type FlagKind, type ParamDef, type TestDefinition, type Vide
 import { currentStamp, findPackFile, loadPack, PACK_FILES, packChanged, PackLoadError, type LoadedPack } from "./loader.js";
 import { checkTests, paramType, parentsOf } from "./order.js";
 import { rubricFor, type Criterion, type RubricCriterion } from "./rubric.js";
+import { readDashboard, readShare, type Dashboard, type ShareOptions } from "./dashboard.js";
 
 export interface PackTestSummary {
   id: string;
@@ -52,6 +53,10 @@ export interface PackSummary {
   run: PackRunDefaults;
   /** The pack's review criteria (tests may add or drop some; see each test's `rubric`). */
   rubric: Criterion[];
+  /** The pack's own `dashboard:` block, checked; null when it has none. */
+  dashboard: Dashboard | null;
+  /** The pack's `share:` block; null when it has none. */
+  share: ShareOptions | null;
   tests: PackTestSummary[];
 }
 
@@ -252,6 +257,8 @@ export class PackRegistry {
         network: o.site.network ?? RUN_DEFAULTS.network,
       },
       rubric: rubricFor(o.rubric, undefined),
+      dashboard: readDashboard(o.dashboard, []),
+      share: readShare(o.share, []),
       tests: pack.tests.map((t) => testSummary(t, o.rubric)),
     };
     this.db
@@ -280,6 +287,8 @@ export class PackRegistry {
       flags: s.flags ?? {},
       run: { ...RUN_DEFAULTS, ...s.run },
       rubric: s.rubric ?? rubricFor(undefined, undefined),
+      dashboard: s.dashboard ?? null,
+      share: s.share ?? null,
       tests: (s.tests ?? []).map((t) => ({ ...t, line: t.line ?? null, rubric: t.rubric ?? rubricFor(undefined, undefined) })),
     };
   }
