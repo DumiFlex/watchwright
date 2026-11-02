@@ -9,11 +9,13 @@ import { demoCommand } from "./demo.js";
 import { initAgentCommand } from "./init-agent.js";
 import { mcpCommand } from "./mcp.js";
 import { serveCommand } from "./serve.js";
+import { usersCommand } from "./users.js";
 
 const HELP = `Watchwright ${VERSION}
 
 Usage:
   watchwright serve [pack folder…] [--port ${DEFAULT_PORT}] [--host ${DEFAULT_HOST}] [--data <folder>] [--no-open] [--background]
+                    [--auth] [--public-url <address>]… [--trust-proxy <address>]…
   watchwright demo [--port ${DEFAULT_PORT}] [--data <folder>] [--no-open]
   watchwright status
   watchwright run <pack> [test…] [--param key=value]… [--preset <name>] [--label <text>] [--wait]
@@ -22,6 +24,7 @@ Usage:
   watchwright actions
   watchwright mcp [--no-start]
   watchwright init-agent [folder] [--agent claude,codex,cursor] [--no-mcp]
+  watchwright users list|add|reset-password|role|disable|enable|remove …  (--help for details)
   watchwright <plugin> <verb> [args] [--options]     any action, such as: watchwright runs pause 0a1b2c3d
   watchwright --version
 
@@ -29,7 +32,15 @@ serve      Starts the server: the web app, the HTTP API and the store. It stays 
            Pack folders given after it are added (or reloaded when already added). When the
            server is already running on the port, it adds them there and opens the page.
   --port     Port to listen on (default ${DEFAULT_PORT}).
-  --host     Address to bind. Only loopback addresses for now (127.0.0.1, localhost, ::1).
+  --host     Address to bind (default: WATCHWRIGHT_HOST, else 127.0.0.1). Any address other than
+             127.0.0.1, localhost or ::1 needs --auth.
+  --auth     Login on: the web page asks people to sign in, and the CLI, scripts and agents send a
+             token (WATCHWRIGHT_TOKEN). Also WATCHWRIGHT_AUTH=on. The first start prints a link that
+             creates the first admin.
+  --public-url  An address people reach the server at, such as https://watchwright.home.lan
+             (repeat it, or WATCHWRIGHT_PUBLIC_URL with commas). Requests may name these hosts.
+  --trust-proxy  The reverse proxy whose X-Forwarded-* headers count (an address or a range such
+             as 172.18.0.0/16; repeat it, or WATCHWRIGHT_TRUST_PROXY with commas).
   --data     Folder for the database and run files (default: WATCHWRIGHT_DATA, else the OS's app data folder).
   --no-open  Don't open the web page in the browser on start.
   --background  Run the server as its own process with no window, so no terminal has to stay
@@ -57,6 +68,10 @@ init-agent Sets up a project (default: this folder) for AI agents: the Watchwrig
            Claude Code, Codex or Cursor look for skills, and the MCP server in the project's
            settings (merged; Codex gets a command to run). Without --agent: the agents whose
            folders the project has, else all three. --no-mcp writes only the skill.
+users      Accounts for login, on this machine's data folder (works with the server stopped):
+           list, add <name> [--role admin|user|viewer], reset-password <name>, role <name> <role>,
+           disable <name>, enable <name>, remove <name>. Passwords are asked for at the terminal,
+           or read from standard input with --password-stdin.
 actions    Every action the server has. Each one is a command: its name's words, path parameters
            in order, the rest as --options (--help after it lists them). Prints the data as JSON.
 
@@ -65,6 +80,7 @@ Everywhere:
   --as <name>         Who is calling, shown on runs (default: WATCHWRIGHT_CLIENT, else the agent
                       this runs under, such as Claude Code or Codex, else cli).
   --json              Print the data as JSON instead of text.
+  WATCHWRIGHT_TOKEN   An API token for a server with login on (make one on the web page).
 
 Exit codes: 0 done (a run passed), 1 failed, 2 bad usage, 3 no server, 4 the run had failed or
 broken attempts, 5 the run is paused, 6 the run still goes, 7 an action waits for approval on
@@ -126,6 +142,7 @@ async function main(argv: string[]): Promise<number> {
   if (command === "serve") return serveCommand(argv.slice(1));
   if (command === "demo") return demoCommand(argv.slice(1));
   if (command === "mcp") return mcpCommand(argv.slice(1));
+  if (command === "users") return usersCommand(argv.slice(1));
   if (command === "init-agent") return guarded(processIo, false, () => Promise.resolve(initAgentCommand(processIo, argv.slice(1))));
 
   const args = argv.slice(1);

@@ -71,7 +71,7 @@ export const livePlugin = definePlugin({
     const hub = services.get(FRAMES);
     const RUN = /^[0-9a-f]{8}$/;
     // A frame of the rewind buffer as a JPEG (the index is the `live.rewind` action).
-    app.get<{ Params: { runId: string; pageId: string; timestamp: string } }>("/live/:runId/rewind/:pageId/:timestamp", async (req, reply) => {
+    app.get<{ Params: { runId: string; pageId: string; timestamp: string } }>("/live/:runId/rewind/:pageId/:timestamp", { config: { access: "viewer" } }, async (req, reply) => {
       const { runId, pageId, timestamp } = req.params;
       const at = Number(timestamp.replace(/\.jpg$/, ""));
       if (!RUN.test(runId) || !Number.isFinite(at)) return reply.code(400).send(errorBody("bad_input", "Ask for /live/<run>/rewind/<page>/<timestamp>.jpg."));
@@ -79,7 +79,7 @@ export const livePlugin = definePlugin({
       if (!frame) return reply.code(404).send(errorBody("not_found", "That moment is no longer in the rewind buffer."));
       return reply.header("content-type", "image/jpeg").header("cache-control", "private, max-age=60").header("x-frame-timestamp", String(frame.timestamp)).send(frame.data);
     });
-    app.get("/live", { websocket: true }, (socket: WebSocket) => {
+    app.get("/live", { websocket: true, config: { access: "viewer" } }, (socket: WebSocket) => {
       let stopEvents: (() => void) | null = null;
       let stopFrames: (() => void) | null = null;
       let drainTimer: ReturnType<typeof setInterval> | null = null;

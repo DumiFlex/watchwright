@@ -3,7 +3,8 @@ import { createMcpHandler, isInitializeRequest, isLegacyRequest, type McpHttpHan
 import { NodeStreamableHTTPServerTransport, toNodeHandler, toWebRequest, type NodeIncomingMessageLike } from "@modelcontextprotocol/node";
 import type { FastifyReply } from "fastify";
 import { ActionError, defineAction, describeAction, invokeAction, type Action } from "../../actions/registry.js";
-import { ACTION_GATE, ACTIONS } from "../../core/keys.js";
+import type { CallUser } from "../../core/access.js";
+import { ACTION_GATE, ACTIONS, LOGIN } from "../../core/keys.js";
 import { definePlugin, type PluginContext } from "../../core/plugin.js";
 import { DEFAULT_PORT } from "../../config.js";
 import { VERSION } from "../../version.js";
@@ -31,6 +32,8 @@ function callerOf(req: Request | undefined, clientInfo: string | null): string {
 interface Session {
   transport: NodeStreamableHTTPServerTransport;
   seen: number;
+  /** With login on, the user who opened it: only they may use it. */
+  userId: string | null;
 }
 
 /** Sessions nobody used for this long are closed. */
@@ -90,24 +93,32 @@ export const agentsPlugin = definePlugin({
   routes(app, ctx) {
     const { services } = ctx;
     const actions = (): readonly Action[] => services.get(ACTIONS);
-    const door: ToolDoor = {
+    const login = services.has(LOGIN) ? services.get(LOGIN) : null;
+    // With login on, tool calls run as the person whose token (or cookie) the MCP request carries,
+    // so a viewer's agent can't call what the viewer can't.
+    const userOf = (req: Request | undefined): CallUser | null | undefined => {
+      if (!login?.on) return undefined;
+      if (!req) return null;
+      return login.identify({ cookie: req.headers.get("cookie") ?? undefined, authorization: req.headers.get("authorization") ?? undefined });
+    };
+    const doorFor = (user: CallUser | null | undefined): ToolDoor => ({
       async call(info, input, client, signal) {
         const action = actions().find((a) => a.name === info.name);
         if (!action) throw new ToolError("unknown_action", `There is no action ${info.name}.`);
         const gate = services.has(ACTION_GATE) ? services.get(ACTION_GATE) : null;
         try {
-          return await invokeAction(action, input, { client, signal, fromPage: false }, gate);
+          return await invokeAction(action, input, { client, signal, fromPage: false, ...(user === undefined ? {} : { user }) }, gate);
         } catch (err) {
           if (err instanceof ActionError) throw new ToolError(err.code, err.message, err.detail);
           throw err;
         }
       },
-    };
+    });
     const note = (client: string, tool: string) => seen(ctx.store).note(client, tool);
-    const build = (req: Request | undefined) => buildMcpServer({ version: VERSION, actions: actions().map(describeAction), door, caller: (info) => callerOf(req, info), onCall: note, ...(req ? { page: new URL("/", req.url).href } : {}) });
+    const build = (req: Request | undefined) => buildMcpServer({ version: VERSION, actions: actions().map(describeAction), door: doorFor(userOf(req)), caller: (info) => callerOf(req, info), onCall: note, ...(req ? { page: new URL("/", req.url).href } : {}) });
 
     // `watchwright mcp` (the stdio bridge) calls actions over HTTP and says here which tool it ran.
-    app.post<{ Body: { client?: unknown; tool?: unknown } }>("/agents/seen", (req, reply) => {
+    app.post<{ Body: { client?: unknown; tool?: unknown } }>("/agents/seen", { config: { access: "viewer" } }, (req, reply) => {
       const { client, tool } = req.body ?? {};
       if (typeof client !== "string" || typeof tool !== "string" || !client.trim() || !/^[a-z_]{1,60}$/.test(tool)) return reply.code(400).send({ error: { code: "bad_input", message: "Send { client, tool }." } });
       note(client.trim().slice(0, 60), tool);
@@ -128,13 +139,15 @@ export const agentsPlugin = definePlugin({
     app.route({
       method: ["GET", "POST", "DELETE"],
       url: "/mcp",
+      // Each tool call is checked against the caller's role on its own (invokeAction).
+      config: { access: "viewer" },
       handler: async (req, reply) => {
         // An IncomingMessage is one; only exactOptionalPropertyTypes tells them apart.
         const raw = req.raw as NodeIncomingMessageLike;
         const sid = req.headers["mcp-session-id"];
         if (typeof sid === "string") {
           const s = sessions.get(sid);
-          if (!s) return rpcError(reply, 404, "No such MCP session; initialize again.");
+          if (!s || (login?.on && s.userId !== (req.watchwrightUser?.id ?? null))) return rpcError(reply, 404, "No such MCP session; initialize again.");
           s.seen = Date.now();
           reply.hijack();
           return s.transport.handleRequest(req.raw, reply.raw, req.body);
@@ -148,7 +161,7 @@ export const agentsPlugin = definePlugin({
         const transport: NodeStreamableHTTPServerTransport = new NodeStreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (id) => {
-            sessions.set(id, { transport, seen: Date.now() });
+            sessions.set(id, { transport, seen: Date.now(), userId: req.watchwrightUser?.id ?? null });
           },
           onsessionclosed: (id) => {
             sessions.delete(id);

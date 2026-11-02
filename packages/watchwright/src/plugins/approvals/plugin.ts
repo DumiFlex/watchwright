@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type Database from "better-sqlite3";
 import { ActionError, defineAction, type Action, type ActionGate, type ObjectSchema } from "../../actions/registry.js";
+import { whoCalls, type CallUser } from "../../core/access.js";
 import { ACTION_GATE, ACTIONS } from "../../core/keys.js";
 import { definePlugin } from "../../core/plugin.js";
 import { serviceKey } from "../../core/services.js";
@@ -130,7 +131,7 @@ export class Approvals {
   }
 
   /** Files a request and tells the web page. */
-  async request(action: Action, input: Record<string, unknown>, client: string): Promise<Approval> {
+  async request(action: Action, input: Record<string, unknown>, client: string, userId: string | null = null): Promise<Approval> {
     // Asking again for the same thing while the first is still waiting gets the first one back.
     this.expire();
     const same = this.db.prepare("SELECT id FROM approvals WHERE status = 'waiting' AND action = ? AND input = ? AND client = ?").get(action.name, JSON.stringify(input), client) as { id: string } | undefined;
@@ -139,16 +140,23 @@ export class Approvals {
     const id = randomBytes(4).toString("hex");
     const t = this.now();
     this.db
-      .prepare("INSERT INTO approvals (id, action, input, client, summary, status, created_at, expires_at) VALUES (?, ?, ?, ?, ?, 'waiting', ?, ?)")
-      .run(id, action.name, JSON.stringify(input), client, summary, new Date(t).toISOString(), new Date(t + EXPIRE_MS).toISOString());
+      .prepare("INSERT INTO approvals (id, action, input, client, summary, status, created_at, expires_at, user_id) VALUES (?, ?, ?, ?, ?, 'waiting', ?, ?, ?)")
+      .run(id, action.name, JSON.stringify(input), client, summary, new Date(t).toISOString(), new Date(t + EXPIRE_MS).toISOString(), userId);
     this.events.append("approval.requested", { id, action: action.name, client, summary });
     return this.get(id)!;
   }
 
+  /** The user whose call asked for an approval (login on), else null. */
+  userOf(id: string): string | null {
+    return (this.db.prepare("SELECT user_id FROM approvals WHERE id = ?").get(id) as { user_id: string | null } | undefined)?.user_id ?? null;
+  }
+
   /** The person's answer from the web page: approving runs the action now, as they would. */
-  async answer(id: string, approve: boolean, by: string): Promise<Approval> {
+  async answer(id: string, approve: boolean, by: string, who?: CallUser | null): Promise<Approval> {
     const a = this.raw(id);
     if (!a) throw new ActionError("not_found", `No approval with id ${id}.`, 404);
+    // With login on, an approval is answered by the person whose call asked, or an admin.
+    if (who && who.role !== "admin" && this.userOf(id) !== who.id) throw new ActionError("not_allowed", "Only the person whose agent or script asked, or an admin, can answer this approval.", 403);
     if (a.status !== "waiting") throw new ActionError("conflict", `The approval is ${a.status} already.`, 409);
     const at = new Date(this.now()).toISOString();
     if (!approve) {
@@ -197,7 +205,7 @@ export class Approvals {
   /** The gate every destructive action call goes through. */
   readonly gate: ActionGate = async ({ action, input, call, confirmed }) => {
     if (call.fromPage || confirmed) return null;
-    const asked = await this.request(action, input, call.client);
+    const asked = await this.request(action, input, whoCalls(call.client, call.user), call.user?.id ?? null);
     const a = await this.wait(asked.id, this.holdMs, call.signal);
     if (a?.status === "approved") return { status: action.status ?? 200, data: a.result };
     if (a?.status === "refused") throw new ActionError("refused", `The person refused: ${a.summary}.`, 403, { approval: a });
@@ -234,7 +242,11 @@ const ID: ObjectSchema["properties"][string] = { type: "string", pattern: "^[0-9
 
 export const approvalsPlugin = definePlugin({
   name: "approvals",
-  migrations: [{ id: 1, name: "init", sql: SQL }],
+  migrations: [
+    { id: 1, name: "init", sql: SQL },
+    // The user whose call asked, when login is on (docs/plans/self-hosting.md, section 2.5).
+    { id: 2, name: "user", sql: "ALTER TABLE approvals ADD COLUMN user_id TEXT;" },
+  ],
   setup({ store, events, services }) {
     const approvals = new Approvals(store.db, events, () => services.get(ACTIONS));
     // A server that stopped can't run what was waiting; the callers are gone too.
@@ -277,9 +289,9 @@ export const approvalsPlugin = definePlugin({
         method: "POST",
         path: "/approvals/:id/answer",
         input: { type: "object", properties: { id: ID, approve: { type: "boolean" } }, required: ["id", "approve"] },
-        handler: ({ id, approve }, { fromPage, client }) => {
+        handler: ({ id, approve }, { fromPage, client, user }) => {
           if (!fromPage) throw new ActionError("not_allowed", "Only the person on the web page can answer an approval.", 403);
-          return approvals.answer(id, approve, client);
+          return approvals.answer(id, approve, whoCalls(client, user), user);
         },
       }),
     ];

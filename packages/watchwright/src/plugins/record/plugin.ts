@@ -237,6 +237,7 @@ export const recordPlugin = definePlugin({
       }),
       defineAction<{ id: string }>({
         name: "record.save-sign-in",
+        access: "admin",
         destructive: true,
         explain: ({ id }) => `Save the sign-in of recording ${id} for its site, replacing the one saved before`,
         title: "Save the recording's cookies and local storage as its site's sign-in, for runs that start signed in",

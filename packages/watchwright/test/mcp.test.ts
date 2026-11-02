@@ -9,6 +9,7 @@ import { BUILTIN_PLUGINS } from "../src/core/builtin.js";
 import { ACTIONS } from "../src/core/keys.js";
 import { definePlugin, migrationsOf } from "../src/core/plugin.js";
 import { APPROVALS, type Approval } from "../src/plugins/approvals/plugin.js";
+import { AUTH_STORE } from "../src/plugins/auth/plugin.js";
 import { agentName, packIdOf, toolsOf, ToolError } from "../src/plugins/agents/tools.js";
 import { buildServer } from "../src/server/app.js";
 import { openStore, type Store } from "../src/store/db.js";
@@ -85,6 +86,35 @@ const text = (r: CallToolResult, i = 0) => {
 };
 
 describe("MCP server", () => {
+  for (const mode of ["legacy", "auto"] as const) {
+    it(`runs tools as the token's owner when login is on (${mode} protocol)`, async () => {
+      const dir = mkdtempSync(path.join(tmpdir(), "ww-mcp-"));
+      const plugins = [...BUILTIN_PLUGINS, demo];
+      const store = openStore(dir, migrationsOf(plugins));
+      const port = await freePort();
+      const app = await buildServer({ store, port, plugins, login: true });
+      const o: (typeof open)[number] = { app, store, dir };
+      open.push(o);
+      await app.listen({ port, host: "127.0.0.1" });
+      const auth = app.watchwright.services.get(AUTH_STORE);
+      const viewer = await auth.add({ name: "val", password: "a long password", role: "viewer" });
+      const { token } = auth.addToken(viewer.id, "agent");
+      const url = new URL(`http://127.0.0.1:${port}/api/v1/mcp`);
+
+      const anonymous = new Client({ name: "claude-code", version: "1.0.0" }, { versionNegotiation: { mode } });
+      await expect(anonymous.connect(new StreamableHTTPClientTransport(url))).rejects.toThrow();
+
+      const client = new Client({ name: "claude-code", version: "1.0.0" }, { versionNegotiation: { mode } });
+      await client.connect(new StreamableHTTPClientTransport(url, { requestInit: { headers: { authorization: `Bearer ${token}` } } }));
+      o.client = client;
+      const read = (await client.callTool({ name: "double", arguments: { n: 2 } })) as CallToolResult;
+      expect(read.isError).toBeFalsy();
+      const change = (await client.callTool({ name: "call_action", arguments: { name: "runs.label", input: { id: "0000abcd", label: "x" } } })) as CallToolResult;
+      expect(change.isError).toBe(true);
+      expect(text(change)).toMatch(/not_allowed|needs the user role/);
+    });
+  }
+
   for (const mode of ["legacy", "auto"] as const) {
     it(`lists the tools and calls them (${mode} protocol)`, async () => {
       const { client } = await start({ mode });
