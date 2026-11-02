@@ -57,7 +57,7 @@ export function videoEncoder(ffmpeg: string): VideoEncoder | null {
 }
 
 /** The ffmpeg arguments for a run video of `width`×`height` (even numbers). Frames of another size are cropped or padded to it. */
-export function ffmpegArgs(file: string, width: number, height: number, encoder: VideoEncoder): string[] {
+export function ffmpegArgs(file: string, width: number, height: number, encoder: VideoEncoder, bitRate = BIT_RATE): string[] {
   // Crop a bigger frame and pad a smaller one, both centered (Playwright's ffmpeg has no scale).
   const fit = `crop=w=min(iw\\,${width}):h=min(ih\\,${height}),pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`;
   const speed = encoder === "libvpx-vp9" ? ["-cpu-used", "8", "-lag-in-frames", "0", "-row-mt", "1"] : ["-speed", "8"];
@@ -66,7 +66,7 @@ export function ffmpegArgs(file: string, width: number, height: number, encoder:
     "-f", "matroska", "-fpsprobesize", "0", "-probesize", "32", "-analyzeduration", "0", "-i", "pipe:0",
     // Each frame keeps its own time: a still page is one frame however long it stays.
     "-y", "-an", "-fps_mode", "vfr",
-    "-c:v", encoder, "-qmin", "0", "-qmax", "50", "-crf", "10", "-b:v", BIT_RATE, "-deadline", "realtime", ...speed, "-threads", "1",
+    "-c:v", encoder, "-qmin", "0", "-qmax", "50", "-crf", "10", "-b:v", bitRate, "-deadline", "realtime", ...speed, "-threads", "1",
     "-vf", fit,
     file,
   ];
@@ -137,6 +137,8 @@ export interface RunVideoOptions {
   /** Said once, when the video can't be written; the run goes on without it. */
   onError: (message: string) => void;
   fps?: number;
+  /** ffmpeg's target bit rate (default 600k). */
+  bitRate?: string;
 }
 
 export class RunVideo {
@@ -189,7 +191,7 @@ export class RunVideo {
     try {
       const encoder = videoEncoder(this.o.ffmpeg);
       if (!encoder) return this.fail(`${this.o.ffmpeg} has no VP8 or VP9 encoder`);
-      const proc = spawn(this.o.ffmpeg, ffmpegArgs(this.o.file, even(width), even(height), encoder), { stdio: "pipe", windowsHide: true });
+      const proc = spawn(this.o.ffmpeg, ffmpegArgs(this.o.file, even(width), even(height), encoder, this.o.bitRate), { stdio: "pipe", windowsHide: true });
       proc.stderr.on("data", (d: Buffer) => (this.stderr = (this.stderr + d.toString()).slice(-2000)));
       proc.stdin.on("error", () => undefined);
       this.exited = new Promise((resolve) => {
