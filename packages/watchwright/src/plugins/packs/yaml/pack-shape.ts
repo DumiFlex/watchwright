@@ -69,6 +69,7 @@ const RUN = obj(
     video: bool("Record a video per attempt (default true)."),
     showActions: bool("Draw click points and action titles into the live view (default true)."),
     chapters: bool("Show each step's title as a small caption in the bottom-left corner of the live view and video (default false)."),
+    keepTabs: bool("Keep tabs and popups a test opened for the tests after it (default false: they close between tests)."),
     screencastSize: size,
     frameQuality: int("JPEG quality of live frames (default 70).", { min: 1, max: 100 }),
   },

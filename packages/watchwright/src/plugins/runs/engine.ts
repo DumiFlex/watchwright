@@ -7,7 +7,7 @@ import { AttemptAborted, RunControl, type BrokenDecision } from "../../jobs/cont
 import type { AttemptEnv, JobKind, KindPlan, PlanItem } from "../../jobs/kind.js";
 import type { JobKinds } from "../../jobs/kinds.js";
 import type { AttemptRuntime } from "../../jobs/runtime.js";
-import { AttemptRecorder, safeRelative, slug, type ArtifactInfo } from "../../jobs/recorder.js";
+import { AttemptRecorder, MAX_LOG_LINES, safeRelative, slug, type ArtifactInfo } from "../../jobs/recorder.js";
 import { unzip, zip } from "../../jobs/zip.js";
 import { BrowserSession } from "../../session/session.js";
 import type { FrameHub } from "../live/hub.js";
@@ -1002,6 +1002,11 @@ export class Engine {
     const traceMode = ctx.options.trace ?? o.trace ?? "problems";
     const video = ctx.options.video ?? o.video ?? true;
     if (top) {
+      // Tabs and popups the last test opened would keep their screencasts going and catch the live view.
+      if (!o.keepTabs) {
+        const closed = await session.closeExtraPages();
+        if (closed > 0) recorder.addLog("info", `Closed ${closed === 1 ? "a tab" : `${closed} tabs`} the last test left open.`);
+      }
       await session.restartCapture(video ? dir : null);
       if (traceMode !== "never") await session.startTraceChunk();
     }
@@ -1127,6 +1132,7 @@ export class Engine {
       this.o.repo.updateRun(row.id, { state: JSON.stringify(run.state) });
     }
 
+    if (recorder.droppedLog > 0) recorder.notes.push(`${recorder.droppedLog} log line${recorder.droppedLog === 1 ? "" : "s"} past the limit of ${MAX_LOG_LINES} weren't kept.`);
     this.o.repo.finishAttempt(
       id,
       {

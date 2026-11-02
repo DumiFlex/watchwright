@@ -1,4 +1,4 @@
-import { createReadStream, existsSync, mkdtempSync, statSync } from "node:fs";
+import { createReadStream, existsSync, mkdtempSync, realpathSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -515,6 +515,8 @@ export const runsPlugin = definePlugin({
       if (!rel.startsWith("runs/")) return reply.code(404).send(errorBody("not_found", "No such file."));
       const abs = path.resolve(dataDir, ...rel.split("/"));
       if (!abs.startsWith(root + path.sep) || !existsSync(abs) || !statSync(abs).isFile()) return reply.code(404).send(errorBody("not_found", "No such file."));
+      // A link inside the runs folder must not lead out of it.
+      if (!realpathSync(abs).startsWith(realpathSync(root) + path.sep)) return reply.code(404).send(errorBody("not_found", "No such file."));
       const size = statSync(abs).size;
       reply.type(contentTypeOf(abs)).header("cache-control", "no-cache").header("accept-ranges", "bytes");
       const range = byteRange(req.headers.range, size);

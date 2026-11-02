@@ -196,6 +196,8 @@ export interface PackRunOptions {
   showActions?: boolean;
   /** Show each `h.step` title as a small corner caption in the live view and video (default false). */
   chapters?: boolean;
+  /** Keep tabs and popups a test opened for the tests after it (default false: they close between tests). */
+  keepTabs?: boolean;
   /** Live view and video size (default: the viewport). */
   screencastSize?: { width: number; height: number };
   /** JPEG quality of live frames, 1 to 100 (default 70). */
