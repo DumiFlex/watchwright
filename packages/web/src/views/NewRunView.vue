@@ -237,6 +237,17 @@ onMounted(async () => {
       return;
     }
   }
+  // #/new?pack=…&preset=Nightly (a dashboard's link): the form filled from that preset.
+  const presetName = props.query.preset;
+  if (presetName) {
+    await loadPresets(wanted.id);
+    const p = presets.value.find((x) => x.name === presetName);
+    if (p) {
+      pickPreset(p.id);
+      replaceRoute({ name: "new", query: { pack: wanted.id } });
+      return;
+    }
+  }
   replaceRoute({ name: "new", query: { pack: wanted.id } });
   if (fromLatest) await copyLatest(wanted);
 });

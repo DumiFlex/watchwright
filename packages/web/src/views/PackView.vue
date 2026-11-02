@@ -21,6 +21,7 @@ import FileLink from "../components/FileLink.vue";
 import HistoryStrip from "../components/HistoryStrip.vue";
 import MenuButton from "../components/MenuButton.vue";
 import ModalDialog from "../components/ModalDialog.vue";
+import PackDashboard from "../components/PackDashboard.vue";
 import PackFolderDialog from "../components/PackFolderDialog.vue";
 import PageSkeleton from "../components/PageSkeleton.vue";
 import PathLine from "../components/PathLine.vue";
@@ -37,6 +38,8 @@ const RECENT = 5;
 
 const pack = ref<Pack | null>(null);
 const runs = ref<RunSummary[]>([]);
+/** Bumped on every load, so the dashboard reads its numbers again too. */
+const dashStamp = ref(0);
 const history = ref<Record<string, HistoryEntry[]>>({});
 const hasHistory = computed(() => Object.keys(history.value).length > 0);
 // Each test's history in one place for the template: the ticks, pass rate, typical time, flaky or not.
@@ -217,6 +220,7 @@ async function load() {
   error.value = null;
   pack.value = p.data;
   if (r.ok) runs.value = r.data;
+  dashStamp.value++;
   if (h.ok) history.value = h.data;
   if (!p.data.missing) void loadReadme();
   else readme.value = null;
@@ -297,6 +301,8 @@ onBeforeUnmount(() => live?.close());
         </ul>
         <p class="muted small">Fix the files and save: the server builds the pack again by itself.</p>
       </section>
+
+      <PackDashboard v-if="runs.length" :pack-id="pack.id" :latest-runs="runs.map((r) => r.id)" :stamp="dashStamp" />
 
       <section class="card" aria-labelledby="pk-runs">
         <div class="runs-head">

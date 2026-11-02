@@ -2,8 +2,10 @@
 
 A pack's dashboard shows how its runs went over time, at a glance: outcomes and run times for a plain test pack, and for a pack whose runs are judged by numbers, scores or setups, those numbers, scores and setups. The pack says what its dashboard shows with a `dashboard` block; without one it shows outcomes, run times and the latest failures.
 
+A pack's page shows its dashboard at the top, once the pack has run. Pick a value of each filter, or another range (the last 10, 50 or 200 runs, the last 7 or 30 days), and every tile reads only those runs. Agents get the same numbers with the `pack_dashboard` tool.
+
 ::: info Planned
-The server already answers every tile's numbers (`GET /packs/:id/dashboard`, and the `pack_dashboard` tool for agents). The pack page's dashboard, **Customize** on the page, and the tiles on the public status page and in shares come next.
+**Customize** on the page (add, move and resize tiles without editing the pack), and the tiles on the public status page and in shares, come next.
 :::
 
 Everything a tile shows is something any pack can record: `h.metric` and collectors' metrics, `h.text`, `h.file`, screenshots, flags, review scores, a run's params and the facts it saved with `info`, and tests' sections and tags.
@@ -97,7 +99,7 @@ A tile is its kind with a name (`metric: Load ms`) or `true` (`matrix: true`), p
 | Tile | Shows |
 |---|---|
 | `note: <Markdown>` | Your words: what the pack checks, who to ask. |
-| `links: [...]` | Buttons: `{ preset: Nightly }` starts a run with a preset, `{ compare: last }` opens Compare for the last two runs, `{ export: true }` exports, `{ url: https://…, label: App }` opens a page. |
+| `links: [...]` | Buttons: `{ preset: Nightly }` opens New run filled from a preset, `{ compare: last }` opens Compare for the last two runs, `{ export: true }` exports, `{ url: https://…, label: App }` opens a page. |
 
 ### Fields every tile has
 

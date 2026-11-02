@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest";
 
 // Icons come from src/icons.ts (Lucide), not hand-drawn <svg> in templates or arrows and
 // symbols typed as text. BrandMark is the logo, TextArea's corner grip is a drawing, and
-// SparkLine and BarChart draw data; none of them is an icon.
+// SparkLine, BarChart and the scatter tile draw data; none of them is an icon.
 const src = new URL("../src/", import.meta.url);
-const drawn = new Set(["components/BrandMark.vue", "components/TextArea.vue", "components/SparkLine.vue", "components/BarChart.vue"]);
+const drawn = new Set(["components/BrandMark.vue", "components/TextArea.vue", "components/SparkLine.vue", "components/BarChart.vue", "components/tiles/TileScatter.vue"]);
 const all = (await readdir(src, { recursive: true })).map((f) => f.replaceAll("\\", "/"));
 const vue = all.filter((f) => f.endsWith(".vue"));
 const code = all.filter((f) => /\.(vue|ts)$/.test(f) && f !== "icons.ts");
