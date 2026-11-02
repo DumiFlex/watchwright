@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Settings > Single sign-on (admins, while login is on): sign in through an OpenID Connect provider
+// Admin > Single sign-on (admins, while login is on): sign in through an OpenID Connect provider
 // (VoidAuth, Authentik, Authelia, Pocket ID, Keycloak…) or through a header a reverse proxy sets
 // after its own sign-in, with roles from the person's groups (docs/plans/self-hosting.md, 2.6).
 import { computed, onMounted, ref } from "vue";

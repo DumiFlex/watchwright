@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Settings > Sharing: every share link that still works, to take back; and, for admins, the
+// Admin > Sharing (users see their links on Settings): every share link that still works, to take back; and, for admins, the
 // public dashboard at #/status, which shows the latest runs of the packs they pick to anyone
 // who can reach the server (docs/plans/self-hosting.md, section 4).
 import { computed, onMounted, ref } from "vue";

@@ -19,9 +19,9 @@ export interface AttemptRuntime {
   load(key: string): unknown;
   /** Saves a fact about the run. */
   info(key: string, value: string | number | boolean): void;
-  /** A secret's value by name (Settings > Secrets), or undefined. */
+  /** A secret's value by name (Admin > Secrets), or undefined. */
   secret(name: string): string | undefined;
-  /** Saves the browser's cookies and local storage as the site's sign-in (Settings > Sign-ins); returns the site key. */
+  /** Saves the browser's cookies and local storage as the site's sign-in (Admin > Sign-ins); returns the site key. */
   saveSignIn(): Promise<string>;
   onStep(title: string | null): void;
   onFlag(flag: { name: string; kind: FlagKind; detail: string | null }): void;

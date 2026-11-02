@@ -83,7 +83,17 @@ While a run goes, the browser tab's title says how it's going (`Running 4/12`, `
 
 Watchwright can also send a desktop notification when a run finishes, pauses on a broken test (with the minutes left before it skips the test by itself) or fails to start, while its tab is in the background; clicking one opens the run. Switch them on under **Notifications** in **Settings**, or answer the offer that shows the first time you start a run. The choice is kept by each browser. While the tab is in front, the same news shows as a short message in the corner, except on that run's own page.
 
-File names of your tests, build errors and the line a test broke on are links that open in your editor at that line. Pick the editor (VS Code, Cursor, Windsurf, IntelliJ IDEA, WebStorm, or none) on the **Settings** page (the gear at the top), which also has the look and mode, notifications, what a new run starts from and whether runs Watchwright's stop interrupted resume when it starts again, **Storage** (how full the drive with the data folder is, what runs take, the largest runs, the free space below which runs warn and then stop recording videos, and **Clean up old runs**: keep runs for some days, or the newest few of each pack, with a sweep once a day and **Clean up now**; both are off until you set them, and named runs are always kept), the list of recent folders, and **Stop Watchwright**; a list of its sections down the side (above them on a narrow screen) jumps to each. That button stops the server, as Ctrl+C in its terminal does. Runs going at the time can be resumed after it starts again.
+File names of your tests, build errors and the line a test broke on are links that open in your editor at that line. Pick the editor (VS Code, Cursor, Windsurf, IntelliJ IDEA, WebStorm, or none) on the **Settings** page (the gear at the top).
+
+## Settings, Admin and your account
+
+Three pages hold Watchwright's settings. Each has a list of its sections down the side (above them on a narrow screen) that jumps to each.
+
+- **Settings** (the gear) is yours: the look and mode and notifications, kept by this browser; the editor file links open in and what a new run starts from, kept by the server for you (with login off, for the machine); and connecting your agents.
+- **Admin** (the shield next to the gear, for admins) is the server's, one value for everyone: [users](./safety#login) and [single sign-on](./single-sign-on) with login on, and the **Defaults** for people who haven't picked their own editor or New run; secrets, saved sign-ins, [runners](./self-hosting#runners), whether runs Watchwright's stop interrupted resume when it starts again, [sharing](./sharing), [alerts](./alerts); **Storage** (how full the drive with the data folder is, what runs take, the largest runs, the free space below which runs warn and then stop recording videos, and **Clean up old runs**: keep runs for some days, or the newest few of each pack, with a sweep once a day and **Clean up now**; both are off until you set them, and named runs are always kept); the list of recent folders; and **Server**: start at sign-in, [updates](./updating) and **Stop Watchwright**, which stops the server as Ctrl+C in its terminal does. Runs going at the time can be resumed after it starts again.
+- **Your account** (the user menu, with login on): your password and your API tokens.
+
+With login on, people who aren't admins see the server sections they may use (secret names, saved sign-ins, runners, their share links, storage and recent folders) on their Settings page, under **On this server**.
 
 ## Options
 
