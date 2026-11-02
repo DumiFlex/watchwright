@@ -14,7 +14,8 @@ import { testingPlugin } from "../plugins/testing/plugin.js";
 import { schedulesPlugin } from "../plugins/schedules/plugin.js";
 import { alertsPlugin } from "../plugins/alerts/plugin.js";
 import { authPlugin } from "../plugins/auth/plugin.js";
+import { sharesPlugin } from "../plugins/shares/plugin.js";
 import { corePlugin } from "./core-plugin.js";
 
 /** The plugins every server loads, in order. A plugin can use the services of the ones before it. */
-export const BUILTIN_PLUGINS = [corePlugin, settingsPlugin, authPlugin, secretsPlugin, signinsPlugin, approvalsPlugin, livePlugin, foldersPlugin, packsPlugin, editorPlugin, runsPlugin, testingPlugin, schedulesPlugin, alertsPlugin, recordPlugin, reviewsPlugin, agentsPlugin];
+export const BUILTIN_PLUGINS = [corePlugin, settingsPlugin, authPlugin, secretsPlugin, signinsPlugin, approvalsPlugin, livePlugin, foldersPlugin, packsPlugin, editorPlugin, runsPlugin, testingPlugin, schedulesPlugin, alertsPlugin, recordPlugin, reviewsPlugin, sharesPlugin, agentsPlugin];

@@ -22,6 +22,10 @@ describe("router", () => {
     expect(parseRoute("#/settings?section=Bad!")).toEqual({ name: "settings" });
     expect(parseRoute("#/schedules")).toEqual({ name: "schedules" });
     expect(parseRoute("#/compare?runs=0a1b2c3d,1a1b2c3d")).toEqual({ name: "compare", query: { runs: "0a1b2c3d,1a1b2c3d" } });
+    expect(parseRoute("#/s/AbCdEfGhIjKlMnOpQr_-12")).toEqual({ name: "shared", token: "AbCdEfGhIjKlMnOpQr_-12" });
+    expect(parseRoute("#/s/short").name).toBe("runs");
+    expect(parseRoute("#/status")).toEqual({ name: "status" });
+    expect(parseRoute("#/status/0a1b2c3d")).toEqual({ name: "status-run", id: "0a1b2c3d" });
   });
 
   it("shows the runs list for unknown or malformed addresses", () => {
@@ -50,6 +54,9 @@ describe("router", () => {
       { name: "settings" },
       { name: "settings", section: "storage" },
       { name: "schedules" },
+      { name: "shared", token: "AbCdEfGhIjKlMnOpQr_-12" },
+      { name: "status" },
+      { name: "status-run", id: "0a1b2c3d" },
     ];
     for (const r of routes) expect(parseRoute(href(r))).toEqual(r);
     expect(href({ name: "runs", query: { pack: "" } })).toBe("#/");

@@ -13,7 +13,7 @@ import ToastHost from "./components/ToastHost.vue";
 import { useApprovals } from "./approvals";
 import { offerNotify, startNotifier } from "./notify";
 import { toast } from "./toasts";
-import { useRoute } from "./router";
+import { PUBLIC_ROUTES, useRoute } from "./router";
 import { DEFAULT_PAGES, hasPage, navFrom, pageIcon } from "./pages";
 import { vTip } from "./tooltip";
 import { useShortcut } from "./keys";
@@ -28,7 +28,9 @@ import RunsView from "./views/RunsView.vue";
 import RunView from "./views/RunView.vue";
 import SettingsView from "./views/SettingsView.vue";
 import SchedulesView from "./views/SchedulesView.vue";
+import SharedRunView from "./views/SharedRunView.vue";
 import SignInView from "./views/SignInView.vue";
+import StatusView from "./views/StatusView.vue";
 import { can, loadSession, session, signOut } from "./session";
 import { UserRound } from "./icons";
 // The editor (CodeMirror, the YAML checker) loads only when a pack is opened for editing.
@@ -53,7 +55,10 @@ const down = ref(false);
 // doesn't show, and its address shows the runs list.
 const pages = computed(() => health.value?.pages ?? DEFAULT_PAGES);
 const nav = computed(() => navFrom(pages.value, route.value));
-const shown = computed(() => (route.value.name !== "setup" && route.value.name !== "invite" && route.value.name !== "signin" && hasPage(pages.value, route.value) ? route.value : ({ name: "runs", query: {} } as const)));
+const shown = computed(() => {
+  const r = route.value;
+  return r.name !== "setup" && r.name !== "invite" && r.name !== "signin" && r.name !== "shared" && r.name !== "status" && r.name !== "status-run" && hasPage(pages.value, r) ? r : ({ name: "runs", query: {} } as const);
+});
 
 // Mod+K anywhere opens the command palette: go to a page or switch the look and mode.
 const palette = ref(false);
@@ -96,6 +101,8 @@ async function loadHealth() {
 onMounted(async () => {
   await Promise.all([loadHealth(), loadSession()]);
 });
+// Share links and the public dashboard open for anyone, signed in or not, with no menu.
+const isPublic = computed(() => PUBLIC_ROUTES.includes(route.value.name));
 // With login on, nothing but the sign-in page shows until someone is signed in.
 const locked = computed(() => session.loaded && session.on && session.user === null);
 // After signing in, the full health (pages, data folder) and everything else loads.
@@ -113,7 +120,22 @@ const userItems = computed(() => [
 </script>
 
 <template>
-  <template v-if="locked">
+  <template v-if="isPublic">
+    <header class="top">
+      <a class="brand" href="#/" aria-label="Watchwright">
+        <BrandMark :size="28" />
+        <span class="wordmark">Watchwright</span>
+      </a>
+      <div class="end">
+        <ThemePicker v-model="theme" />
+      </div>
+    </header>
+    <SharedRunView v-if="route.name === 'shared'" :api="`/api/v1/shared/${route.token}`" />
+    <SharedRunView v-else-if="route.name === 'status-run'" :api="`/api/v1/public/runs/${route.id}`" back="#/status" />
+    <StatusView v-else />
+    <ToastHost />
+  </template>
+  <template v-else-if="locked">
     <SignInView :setup-code="route.name === 'setup' ? route.code : null" :invite-code="route.name === 'invite' ? route.code : null" :error="route.name === 'signin' ? route.error : null" />
     <ToastHost />
   </template>

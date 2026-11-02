@@ -21,7 +21,15 @@ export type Route =
   /** An invitation link: makes an account with the role an admin chose. */
   | { name: "invite"; code: string }
   /** The sign-in page, with what went wrong on the way back from single sign-on. */
-  | { name: "signin"; error: string };
+  | { name: "signin"; error: string }
+  /** A share link: one run, read-only, for anyone who has the link (no sign-in). */
+  | { name: "shared"; token: string }
+  /** The public dashboard, and one of its runs. */
+  | { name: "status" }
+  | { name: "status-run"; id: string };
+
+/** Routes anyone may open, signed in or not: they show only what was shared. */
+export const PUBLIC_ROUTES: readonly Route["name"][] = ["shared", "status", "status-run"];
 
 const ID8 = "([0-9a-f]{8})";
 
@@ -47,6 +55,9 @@ export function parseRoute(hash: string): Route {
   if (path === "/invite") return { name: "invite", code: query.code ?? "" };
   if (path === "/signin") return { name: "signin", error: query.error ?? "" };
   if (path === "/compare") return { name: "compare", query };
+  if (path === "/status") return { name: "status" };
+  if ((m = /^\/s\/([A-Za-z0-9_-]{22})$/.exec(path))) return { name: "shared", token: m[1]! };
+  if ((m = new RegExp(`^/status/${ID8}$`).exec(path))) return { name: "status-run", id: m[1]! };
   if ((m = new RegExp(`^/runs/${ID8}$`).exec(path))) return { name: "run", id: m[1]! };
   if ((m = new RegExp(`^/runs/${ID8}/attempts/([0-9a-f]{12})$`).exec(path))) {
     const line = Number(query.line);
@@ -101,6 +112,12 @@ export function href(route: Route): string {
       return `#/invite${qs({ code: route.code })}`;
     case "signin":
       return `#/signin${qs({ error: route.error })}`;
+    case "shared":
+      return `#/s/${route.token}`;
+    case "status":
+      return "#/status";
+    case "status-run":
+      return `#/status/${route.id}`;
   }
 }
 

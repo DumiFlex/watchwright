@@ -70,6 +70,7 @@ describe("server", () => {
           { name: "alerts", schemaVersion: 1 },
           { name: "record", schemaVersion: 0 },
           { name: "reviews", schemaVersion: 1 },
+          { name: "shares", schemaVersion: 1 },
           { name: "agents", schemaVersion: 1 },
         ],
         pages: [
