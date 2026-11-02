@@ -379,6 +379,25 @@ test("S3", async () => {});`,
     expect(process.listeners("unhandledRejection").length).toBe(before);
   });
 
+  it("closes tabs a test left open before the next test, unless the pack keeps them", async () => {
+    const tests = `import { test } from "watchwright";
+test("K1", async ({ h }) => { await h.goto("/"); const tab = await h.context.newPage(); await tab.goto(h.baseURL ?? "/"); });
+test("K2", async ({ h }) => { h.note("pages " + h.context.pages().length); });`;
+    for (const [extra, want] of [["", "pages 1"], ["run: { keepTabs: true },", "pages 2"]] as const) {
+      const packDir = tempDir("ww-pack-");
+      writeFiles(packDir, { "pack.ts": packFiles(extra), "tests/k.ts": tests });
+      const h = await startHarness(tempDir("ww-data-"));
+      harnesses.push(h);
+      const packId = (await h.api<{ id: string }>("POST", "/packs", { path: packDir })).data.id;
+      const runId = await startRun(h, { packId, video: false });
+      const detail = await finished(h, runId);
+      expect(byTest(detail)).toEqual({ "K1#1": "passed", "K2#1": "passed" });
+      const k2 = (await h.api<ResultDocument>("GET", `/runs/${runId}/attempts/${detail.attempts[1]!.id}`)).data;
+      expect(k2.notes).toEqual([want]);
+      if (!extra) expect(k2.log.map((l) => l.message)).toContain("Closed a tab the last test left open.");
+    }
+  });
+
   it("stops now, filing the attempt in progress as stopped", async () => {
     const { h, packId } = await setup({
       "tests/long.ts": `import { test } from "watchwright"; test("L1", async ({ h }) => { await h.goto("/"); await h.page.waitForTimeout(20000); }); test("L2", async () => {});`,

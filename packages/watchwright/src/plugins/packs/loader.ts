@@ -197,11 +197,19 @@ export async function loadPack(input: string, cacheDir: string): Promise<LoadedP
     for (const t of parsed.value) tests.push({ id: t.id, meta: t.meta as TestMeta, body: yamlBody(t.steps, abs), file: f, yaml: { line: t.line, steps: t.steps } });
   }
   if (problems.length > 0) throw new PackLoadError("Some YAML tests aren't valid.", problems);
-  const seen = new Set<string>();
+  // Results are filed in a folder per test id, so ids must make folders on every system: on
+  // Windows "a1" and "A1" are one folder, and some names can't be folders at all.
+  const seen = new Map<string, string>();
+  const idProblems: string[] = [];
   for (const t of tests) {
-    if (seen.has(t.id)) throw new PackLoadError(`Two tests have the id "${t.id}".`);
-    seen.add(t.id);
+    const other = seen.get(t.id.toLowerCase());
+    if (other === t.id) throw new PackLoadError(`Two tests have the id "${t.id}".`);
+    if (other !== undefined) idProblems.push(`"${other}" and "${t.id}" differ only in case: on Windows their results would go to one folder. Rename one.`);
+    seen.set(t.id.toLowerCase(), t.id);
+    const reserved = windowsUnsafe(t.id);
+    if (reserved) idProblems.push(`"${t.id}" ${reserved}`);
   }
+  if (idProblems.length > 0) throw new PackLoadError("Some test ids can't be used as folder names.", idProblems);
   pruneBuilds(cacheDir, buildFile);
   const stamped = [...inputs, ...(yamlPack ? [packFile] : []), ...testFiles.filter(isYaml)];
   return {
@@ -240,6 +248,13 @@ function pruneBuilds(cacheDir: string, keep: string): void {
     .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
   // Keep a couple of older builds: a run that's still importing one shouldn't lose it.
   for (const f of builds.slice(2)) rmSync(f, { force: true });
+}
+
+/** Why `id` can't be a folder on Windows (a reserved device name, a trailing dot), or null. */
+export function windowsUnsafe(id: string): string | null {
+  if (/^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\.|$)/i.test(id)) return "is a name Windows keeps for a device, so it can't be a folder there. Rename it.";
+  if (id.endsWith(".")) return "ends with a dot, which Windows drops from folder names. Rename it.";
+  return null;
 }
 
 const SITE_KEY = /^[a-z0-9][a-z0-9._-]{0,63}$/i;

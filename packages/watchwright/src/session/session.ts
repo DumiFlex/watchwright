@@ -134,6 +134,13 @@ export class BrowserSession {
     return page;
   }
 
+  /** Closes every page but the main one (tabs and popups the last test left open). Returns how many closed. */
+  async closeExtraPages(): Promise<number> {
+    const extra = [...this.pages.values()].slice(1);
+    await Promise.all(extra.map((e) => e.page.close().catch(() => undefined)));
+    return extra.length;
+  }
+
   pageId(page: Page): string | null {
     return this.pages.get(page)?.id ?? null;
   }

@@ -82,4 +82,20 @@ describe("pack loader", () => {
     writeFiles(dir, { "pack.ts": PACK, "tests/a.ts": `import { test } from "watchwright"; test("A1", async () => {}); test("A1", async () => {});` });
     await expect(loadPack(dir, tempDir())).rejects.toThrow(/Two tests have the id "A1"/);
   });
+
+  it("refuses test ids that can't be folders on Windows: a case-only clash, a device name, a trailing dot", async () => {
+    const dir = tempDir();
+    writeFiles(dir, {
+      "pack.ts": PACK,
+      "tests/a.ts": `import { test } from "watchwright"; test("login", async () => {}); test("Login", async () => {}); test("con", async () => {}); test("LPT1.x", async () => {}); test("v1.", async () => {}); test("console", async () => {});`,
+    });
+    const err = (await loadPack(dir, tempDir()).catch((e: unknown) => e)) as PackLoadError;
+    expect(err).toBeInstanceOf(PackLoadError);
+    expect(err.problems).toEqual([
+      `"login" and "Login" differ only in case: on Windows their results would go to one folder. Rename one.`,
+      `"con" is a name Windows keeps for a device, so it can't be a folder there. Rename it.`,
+      `"LPT1.x" is a name Windows keeps for a device, so it can't be a folder there. Rename it.`,
+      `"v1." ends with a dot, which Windows drops from folder names. Rename it.`,
+    ]);
+  });
 });

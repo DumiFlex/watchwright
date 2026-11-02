@@ -68,8 +68,8 @@ export async function serveCommand(argv: string[], after?: AfterStart): Promise<
     process.exit(0);
   };
   const app = await buildServer({ store, port, webRoot, plugins, stop: () => void shutdown() });
-  process.once("SIGINT", () => void shutdown());
-  process.once("SIGTERM", () => void shutdown());
+  // SIGHUP: the console window closed (Windows gives a few seconds), SIGBREAK: Ctrl+Break on Windows.
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK"] as const) process.once(signal, () => void shutdown());
 
   // Playwright can throw from its own message loop when a browser goes away mid-call (a run
   // stopped at the wrong moment). That must not take the server and every other run down with it.

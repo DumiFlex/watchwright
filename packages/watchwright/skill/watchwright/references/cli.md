@@ -23,7 +23,7 @@ watchwright <plugin> <verb> [args] [--options]
 
 ### serve
 
-Starts the server: the web page, the [HTTP API](https://dumiflex.github.io/watchwright/reference/http-api) and the store, on `http://127.0.0.1:7420/`. It stays up between runs; stop it with Ctrl+C or **Settings > Server > Stop Watchwright**. Pack folders named after `serve` are added (or reloaded). When a Watchwright already runs on the port, `serve` adds the packs there and opens its page instead of starting a second one.
+Starts the server: the web page, the [HTTP API](https://dumiflex.github.io/watchwright/reference/http-api) and the store, on `http://127.0.0.1:7420/`. It stays up between runs; stop it with Ctrl+C or **Settings > Server > Stop Watchwright**. Closing its console window (or Ctrl+Break on Windows) stops it the same way: runs going then are marked interrupted, ready to resume. Pack folders named after `serve` are added (or reloaded). When a Watchwright already runs on the port, `serve` adds the packs there and opens its page instead of starting a second one.
 
 | Option | |
 |---|---|
@@ -121,7 +121,7 @@ Actions that delete data or stop the server (`runs delete`, `packs remove`, `pac
 | 0 | Done. For `run --wait`, `wait` and `results`: the run finished and no attempt failed or broke. |
 | 1 | The action failed; the message (or with `--json`, the error on stderr) says why. |
 | 2 | Bad usage: an unknown command or option, or a missing argument. |
-| 3 | No Watchwright answers at the address. |
+| 3 | No Watchwright answers at the address, or it took the request and didn't answer within 60 seconds (waits get their own `--timeout` on top). |
 | 4 | The run ended with a failed, broken or stopped attempt, or was stopped. |
 | 5 | The run is paused: on a broken attempt (retry or skip it with `watchwright runs control <run> --do retry`), or by a person. |
 | 6 | The wait ran out while the run still goes. Wait again. |
