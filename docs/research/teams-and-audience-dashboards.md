@@ -167,3 +167,7 @@ Items 1 and 3 close gaps in what already shipped, so they fit FIX FIRST. Items 2
 1. Make code admin-only (users keep YAML tests, data and runs), with users proposing code changes for an admin to review?
 2. Make the "only admins publish tiles" fix now?
 3. Pack access as above (per pack: everyone, or chosen people and groups) before named dashboards?
+
+## Decided
+
+- 2 November 2026: Dumi chose **code is admin-only, with users proposing code changes for admins to review**. The code fix is built first; proposals follow. Checking the code for it also found that a YAML test's `upload` step takes any path on the server and its `goto` (and a recording's address) can open `file:` addresses; the code fix closes both, since without that a YAML test could still read server files.
