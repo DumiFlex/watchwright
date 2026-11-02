@@ -2,7 +2,7 @@
 // Attempts and tests to look at: the latest failures with their message, the lowest scores (or
 // highest metric), the tests that flip, and how many attempts still wait for a score. Each line
 // opens the attempt.
-import { href } from "../../router";
+import { useTileLinks } from "../../tilelinks";
 import { ago, when } from "../../format";
 import { formatValue, runName, type TileData } from "../../dashboard";
 import { CircleCheck, ListChecks } from "../../icons";
@@ -17,7 +17,8 @@ defineProps<
   | { kind: "unreviewed"; data: TileData["unreviewed"] }
 >();
 
-const attemptHref = (a: { runId: string; attemptId: string }) => href({ name: "attempt", runId: a.runId, attemptId: a.attemptId });
+const links = useTileLinks();
+const attemptHref = (a: { runId: string; attemptId: string }) => links.attempt(a.runId, a.attemptId) ?? undefined;
 </script>
 
 <template>
@@ -26,12 +27,12 @@ const attemptHref = (a: { runId: string; attemptId: string }) => href({ name: "a
       <p v-if="!data.items.length" class="none small"><CircleCheck :size="15" /> Nothing failed or was flagged in range.</p>
       <ul v-else>
         <li v-for="a in data.items" :key="a.attemptId">
-          <a class="line" :href="attemptHref(a)">
+          <component :is="attemptHref(a) ? 'a' : 'div'" class="line" :href="attemptHref(a)">
             <StatusChip :status="a.status" />
             <span class="mono small">{{ a.testId }}</span>
             <span class="ttl small">{{ a.title !== a.testId ? a.title : "" }}</span>
             <span v-tip="when(a.at)" class="muted small when">{{ runName(a) }} · {{ ago(a.at) }}</span>
-          </a>
+          </component>
           <p v-if="a.message" class="msg small">{{ a.message }}</p>
           <p v-for="f in a.flags" :key="f.name" class="msg small"><span class="flag" :class="`k-${f.kind}`">{{ f.name }}</span> {{ f.detail ?? "" }}</p>
         </li>
@@ -42,12 +43,12 @@ const attemptHref = (a: { runId: string; attemptId: string }) => href({ name: "a
       <p v-if="!data.items.length" class="none small">No attempt in range has {{ data.highest ? "this metric" : "a score on this" }} yet.</p>
       <ol v-else>
         <li v-for="a in data.items" :key="a.attemptId">
-          <a class="line" :href="attemptHref(a)">
+          <component :is="attemptHref(a) ? 'a' : 'div'" class="line" :href="attemptHref(a)">
             <span class="val num">{{ formatValue(a.value, data.highest ? `metric.${data.by}` : "score") }}</span>
             <span class="mono small">{{ a.testId }}</span>
             <span class="ttl small">{{ a.title !== a.testId ? a.title : "" }}</span>
             <span v-tip="when(a.at)" class="muted small when">{{ runName(a) }}</span>
-          </a>
+          </component>
         </li>
       </ol>
     </template>
@@ -69,7 +70,7 @@ const attemptHref = (a: { runId: string; attemptId: string }) => href({ name: "a
         <ListChecks :size="20" class="muted" />
         <p class="big num">{{ data.waiting }}<span class="muted of">of {{ data.total }}</span></p>
         <p class="muted small">{{ data.waiting === 0 ? (data.total ? "Every attempt in range has a score." : "No attempts in range yet.") : "attempts wait for a score" }}</p>
-        <a v-if="data.first" class="btn small" :href="attemptHref(data.first)">Score the first one</a>
+        <a v-if="data.first && links.actions" class="btn small" :href="attemptHref(data.first)">Score the first one</a>
       </div>
     </template>
   </div>

@@ -2,7 +2,7 @@
 // Tests down the side, the latest runs across (oldest on the left), each cell an attempt's
 // outcome: a status color with an icon, so it never rests on color alone. A cell opens the
 // attempt. A split tile shows one grid per value of its param.
-import { href } from "../../router";
+import { useTileLinks } from "../../tilelinks";
 import { when } from "../../format";
 import { runName, type TileData } from "../../dashboard";
 import { vTip } from "../../tooltip";
@@ -10,6 +10,7 @@ import type { Component } from "vue";
 import { Check, Ellipsis, Minus, Square, TriangleAlert, X } from "../../icons";
 
 defineProps<{ data: TileData["matrix"] }>();
+const links = useTileLinks();
 
 const ICON: Record<string, Component> = { passed: Check, failed: X, broken: TriangleAlert, skipped: Minus, stopped: Square, running: Ellipsis, interrupted: TriangleAlert };
 const tone = (s: string) => (s === "passed" ? "ok" : s === "failed" ? "bad" : s === "broken" || s === "interrupted" ? "warn" : s === "running" ? "accent" : "muted");
@@ -26,7 +27,7 @@ const tone = (s: string) => (s === "passed" ? "ok" : s === "failed" ? "bad" : s 
             <tr>
               <th scope="col" class="sr-only">Test</th>
               <th v-for="r in g.runs" :key="r.id" scope="col" class="rcol">
-                <a v-tip="`${runName(r)} · ${when(r.at)}`" :href="href({ name: 'run', id: r.id })" class="rlink"><span class="sr-only">{{ runName(r) }}</span></a>
+                <component :is="links.run(r.id) ? 'a' : 'span'" v-tip="`${runName(r)} · ${when(r.at)}`" :href="links.run(r.id) ?? undefined" class="rlink" :tabindex="links.run(r.id) ? undefined : 0"><span class="sr-only">{{ runName(r) }}</span></component>
               </th>
             </tr>
           </thead>
@@ -34,14 +35,18 @@ const tone = (s: string) => (s === "passed" ? "ok" : s === "failed" ? "bad" : s 
             <tr v-for="t in g.tests" :key="t.testId">
               <th scope="row" class="tname"><span class="mono small">{{ t.testId }}</span> <span class="small">{{ t.title !== t.testId ? t.title : "" }}</span></th>
               <td v-for="(c, i) in t.cells" :key="i">
-                <a
+                <component
+                  :is="links.attempt(g.runs[i]?.id ?? '', c.attemptId) ? 'a' : 'span'"
                   v-if="c"
                   v-tip="`${t.testId} · ${c.status}${c.attempts > 1 ? ` (worst of ${c.attempts})` : ''}${c.flags ? ` · ${c.flags} ${c.flags === 1 ? 'flag' : 'flags'}` : ''} · ${runName(g.runs[i] ?? {})}`"
                   class="cell"
                   :class="`t-${tone(c.status)}`"
-                  :href="href({ name: 'attempt', runId: g.runs[i]?.id ?? '', attemptId: c.attemptId })"
+                  :href="links.attempt(g.runs[i]?.id ?? '', c.attemptId) ?? undefined"
+                  :tabindex="links.attempt(g.runs[i]?.id ?? '', c.attemptId) ? undefined : 0"
                   :aria-label="`${t.testId} in ${runName(g.runs[i] ?? {})}: ${c.status}`"
-                ><component :is="ICON[c.status] ?? Minus" :size="12" /><span v-if="c.flags" class="flag" aria-hidden="true" /></a>
+                >
+                  <component :is="ICON[c.status] ?? Minus" :size="12" /><span v-if="c.flags" class="flag" aria-hidden="true" />
+                </component>
                 <span v-else class="cell empty" aria-label="didn't run" />
               </td>
             </tr>

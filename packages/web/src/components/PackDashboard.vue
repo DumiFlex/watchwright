@@ -12,7 +12,7 @@ import SkeletonBlock from "./SkeletonBlock.vue";
 import DashboardEditor from "./DashboardEditor.vue";
 import { can } from "../session";
 import { LayoutDashboard } from "../icons";
-import DashboardTile from "./tiles/DashboardTile.vue";
+import TileGroups from "./TileGroups.vue";
 
 const props = defineProps<{
   packId: string;
@@ -102,14 +102,7 @@ const rangeText = computed(() => {
     <div v-else-if="!reply" class="pd-grid">
       <SkeletonBlock v-for="i in 3" :key="i" class="sk" shape="block" height="140px" />
     </div>
-    <template v-else>
-      <div v-for="(g, gi) in reply.groups" :key="gi" class="pd-group">
-        <h3 v-if="g.title" class="gtitle">{{ g.title }}</h3>
-        <div class="pd-grid">
-          <DashboardTile v-for="(t, ti) in g.tiles" :key="`${gi}-${ti}-${t.tile.type}`" :result="t" :pack-id="packId" :latest-runs="latestRuns" />
-        </div>
-      </div>
-    </template>
+    <TileGroups v-else :groups="reply.groups" :pack-id="packId" :latest-runs="latestRuns" />
     <DashboardEditor v-if="reply" v-model="customizing" :pack-id="packId" :reply="reply" @saved="load" />
   </section>
 </template>
@@ -138,15 +131,6 @@ const rangeText = computed(() => {
 .pd-filters .sel {
   width: auto;
   min-width: 14rem;
-}
-.pd-group {
-  display: grid;
-  gap: var(--space-2);
-}
-.gtitle {
-  margin: var(--space-2) 0 0;
-  font-size: 14px;
-  font-weight: 600;
 }
 .pd-grid {
   display: grid;

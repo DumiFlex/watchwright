@@ -19,6 +19,7 @@ import TileScatter from "./TileScatter.vue";
 import TileSeries from "./TileSeries.vue";
 import TileTable from "./TileTable.vue";
 import { ArrowDown, ArrowUp, Minus } from "../../icons";
+import { useTileLinks } from "../../tilelinks";
 
 const props = defineProps<{
   result: TileResult;
@@ -28,6 +29,7 @@ const props = defineProps<{
 }>();
 
 const t = computed(() => props.result.tile);
+const links = useTileLinks();
 // The data typed by the tile's kind (the server shapes it per kind).
 function as<K extends keyof TileData>(kind: K): TileData[K] {
   if (props.result.tile.type !== kind) throw new Error(`A ${props.result.tile.type} tile read as ${kind}.`);
@@ -108,7 +110,7 @@ function linkOf(l: DashLink): { href: string; label: string; external: boolean }
       <TileMade v-else-if="t.type === 'output'" kind="output" :data="as('output')" />
       <TileMade v-else-if="t.type === 'latest'" kind="latest" :data="as('latest')" />
       <MarkdownView v-else-if="t.type === 'note'" :source="as('note').markdown" :label="result.title" id-prefix="note-" />
-      <div v-else-if="t.type === 'links'" class="links">
+      <div v-else-if="t.type === 'links' && links.actions" class="links">
         <template v-for="(l, i) in as('links').links" :key="i">
           <a v-if="linkOf(l)" class="btn" :href="linkOf(l)!.href" v-bind="linkOf(l)!.external ? { target: '_blank', rel: 'noopener' } : {}">
             <Play v-if="'preset' in l" :size="14" /><Download v-else-if="'export' in l" :size="14" /><ExternalLink v-else-if="'url' in l" :size="14" />
