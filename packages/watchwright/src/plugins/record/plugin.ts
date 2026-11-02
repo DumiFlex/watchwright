@@ -8,6 +8,7 @@ import { PACKS } from "../packs/registry.js";
 import { STEP_BY_NAME, type StepArgs } from "../packs/yaml/steps.js";
 import type { Target } from "../packs/yaml/targets.js";
 import { ENGINE, FILES_ROOT } from "../runs/plugin.js";
+import { RUNNERS } from "../runners/plugin.js";
 import { SECRETS } from "../secrets/plugin.js";
 import { SIGNINS } from "../signins/plugin.js";
 import { stepsYaml } from "./explore.js";
@@ -150,6 +151,7 @@ export const recordPlugin = definePlugin({
               secret: (name) => services.get(SECRETS).get(name),
               signIn: (k) => services.get(SIGNINS).get(k),
               saveSignIn: (k, state, source) => void services.get(SIGNINS).save(k, state, source),
+              proxy: (network) => services.get(RUNNERS).proxy(network, () => undefined),
             },
           );
           recordings.add(session);

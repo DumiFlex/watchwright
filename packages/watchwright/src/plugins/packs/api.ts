@@ -228,6 +228,8 @@ export interface PackOptions {
     baseURL?: string;
     /** "saved": every run starts with the sign-in saved for this site key (Settings > Sign-ins). */
     signIn?: "saved";
+    /** Where runs reach the site from: "server" (the default) or a runner's name (Settings > Runners). A run can choose otherwise. */
+    network?: string;
   };
   browser?: {
     name?: BrowserName;

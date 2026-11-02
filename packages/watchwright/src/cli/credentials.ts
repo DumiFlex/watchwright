@@ -53,7 +53,11 @@ function read(env: NodeJS.ProcessEnv): CredentialsFile {
 }
 
 function write(data: CredentialsFile, env: NodeJS.ProcessEnv): void {
-  const file = credentialsPath(env);
+  writePrivateJson(credentialsPath(env), data);
+}
+
+/** Writes JSON that only its owner may read (tokens), in the config folder. */
+export function writePrivateJson(file: string, data: unknown): void {
   mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   // Written beside it and renamed, so a crash never leaves half a file; owner-only from the start.
   const tmp = `${file}.${process.pid}.tmp`;

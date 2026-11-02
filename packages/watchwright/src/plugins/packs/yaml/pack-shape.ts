@@ -13,7 +13,7 @@ type CollectorEntry =
 export interface PackYaml {
   name: string;
   description?: string;
-  site: { key: string; baseURL?: string; signIn?: "saved" };
+  site: { key: string; baseURL?: string; signIn?: "saved"; network?: string };
   browser?: { name?: "chromium" | "firefox" | "webkit"; viewport?: { width: number; height: number }; headless?: boolean; context?: Record<string, unknown> };
   params?: Record<string, ParamDef>;
   flags?: Record<string, FlagKind>;
@@ -93,7 +93,7 @@ const COLLECTOR: Shape = {
 export const PACK_SHAPE: Shape = obj({
   name: req(str("The pack's name.")),
   description: str(),
-  site: req(obj({ key: req(str("Runs of packs with the same key wait for each other.", { pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" })), baseURL: str("Relative URLs in goto join to this."), signIn: str('"saved": runs start with the sign-in saved for this site (Settings > Sign-ins).', { enum: ["saved"] }) })),
+  site: req(obj({ key: req(str("Runs of packs with the same key wait for each other.", { pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" })), baseURL: str("Relative URLs in goto join to this."), signIn: str('"saved": runs start with the sign-in saved for this site (Settings > Sign-ins).', { enum: ["saved"] }), network: str('Where runs reach the site from: "server" (the default) or a runner\'s name (Settings > Runners).') })),
   browser: obj({ name: str(undefined, { enum: ["chromium", "firefox", "webkit"] }), viewport: size, headless: bool(), context: CONTEXT }),
   params: obj({}, "Values chosen when a run starts.", { extra: PARAM }),
   flags: obj({}, "Flags tests may raise, with their kind.", { extra: str(undefined, { enum: ["robot", "finding", "info"] }) }),

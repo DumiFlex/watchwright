@@ -17,6 +17,7 @@ import { PACKS } from "../packs/registry.js";
 import { SETTINGS } from "../settings/plugin.js";
 import { JobKinds } from "../../jobs/kinds.js";
 import { SECRETS } from "../secrets/plugin.js";
+import { RUNNERS } from "../runners/plugin.js";
 import { SIGNINS } from "../signins/plugin.js";
 import { digest, readRunFile, waitForRun } from "./digest.js";
 import { DEFAULT_STORAGE_LIMITS, Engine, EngineError } from "./engine.js";
@@ -83,6 +84,7 @@ const CHOICE_PROPS = {
   },
   runVideo: { type: "boolean", description: "Record one video of the whole run, of what the live view follows (default: the pack's setting, else false)." },
   signIn: { type: "boolean", description: "Start with the site's saved sign-in (default: the pack's site.signIn)." },
+  network: { type: "string", minLength: 1, maxLength: 60, description: 'Where the browser reaches the site from: "server" or a runner\'s name (default: the pack\'s site.network, else server). GET /runners lists the runners.' },
 } as const;
 const CHOICE_KEYS = Object.keys(CHOICE_PROPS) as (keyof RunChoices)[];
 const PACK_ID = { type: "string", pattern: "^[0-9a-f]{8}$" } as const;
@@ -118,6 +120,7 @@ function runOptions(input: RunChoices): RunOptions {
   if (input.video !== undefined) o.video = input.video;
   if (input.runVideo !== undefined) o.runVideo = input.runVideo;
   if (input.signIn !== undefined) o.signIn = input.signIn;
+  if (input.network !== undefined) o.network = input.network;
   return o;
 }
 
@@ -211,6 +214,7 @@ export const runsPlugin = definePlugin({
       kinds,
       secrets: services.has(SECRETS) ? services.get(SECRETS) : undefined,
       signIns: services.has(SIGNINS) ? services.get(SIGNINS) : undefined,
+      runners: services.has(RUNNERS) ? services.get(RUNNERS) : undefined,
       storageLimits: () => ({ warnBelowGB: settings.get<number>("runs.storageWarnGB"), stopBelowGB: settings.get<number>("runs.storageStopGB") }),
       cleanupRules: () => ({ keepDays: settings.get<number>("runs.keepDays"), keepPerPack: settings.get<number>("runs.keepPerPack") }),
     });

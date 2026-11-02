@@ -24,6 +24,7 @@ import AgentsSettings from "../components/AgentsSettings.vue";
 import AlertsSettings from "../components/AlertsSettings.vue";
 import SecretsSettings from "../components/SecretsSettings.vue";
 import SigninsSettings from "../components/SigninsSettings.vue";
+import RunnersSettings from "../components/RunnersSettings.vue";
 import StorageSettings from "../components/StorageSettings.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import RadioGroup from "../components/RadioGroup.vue";
@@ -140,6 +141,7 @@ const ALL_SECTIONS = [
   { id: "s-secrets", label: "Secrets", show: () => can("user") },
   { id: "s-signins", label: "Sign-ins", show: () => can("user") },
   { id: "s-sharing", label: "Sharing", show: () => can("user") },
+  { id: "s-runners", label: "Runners", show: () => can("viewer") },
   { id: "s-alerts", label: "Alerts", show: () => can("admin") },
   { id: "s-agents", label: "Agents", show: () => can("user") },
   { id: "s-storage", label: "Storage", show: () => can("user") },
@@ -253,6 +255,7 @@ onBeforeUnmount(() => {
         <SecretsSettings v-if="shows('s-secrets')" />
         <SigninsSettings v-if="shows('s-signins')" />
         <SharingSettings v-if="shows('s-sharing')" />
+        <RunnersSettings v-if="shows('s-runners')" />
         <AlertsSettings v-if="shows('s-alerts')" />
 
         <AgentsSettings v-if="shows('s-agents')" />

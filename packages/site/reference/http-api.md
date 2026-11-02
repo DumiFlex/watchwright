@@ -184,6 +184,21 @@ A web page can't learn a folder's path from the browser, so the server lists fol
 | `DELETE /folders/recent?path=` | Forgets one recent folder, or all of them without `path`. |
 | `POST /folders/open` `{ path }` | Shows a folder in Explorer, Finder or the desktop's file manager. Only pack folders (and the folders inside them) and the data folder; 403 `not_allowed` for anything else. |
 
+## Runners
+
+[Runners](../guide/self-hosting#runners) let runs reach sites only another machine can reach.
+
+| Method and path | Does |
+|---|---|
+| `GET /runners` | `[{ id, name, allow, online, connectedAt, streams, lastSeen, pairedAt, version, platform, createdBy, createdAt }]`. `allow` is what the runner said it may open when it last connected (else the list it was added with); `streams` the connections going through it now. |
+| `POST /runners` `{ name, allow?, server? }` | Adds a runner (201): `{ runner, code, expiresAt, minutes, command }`. `allow` is `loopback`, `host:port` or `host:*`, comma-separated (default `loopback`). `command` is the line to run on that machine; `server` is the address it uses there (default: the first `--public-url`). 409 `exists` for a name in use (names compare without case). |
+| `POST /runners/:id/pair-code` `{ server? }` | A new pair code for the runner, same shape. Its token keeps working until the code is used. |
+| `DELETE /runners/:id` | Removes the runner: it disconnects and its token stops working. From anything but the web page it waits for approval. |
+| `POST /runners/pair` `{ code }` | Public, for `watchwright runner --pair`: trades a pair code (once, within 15 minutes) for `{ id, name, allow, token }`. 404 `bad_code`; 20 tries a minute per address. |
+| `GET /runners/connect` | Public WebSocket for the runner. Its first message is `{ "type": "auth", "token", "version", "allow", "platform" }`; the server answers `hello` or `refused`. After that, binary frames carry the connections (`packages/watchwright/src/plugins/runners/protocol.ts`). |
+
+Events: `runner.connected` `{ id, name, version }` and `runner.disconnected` `{ id, name }`.
+
 ## Runs
 
 | Method and path | Does |
@@ -192,7 +207,7 @@ A web page can't learn a folder's path from the browser, so the server lists fol
 | `GET /storage` | What runs take on the drive: `{ dataDir, freeBytes, totalBytes, runs, runsBytes, unmeasured, largest, limits }`. `freeBytes` and `totalBytes` are the data folder's drive (null when the system can't say), `largest` the ten runs that take the most room, `limits` the `warnBelowGB` and `stopBelowGB` settings. |
 | `GET /storage/cleanup` | What cleanup would delete now under `runs.keepDays` and `runs.keepPerPack`: `{ rules, runs, bytes, unmeasured }`, the runs oldest first, `bytes` the room the measured ones take. |
 | `POST /storage/cleanup` | Deletes those runs now, as `DELETE /runs/:id` does, and answers the same shape with what it deleted. From anything but the web page it waits for approval. |
-| `POST /runs` `{ packId, tests?, params?, pauseOnBroken?, pauseLimitMinutes?, attempts?, trace?, video?, runVideo?, signIn?, label?, preset?, kind? }` | Queues a run. `kind` is the job kind (default `test`; `GET /kinds` lists the loaded ones, and an unknown kind is a 400 `bad_input`). `tests` defaults to all; tests they need, and parents and children, join by themselves. `attempts` gives every test the same number of attempts instead of its own `runs`; `trace` (`problems`, `always`, `never`), `video` (`always`, `problems`, `never`; `true` and `false` mean always and never) and `runVideo` (one video of the whole run) override the pack's settings for this run, and `signIn` starts it with (or without) the site's [saved sign-in](#secrets-and-sign-ins) instead of the pack's `site.signIn`; a run that should start signed in with none saved fails to start. `label` names the run (up to 120 characters). `preset` starts from the pack's preset with that name; the other fields given override it (404 when the pack has no such preset). |
+| `POST /runs` `{ packId, tests?, params?, pauseOnBroken?, pauseLimitMinutes?, attempts?, trace?, video?, runVideo?, signIn?, network?, label?, preset?, kind? }` | Queues a run. `kind` is the job kind (default `test`; `GET /kinds` lists the loaded ones, and an unknown kind is a 400 `bad_input`). `tests` defaults to all; tests they need, and parents and children, join by themselves. `attempts` gives every test the same number of attempts instead of its own `runs`; `trace` (`problems`, `always`, `never`), `video` (`always`, `problems`, `never`; `true` and `false` mean always and never) and `runVideo` (one video of the whole run) override the pack's settings for this run, and `signIn` starts it with (or without) the site's [saved sign-in](#secrets-and-sign-ins) instead of the pack's `site.signIn`; a run that should start signed in with none saved fails to start. `network` is `server` or a [runner](#runners)'s name, instead of the pack's `site.network`; a run whose runner is unknown or offline fails to start. `label` names the run (up to 120 characters). `preset` starts from the pack's preset with that name; the other fields given override it (404 when the pack has no such preset). |
 | `GET /kinds` | The job kinds the server has loaded, `[{ name, labels }]`. `labels` maps an outcome to the word the kind shows for it (an extraction could show `done` for `passed`); the outcome stays the value in every result. Runs and attempts carry their `kind`. |
 | `POST /runs/:id/again` | Queues a new run with the run's pack, tests, values, options and label (201). Queue edits made during the run aren't copied. |
 | `POST /runs/:id/label` `{ label }` | Names a run; an empty label takes the name away. Runs carry `label` (empty when none). |

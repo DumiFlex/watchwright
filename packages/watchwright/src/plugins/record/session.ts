@@ -82,6 +82,8 @@ export interface RecordHost {
   signIn(siteKey: string): StorageState | undefined;
   /** Saves a sign-in for a site key ("Save sign-in", or `h.saveSignIn` in a step). */
   saveSignIn(siteKey: string, state: StorageState, source: string): void;
+  /** A proxy through a runner, for packs whose `site.network` names one. */
+  proxy?(network: string): Promise<{ server: string; close(): Promise<void> }>;
 }
 
 /** Closes a recording nobody has touched for this long. */
@@ -114,6 +116,7 @@ export class RecordSession {
   readonly steps: RecordEntry[] = [];
   readonly startedAt = new Date().toISOString();
   private session: BrowserSession | null = null;
+  private proxy: { server: string; close(): Promise<void> } | null = null;
   private release: (() => void) | null = null;
   private pending: Pending | null = null;
   private lastStepFromRecorder = false;
@@ -207,12 +210,19 @@ export class RecordSession {
       signIn = this.host.signIn(this.opts.siteKey);
       if (!signIn) this.message = `No sign-in is saved for ${this.opts.siteKey} yet, so this browser starts signed out. Sign in, then press Save sign-in.`;
     }
+    // A pack that reaches its site through a runner records through it too.
+    const network = o.site.network ?? "server";
+    if (network !== "server") {
+      if (!this.host.proxy) throw new Error(`This server has no runners, so it can't reach the site from "${network}".`);
+      this.proxy = await this.host.proxy(network);
+      if (this.ended()) return void (await this.closeProxy());
+    }
     this.session = await BrowserSession.launch(
       {
         browser: o.browser?.name ?? "chromium",
         headless: !this.opts.window,
         viewport: this.viewport,
-        launch: o.browser?.launch,
+        launch: this.proxy ? { ...o.browser?.launch, proxy: { server: this.proxy.server } } : o.browser?.launch,
         context: signIn ? { ...o.browser?.context, storageState: signIn } : o.browser?.context,
         size: o.run?.screencastSize,
         quality: o.run?.frameQuality ?? 70,
@@ -230,7 +240,10 @@ export class RecordSession {
         onActivePage: (pageId) => this.emit("page.active", { pageId }),
       },
     );
-    if (this.ended()) return void (await this.session.close());
+    if (this.ended()) {
+      await this.session.close();
+      return void (await this.closeProxy());
+    }
     const page = await this.session.mainPage();
     await this.session.restartCapture(null);
     if (this.opts.testId) await this.replay(page);
@@ -563,6 +576,12 @@ export class RecordSession {
     return true;
   }
 
+  private async closeProxy(): Promise<void> {
+    const p = this.proxy;
+    this.proxy = null;
+    await p?.close();
+  }
+
   /** Ends the recording and closes its browser. The steps stay readable. */
   async stop(message: string | null = null): Promise<void> {
     if (this.status === "ended") return;
@@ -577,6 +596,7 @@ export class RecordSession {
       await session.stopCapture().catch(() => undefined);
       await session.close();
     }
+    await this.closeProxy();
     this.release?.();
     this.release = null;
     this.host.frames.forget(this.id);

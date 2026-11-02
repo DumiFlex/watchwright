@@ -9,6 +9,7 @@ import { demoCommand } from "./demo.js";
 import { initAgentCommand } from "./init-agent.js";
 import { mcpCommand } from "./mcp.js";
 import { serveCommand } from "./serve.js";
+import { runnerCommand } from "./runner.js";
 import { usersCommand } from "./users.js";
 import { loginCommand, logoutCommand } from "./login.js";
 
@@ -27,6 +28,7 @@ Usage:
   watchwright init-agent [folder] [--agent claude,codex,cursor] [--no-mcp] [--auth]
   watchwright login [--name <name>] [--password-stdin] [--token <token>]
   watchwright logout
+  watchwright runner [--server <address>] [--pair <code>] [--allow <list>]
   watchwright users list|add|reset-password|role|disable|enable|remove …  (--help for details)
   watchwright <plugin> <verb> [args] [--options]     any action, such as: watchwright runs pause 0a1b2c3d
   watchwright --version
@@ -77,6 +79,13 @@ login      Signs in to a server that has login on (asks for name and password, o
            server, so commands and \`watchwright mcp\` send it. --token <token> saves a token made on
            the web page instead (for single sign-on accounts).
 logout     Removes the saved token, on the server and here.
+runner     Lets a server reach sites through this machine (a site on this PC's localhost, for a
+           server in Docker or elsewhere). Add the runner in the server's Settings › Runners, which
+           shows the command with a one-time pair code; afterwards \`watchwright runner\` connects
+           again by itself. Runs until stopped.
+  --pair     The pair code (works once, for 15 minutes). The token it gives is saved in the config folder.
+  --allow    What the server may open here: loopback (the default: any port on this machine),
+             host:port or host:*, separated by commas. Saved; only this machine can change it.
 users      Accounts for login, on this machine's data folder (works with the server stopped):
            list, add <name> [--role admin|user|viewer], reset-password <name>, role <name> <role>,
            disable <name>, enable <name>, remove <name>. Passwords are asked for at the terminal,
@@ -152,6 +161,7 @@ async function main(argv: string[]): Promise<number> {
   if (command === "demo") return demoCommand(argv.slice(1));
   if (command === "mcp") return mcpCommand(argv.slice(1));
   if (command === "users") return usersCommand(argv.slice(1));
+  if (command === "runner") return guarded(processIo, false, () => runnerCommand(argv.slice(1)));
   if (command === "login") return guarded(processIo, false, () => loginCommand(argv.slice(1)));
   if (command === "logout") return guarded(processIo, false, () => logoutCommand(argv.slice(1)));
   if (command === "init-agent") return guarded(processIo, false, () => initAgentCommand(processIo, argv.slice(1)));

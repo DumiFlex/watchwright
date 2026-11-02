@@ -5,7 +5,7 @@ Watchwright can run on a server or in a homelab instead of your own computer, so
 Self-hosted, Watchwright always has [login](./safety#login) on. The first start prints a link that creates the first admin; after that, admins add people in Settings › Users or through [single sign-on](./single-sign-on).
 
 ::: tip Sites that run only on your computer
-A site at `localhost:3000` on your own computer can't be reached from a server. The runner that lets a server's runs reach your computer's sites is coming next ([docs/plans/self-hosting.md](https://github.com/DumiFlex/watchwright/blob/dev/docs/plans/self-hosting.md), section 6).
+A site at `localhost:3000` on your own computer can't be reached from a server. Run a [runner](#runners) on your computer and the server's runs reach it through there.
 :::
 
 ## Docker
@@ -120,6 +120,34 @@ docker compose -f compose.caddy.yml up -d
 ### Tailscale
 
 To reach Watchwright only from your own devices, with HTTPS and no open ports, [`compose.tailscale.yml`](https://github.com/DumiFlex/watchwright/blob/dev/docker/compose.tailscale.yml) puts it on your tailnet. Make an auth key in the Tailscale admin console, turn on HTTPS certificates (DNS page), set the key and your tailnet's name in the file, and keep [`tailscale-serve.json`](https://github.com/DumiFlex/watchwright/blob/dev/docker/tailscale-serve.json) beside it. Watchwright is then at `https://watchwright.<tailnet>.ts.net`.
+
+## Runners
+
+A server in Docker or on another machine can't open `localhost` on your PC, and often not your home network either. A **runner** fixes that: `watchwright runner` runs on the machine that can reach the site, connects out to the server (so nothing on that machine is opened to the network), and the browser connections of runs that pick it go through it. The browser still runs on the server; only its connections come from your machine, so the site sees an ordinary visitor from `localhost`.
+
+1. In **Settings › Runners**, give the runner a name (such as `Office PC`) and say what it may open: `loopback` (any port on that machine, the default), `host:port` or `host:*`, separated by commas.
+2. The page shows a command with a one-time pair code. Run it on that machine; it needs [Node.js](https://nodejs.org/) 22 or later and works the same on Windows, macOS and Linux:
+
+   ```bash
+   npx watchwright@0.12.0 runner --server https://watchwright.example.com --pair 7KQ-M2X-PLD
+   ```
+
+   (The page's command names the server's own version, so the runner matches it.)
+
+   The code works once, within 15 minutes. The runner trades it for a token it keeps in your config folder (`runner.json`), so afterwards `npx watchwright runner` alone connects again. Leave it running; the page shows it as connected. It reconnects by itself when the server restarts or the network drops.
+3. Pick the runner under **Reach the site from** on New run, or make it the pack's default with `site.network`:
+
+   ```yaml
+   site: { key: shop, baseURL: "http://localhost:3000/", network: Office PC }
+   ```
+
+   Schedules and presets keep the choice. Recording a pack whose `site.network` names a runner goes through it too.
+
+**What it may open is decided on that machine.** The list given on the page is only where it starts: the runner keeps its own (`watchwright runner --allow "loopback, nas.lan:5000"` changes it), and the server can't widen it. A connection it refuses fails in the browser, and the run's log says which address was refused and why.
+
+**When the runner is offline** a run that needs it doesn't start, and says so. If it drops during a run, the connections fail until it is back (it reconnects by itself), so the attempts in between break; with **Pause and wait for Retry or Skip** on, the run pauses on the first one and goes on when you retry.
+
+Chromium, Firefox and WebKit all send `localhost` through the runner. Remove a runner in Settings › Runners to disconnect it and stop its token working; a new pair code (the link icon) sets it up again or on another machine.
 
 ## Updating
 
