@@ -135,10 +135,10 @@ export class Client {
   }
 
   /** Calls an action by name. */
-  async callName<T = unknown>(name: string, input: Record<string, unknown> = {}, signal?: AbortSignal): Promise<T> {
+  async callName<T = unknown>(name: string, input: Record<string, unknown> = {}, signal?: AbortSignal, confirmed = false): Promise<T> {
     const a = await this.action(name);
     if (!a) throw new ApiError("unknown_action", `This server has no action ${name}; it may be older than this command.`, 404);
-    return this.call<T>(a, input, signal);
+    return this.call<T>(a, input, signal, confirmed);
   }
 }
 

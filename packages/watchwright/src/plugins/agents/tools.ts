@@ -1,4 +1,4 @@
-import { CLIENT_INFO_META_KEY, fromJsonSchema, McpServer, type CallToolResult, type JsonSchemaType, type ServerContext, type ToolAnnotations } from "@modelcontextprotocol/server";
+import { CLIENT_INFO_META_KEY, fromJsonSchema, McpServer, type CallToolResult, type JsonSchemaType, type RegisteredTool, type ServerContext, type ToolAnnotations } from "@modelcontextprotocol/server";
 import type { ActionInfo, JsonSchema, ObjectSchema } from "../../actions/registry.js";
 
 // The MCP tools, made from the actions: every action with `agent.tool` is a tool, plus
@@ -161,6 +161,13 @@ export interface McpServerOptions {
 
 const MAX_TEXT = 200_000;
 
+const retool = new WeakMap<McpServer, (actions: readonly ActionInfo[]) => void>();
+
+/** Gives a server built here the tools for other actions (the server it bridges to changed version). */
+export function setTools(server: McpServer, actions: readonly ActionInfo[]): void {
+  retool.get(server)?.(actions);
+}
+
 /** A server with the tools for these actions. A fresh one per HTTP request or stdio connection. */
 export function buildMcpServer(opts: McpServerOptions): McpServer {
   const server = new McpServer(
@@ -170,7 +177,7 @@ export function buildMcpServer(opts: McpServerOptions): McpServer {
       instructions: instructionsFor(opts.page),
     },
   );
-  const byName = new Map(opts.actions.map((a) => [a.name, a]));
+  let byName = new Map(opts.actions.map((a) => [a.name, a]));
   const caller = (ctx: ServerContext) => opts.caller(agentName(clientInfoName(server, ctx)));
 
   const resolvePack = async (a: ActionInfo, input: Record<string, unknown>, client: string, signal: AbortSignal) => {
@@ -201,26 +208,39 @@ export function buildMcpServer(opts: McpServerOptions): McpServer {
     }
   };
 
-  for (const tool of toolsOf(opts.actions)) {
-    const config = {
-      title: tool.annotations.title ?? tool.name,
-      description: tool.description,
-      inputSchema: fromJsonSchema<Record<string, unknown>>(tool.input as JsonSchemaType),
-      ...(tool.output ? { outputSchema: fromJsonSchema<Record<string, unknown>>(tool.output as JsonSchemaType) } : {}),
-      annotations: tool.annotations,
-    };
-    if (tool.action) {
-      const a = tool.action;
-      server.registerTool(tool.name, config, (input, ctx) => run(tool.name, a, input, ctx));
-    } else {
-      server.registerTool(tool.name, config, (input, ctx) => {
-        const name = String(input.name);
-        const a = byName.get(name);
-        if (!a) return errorResult("unknown_action", `There is no action ${name}. list_actions lists them.`);
-        return run(tool.name, a, record(input.input) ?? {}, ctx);
-      });
+  const registered: RegisteredTool[] = [];
+  const register = (actions: readonly ActionInfo[]) => {
+    for (const tool of toolsOf(actions)) {
+      const config = {
+        title: tool.annotations.title ?? tool.name,
+        description: tool.description,
+        inputSchema: fromJsonSchema<Record<string, unknown>>(tool.input as JsonSchemaType),
+        ...(tool.output ? { outputSchema: fromJsonSchema<Record<string, unknown>>(tool.output as JsonSchemaType) } : {}),
+        annotations: tool.annotations,
+      };
+      if (tool.action) {
+        const a = tool.action;
+        registered.push(server.registerTool(tool.name, config, (input, ctx) => run(tool.name, a, input, ctx)));
+      } else {
+        registered.push(
+          server.registerTool(tool.name, config, (input, ctx) => {
+            const name = String(input.name);
+            const a = byName.get(name);
+            if (!a) return errorResult("unknown_action", `There is no action ${name}. list_actions lists them.`);
+            return run(tool.name, a, record(input.input) ?? {}, ctx);
+          }),
+        );
+      }
     }
-  }
+  };
+  register(opts.actions);
+  // The stdio bridge calls this when the server came back as another version: the tools follow
+  // its actions, and the client is told the list changed.
+  retool.set(server, (actions) => {
+    for (const t of registered.splice(0)) t.remove();
+    byName = new Map(actions.map((a) => [a.name, a]));
+    register(actions);
+  });
   return server;
 }
 

@@ -18,6 +18,7 @@ import AboutCard from "../components/AboutCard.vue";
 import AccountSettings from "../components/AccountSettings.vue";
 import SharingSettings from "../components/SharingSettings.vue";
 import SsoSettings from "../components/SsoSettings.vue";
+import UpdateSettings from "../components/UpdateSettings.vue";
 import UsersSettings from "../components/UsersSettings.vue";
 import { can, session } from "../session";
 import AgentsSettings from "../components/AgentsSettings.vue";
@@ -291,6 +292,8 @@ onBeforeUnmount(() => {
             <p class="muted small">To start Watchwright when you sign in to this computer, run this command from a LaunchAgent (macOS) or a systemd user unit (Linux):</p>
             <code class="block">{{ startup.command }}</code>
           </div>
+          <UpdateSettings />
+          <h3 class="part">Stop</h3>
           <p class="muted small">Stops the Watchwright program on this machine, like Ctrl+C in its terminal. Runs going at the time are interrupted and can be resumed after it starts again.</p>
           <p v-if="stopped" class="stopped" role="status">Watchwright has stopped. To start it again, run <code>watchwright serve</code>.</p>
           <div v-else>
@@ -419,6 +422,10 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-4);
+}
+.part {
+  margin: var(--space-2) 0 0;
+  font-size: 15px;
 }
 .sub {
   margin: 0 0 var(--space-2);
