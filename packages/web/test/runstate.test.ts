@@ -41,10 +41,11 @@ describe("run state", () => {
 
 describe("settingsText", () => {
   it("says who changed what", () => {
-    expect(settingsText({ changed: { pauseLimitMinutes: 30, video: false }, by: "web" })).toBe("Settings changed (web): skip a broken test after 30 min, video off.");
+    expect(settingsText({ changed: { pauseLimitMinutes: 30, video: false }, by: "web" })).toBe("Settings changed (web): skip a broken test after 30 min, no video.");
     expect(settingsText({ changed: { testTimeoutMinutes: null, trace: "always", pauseOnBroken: false } })).toBe(
       "Settings changed: don't pause when a test breaks, each test's own time limit, trace always.",
     );
     expect(settingsText({ changed: { testTimeoutMinutes: 5 } })).toBe("Settings changed: 5 min per test.");
+    expect(settingsText({ changed: { video: "problems", runVideo: true } })).toBe("Settings changed: video only on problems, run video on.");
   });
 });

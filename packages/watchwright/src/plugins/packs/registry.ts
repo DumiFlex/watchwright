@@ -4,7 +4,7 @@ import path from "node:path";
 import type Database from "better-sqlite3";
 import { serviceKey } from "../../core/services.js";
 import type { EventLog } from "../../events/log.js";
-import type { FlagKind, ParamDef, TestDefinition } from "./api.js";
+import { videoMode, type FlagKind, type ParamDef, type TestDefinition, type VideoMode } from "./api.js";
 import { currentStamp, findPackFile, loadPack, PACK_FILES, packChanged, PackLoadError, type LoadedPack } from "./loader.js";
 import { checkTests, paramType, parentsOf } from "./order.js";
 import { rubricFor, type Criterion, type RubricCriterion } from "./rubric.js";
@@ -59,12 +59,13 @@ export interface PackRunDefaults {
   pauseOnBroken: boolean;
   pauseLimitMinutes: number;
   trace: "problems" | "always" | "never";
-  video: boolean;
+  video: VideoMode;
+  runVideo: boolean;
   /** Runs start with the site's saved sign-in (`site.signIn: "saved"`). */
   signIn: boolean;
 }
 
-const RUN_DEFAULTS: PackRunDefaults = { pauseOnBroken: true, pauseLimitMinutes: 20, trace: "problems", video: true, signIn: false };
+const RUN_DEFAULTS: PackRunDefaults = { pauseOnBroken: true, pauseLimitMinutes: 20, trace: "problems", video: "always", runVideo: false, signIn: false };
 
 interface Row {
   id: string;
@@ -243,7 +244,8 @@ export class PackRegistry {
         pauseOnBroken: o.run?.pauseOnBroken ?? RUN_DEFAULTS.pauseOnBroken,
         pauseLimitMinutes: o.run?.pauseLimitMinutes ?? RUN_DEFAULTS.pauseLimitMinutes,
         trace: o.run?.trace ?? RUN_DEFAULTS.trace,
-        video: o.run?.video ?? RUN_DEFAULTS.video,
+        video: videoMode(o.run?.video ?? RUN_DEFAULTS.video),
+        runVideo: o.run?.runVideo ?? RUN_DEFAULTS.runVideo,
         signIn: o.site.signIn === "saved",
       },
       rubric: rubricFor(o.rubric, undefined),

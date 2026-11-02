@@ -7,7 +7,7 @@
 // start from the pack's defaults instead). Presets are named choices kept per pack.
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { Ellipsis, Package } from "../icons";
-import { getJson, sendJson, type Pack, type ParamValue, type Preset, type RunChoices, type RunPreview, type RunSummary, type TraceMode } from "../api";
+import { getJson, sendJson, type Pack, type ParamValue, type Preset, type RunChoices, type RunPreview, type RunSummary, type TraceMode, type VideoMode, videoMode } from "../api";
 import { useShortcut } from "../keys";
 import { replaceRoute } from "../router";
 import { loadSettings, settings } from "../settings";
@@ -44,7 +44,8 @@ const presetId = ref("");
 const attemptsMode = ref<"pack" | "same">("pack");
 const attempts = ref(1);
 const trace = ref<TraceMode>("problems");
-const video = ref(true);
+const video = ref<VideoMode>("always");
+const runVideo = ref(false);
 const signIn = ref(false);
 // Site keys that have a saved sign-in (Settings > Sign-ins).
 const savedSignIns = ref<Set<string>>(new Set());
@@ -80,6 +81,15 @@ const traceOptions = computed(() => {
     { value: "never" as const, label: `Never${mark("never")}` },
   ];
 });
+const videoOptions = computed(() => {
+  const d = pack.value ? videoMode(pack.value.run.video) : null;
+  const mark = (v: VideoMode) => (v === d ? " (pack default)" : "");
+  return [
+    { value: "always" as const, label: `Every attempt${mark("always")}`, note: "About 450 MB an hour of tests" },
+    { value: "problems" as const, label: `Only on problems${mark("problems")}`, note: "Keep a video when an attempt fails or breaks" },
+    { value: "never" as const, label: `Never${mark("never")}` },
+  ];
+});
 const attemptOptions = [
   { value: "pack" as const, label: "As each test says" },
   { value: "same" as const, label: "Same for every test" },
@@ -98,6 +108,7 @@ function choices(): RunChoices {
     pauseLimitMinutes: pauseLimit.value,
     trace: trace.value,
     video: video.value,
+    runVideo: runVideo.value,
     signIn: signIn.value,
     ...(attemptsMode.value === "same" ? { attempts: attempts.value } : {}),
   };
@@ -110,7 +121,8 @@ function applyPack(p: Pack) {
   attemptsMode.value = "pack";
   attempts.value = 1;
   trace.value = p.run.trace;
-  video.value = p.run.video;
+  video.value = videoMode(p.run.video);
+  runVideo.value = p.run.runVideo ?? false;
   signIn.value = p.run.signIn ?? false;
   pauseOnBroken.value = p.run.pauseOnBroken;
   pauseLimit.value = p.run.pauseLimitMinutes;
@@ -153,7 +165,8 @@ function applyChoices(c: RunChoices, p: Pack) {
     attempts.value = o.attempts;
   }
   if (o.trace !== undefined) trace.value = o.trace;
-  if (o.video !== undefined) video.value = o.video;
+  if (o.video !== undefined) video.value = videoMode(o.video);
+  if (o.runVideo !== undefined) runVideo.value = o.runVideo;
   if (o.signIn !== undefined) signIn.value = o.signIn;
   if (o.pauseOnBroken !== undefined) pauseOnBroken.value = o.pauseOnBroken;
   if (o.pauseLimitMinutes !== undefined) pauseLimit.value = o.pauseLimitMinutes;
@@ -462,7 +475,9 @@ useShortcut("Mod+Enter", () => !namingOpen.value && void start());
                 </div>
                 <div class="opt">
                   <span class="name">Video</span>
-                  <ToggleSwitch id="nr-video" v-model="video">Record a video of each attempt</ToggleSwitch>
+                  <RadioGroup v-model="video" :options="videoOptions" label="Video" />
+                  <ToggleSwitch id="nr-run-video" v-model="runVideo">Also record the whole run</ToggleSwitch>
+                  <span v-if="runVideo" class="muted small">One video of what the live view follows, pauses included: at most about 270 MB an hour (a still page takes far less).</span>
                 </div>
                 <div class="opt">
                   <span class="name">Sign-in</span>

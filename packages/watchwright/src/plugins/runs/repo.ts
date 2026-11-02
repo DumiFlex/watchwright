@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type Database from "better-sqlite3";
 import type { ArtifactInfo, FlagRecord, LogLine, MetricRecord, StepRecord } from "../../jobs/recorder.js";
-import type { Outcome, ParamValues } from "../packs/api.js";
+import type { Outcome, ParamValues, VideoSetting } from "../packs/api.js";
 import type { AttemptError } from "../../jobs/kind.js";
 import type { QueueEdits } from "./queue.js";
 import type { StatsRows } from "./stats.js";
@@ -161,8 +161,10 @@ export interface RunOptions {
   attempts?: number;
   /** Which attempts keep a trace, instead of the pack's setting. */
   trace?: "problems" | "always" | "never";
-  /** Record video, instead of the pack's setting. */
-  video?: boolean;
+  /** Which attempts keep a video, instead of the pack's setting (`true` is always, `false` never). */
+  video?: VideoSetting;
+  /** Record one video of the whole run, instead of the pack's setting. */
+  runVideo?: boolean;
   /** Time limit for every attempt in ms, over the tests' and the pack's own (set while the run goes). */
   testTimeout?: number;
   /** Start with the site's saved sign-in (true) or without it (false), instead of the pack's `site.signIn`. */
@@ -181,7 +183,8 @@ export interface RunChoices {
   pauseLimitMinutes?: number;
   attempts?: number;
   trace?: "problems" | "always" | "never";
-  video?: boolean;
+  video?: VideoSetting;
+  runVideo?: boolean;
   signIn?: boolean;
 }
 

@@ -2,6 +2,7 @@ import { existsSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
+import { findFfmpeg } from "../src/jobs/run-video.js";
 import { decodeFrame } from "../src/plugins/live/hub.js";
 import type { RunDetail } from "../src/plugins/runs/engine.js";
 import type { ResultDocument } from "../src/plugins/runs/results.js";
@@ -368,7 +369,7 @@ test("S3", async () => {});`,
     const paused = await h.waitFor((e) => e.type === "run.paused" && e.runId === runId && e.data.reason === "broken");
     const before = Date.parse(String(paused.data.deadline));
     const s = (await h.api<RunDetail>("GET", `/runs/${runId}`)).data.live?.settings;
-    expect(s).toEqual({ pauseOnBroken: true, pauseLimitMinutes: 60, testTimeoutMinutes: null, trace: "problems", video: true });
+    expect(s).toEqual({ pauseOnBroken: true, pauseLimitMinutes: 60, testTimeoutMinutes: null, trace: "problems", video: "always", runVideo: false });
 
     expect((await h.api("POST", `/runs/${runId}/settings`, {})).status).toBe(400);
     const longer = await h.api<RunDetail>("POST", `/runs/${runId}/settings`, { pauseLimitMinutes: 70 });
@@ -390,6 +391,38 @@ test("S3", async () => {});`,
     // Kept with the run, so a resume keeps them.
     expect(detail.options).toMatchObject({ pauseLimitMinutes: 0.05, video: false, testTimeout: 1200 });
     expect((await h.api("POST", `/runs/${runId}/settings`, { video: true })).status).toBe(409);
+  });
+
+  it("keeps videos only of attempts with problems, and records the whole run in parts", async () => {
+    const { h, packId } = await setup({
+      "tests/v.ts": `import { test } from "watchwright";
+test("V1", async ({ h }) => { await h.goto("/"); await h.wait(1500); });
+test("V2", async ({ h }) => { await h.goto("/"); await h.wait(1500); throw new Error("broke"); });
+test("V3", async ({ h }) => { await h.goto("/"); await h.wait(1500); });`,
+    });
+    const runId = await startRun(h, { packId, video: "problems", runVideo: true, pauseOnBroken: false });
+    await h.waitFor((e) => e.type === "attempt.started" && e.runId === runId && e.data.testId === "V2");
+    expect((await h.api<RunDetail>("GET", `/runs/${runId}`)).data.live?.settings).toMatchObject({ video: "problems", runVideo: true });
+    // Off and on again: the run video goes on in a second part.
+    await h.api("POST", `/runs/${runId}/settings`, { runVideo: false });
+    await h.api("POST", `/runs/${runId}/settings`, { runVideo: true });
+    const detail = await finished(h, runId);
+    const videos = async (testId: string) => {
+      const a = detail.attempts.find((x) => x.testId === testId)!;
+      return (await h.api<ResultDocument>("GET", `/runs/${runId}/attempts/${a.id}`)).data.artifacts.filter((x) => x.kind === "video");
+    };
+    // Attempt videos come from Playwright's own ffmpeg; where it can't record, no attempt has one.
+    if ((await videos("V2")).length > 0) {
+      expect((await videos("V2")).length).toBe(1);
+      expect(await videos("V1")).toEqual([]);
+      expect(await videos("V3")).toEqual([]);
+    } else expect([...(await videos("V1")), ...(await videos("V3"))]).toEqual([]);
+    if (findFfmpeg()) {
+      expect(detail.runVideos.map((v) => v.path)).toEqual([`runs/${runId}/run-video.webm`, `runs/${runId}/run-video-2.webm`]);
+      expect(detail.runVideos.every((v) => v.size > 0)).toBe(true);
+      const file = await h.app.inject({ url: detail.runVideos[0]!.url, headers: { host: h.host } });
+      expect(file.headers["content-type"]).toBe("video/webm");
+    } else expect(detail.runVideos).toEqual([]);
   });
 
   it("keeps going after a promise nobody awaited fails, and logs it on the running attempt", async () => {
