@@ -14,12 +14,18 @@ FROM mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-noble
 
 ARG WATCHWRIGHT_VERSION=latest
 COPY dist/ /tmp/watchwright/
+COPY watchwright.sh /tmp/watchwright.sh
 RUN set -eux; \
     tgz=$(find /tmp/watchwright -name 'watchwright-*.tgz' | head -n 1); \
     if [ -n "$tgz" ]; then npm install -g "$tgz"; else npm install -g "watchwright@${WATCHWRIGHT_VERSION}"; fi; \
     rm -rf /tmp/watchwright; \
     # The browsers for the Playwright version watchwright resolved; nothing to fetch when it matches the image.
     cd "$(npm root -g)/watchwright" && npx --no-install playwright install chromium firefox; \
+    # The command people and the container run: it hands /data and /packs to pwuser, then runs as pwuser.
+    rm -f /usr/local/bin/watchwright; \
+    sed "s|@MAIN@|$(npm root -g)/watchwright/dist/cli/main.js|" /tmp/watchwright.sh > /usr/local/bin/watchwright; \
+    chmod 755 /usr/local/bin/watchwright; \
+    rm /tmp/watchwright.sh; \
     npm cache clean --force; \
     mkdir -p /data /packs; \
     chown pwuser:pwuser /data /packs
@@ -33,7 +39,8 @@ ENV WATCHWRIGHT_DATA=/data \
     WATCHWRIGHT_HOST=0.0.0.0 \
     NODE_ENV=production
 
-USER pwuser
+# Starts as root only so /usr/local/bin/watchwright can give bind-mounted folders to pwuser; the
+# server itself runs as pwuser. With `user: "1001:1001"` (or any user) it runs as that user directly.
 WORKDIR /packs
 VOLUME ["/data", "/packs"]
 EXPOSE 7420
