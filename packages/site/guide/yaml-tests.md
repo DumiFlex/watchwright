@@ -89,7 +89,7 @@ Text in a step can use variables:
 |---|---|
 | `${params.lang}` | a value the run chose (the pack's `params`) |
 | `${saved.order}` | a value an earlier test kept with `save` (list that test in `needs`) |
-| `${secret.SHOP_PASSWORD}` | a secret set on Settings > Secrets (see [Secrets](#secrets)) |
+| `${secret.SHOP_PASSWORD}` | a secret set on Admin › Secrets (see [Secrets](#secrets)) |
 | `${env.SHOP_PASSWORD}` | an environment variable on the machine running Watchwright |
 | `${attempt}`, `${attempts}`, `${last}` | this attempt's number, how many the test gets, and whether this is the last |
 
@@ -99,7 +99,7 @@ Values read from `secret` and `env` are replaced with `•••` in logs, notes
 
 ### Secrets
 
-Passwords and tokens a test needs go on **Settings > Secrets** (or `watchwright secrets set --name SHOP_PASSWORD --value …`), not in the pack. Tests read them as `${secret.SHOP_PASSWORD}` in YAML and `h.secret("SHOP_PASSWORD")` in code; a test that asks for a secret nobody set breaks with a message that says where to add it.
+Passwords and tokens a test needs go on **Admin › Secrets** (or `watchwright secrets set --name SHOP_PASSWORD --value …`), not in the pack. Tests read them as `${secret.SHOP_PASSWORD}` in YAML and `h.secret("SHOP_PASSWORD")` in code; a test that asks for a secret nobody set breaks with a message that says where to add it.
 
 - The web page and the API show a secret's name, length and when it was set, never its value. From an agent or a script, setting or deleting one waits for your approval on the web page.
 - Every secret value (four characters or more) is replaced with `•••` wherever a run records or announces text: logs, notes, kept texts, step titles, errors, run facts, live events and kept traces (what a step typed and the network traffic, so a value sent in a form or a query string is masked too, URL-encoded or not).
@@ -112,7 +112,7 @@ Logging in at the start of every test is slow and can trip a site's limits. Inst
 
 - **Save one** from a recording: sign in on the live view, then press **Save sign-in**. Or end a login test with the `saveSignIn` step (`h.saveSignIn()` in code).
 - **Use it** by setting `site.signIn: saved` in the pack, or with **Start signed in** on the New run page (`signIn: true` in the API). A run that should start signed in fails to start, saying so, when nothing is saved for its site. A saved sign-in that has expired is the pack's business: its first step sees the login page.
-- **See and delete them** on **Settings > Sign-ins**. Saved sign-ins live in the data folder like secrets, not encrypted: they can sign anyone who can read that folder into the site.
+- **See and delete them** under **Sign-ins** (on Admin; users see them on Settings). Saved sign-ins live in the data folder like secrets, not encrypted: they can sign anyone who can read that folder into the site.
 
 ```yaml
 # pack.yaml

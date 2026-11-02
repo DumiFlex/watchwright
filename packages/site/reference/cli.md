@@ -27,7 +27,7 @@ watchwright <plugin> <verb> [args] [--options]
 
 ### serve
 
-Starts the server: the web page, the [HTTP API](./http-api) and the store, on `http://127.0.0.1:7420/`. It stays up between runs; stop it with Ctrl+C or **Settings > Server > Stop Watchwright**. Closing its console window (or Ctrl+Break on Windows) stops it the same way: runs going then are marked interrupted, ready to resume. Pack folders named after `serve` are added (or reloaded). When a Watchwright already runs on the port, `serve` adds the packs there and opens its page instead of starting a second one.
+Starts the server: the web page, the [HTTP API](./http-api) and the store, on `http://127.0.0.1:7420/`. It stays up between runs; stop it with Ctrl+C or **Admin › Server › Stop Watchwright**. Closing its console window (or Ctrl+Break on Windows) stops it the same way: runs going then are marked interrupted, ready to resume. Pack folders named after `serve` are added (or reloaded). When a Watchwright already runs on the port, `serve` adds the packs there and opens its page instead of starting a second one.
 
 | Option | |
 |---|---|
@@ -40,7 +40,7 @@ Starts the server: the web page, the [HTTP API](./http-api) and the store, on `h
 
 On a machine without a screen (`WATCHWRIGHT_SERVER_HOST=1`, or Linux without `DISPLAY` or `WAYLAND_DISPLAY`) browsers always run headless and folders aren't shown in a file manager; `WATCHWRIGHT_FOLDERS` keeps the web app's folder browser inside the folders it lists. See [Self-hosting](../guide/self-hosting#what-s-different-in-a-container).
 | `--no-open` | Don't open the web page on start. |
-| `--background` | Run the server as its own process with no window, so no terminal has to stay open. The command returns once the server answers (it waits up to 30 seconds and shows the end of the log when the server doesn't come up). The server's output goes to `logs/server.log` in the data folder (past 5 MB the old one is kept as `server.old.log`). Stop it with **Settings > Server > Stop Watchwright**. |
+| `--background` | Run the server as its own process with no window, so no terminal has to stay open. The command returns once the server answers (it waits up to 30 seconds and shows the end of the log when the server doesn't come up). The server's output goes to `logs/server.log` in the data folder (past 5 MB the old one is kept as `server.old.log`). Stop it with **Admin › Server › Stop Watchwright**. |
 
 ### demo
 
@@ -105,7 +105,7 @@ Without `--agent`, it sets up the agents whose folders the project has (`.claude
 
 Signs in to a server that has [login](../guide/safety#login) on, from this machine. It asks for your name and password (or takes `--name` and reads the password from standard input with `--password-stdin`), makes an API token named after the machine (`CLI on <host>`), and saves it for that server. From then on, every command and `watchwright mcp` aimed at that server sends it by themselves. `WATCHWRIGHT_TOKEN` still wins when it is set.
 
-`--token <token>` checks and saves a token you made in **Settings › Your account** instead, which is the way in for accounts that sign in through single sign-on.
+`--token <token>` checks and saves a token you made in **Your account** (the user menu) instead, which is the way in for accounts that sign in through single sign-on.
 
 Saved tokens live in `credentials.json` in your config folder (`%APPDATA%\watchwright` on Windows, `~/.config/watchwright` elsewhere, or `WATCHWRIGHT_CONFIG_DIR`), one per server address, readable only by you.
 
@@ -115,7 +115,7 @@ Removes the saved token for the server, both on the server and on this machine.
 
 ### runner
 
-Lets a server reach sites through this machine (see [Runners](../guide/self-hosting#runners)). Add the runner in the server's **Settings › Runners**, which shows the command with a pair code:
+Lets a server reach sites through this machine (see [Runners](../guide/self-hosting#runners)). Add the runner in the server's **Admin › Runners** (a user finds Runners on Settings), which shows the command with a pair code:
 
 ```bash
 npx watchwright runner --server https://watchwright.example.com --pair 7KQ-M2X-PLD
@@ -124,7 +124,7 @@ npx watchwright runner --server https://watchwright.example.com --pair 7KQ-M2X-P
 | Option | |
 |---|---|
 | `--server <address>` | The server (default: `WATCHWRIGHT_URL`, else the one paired last). |
-| `--pair <code>` | A pair code from Settings › Runners. Works once, within 15 minutes; the token it gives is saved in `runner.json` in your config folder, readable only by you. |
+| `--pair <code>` | A pair code from the Runners section. Works once, within 15 minutes; the token it gives is saved in `runner.json` in your config folder, readable only by you. |
 | `--allow <list>` | What the server may open here: `loopback` (any port on this machine; the default), `host:port` or `host:*`, comma-separated. Saved for next time; only this machine can change it. |
 
 It runs until you stop it (Ctrl+C), reconnecting by itself when the link drops, and exits with 1 when the server removes the runner.

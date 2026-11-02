@@ -162,6 +162,41 @@ describe("login on", () => {
     expect(users.body.data).toHaveLength(3);
   });
 
+  it("keeps each person's own editor and New run choice, and admins' as the default", async () => {
+    const { auth, call, signIn } = await make();
+    await auth.add({ name: "admin1", password: PASSWORD, role: "admin" });
+    await auth.add({ name: "val", password: PASSWORD, role: "viewer" });
+    await auth.add({ name: "uma", password: PASSWORD, role: "user" });
+    const [admin, viewer, user] = [await signIn("admin1"), await signIn("val"), await signIn("uma")];
+    type S = { values: Record<string, unknown>; server: Record<string, unknown> };
+    const mine = await call("POST", "/settings/mine", { cookie: viewer, page: true, body: { values: { "settings.editor": "cursor" } } });
+    expect(mine.status).toBe(200);
+    expect((mine.body.data as unknown as S).values["settings.editor"]).toBe("cursor");
+    expect((mine.body.data as unknown as S).server["settings.editor"]).toBe("vscode");
+    // Others still get the server's value; an admin's server value is the default for who hasn't chosen.
+    expect(((await call("GET", "/settings", { cookie: user })).body.data as unknown as S).values["settings.editor"]).toBe("vscode");
+    expect((await call("POST", "/settings", { cookie: admin, page: true, body: { values: { "settings.editor": "idea", "runs.newRunFrom": "defaults" } } })).status).toBe(200);
+    expect(((await call("GET", "/settings", { cookie: user })).body.data as unknown as S).values).toMatchObject({ "settings.editor": "idea", "runs.newRunFrom": "defaults" });
+    expect(((await call("GET", "/settings", { cookie: viewer })).body.data as unknown as S).values["settings.editor"]).toBe("cursor");
+    // Back to the default with null; server-wide settings aren't anyone's own.
+    await call("POST", "/settings/mine", { cookie: viewer, page: true, body: { values: { "settings.editor": null } } });
+    expect(((await call("GET", "/settings", { cookie: viewer })).body.data as unknown as S).values["settings.editor"]).toBe("idea");
+    const server = await call("POST", "/settings/mine", { cookie: user, page: true, body: { values: { "runs.resumeOnStart": true } } });
+    expect(server.status).toBe(403);
+    expect(server.body.error?.code).toBe("server_setting");
+  });
+
+  it("lists the Account page with login on and the Admin page for admins only", async () => {
+    const { auth, call, signIn } = await make();
+    await auth.add({ name: "admin1", password: PASSWORD, role: "admin" });
+    await auth.add({ name: "uma", password: PASSWORD, role: "user" });
+    const names = async (cookie: string) => ((await call("GET", "/health", { cookie })).body.data as unknown as { pages: { name: string }[] }).pages.map((p) => p.name);
+    expect(await names(await signIn("admin1"))).toEqual(expect.arrayContaining(["account", "settings", "admin"]));
+    const forUser = await names(await signIn("uma"));
+    expect(forUser).toEqual(expect.arrayContaining(["account", "settings"]));
+    expect(forUser).not.toContain("admin");
+  });
+
   it("takes API tokens, never as the web page", async () => {
     const { auth, call, signIn } = await make();
     await auth.add({ name: "dumi", password: PASSWORD, role: "user" });

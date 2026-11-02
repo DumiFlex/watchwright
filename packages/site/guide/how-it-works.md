@@ -38,4 +38,4 @@ Each operation is declared once as an action with a JSON Schema for its input an
 
 ## Running on its own
 
-A [schedule](./schedules) starts a pack's run by itself, every so often or at a time of day, while the server runs; on Windows, Settings can start the server when you sign in. [Alerts](./alerts) tell you how runs went when the web page is closed: on your phone through ntfy, in Discord or Slack, or at a webhook of your own. Tests that need passwords read them from [secrets](./yaml-tests#secrets), and runs of a site that needs signing in can start from a [saved sign-in](./yaml-tests#saved-sign-ins).
+A [schedule](./schedules) starts a pack's run by itself, every so often or at a time of day, while the server runs; on Windows, the Admin page can start the server when you sign in. [Alerts](./alerts) tell you how runs went when the web page is closed: on your phone through ntfy, in Discord or Slack, or at a webhook of your own. Tests that need passwords read them from [secrets](./yaml-tests#secrets), and runs of a site that needs signing in can start from a [saved sign-in](./yaml-tests#saved-sign-ins).

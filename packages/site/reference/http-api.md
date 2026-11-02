@@ -107,17 +107,18 @@ Events: `record.started`, `record.status` `{ status, message }`, `record.replay-
 
 ## Settings
 
-Preferences for the whole machine, the same for every browser and agent. Plugins declare them; the web app's Settings page edits them. The look and mode stay in each browser.
+Preferences kept by the server. Plugins declare them, each with a scope: a `server` setting has one value for everyone (the web app's Admin page edits it), and a `user` setting is each person's own (their Settings page), falling back to the server value, then the default. With login off there is one person, so their values are the server's. The look and mode stay in each browser.
 
 | Method and path | Does |
 |---|---|
-| `GET /settings` | `{ values, definitions }`: every setting's value (its default when never changed) and, for each, `key`, `title`, the JSON Schema of its value and its `default`. |
-| `POST /settings` `{ values }` | Changes several settings at once, all or none; `null` puts one back to its default. Returns `{ values }`. 400 `unknown_setting` or `invalid_setting`. |
+| `GET /settings` | `{ values, server, definitions }`: `values` is every setting as it applies to you (your own value of a `user` setting when you set one), `server` the server-wide values, and each definition has `key`, `title`, the JSON Schema of its value, its `default` and its `scope`. |
+| `POST /settings` `{ values }` | Admins: changes server-wide values (for a `user` setting, the default for people who haven't set theirs), all or none; `null` puts one back to its default. Returns `{ values, server }`. 400 `unknown_setting` or `invalid_setting`. |
+| `POST /settings/mine` `{ values }` | Changes your own values of `user` settings, all or none; `null` goes back to the server value. Any role. Returns `{ values, server }`. 403 `server_setting` for a `server` setting. |
 
 The settings so far:
 
-- `settings.editor`: the editor that file links open in (`vscode`, `cursor`, `windsurf`, `idea`, `webstorm` or `none`; default `vscode`).
-- `runs.newRunFrom`: what the New run page fills in when it opens: `latest` (the pack's latest run, the default) or `defaults` (the pack's defaults).
+- `settings.editor` (user): the editor that file links open in (`vscode`, `cursor`, `windsurf`, `idea`, `webstorm` or `none`; default `vscode`).
+- `runs.newRunFrom` (user): what the New run page fills in when it opens: `latest` (the pack's latest run, the default) or `defaults` (the pack's defaults).
 - `runs.resumeOnStart`: when the server starts, resume the runs its last stop (or a crash) interrupted, where they were (default false: they wait for `POST /runs/:id/resume`).
 - `runs.storageWarnGB`: free space (GB) on the drive with the data folder below which a run warns (default 5).
 - `runs.storageStopGB`: free space (GB) below which a run records no more videos; it goes on without them (default 1).

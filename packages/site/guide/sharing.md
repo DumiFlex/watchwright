@@ -11,7 +11,7 @@ Anyone with the link sees the run's results, errors, screenshots, videos and fil
 - **Traces and network files stay private** unless you turn on **Include traces and network files**. A Playwright trace and the network files a run collected can hold cookies and tokens the site set, so share them only with people who need them.
 - **Reviewers show as "Reviewer 1", "Reviewer 2"** unless you turn on **Show reviewers' names**.
 - **What a pack never shares.** A pack's [`share` block](./dashboards#keeping-things-out-of-shares) keeps its texts, metrics, reviews or named outputs out of every share link and the status page.
-- **Take a link back** in the Share box on the run's page, or in **Settings › Sharing**, which lists every link that still works, who made it and how often it was opened. A link stops working at once when it is taken back, when it expires, or when its run is deleted.
+- **Take a link back** in the Share box on the run's page, or under **Sharing** (Admin for admins, Settings for everyone else), which lists every link that still works, who made it and how often it was opened. A link stops working at once when it is taken back, when it expires, or when its run is deleted.
 - **Who can make one.** With [login](./safety#login) on, people with the user or admin role. Viewers can't.
 
 A link uses the address you opened Watchwright at. When that is `127.0.0.1` or `localhost`, the link works only on your own computer: open Watchwright at the address other people use, or start it with [`--public-url`](../reference/cli#serve).
@@ -20,7 +20,7 @@ Without login, anyone who can reach the server already sees everything, so a sha
 
 ## Public status page
 
-An admin can turn on a status page at `#/status` in **Settings › Sharing**:
+An admin can turn on a status page at `#/status` in **Admin › Sharing**:
 
 1. Turn on **Public status page**.
 2. Under **Packs shown**, pick the packs it shows, and give the page a title.

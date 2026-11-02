@@ -33,6 +33,7 @@ import { resetHead, setIconDot, setTitle } from "../pagehead";
 import { openModals } from "../popup";
 import { runTitle, runTone, settingsText } from "../runstate";
 import { can } from "../session";
+import { sectionHref } from "../settingspages";
 import { vTip } from "../tooltip";
 
 const props = defineProps<{ id: string }>();
@@ -593,8 +594,8 @@ async function remove() {
       <p v-if="markSaved" class="muted small" role="status">{{ markSaved }}</p>
       <p v-if="live?.storageLow" class="banner warn" role="alert">
         <strong>The drive is almost full:</strong> {{ fileSize(live.storageLow.freeBytes) }} free.
-        {{ live.storageLow.videosOff ? "This run records no more videos, so it can finish." : "Below the limit in Settings, runs stop recording videos." }}
-        <a href="#/settings?section=storage">See what takes the room</a>
+        {{ live.storageLow.videosOff ? "This run records no more videos, so it can finish." : "Below the limit in Admin, runs stop recording videos." }}
+        <a :href="sectionHref('storage')">See what takes the room</a>
       </p>
 
       <div v-if="live" class="banner" :class="{ warn: live.state !== 'running' }" role="status">

@@ -1,5 +1,6 @@
 import { ActionError, describeAction, defineAction } from "../actions/registry.js";
 import { EVENTS_MIGRATION_SQL } from "../events/log.js";
+import { allows } from "./access.js";
 import { ACTIONS, LOGIN, PAGES } from "./keys.js";
 import { VERSION } from "../version.js";
 import { definePlugin, type PluginPage } from "./plugin.js";
@@ -99,7 +100,8 @@ export const corePlugin = definePlugin({
         version: VERSION,
         dataDir: store.dataDir,
         plugins: plugins.map((name) => ({ name, schemaVersion: store.schemaVersion(name) })),
-        pages: [...services.get(PAGES)],
+        // Pages for login only, or for a higher role than the caller's, stay out of the menu.
+        pages: services.get(PAGES).filter((p) => (on ? !p.access || allows(p.access, user) : !p.loginOnly)),
         login: loginInfo,
       };
       return { data };

@@ -103,7 +103,7 @@ async function submit() {
         <p v-if="error && !sso" class="error small" role="alert">{{ error }}</p>
         <button type="submit" :class="['btn', 'go', sso ? '' : 'primary']" :disabled="!ready || busy"><LogIn :size="15" /> {{ mode === "setup" ? "Create admin and sign in" : mode === "invite" ? "Make account and sign in" : "Sign in" }}</button>
       </template>
-      <p v-if="!setup && (!sso || formShown)" class="muted small">Forgot your password? An admin can set a new one in Settings, or on the server with <code>watchwright users reset-password &lt;name&gt;</code>.</p>
+      <p v-if="!setup && (!sso || formShown)" class="muted small">Forgot your password? An admin can set a new one on the Admin page, or on the server with <code>watchwright users reset-password &lt;name&gt;</code>.</p>
     </form>
   </main>
 </template>

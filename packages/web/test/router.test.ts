@@ -22,6 +22,8 @@ describe("router", () => {
     expect(parseRoute("#/settings")).toEqual({ name: "settings" });
     expect(parseRoute("#/settings?section=storage")).toEqual({ name: "settings", section: "storage" });
     expect(parseRoute("#/settings?section=Bad!")).toEqual({ name: "settings" });
+    expect(parseRoute("#/account")).toEqual({ name: "account" });
+    expect(parseRoute("#/admin?section=server")).toEqual({ name: "admin", section: "server" });
     expect(parseRoute("#/schedules")).toEqual({ name: "schedules" });
     expect(parseRoute("#/compare?runs=0a1b2c3d,1a1b2c3d")).toEqual({ name: "compare", query: { runs: "0a1b2c3d,1a1b2c3d" } });
     expect(parseRoute("#/s/AbCdEfGhIjKlMnOpQr_-12")).toEqual({ name: "shared", token: "AbCdEfGhIjKlMnOpQr_-12" });
@@ -56,6 +58,8 @@ describe("router", () => {
       { name: "kit" },
       { name: "settings" },
       { name: "settings", section: "storage" },
+      { name: "account", section: "tokens" },
+      { name: "admin" },
       { name: "schedules" },
       { name: "shared", token: "AbCdEfGhIjKlMnOpQr_-12" },
       { name: "status" },

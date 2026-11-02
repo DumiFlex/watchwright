@@ -205,7 +205,7 @@ const label = (step: RecordEntry) => {
   }
 };
 
-// Save sign-in: the browser's cookies and local storage become the site's sign-in (Settings > Sign-ins).
+// Save sign-in: the browser's cookies and local storage become the site's sign-in (Admin > Sign-ins).
 const savingSignIn = ref(false);
 async function saveSignIn() {
   const s = state.value;

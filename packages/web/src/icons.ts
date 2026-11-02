@@ -105,6 +105,7 @@ export {
   Settings,
   Share2,
   ShieldAlert,
+  ShieldCheck,
   SkipForward,
   Square,
   Star,

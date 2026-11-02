@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Settings > Runners: machines that let runs reach sites only they can reach (a site on someone's
+// Admin > Runners (others see it on Settings): machines that let runs reach sites only they can reach (a site on someone's
 // PC, for a server in Docker or elsewhere). Adding one shows the command to run on that machine,
 // with a one-time pair code; the list shows which runners are connected now
 // (docs/plans/self-hosting.md, section 6).
