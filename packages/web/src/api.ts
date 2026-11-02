@@ -125,8 +125,12 @@ export interface FolderListing {
 
 export interface FolderPlaces {
   home: string;
+  /** Where the folder browser opens (the first allowed folder on a server that limits browsing); older servers leave it out. */
+  start?: string;
   sep: string;
   roots: string[];
+  /** Folders can be shown in a file manager (not on a server without a screen); older servers leave it out. */
+  canOpen?: boolean;
   recent: { path: string; usedAt: string; exists: boolean }[];
 }
 

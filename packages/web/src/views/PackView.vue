@@ -51,6 +51,7 @@ const testHistory = computed(() => {
 const error = ref<string | null>(null);
 const reloading = ref(false);
 const home = ref<string | null>(null);
+const canOpen = ref(true);
 const moveOpen = ref(false);
 const removeOpen = ref(false);
 
@@ -240,7 +241,10 @@ let live: LiveConnection | null = null;
 onMounted(async () => {
   void load();
   const places = await getJson<FolderPlaces>("/api/v1/folders/places");
-  if (places.ok) home.value = places.data.home;
+  if (places.ok) {
+    home.value = places.data.home;
+    canOpen.value = places.data.canOpen ?? true;
+  }
   live = new LiveConnection({}, { onEvent: (e) => (/^(pack|run)\./.test(e.type) ? void load() : e.type === "editor.file_changed" && void loadReadme()) });
 });
 onBeforeUnmount(() => live?.close());
@@ -259,7 +263,7 @@ onBeforeUnmount(() => live?.close());
             {{ pack.browser }}<template v-if="pack.baseURL"> · {{ pack.baseURL }}</template><template v-if="pack.siteKey"> · site key <code>{{ pack.siteKey }}</code></template>
             <template v-if="pack.loadedAt"> · <span v-tip="when(pack.loadedAt)">built {{ ago(pack.loadedAt) }}</span></template>
           </p>
-          <PathLine class="path" :path="pack.dir" :home="home" :openable="!pack.missing" />
+          <PathLine class="path" :path="pack.dir" :home="home" :openable="canOpen && !pack.missing" />
         </div>
         <div class="acts">
           <button v-if="pack.missing" class="btn primary" @click="moveOpen = true">Locate…</button>

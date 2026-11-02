@@ -1,4 +1,5 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { hasDesktop } from "../../host.js";
 import { rm } from "node:fs/promises";
 import path from "node:path";
 import type { BrowserContext, Page } from "playwright";
@@ -1028,7 +1029,8 @@ export class Engine {
       session = await BrowserSession.launch(
         {
           browser: o.browser?.name ?? "chromium",
-          headless: o.browser?.headless ?? true,
+          // A machine with no screen (a container) can't show a browser, so it runs headless whatever the pack asks.
+          headless: (o.browser?.headless ?? true) || !hasDesktop(),
           viewport: o.browser?.viewport ?? { width: 1280, height: 800 },
           launch: o.browser?.launch,
           context: signIn ? { ...o.browser?.context, storageState: signIn } : o.browser?.context,

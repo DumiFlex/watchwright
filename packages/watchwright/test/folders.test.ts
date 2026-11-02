@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { FOLDERS, FolderError, cleanPath } from "../src/plugins/folders/folders.js";
 import { cleanTempDirs, tempDir, writeFiles } from "./helpers/fixtures.js";
 import { startHarness, type Harness } from "./helpers/harness.js";
@@ -10,6 +10,7 @@ const PACK = `import { pack } from "watchwright";\nexport default pack({ name: "
 
 const harnesses: Harness[] = [];
 afterEach(async () => {
+  vi.unstubAllEnvs();
   for (const h of harnesses.splice(0)) await h.close();
   cleanTempDirs();
 });
@@ -91,6 +92,8 @@ describe("folders plugin", () => {
   });
 
   it("opens only pack folders and the data folder, and never a file", async () => {
+    // As on a desktop, whatever machine the test runs on.
+    vi.stubEnv("WATCHWRIGHT_SERVER_HOST", "0");
     const root = tempDir("ww-tree-");
     writeFiles(root, { "shop/pack.ts": PACK, "elsewhere/x.txt": "x" });
     const h = await harness();

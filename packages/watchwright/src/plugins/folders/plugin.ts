@@ -1,8 +1,9 @@
 import { ActionError, defineAction } from "../../actions/registry.js";
 import { definePlugin } from "../../core/plugin.js";
+import { folderRoots, hasDesktop } from "../../host.js";
 import { FOLDERS, FOLDERS_MIGRATION_SQL, FolderError, FolderService } from "./folders.js";
 
-const STATUS: Record<FolderError["code"], number> = { bad_path: 400, not_found: 404, not_a_folder: 400, unreadable: 403, not_allowed: 403 };
+const STATUS: Record<FolderError["code"], number> = { bad_path: 400, not_found: 404, not_a_folder: 400, unreadable: 403, not_allowed: 403, no_desktop: 409 };
 
 function wrap<T>(fn: () => T): T {
   try {
@@ -18,7 +19,7 @@ export const foldersPlugin = definePlugin({
   name: "folders",
   migrations: [{ id: 1, name: "recent", sql: FOLDERS_MIGRATION_SQL }],
   setup({ store, services }) {
-    services.provide(FOLDERS, new FolderService(store.db, { dataDir: store.dataDir }));
+    services.provide(FOLDERS, new FolderService(store.db, { dataDir: store.dataDir, roots: folderRoots(), desktop: hasDesktop() }));
   },
   actions: ({ services }) => {
     const folders = services.get(FOLDERS);
@@ -40,10 +41,10 @@ export const foldersPlugin = definePlugin({
       }),
       defineAction({
         name: "folders.places",
-        title: "Where to start browsing: the home folder, drives or root, and recent folders",
+        title: "Where to start browsing: the home folder, drives or root (or the folders the server allows), recent folders, and whether folders can be shown in a file manager",
         method: "GET",
         path: "/folders/places",
-        handler: () => folders.places(),
+        handler: () => ({ ...folders.places(), canOpen: folders.canOpen }),
       }),
       defineAction<{ path?: string }>({
         name: "folders.forget",
