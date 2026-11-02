@@ -39,6 +39,7 @@ export default defineConfig({
           { text: "Safety", link: "/guide/safety" },
           { text: "Single sign-on", link: "/guide/single-sign-on" },
           { text: "Sharing", link: "/guide/sharing" },
+          { text: "Self-hosting", link: "/guide/self-hosting" },
         ],
       },
       {

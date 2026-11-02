@@ -1,4 +1,5 @@
 import { ActionError, defineAction } from "../../actions/registry.js";
+import { hasDesktop } from "../../host.js";
 import { definePlugin } from "../../core/plugin.js";
 import { serviceKey } from "../../core/services.js";
 import { FRAMES } from "../live/hub.js";
@@ -52,10 +53,8 @@ export class Recordings {
 export const RECORDINGS = serviceKey<Recordings>("record.sessions");
 
 /** True when a browser window can open on the server's machine (Record in a window). */
-export function canOpenWindow(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): boolean {
-  if (platform === "win32" || platform === "darwin") return true;
-  return Boolean(env.DISPLAY || env.WAYLAND_DISPLAY);
-}
+/** Whether a recording can open a window on this machine: only on a desktop (see host.ts). */
+export const canOpenWindow = hasDesktop;
 
 const REC = { type: "string", pattern: "^[0-9a-f]{8}$", description: "Recording id." } as const;
 const STEP_ID = { type: "string", pattern: "^s[0-9]+$" } as const;

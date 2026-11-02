@@ -38,6 +38,8 @@ export interface FolderListing {
 
 export interface FolderPlaces {
   home: string;
+  /** Where the folder browser opens: the home folder, or the first allowed folder when browsing is limited. */
+  start: string;
   sep: string;
   /** Drives on Windows (`C:\`), `/` elsewhere. */
   roots: string[];
@@ -46,7 +48,7 @@ export interface FolderPlaces {
 
 export class FolderError extends Error {
   constructor(
-    readonly code: "bad_path" | "not_found" | "not_a_folder" | "unreadable" | "not_allowed",
+    readonly code: "bad_path" | "not_found" | "not_a_folder" | "unreadable" | "not_allowed" | "no_desktop",
     message: string,
   ) {
     super(message);
@@ -100,7 +102,15 @@ export class FolderService {
 
   constructor(
     private readonly db: Database.Database,
-    private readonly opts: { home?: string; platform?: NodeJS.Platform; dataDir?: string } = {},
+    private readonly opts: {
+      home?: string;
+      platform?: NodeJS.Platform;
+      dataDir?: string;
+      /** The only folders the browser may show (WATCHWRIGHT_FOLDERS); undefined or null: anywhere. */
+      roots?: readonly string[] | null;
+      /** Whether there is a file manager to show folders in (false in a container). */
+      desktop?: boolean;
+    } = {},
   ) {
     const data = opts.dataDir;
     if (data && data !== ":memory:") this.allowOpen((dir) => isInside(dir, data));
@@ -108,6 +118,21 @@ export class FolderService {
 
   get home(): string {
     return this.opts.home ?? homedir();
+  }
+
+  /** Where browsing starts: the first allowed folder when browsing is limited, else the home folder. */
+  get start(): string {
+    return this.opts.roots?.[0] ?? this.home;
+  }
+
+  /** Whether `open` can show a folder (there is a desktop with a file manager). */
+  get canOpen(): boolean {
+    return this.opts.desktop ?? true;
+  }
+
+  private allowed(dir: string): boolean {
+    const roots = this.opts.roots;
+    return !roots || roots.some((r) => isInside(dir, r));
   }
 
   private get platform(): NodeJS.Platform {
@@ -139,6 +164,7 @@ export class FolderService {
 
   list(input: string, opts: { hidden?: boolean } = {}): FolderListing {
     const dir = this.clean(input);
+    if (!this.allowed(dir)) throw new FolderError("not_allowed", `This server only shows folders inside ${this.opts.roots!.join(", ")}.`);
     if (!existsSync(dir)) throw new FolderError("not_found", `There is no folder at ${dir}.`);
     if (!statSync(dir).isDirectory()) throw new FolderError("not_a_folder", `${dir} is a file, not a folder.`);
     let names: string[];
@@ -155,7 +181,7 @@ export class FolderService {
     const parent = path.dirname(dir);
     return {
       path: dir,
-      parent: parent === dir ? null : parent,
+      parent: parent === dir || !this.allowed(parent) ? null : parent,
       sep: path.sep,
       marks: this.marksOf(dir),
       folders: shown.map((name) => {
@@ -167,10 +193,11 @@ export class FolderService {
   }
 
   places(): FolderPlaces {
-    return { home: this.home, sep: path.sep, roots: this.roots(), recent: this.recent() };
+    return { home: this.home, start: this.start, sep: path.sep, roots: this.roots(), recent: this.recent() };
   }
 
   roots(): string[] {
+    if (this.opts.roots) return [...this.opts.roots];
     if (this.platform !== "win32") return ["/"];
     const out: string[] = [];
     for (let c = 65; c <= 90; c++) {
@@ -182,7 +209,7 @@ export class FolderService {
 
   recent(): FolderPlaces["recent"] {
     const rows = this.db.prepare("SELECT path, used_at FROM folders_recent ORDER BY used_at DESC, rowid DESC LIMIT ?").all(MAX_RECENT) as { path: string; used_at: string }[];
-    return rows.map((r) => ({ path: r.path, usedAt: r.used_at, exists: isDir(r.path) }));
+    return rows.filter((r) => this.allowed(r.path)).map((r) => ({ path: r.path, usedAt: r.used_at, exists: isDir(r.path) }));
   }
 
   /** Puts a folder at the top of the recent list (the list keeps the newest ten). */
@@ -198,6 +225,7 @@ export class FolderService {
 
   /** Shows a folder in Explorer, Finder or the desktop's file manager. Only folders a plugin allowed. */
   open(input: string, launch: (cmd: string, args: string[]) => void = launchDetached): string {
+    if (!this.canOpen) throw new FolderError("no_desktop", "This server has no screen, so there is no file manager to show the folder in.");
     const dir = this.clean(input);
     if (!isDir(dir)) throw new FolderError("not_found", `There is no folder at ${dir}.`);
     if (!this.openable.some((ok) => ok(dir))) throw new FolderError("not_allowed", "Watchwright only opens pack folders and its own run folders.");

@@ -45,3 +45,27 @@ jobs:
       - run: pnpm build
       - name: Check what the npm package would contain
         run: pnpm --filter watchwright check-package
+
+  # The Docker image builds from this commit's package and its server starts and answers.
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Pack watchwright for the image
+        working-directory: packages/watchwright
+        run: pnpm pack --pack-destination ../../docker/dist
+      - name: Build the image
+        run: |
+          playwright=$(node -p "require('./packages/watchwright/node_modules/playwright/package.json').version")
+          docker build --build-arg PLAYWRIGHT_VERSION="$playwright" -t watchwright:ci docker
+      - name: Start it and check it answers
+        run: bash docker/smoke.sh watchwright:ci

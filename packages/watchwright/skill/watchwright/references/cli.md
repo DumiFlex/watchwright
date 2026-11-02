@@ -37,6 +37,8 @@ Starts the server: the web page, the [HTTP API](https://dumiflex.github.io/watch
 | `--public-url` | An address people reach the server at, such as `https://watchwright.home.lan` behind a reverse proxy, or `http://192.168.1.20:7420`. Requests may name its host, and the web page may make changes from it. Repeat it for more than one, or set `WATCHWRIGHT_PUBLIC_URL` with commas. |
 | `--trust-proxy` | The reverse proxy whose `X-Forwarded-For` and `X-Forwarded-Proto` headers count: an address or a range like `172.18.0.0/16`. Repeat it, or set `WATCHWRIGHT_TRUST_PROXY` with commas. Without it those headers are ignored. |
 | `--data` | Folder for the database and run files (default: `WATCHWRIGHT_DATA`, else the system's app data folder). |
+
+On a machine without a screen (`WATCHWRIGHT_SERVER_HOST=1`, or Linux without `DISPLAY` or `WAYLAND_DISPLAY`) browsers always run headless and folders aren't shown in a file manager; `WATCHWRIGHT_FOLDERS` keeps the web app's folder browser inside the folders it lists. See [Self-hosting](https://dumiflex.github.io/watchwright/guide/self-hosting#what-s-different-in-a-container).
 | `--no-open` | Don't open the web page on start. |
 | `--background` | Run the server as its own process with no window, so no terminal has to stay open. The command returns once the server answers (it waits up to 30 seconds and shows the end of the log when the server doesn't come up). The server's output goes to `logs/server.log` in the data folder (past 5 MB the old one is kept as `server.old.log`). Stop it with **Settings > Server > Stop Watchwright**. |
 

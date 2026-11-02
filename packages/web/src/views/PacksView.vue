@@ -29,6 +29,7 @@ const addError = ref<string | null>(null);
 const adding = ref(false);
 const reloading = ref<string | null>(null);
 const home = ref<string | null>(null);
+const canOpen = ref(true);
 
 const dialogOpen = ref(false);
 const dialogMode = ref<"add" | "find" | "move">("add");
@@ -120,7 +121,10 @@ onMounted(async () => {
   void load();
   live = new LiveConnection({}, { onEvent: (e) => e.type.startsWith("pack.") && void load() });
   const places = await getJson<FolderPlaces>("/api/v1/folders/places");
-  if (places.ok) home.value = places.data.home;
+  if (places.ok) {
+    home.value = places.data.home;
+    canOpen.value = places.data.canOpen ?? true;
+  }
 });
 onBeforeUnmount(() => live?.close());
 </script>
@@ -156,7 +160,7 @@ onBeforeUnmount(() => live?.close());
         <p class="facts muted small">
           {{ p.tests.length }} tests<template v-if="sections(p)"> · {{ sections(p) }}</template> · {{ p.browser }}<template v-if="p.baseURL"> · {{ p.baseURL }}</template>
         </p>
-        <PathLine :path="p.dir" :home="home" :openable="!p.missing" />
+        <PathLine :path="p.dir" :home="home" :openable="canOpen && !p.missing" />
         <p v-if="p.missing" class="warn small">
           <TriangleAlert :size="14" />
           The pack's folder is gone. If it moved, locate it; its runs stay.
