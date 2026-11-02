@@ -26,6 +26,8 @@ claude mcp add --transport http watchwright http://127.0.0.1:7420/api/v1/mcp
 codex mcp add watchwright --url http://127.0.0.1:7420/api/v1/mcp
 ```
 
+On a server with [login](./safety#login) on, each person's agent connects with that person's own API token and acts as them; **Settings › Agents** makes one and fills it in (see [With login on](../reference/mcp#with-login-on)).
+
 Agents that start a process instead (Claude Desktop) run `watchwright mcp`, which starts the server when it isn't running. Agents without MCP can use the [command line](../reference/cli) from their shell; it prints short text, and the exit code says how a run went. Every tool is listed in [MCP tools](../reference/mcp).
 
 ## What an agent can do

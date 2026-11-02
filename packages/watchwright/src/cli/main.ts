@@ -10,6 +10,7 @@ import { initAgentCommand } from "./init-agent.js";
 import { mcpCommand } from "./mcp.js";
 import { serveCommand } from "./serve.js";
 import { usersCommand } from "./users.js";
+import { loginCommand, logoutCommand } from "./login.js";
 
 const HELP = `Watchwright ${VERSION}
 
@@ -23,7 +24,9 @@ Usage:
   watchwright results <run> [--attempt <id>]
   watchwright actions
   watchwright mcp [--no-start]
-  watchwright init-agent [folder] [--agent claude,codex,cursor] [--no-mcp]
+  watchwright init-agent [folder] [--agent claude,codex,cursor] [--no-mcp] [--auth]
+  watchwright login [--name <name>] [--password-stdin] [--token <token>]
+  watchwright logout
   watchwright users list|add|reset-password|role|disable|enable|remove …  (--help for details)
   watchwright <plugin> <verb> [args] [--options]     any action, such as: watchwright runs pause 0a1b2c3d
   watchwright --version
@@ -67,7 +70,13 @@ mcp        The MCP server over stdio, for agents that start a process (Claude De
 init-agent Sets up a project (default: this folder) for AI agents: the Watchwright skill where
            Claude Code, Codex or Cursor look for skills, and the MCP server in the project's
            settings (merged; Codex gets a command to run). Without --agent: the agents whose
-           folders the project has, else all three. --no-mcp writes only the skill.
+           folders the project has, else all three. --no-mcp writes only the skill. When the server
+           has login on (or with --auth), the settings send the token from WATCHWRIGHT_TOKEN.
+login      Signs in to a server that has login on (asks for name and password, or --name and
+           --password-stdin), makes an API token named after this machine and saves it for that
+           server, so commands and \`watchwright mcp\` send it. --token <token> saves a token made on
+           the web page instead (for single sign-on accounts).
+logout     Removes the saved token, on the server and here.
 users      Accounts for login, on this machine's data folder (works with the server stopped):
            list, add <name> [--role admin|user|viewer], reset-password <name>, role <name> <role>,
            disable <name>, enable <name>, remove <name>. Passwords are asked for at the terminal,
@@ -80,7 +89,7 @@ Everywhere:
   --as <name>         Who is calling, shown on runs (default: WATCHWRIGHT_CLIENT, else the agent
                       this runs under, such as Claude Code or Codex, else cli).
   --json              Print the data as JSON instead of text.
-  WATCHWRIGHT_TOKEN   An API token for a server with login on (make one on the web page).
+  WATCHWRIGHT_TOKEN   An API token for a server with login on; wins over the one \`login\` saved.
 
 Exit codes: 0 done (a run passed), 1 failed, 2 bad usage, 3 no server, 4 the run had failed or
 broken attempts, 5 the run is paused, 6 the run still goes, 7 an action waits for approval on
@@ -135,7 +144,7 @@ async function main(argv: string[]): Promise<number> {
     return command === undefined ? EXIT.usage : EXIT.ok;
   }
   // These parse their own options; --help after them shows the help above, where they are described.
-  if ((command === "serve" || command === "demo" || command === "mcp" || command === "init-agent") && (argv.includes("--help") || argv.includes("-h"))) {
+  if ((command === "serve" || command === "demo" || command === "mcp" || command === "init-agent" || command === "login" || command === "logout") && (argv.includes("--help") || argv.includes("-h"))) {
     console.log(HELP);
     return EXIT.ok;
   }
@@ -143,7 +152,9 @@ async function main(argv: string[]): Promise<number> {
   if (command === "demo") return demoCommand(argv.slice(1));
   if (command === "mcp") return mcpCommand(argv.slice(1));
   if (command === "users") return usersCommand(argv.slice(1));
-  if (command === "init-agent") return guarded(processIo, false, () => Promise.resolve(initAgentCommand(processIo, argv.slice(1))));
+  if (command === "login") return guarded(processIo, false, () => loginCommand(argv.slice(1)));
+  if (command === "logout") return guarded(processIo, false, () => logoutCommand(argv.slice(1)));
+  if (command === "init-agent") return guarded(processIo, false, () => initAgentCommand(processIo, argv.slice(1)));
 
   const args = argv.slice(1);
   const io = processIo;

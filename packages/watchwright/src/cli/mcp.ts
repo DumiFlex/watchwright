@@ -76,7 +76,7 @@ export async function mcpCommand(argv: string[]): Promise<number> {
   };
   // Tell the server who called which tool, for Settings > Agents; a miss doesn't matter.
   const onCall = (client: string, tool: string) =>
-    void fetch(new URL("api/v1/agents/seen", base), { method: "POST", headers: { "content-type": "application/json", ...tokenHeader() }, body: JSON.stringify({ client, tool }), signal: AbortSignal.timeout(2000) }).catch(() => undefined);
+    void fetch(new URL("api/v1/agents/seen", base), { method: "POST", headers: { "content-type": "application/json", ...tokenHeader(base) }, body: JSON.stringify({ client, tool }), signal: AbortSignal.timeout(2000) }).catch(() => undefined);
   const handle = serveStdio(() => buildMcpServer({ version: VERSION, actions, door, caller: (info) => (given ? given.slice(0, 60) : (info ?? "mcp")), onCall, page: new URL("/", base).href }), {
     onerror: (err) => process.stderr.write(`${err.message}\n`),
   });

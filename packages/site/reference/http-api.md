@@ -23,7 +23,7 @@ These work with [login](../guide/safety#login) on. With it off, the user routes 
 
 | Method and path | Does |
 |---|---|
-| `GET /auth/me` | `{ on, user, setupNeeded }`: whether login is on, who is signed in (`{ id, name, displayName, role, via }`, `via` is `session` or `token`), and whether the first admin still has to be made. Anyone may call it. |
+| `GET /auth/me` | `{ on, user, setupNeeded }`: whether login is on, who is signed in (`{ id, name, displayName, role, via, tokenId? }`, `via` is `session` or `token`, and `tokenId` says which token a client called with), and whether the first admin still has to be made. Anyone may call it. |
 | `POST /auth/signin` `{ name, password }` | Signs in: sets the `ww_session` cookie (HttpOnly, SameSite=Lax, Secure on https, 30 days from the last use). 401 `wrong_sign_in`; 429 `too_many_tries` after five wrong tries for a name or an address within 15 minutes (the wait doubles from one second to a minute). |
 | `POST /auth/signout` | Ends this sign-in. |
 | `POST /auth/setup` `{ code, name, password }` | Creates the first admin with the one-time code the server printed at start, and signs in. 409 `set_up` once there is a user. |

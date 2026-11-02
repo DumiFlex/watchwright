@@ -1,5 +1,6 @@
 import type { ActionInfo } from "../actions/registry.js";
 import { DEFAULT_PORT } from "../config.js";
+import { tokenFor } from "./credentials.js";
 
 // The CLI's (and the stdio MCP bridge's) way to a running server: the address, who is calling,
 // and calls by action, so every plugin's actions work without the client knowing them.
@@ -31,9 +32,9 @@ export function clientName(flag: string | undefined, env: NodeJS.ProcessEnv = pr
   return AGENTS.find(([, test]) => test(env))?.[0] ?? "cli";
 }
 
-/** `Authorization: Bearer` from WATCHWRIGHT_TOKEN, for a server with login on; nothing when it isn't set. */
-export function tokenHeader(env: NodeJS.ProcessEnv = process.env): Record<string, string> {
-  const token = env.WATCHWRIGHT_TOKEN?.trim();
+/** `Authorization: Bearer` for a server with login on: WATCHWRIGHT_TOKEN, else the token `watchwright login` saved for it; nothing without either. */
+export function tokenHeader(base: string, env: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const token = tokenFor(base, env);
   return token ? { authorization: `Bearer ${token}` } : {};
 }
 
@@ -73,7 +74,7 @@ export class Client {
 
   /** The server's health, or null when no Watchwright answers. */
   async health(timeoutMs = 2000): Promise<Health | null> {
-    const res = await fetch(`${this.base}api/v1/health`, { headers: tokenHeader(), signal: AbortSignal.timeout(timeoutMs) }).catch(() => null);
+    const res = await fetch(`${this.base}api/v1/health`, { headers: tokenHeader(this.base), signal: AbortSignal.timeout(timeoutMs) }).catch(() => null);
     if (!res) return null;
     const body = (await res.json().catch(() => null)) as { data?: Health } | null;
     return body?.data?.name === "watchwright" ? body.data : null;
@@ -96,7 +97,7 @@ export class Client {
     try {
       res = await fetch(url, {
         method,
-        headers: { "x-watchwright-client": this.client, ...tokenHeader(), ...(confirmed ? { "x-watchwright-confirmed": "terminal" } : {}), ...(body !== undefined ? { "content-type": "application/json" } : {}) },
+        headers: { "x-watchwright-client": this.client, ...tokenHeader(this.base), ...(confirmed ? { "x-watchwright-confirmed": "terminal" } : {}), ...(body !== undefined ? { "content-type": "application/json" } : {}) },
         ...(body !== undefined ? { body } : {}),
         signal: signal ? AbortSignal.any([signal, limit]) : limit,
       });

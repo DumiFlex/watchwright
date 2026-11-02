@@ -143,7 +143,7 @@ const day = (iso: string) => new Date(iso).toLocaleDateString();
 
     <h3 class="sub">API tokens</h3>
     <p class="muted small">
-      For the command line, scripts and AI agents: they send the token instead of signing in, and act as you. Set it as <code>WATCHWRIGHT_TOKEN</code> for the CLI, or as the <code>Authorization: Bearer</code> header in an MCP
+      For the command line, scripts and AI agents: they send the token instead of signing in, and act as you. Set it as <code>WATCHWRIGHT_TOKEN</code> for the CLI (or run <code>watchwright login</code>, which makes and saves one), or as the <code>Authorization: Bearer</code> header in an MCP
       client's settings. Deleting things through a token still waits for your approval here.
     </p>
     <ul v-if="tokens && tokens.length" class="tokens">

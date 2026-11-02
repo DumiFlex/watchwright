@@ -57,7 +57,7 @@ const DEFAULT_SERVER = `http://127.0.0.1:${DEFAULT_PORT}/`;
 export const agentsPlugin = definePlugin({
   name: "agents",
   migrations: [{ id: 1, name: "seen", sql: Seen.SQL }],
-  actions: ({ store }) => [
+  actions: ({ store, services }) => [
     defineAction<{ days?: number }>({
       name: "agents.seen",
       title: "Agents that called the MCP server lately: when, their last tool, how many calls and how many runs and explore sessions they started",
@@ -83,7 +83,7 @@ export const agentsPlugin = definePlugin({
       },
       handler: ({ folder, agents, mcp = true, server }) => {
         try {
-          return installAgents({ folder, ...(agents ? { agents } : {}), mcp, url: mcpUrl(server ?? DEFAULT_SERVER) });
+          return installAgents({ folder, ...(agents ? { agents } : {}), mcp, url: mcpUrl(server ?? DEFAULT_SERVER), auth: services.has(LOGIN) && services.get(LOGIN).on });
         } catch (err) {
           throw new ActionError("install_failed", err instanceof Error ? err.message : String(err), 400);
         }

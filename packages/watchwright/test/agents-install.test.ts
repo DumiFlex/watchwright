@@ -79,14 +79,22 @@ describe("installing into a project", () => {
     expect(() => installAgents({ folder: path.join(bare, "missing"), url: URL_ })).toThrow(/no folder/);
   });
 
-  it("does it from the command line", () => {
+  it("does it from the command line", async () => {
     const dir = tempDir("ww-proj-");
     const out: string[] = [];
     const err: string[] = [];
     const io: Io = { out: (s) => out.push(s), err: (s) => err.push(s), interactive: false, confirm: () => Promise.resolve(false) };
-    expect(initAgentCommand(io, [dir, "--agent", "codex", "--server", "7491"])).toBe(0);
+    expect(await initAgentCommand(io, [dir, "--agent", "codex", "--server", "7491"])).toBe(0);
     expect(out.join("\n")).toContain("codex mcp add watchwright --url http://127.0.0.1:7491/api/v1/mcp");
-    expect(() => initAgentCommand(io, [dir, "--agent", "vim"])).toThrow(/--agent takes/);
+    expect(out.join("\n")).not.toContain("--bearer-token-env-var");
+    await expect(initAgentCommand(io, [dir, "--agent", "vim"])).rejects.toThrow(/--agent takes/);
+    // A server with login on: the settings read the token from WATCHWRIGHT_TOKEN, never hold it.
+    out.length = 0;
+    expect(await initAgentCommand(io, [dir, "--agent", "claude,cursor,codex", "--server", "7491", "--auth"])).toBe(0);
+    expect(json(path.join(dir, ".mcp.json")).mcpServers).toMatchObject({ watchwright: { type: "http", url: "http://127.0.0.1:7491/api/v1/mcp", headers: { Authorization: "Bearer ${WATCHWRIGHT_TOKEN}" } } });
+    expect(json(path.join(dir, ".cursor", "mcp.json")).mcpServers).toMatchObject({ watchwright: { headers: { Authorization: "Bearer ${env:WATCHWRIGHT_TOKEN}" } } });
+    expect(out.join("\n")).toContain("--bearer-token-env-var WATCHWRIGHT_TOKEN");
+    expect(out.join("\n")).toContain("set WATCHWRIGHT_TOKEN");
     expect(mcpUrl("http://127.0.0.1:7420")).toBe(URL_);
   });
 });

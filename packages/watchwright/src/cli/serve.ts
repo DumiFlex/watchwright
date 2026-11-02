@@ -188,7 +188,7 @@ async function watchwrightAt(url: string): Promise<string | null> {
 async function alreadyRunning(url: string, version: string, folders: string[], open: boolean, after?: AfterStart): Promise<number> {
   console.log(`Watchwright ${version} is already running at ${url}`);
   const api: ApiCall = (method, apiPath, body) =>
-    fetch(`${url}api/v1${apiPath}`, { method, headers: { "content-type": "application/json", "x-watchwright-client": "cli", ...tokenHeader(process.env) }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<ApiReply>);
+    fetch(`${url}api/v1${apiPath}`, { method, headers: { "content-type": "application/json", "x-watchwright-client": "cli", ...tokenHeader(url) }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<ApiReply>);
   const packs = await addPacks(folders, (body) => api("POST", "/packs", body) as Promise<PackReply>);
   const page = after ? await after(api, packs) : null;
   if (page) console.log(`Watch it at ${url}${page}`);
