@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// Settings > Account, while login is on: who you are, your password, and your API tokens for the
-// CLI, scripts and agents. A new token is shown once, here, and never again.
+// The Account page's cards, while login is on: who you are, your password, and your API tokens for
+// the CLI, scripts and agents. A new token is shown once, here, and never again.
 import { computed, onMounted, ref } from "vue";
 import { getJson, sendJson } from "../api";
 import { when } from "../format";
@@ -24,7 +24,7 @@ interface TokenInfo {
 const ROLE_WORDS: Record<string, string> = {
   viewer: "a viewer: you can see runs, results and packs",
   user: "a user: you can also start runs, record, review and edit packs",
-  admin: "an admin: you can also manage users, settings, secrets and alerts",
+  admin: "an admin: you can also manage users, secrets, alerts and the server on the Admin page",
 };
 
 // Password
@@ -120,8 +120,11 @@ const day = (iso: string) => new Date(iso).toLocaleDateString();
     <div>
       <button type="button" class="btn" @click="signOut"><LogOut :size="15" /> Sign out</button>
     </div>
+  </section>
 
-    <h3 class="sub">Password</h3>
+  <section class="card" aria-labelledby="s-password">
+    <h2 id="s-password" class="display">Password</h2>
+    <p class="muted small">Changing it ends your sign-ins in other browsers.</p>
     <form class="pw" @submit.prevent="changePassword">
       <div class="fld">
         <label for="s-pw-current" class="lbl small">Current password</label>
@@ -140,8 +143,10 @@ const day = (iso: string) => new Date(iso).toLocaleDateString();
     <p v-if="short" class="muted small">At least 10 characters.</p>
     <p v-else-if="differs" class="muted small">The two new passwords aren't the same.</p>
     <p v-else-if="pwError" class="error small" role="alert">{{ pwError }}</p>
+  </section>
 
-    <h3 class="sub">API tokens</h3>
+  <section class="card" aria-labelledby="s-tokens">
+    <h2 id="s-tokens" class="display">API tokens</h2>
     <p class="muted small">
       For the command line, scripts and AI agents: they send the token instead of signing in, and act as you. Set it as <code>WATCHWRIGHT_TOKEN</code> for the CLI (or run <code>watchwright login</code>, which makes and saves one), or as the <code>Authorization: Bearer</code> header in an MCP
       client's settings. Deleting things through a token still waits for your approval here.

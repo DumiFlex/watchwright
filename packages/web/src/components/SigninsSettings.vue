@@ -1,11 +1,12 @@
 <script setup lang="ts">
-// Settings > Sign-ins: the cookies and local storage saved per site key, which runs started signed
+// Admin > Sign-ins (users see them on Settings): the cookies and local storage saved per site key, which runs started signed
 // in begin with. They are saved from a recording or a login test, so this lists and deletes them.
 import { computed, onMounted, ref } from "vue";
 import { getJson, sendJson } from "../api";
 import { when } from "../format";
 import { KeyRound, Trash2 } from "../icons";
 import { toast } from "../toasts";
+import { can } from "../session";
 import { vTip } from "../tooltip";
 import ModalDialog from "./ModalDialog.vue";
 
@@ -67,7 +68,7 @@ async function remove() {
           <span class="muted small">{{ holds(s) }}</span>
           <span v-tip="when(s.savedAt)" class="muted small">Saved {{ new Date(s.savedAt).toLocaleDateString() }} from {{ from(s) }}</span>
         </div>
-        <button v-tip="'Delete this sign-in'" type="button" class="ib" :aria-label="`Delete the sign-in for ${s.siteKey}`" @click="doomed = s"><Trash2 :size="14" /></button>
+        <button v-if="can('admin')" v-tip="'Delete this sign-in'" type="button" class="ib" :aria-label="`Delete the sign-in for ${s.siteKey}`" @click="doomed = s"><Trash2 :size="14" /></button>
       </li>
     </ul>
     <p v-else-if="list" class="muted">No sign-ins saved yet.</p>

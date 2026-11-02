@@ -169,6 +169,7 @@ export const runsPlugin = definePlugin({
       title: "What New run starts from: the pack's latest run, or the pack's defaults",
       schema: { type: "string", enum: ["latest", "defaults"] },
       default: "latest",
+      scope: "user",
     });
     const settings = services.get(SETTINGS);
     settings.define({

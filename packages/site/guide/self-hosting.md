@@ -2,7 +2,7 @@
 
 Watchwright can run on a server or in a homelab instead of your own computer, so runs go on while your computer is off and several people share one server. The Docker image is the easiest way: it holds the server, its web app and the browsers.
 
-Self-hosted, Watchwright always has [login](./safety#login) on. The first start prints a link that creates the first admin; after that, admins add people in Settings › Users or through [single sign-on](./single-sign-on).
+Self-hosted, Watchwright always has [login](./safety#login) on. The first start prints a link that creates the first admin; after that, admins add people in Admin › Users or through [single sign-on](./single-sign-on).
 
 ::: tip Sites that run only on your computer
 A site at `localhost:3000` on your own computer can't be reached from a server. Run a [runner](#runners) on your computer and the server's runs reach it through there.
@@ -120,7 +120,7 @@ To reach Watchwright only from your own devices, with HTTPS and no open ports, [
 
 A server in Docker or on another machine can't open `localhost` on your PC, and often not your home network either. A **runner** fixes that: `watchwright runner` runs on the machine that can reach the site, connects out to the server (so nothing on that machine is opened to the network), and the browser connections of runs that pick it go through it. The browser still runs on the server; only its connections come from your machine, so the site sees an ordinary visitor from `localhost`.
 
-1. In **Settings › Runners**, give the runner a name (such as `Office PC`) and say what it may open: `loopback` (any port on that machine, the default), `host:port` or `host:*`, separated by commas.
+1. In **Admin › Runners** (users find Runners on their Settings page), give the runner a name (such as `Office PC`) and say what it may open: `loopback` (any port on that machine, the default), `host:port` or `host:*`, separated by commas.
 2. The page shows a command with a one-time pair code. Run it on that machine; it needs [Node.js](https://nodejs.org/) 22 or later and works the same on Windows, macOS and Linux:
 
    ```bash
@@ -142,11 +142,11 @@ A server in Docker or on another machine can't open `localhost` on your PC, and 
 
 **When the runner is offline** a run that needs it doesn't start, and says so. If it drops during a run, the connections fail until it is back (it reconnects by itself), so the attempts in between break; with **Pause and wait for Retry or Skip** on, the run pauses on the first one and goes on when you retry.
 
-Chromium, Firefox and WebKit all send `localhost` through the runner. Remove a runner in Settings › Runners to disconnect it and stop its token working; a new pair code (the link icon) sets it up again or on another machine.
+Chromium, Firefox and WebKit all send `localhost` through the runner. Remove a runner under Runners to disconnect it and stop its token working; a new pair code (the link icon) sets it up again or on another machine.
 
 ## Updating
 
-Settings › Server says when a newer version is out. Pull the new image and start the container again; the data folder upgrades itself on start. In Portainer, open the stack and press **Update the stack** with **Re-pull image and redeploy** on. With Compose:
+Admin › Server says when a newer version is out. Pull the new image and start the container again; the data folder upgrades itself on start. In Portainer, open the stack and press **Update the stack** with **Re-pull image and redeploy** on. With Compose:
 
 ```bash
 docker compose pull && docker compose up -d

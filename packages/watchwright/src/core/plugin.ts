@@ -3,6 +3,7 @@ import type { Action } from "../actions/registry.js";
 import type { EventLog } from "../events/log.js";
 import type { Store } from "../store/db.js";
 import type { Migration } from "../store/migrations.js";
+import type { Role } from "./access.js";
 import type { Services } from "./services.js";
 
 // Every capability of Watchwright is a plugin: the server pieces that ship with it (core, packs,
@@ -40,6 +41,10 @@ export interface PluginPage {
   order: number;
   /** Extra words the command palette matches. */
   words?: string;
+  /** With login on, the lowest role that sees the page in the menu (the server still checks every call). */
+  access?: Role;
+  /** Only with login on (a signed-in person's own page, such as their account). */
+  loginOnly?: boolean;
 }
 
 export interface WatchwrightPlugin {

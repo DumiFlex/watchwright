@@ -69,7 +69,7 @@ const cards = computed(() => (status.value?.packs ?? []).map((p) => ({ ...p, lat
         </div>
       </header>
       <section v-if="!cards.length" class="card">
-        <EmptyState compact :icon="Globe" heading="No packs shown yet">An admin picks the packs this page shows in Settings, Sharing.</EmptyState>
+        <EmptyState compact :icon="Globe" heading="No packs shown yet">An admin picks the packs this page shows in Admin, Sharing.</EmptyState>
       </section>
       <div v-else class="cards">
         <section v-for="p in cards" :key="p.packId" class="card pack" :class="{ wide: p.hasTiles }" :aria-labelledby="`st-${p.packId}`">
