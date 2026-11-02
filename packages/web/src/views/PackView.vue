@@ -1,7 +1,8 @@
 <script setup lang="ts">
-// One pack: whether it loads, its recent runs, then tabs for its README (the way a code host shows one), its
-// tests with their metadata (searchable and filtered, for packs with hundreds of them),
-// parameters, flag kinds and rubric.
+// One pack: whether it loads, then tabs for its dashboard, its recent runs, its README (the way a
+// code host shows one), its tests with their metadata (searchable and filtered, for packs with
+// hundreds of them), parameters, flag kinds and rubric. The tab is in the address, so nothing
+// sits under anything else: a big dashboard never pushes the tests down the page.
 import { ArrowLeft, ChevronDown, ChevronRight, CircleDot, Ellipsis, FilePlus, FileText, Pencil, Play, SearchX, TriangleAlert } from "../icons";
 import { nextTestId, recordingTestTemplate, slug, type PackFile } from "../editfiles";
 import { findReadme, packImageUrl, resolveRelative } from "../markdown";
@@ -10,7 +11,8 @@ import TextField from "../components/TextField.vue";
 import SelectMenu from "../components/SelectMenu.vue";
 import ToggleSwitch from "../components/ToggleSwitch.vue";
 import { NO_FILTER, filterTests, groupTests, isFiltered, sectionsOf, tagsOf, type TestFilter } from "../packtests";
-import { href } from "../router";
+import { href, replaceRoute } from "../router";
+import { useOutline, type OutlineItem } from "../outline";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, sendJson, type Criterion, type FolderPlaces, type HistoryEntry, type Pack, type PackTest, type RunSummary } from "../api";
 import { HISTORY_LIMIT, flakyReason, medianMs, passRate } from "../history";
@@ -32,9 +34,9 @@ import { toast } from "../toasts";
 import TabBar from "../components/TabBar.vue";
 import { vTip } from "../tooltip";
 
-const props = defineProps<{ id: string }>();
-/** Runs shown above the tabs; the runs list has the rest. */
-const RECENT = 5;
+const props = defineProps<{ id: string; tab?: string | null }>();
+/** Runs shown on the Runs tab; the runs list has the rest. */
+const RECENT = 10;
 
 const pack = ref<Pack | null>(null);
 const runs = ref<RunSummary[]>([]);
@@ -96,19 +98,33 @@ async function confirmRemove() {
   toast(`Removed "${name}"`, { tone: "ok" });
   window.location.hash = "#/packs";
 }
-type Tab = "readme" | "tests" | "params" | "flags" | "rubric";
-const tab = ref<Tab>("tests");
-// The README tab opens first when the pack has one, until the person picks a tab themselves.
-let tabPicked = false;
-watch(tab, () => (tabPicked = true));
-
+type Tab = "dashboard" | "runs" | "readme" | "tests" | "params" | "flags" | "rubric";
 const tabs = computed(() => [
+  ...(runs.value.length ? [{ value: "dashboard" as const, label: "Dashboard" }] : []),
+  { value: "runs" as const, label: "Runs" },
   ...(readme.value ? [{ value: "readme" as const, label: "README" }] : []),
   { value: "tests" as const, label: "Tests", count: pack.value?.tests.length ?? 0 },
   { value: "params" as const, label: "Parameters", count: Object.keys(pack.value?.params ?? {}).length },
   { value: "flags" as const, label: "Flags", count: Object.keys(pack.value?.flags ?? {}).length },
   { value: "rubric" as const, label: "Rubric", count: pack.value?.rubric.length ?? 0 },
 ]);
+// The tab picked here, else the one in the address, else the dashboard once the pack has run,
+// else its README, else its tests. Picking one writes it to the address (without a history
+// entry, as filters do), so a reload or a copied link opens on it.
+const picked = ref<string | null>(null);
+watch(
+  () => props.tab,
+  () => (picked.value = null),
+);
+const has = (t: string | null | undefined): t is Tab => !!t && tabs.value.some((x) => x.value === t);
+const tab = computed<Tab>({
+  get: () => (has(picked.value) ? picked.value : has(props.tab) ? props.tab : runs.value.length ? "dashboard" : readme.value ? "readme" : "tests"),
+  set: (t) => {
+    picked.value = t;
+    replaceRoute({ name: "pack", id: props.id, tab: t });
+  },
+});
+
 // Finding tests: a search and filters, and descriptions that can be folded away (kept per browser).
 const filter = ref<TestFilter>({ ...NO_FILTER });
 const shown = computed(() => filterTests(pack.value?.tests ?? [], filter.value, history.value));
@@ -195,16 +211,32 @@ async function loadReadme() {
   if (!path) return void (readme.value = null);
   const res = await getJson<{ text: string }>(`/api/v1/packs/${props.id}/file?path=${encodeURIComponent(path)}`);
   readme.value = res.ok ? { path, text: res.data.text } : null;
-  if (readme.value && !tabPicked) {
-    tab.value = "readme";
-    tabPicked = false;
-  }
 }
+const readmeHeadings = ref<{ level: number; text: string; id: string }[]>([]);
 const readmeImage = (src: string) => (readme.value ? packImageUrl(props.id, readme.value.path, src) : null);
 function readmeLink(target: string): string | null {
   const to = readme.value ? resolveRelative(readme.value.path, target) : null;
   return to && files.value.includes(to) ? href({ name: "edit", id: props.id, file: to, line: null }) : null;
 }
+
+// "On this page": the tabs, and under the one on show its parts: the README's headings, or the
+// sections of the tests (landing under the search and filters, which stay stuck at the top).
+const finderHeight = () => document.querySelector<HTMLElement>("#pack-panel-tests .finder")?.offsetHeight ?? 0;
+useOutline("Parts of this pack", () => {
+  if (!pack.value) return [];
+  const out: OutlineItem[] = [];
+  for (const t of tabs.value) {
+    out.push({ id: "pack-tabs", label: t.label, open: () => (tab.value = t.value), on: () => tab.value === t.value });
+    if (t.value !== tab.value) continue;
+    if (t.value === "readme") {
+      const top = Math.min(...readmeHeadings.value.map((h) => h.level));
+      for (const h of readmeHeadings.value) if (h.level <= top + 1) out.push({ id: h.id, label: h.text, level: 2 });
+    } else if (t.value === "tests" && grouped.value) {
+      groups.value.forEach((g, gi) => out.push({ id: `pt-sec-${gi}`, label: g.section || "No section", level: 2, open: () => folded.value.has(g.section) && toggleFold(g.section), land: finderHeight }));
+    }
+  }
+  return out;
+});
 
 async function load() {
   const [p, r, h] = await Promise.all([
@@ -238,8 +270,8 @@ watch(
   () => {
     filter.value = { ...NO_FILTER };
     readme.value = null;
-    tab.value = "tests";
-    tabPicked = false;
+    runs.value = [];
+    picked.value = null;
     void load();
   },
 );
@@ -302,9 +334,13 @@ onBeforeUnmount(() => live?.close());
         <p class="muted small">Fix the files and save: the server builds the pack again by itself.</p>
       </section>
 
-      <PackDashboard v-if="runs.length" :pack-id="pack.id" :latest-runs="runs.map((r) => r.id)" :stamp="dashStamp" />
+      <TabBar id="pack-tabs" v-model="tab" class="pack-tabs" :tabs="tabs" id-prefix="pack" label="Pack" />
 
-      <section class="card" aria-labelledby="pk-runs">
+      <div v-if="runs.length && tab === 'dashboard'" id="pack-panel-dashboard" role="tabpanel" aria-labelledby="pack-tab-dashboard" class="tab-page">
+        <PackDashboard :pack-id="pack.id" :latest-runs="runs.map((r) => r.id)" :stamp="dashStamp" />
+      </div>
+
+      <section v-if="tab === 'runs'" id="pack-panel-runs" role="tabpanel" aria-labelledby="pack-tab-runs" class="card">
         <div class="runs-head">
           <h2 id="pk-runs" class="display">Recent runs</h2>
           <a v-if="runs.length" class="small" :href="`#/?pack=${pack.id}`">All runs of this pack</a>
@@ -326,15 +362,13 @@ onBeforeUnmount(() => live?.close());
         </p>
       </section>
 
-      <section class="card">
-        <TabBar v-model="tab" :tabs="tabs" id-prefix="pack" label="Pack details" />
-
+      <section v-show="tab !== 'dashboard' && tab !== 'runs'" class="card">
         <div v-if="readme" v-show="tab === 'readme'" id="pack-panel-readme" role="tabpanel" aria-labelledby="pack-tab-readme" class="panel readme">
           <header class="readme-head">
             <h2 class="readme-name"><FileText :size="16" /><span class="mono">{{ readme.path }}</span></h2>
             <a v-tip="'Edit'" class="edit" :href="href({ name: 'edit', id: pack.id, file: readme.path, line: null })" :aria-label="`Edit ${readme.path}`"><Pencil :size="15" /></a>
           </header>
-          <MarkdownView :source="readme.text" :resolve-link="readmeLink" :resolve-image="readmeImage" id-prefix="readme-" :label="readme.path" />
+          <MarkdownView :source="readme.text" :resolve-link="readmeLink" :resolve-image="readmeImage" id-prefix="readme-" :label="readme.path" @headings="(h) => (readmeHeadings = h)" />
         </div>
 
         <div v-show="tab === 'tests'" id="pack-panel-tests" role="tabpanel" aria-labelledby="pack-tab-tests" class="panel tests">
@@ -358,8 +392,8 @@ onBeforeUnmount(() => live?.close());
               <thead>
                 <tr><th>Test</th><th v-if="!grouped">Section</th><th>Needs</th><th>Attempts</th><th v-if="hasHistory" class="c-hist">Last {{ HISTORY_LIMIT }} attempts, newest on the right</th><th>File</th></tr>
               </thead>
-              <tbody v-for="g in groups" :key="g.section">
-                <tr v-if="grouped" class="group">
+              <tbody v-for="(g, gi) in groups" :key="g.section">
+                <tr v-if="grouped" :id="`pt-sec-${gi}`" class="group">
                   <th :colspan="columns" scope="colgroup">
                     <button v-if="foldable" type="button" class="fold" :aria-expanded="!folded.has(g.section)" @click="toggleFold(g.section)">
                       <component :is="folded.has(g.section) ? ChevronRight : ChevronDown" :size="16" />
@@ -532,7 +566,6 @@ onBeforeUnmount(() => live?.close());
   padding-left: 18px;
 }
 .panel {
-  padding-top: var(--space-3);
   overflow-x: auto;
 }
 .tbl {
@@ -726,7 +759,6 @@ button.fold > svg {
 }
 .panel.readme {
   overflow-x: visible;
-  padding-top: var(--space-5);
 }
 .readme .edit {
   margin-right: 0;

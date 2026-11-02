@@ -5,7 +5,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, useId, watch, type Component } from "vue";
 import { Search } from "../icons";
 import { fuzzy, markHits } from "../fuzzy";
-import { openModals } from "../popup";
+import { openModals, revealInList } from "../popup";
 import KeyHint from "./KeyHint.vue";
 
 export interface PaletteCommand {
@@ -76,7 +76,7 @@ const rows = computed<Row[]>(() => {
 watch(query, () => (active.value = 0));
 watch(active, async (i) => {
   await nextTick();
-  list.value?.querySelector(`[data-i="${i}"]`)?.scrollIntoView({ block: "nearest" });
+  revealInList(list.value, list.value?.querySelector(`[data-i="${i}"]`));
 });
 
 watch(

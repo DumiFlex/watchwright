@@ -2,7 +2,7 @@
 
 A pack's dashboard shows how its runs went over time, at a glance: outcomes and run times for a plain test pack, and for a pack whose runs are judged by numbers, scores or setups, those numbers, scores and setups. The pack says what its dashboard shows with a `dashboard` block; without one it shows outcomes, run times and the latest failures.
 
-A pack's page shows its dashboard at the top, once the pack has run, and so does the runs list when its pack filter picks that pack. Pick a value of each filter, or another range (the last 10, 50 or 200 runs, the last 7 or 30 days), and every tile reads only those runs. Agents get the same numbers with the `pack_dashboard` tool.
+A pack's page shows its dashboard on its **Dashboard** tab, the one it opens on once the pack has run, and so does the runs list when its pack filter picks that pack. Pick a value of each filter, or another range (the last 10, 50 or 200 runs, the last 7 or 30 days), and every tile reads only those runs. Agents get the same numbers with the `pack_dashboard` tool.
 
 The [public status page](./sharing#public-status-page) shows each pack's public tiles, and a [shared run](./sharing#share-links) starts with them for that one run.
 

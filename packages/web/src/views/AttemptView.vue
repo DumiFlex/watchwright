@@ -14,6 +14,7 @@ import { levelOf, type LogLine } from "../logview";
 import { aroundStep, openFrames } from "../frames";
 import { relativeTo, tildify } from "../paths";
 import { href } from "../router";
+import { useOutline, type OutlineItem } from "../outline";
 import { loadSettings, settings } from "../settings";
 import { toast } from "../toasts";
 import { vTip } from "../tooltip";
@@ -215,6 +216,29 @@ const side = ref<HTMLElement | null>(null);
 function toReview() {
   side.value?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
+// "On this page": the cards, then each saved tab (picking one opens it), and Review when it
+// sits under the rest (below 960 px) instead of beside it.
+const reviewBelow = ref(false);
+let narrow: MediaQueryList | undefined;
+const onNarrow = () => (reviewBelow.value = !!narrow?.matches);
+onMounted(() => {
+  narrow = window.matchMedia?.("(max-width: 960px)");
+  onNarrow();
+  narrow?.addEventListener("change", onNarrow);
+});
+onBeforeUnmount(() => narrow?.removeEventListener("change", onNarrow));
+useOutline("Parts of this attempt", () => {
+  const d = doc.value;
+  if (!d) return [];
+  const out: OutlineItem[] = [];
+  if (description.value) out.push({ id: "att-about", label: "About this test" });
+  if (d.error) out.push({ id: "att-problem", label: d.error.kind === "assertion" ? "A check failed" : d.error.kind === "timeout" ? "Timed out" : d.error.kind === "stopped" ? "Stopped" : d.error.kind === "skipped" ? "Skipped" : "The problem" });
+  if (d.flags.length || d.notes.length || Object.keys(d.metrics).length) out.push({ id: "att-summary", label: Object.keys(d.metrics).length && !d.flags.length && !d.notes.length ? "Metrics" : "Summary" });
+  if (steps.value.length) out.push({ id: "att-steps", label: "Steps" });
+  for (const t of tabs.value) out.push({ id: "att-saved", label: t.label, open: () => (tab.value = t.value), on: () => tab.value === t.value });
+  if (reviewBelow.value) out.push({ id: "att-review", label: "Review" });
+  return out;
+});
 function reviewStep(s: TimelineStep) {
   review.value?.addToNote(`Step ${s.label} at ${clock(s.start)}: `);
 }
@@ -258,31 +282,38 @@ const recordCols = computed(() =>
   recordColumns(records.value ?? []).map((k) => ({ key: k, label: k, sortable: true, value: (r: { rec: Record<string, unknown> }) => cellOf(r.rec?.[k]) })),
 );
 
-// Files the test or its collectors saved: text ones open in the code view.
+// Files the test or its collectors saved: text ones open in the code view. The file on show
+// stays until the next one is read, so the panel never shrinks to "Loading…" in between: a page
+// that got shorter for a moment lost its scroll position when another file was picked.
 const filePath = ref("");
-const fileText = ref<string | null>(null);
+const shownText = ref<{ file: Artifact; text: string } | null>(null);
 const fileError = ref<string | null>(null);
 watch(files, (f) => (filePath.value = f.some((a) => a.url === filePath.value) ? filePath.value : (f[0]?.url ?? "")), { immediate: true });
 const shownFile = computed(() => files.value.find((a) => a.url === filePath.value) ?? null);
 const isText = (a: Artifact) => /^(text\/|application\/(json|xml|javascript))/.test(a.contentType);
-const fileLang = computed(() => (shownFile.value?.contentType.startsWith("application/json") ? "json" : "text"));
+const langOf = (a: Artifact) => (a.contentType.startsWith("application/json") ? "json" : "text");
 watch([tab, filePath], async ([t, url]) => {
-  fileText.value = null;
   fileError.value = null;
   const a = shownFile.value;
-  if (t !== "files" || !url || !a || !isText(a)) return;
+  if (t !== "files" || !url || !a || !isText(a)) {
+    shownText.value = null;
+    return;
+  }
   if (a.size > TEXT_LIMIT) {
+    shownText.value = null;
     fileError.value = `This file is ${fileSize(a.size)}, too big to show here.`;
     return;
   }
   try {
     const res = await fetch(url);
     const text = await res.text();
-    if (filePath.value === url) fileText.value = text;
+    if (filePath.value === url) shownText.value = { file: a, text };
   } catch {
+    shownText.value = null;
     fileError.value = "The file couldn't be read.";
   }
 });
+const fileLoading = computed(() => !!shownFile.value && isText(shownFile.value) && !fileError.value && shownText.value?.file.url !== shownFile.value.url);
 const fileOptions = computed(() => files.value.map((a) => ({ value: a.url, label: a.name })));
 // Markdown files open rendered; Source shows the text in the code view.
 const mdView = ref<"preview" | "source">("preview");
@@ -290,8 +321,8 @@ const mdTabs = [
   { value: "preview" as const, label: "Preview" },
   { value: "source" as const, label: "Source" },
 ];
-const shownMd = computed(() => !!shownFile.value && isMarkdown(shownFile.value));
-const beside = (target: string) => (shownFile.value ? besideFile(shownFile.value.url, target) : null);
+const shownMd = computed(() => !!shownText.value && isMarkdown(shownText.value.file));
+const beside = (target: string) => (shownText.value ? besideFile(shownText.value.file.url, target) : null);
 
 const traceHref = computed(() => (trace.value ? traceViewerUrl(window.location.origin, trace.value.url) : ""));
 
@@ -353,7 +384,7 @@ watch(
 
       <div class="body">
         <div class="col">
-          <section v-if="description" class="card about" aria-labelledby="about-title">
+          <section v-if="description" id="att-about" class="card about" aria-labelledby="about-title">
             <h2 id="about-title">About this test</h2>
             <p id="about-text" ref="aboutText" class="about-text" :class="{ folded: !descriptionOpen }">{{ description }}</p>
             <button v-if="longDescription" class="btn more" :aria-expanded="descriptionOpen" aria-controls="about-text" @click="descriptionOpen = !descriptionOpen">
@@ -361,7 +392,7 @@ watch(
             </button>
           </section>
 
-          <section v-if="doc.error" class="card problem" :class="{ calm: doc.error.kind === 'skipped' }" aria-labelledby="err-title">
+          <section v-if="doc.error" id="att-problem" class="card problem" :class="{ calm: doc.error.kind === 'skipped' }" aria-labelledby="err-title">
             <h2 id="err-title">{{ doc.error.kind === "assertion" ? "A check failed" : doc.error.kind === "timeout" ? "Timed out" : doc.error.kind === "stopped" ? "Stopped" : doc.error.kind === "skipped" ? "Skipped" : "The harness couldn't go on" }}</h2>
             <pre class="msg">{{ plainText(doc.error.message) }}</pre>
             <p v-if="doc.error.stack && firstOwnFrame(doc.error.stack)" class="where small">
@@ -375,7 +406,7 @@ watch(
             </details>
           </section>
 
-          <section v-if="doc.flags.length || doc.notes.length || Object.keys(doc.metrics).length" class="card summary" aria-label="Summary">
+          <section v-if="doc.flags.length || doc.notes.length || Object.keys(doc.metrics).length" id="att-summary" class="card summary" aria-label="Summary">
             <div v-if="robot.length" class="block">
               <h3>Robot problems</h3>
               <ul class="flags">
@@ -408,7 +439,7 @@ watch(
             </div>
           </section>
 
-          <section v-if="steps.length" class="card steps" aria-labelledby="steps-title">
+          <section v-if="steps.length" id="att-steps" class="card steps" aria-labelledby="steps-title">
             <h2 id="steps-title">Steps <span class="hint">{{ videos.length ? "Pick a step to see it in the video." : "" }}</span></h2>
             <TimelineScrubber :model-value="playhead" :steps="steps" :duration="span" :marks="marks" label="Attempt time" @update:model-value="scrub" @pick="pickStep" />
             <FilmStrip v-if="videos[0]" class="film" :src="videos[0].url" :duration="span" :playhead="playhead" :label="`Frames of ${videos[0].name}`" @seek="scrub" />
@@ -431,7 +462,7 @@ watch(
             </ol>
           </section>
 
-          <section class="card tabs-card">
+          <section id="att-saved" class="card tabs-card">
             <TabBar v-model="tab" :tabs="tabs" id-prefix="att" label="What the attempt saved" />
 
             <div v-if="tab === 'shots'" id="att-panel-shots" role="tabpanel" aria-labelledby="att-tab-shots" class="panel">
@@ -494,15 +525,16 @@ watch(
                 <SelectMenu id="att-file" v-model="filePath" :options="fileOptions" />
                 <span v-if="shownFile" class="muted small">{{ fileSize(shownFile.size) }}</span>
                 <a v-if="shownFile" class="btn small-btn" :href="shownFile.url" target="_blank" rel="noopener">Open</a>
-                <button v-if="fileText" class="btn small-btn" type="button" @click="copy(fileText)">Copy</button>
-                <TabBar v-if="shownMd && fileText !== null" v-model="mdView" :tabs="mdTabs" id-prefix="att-md" label="Show the file as" class="md-tabs" />
+                <button v-if="shownText && !fileLoading" class="btn small-btn" type="button" @click="copy(shownText.text)">Copy</button>
+                <span v-if="fileLoading" class="muted small" role="status">Loading…</span>
+                <TabBar v-if="shownMd" v-model="mdView" :tabs="mdTabs" id-prefix="att-md" label="Show the file as" class="md-tabs" />
               </div>
               <p v-if="fileError" class="muted">{{ fileError }}</p>
-              <div v-else-if="fileText !== null && shownFile && shownMd && mdView === 'preview'" id="att-md-panel-preview" role="tabpanel" aria-labelledby="att-md-tab-preview" class="md-file" tabindex="0">
-                <MarkdownView :source="fileText" :label="`Preview of ${shownFile.name}`" id-prefix="att-md-" :resolve-link="beside" :resolve-image="beside" />
+              <div v-else-if="shownText && shownMd && mdView === 'preview'" id="att-md-panel-preview" role="tabpanel" aria-labelledby="att-md-tab-preview" class="md-file" :class="{ stale: fileLoading }" tabindex="0">
+                <MarkdownView :source="shownText.text" :label="`Preview of ${shownText.file.name}`" id-prefix="att-md-" :resolve-link="beside" :resolve-image="beside" />
               </div>
-              <div v-else-if="fileText !== null && shownFile" v-bind="shownMd ? { id: 'att-md-panel-source', role: 'tabpanel', 'aria-labelledby': 'att-md-tab-source' } : {}">
-                <CodeView :code="fileText" :lang="fileLang" :label="shownFile.name" max-height="560px" wrap />
+              <div v-else-if="shownText" :class="{ stale: fileLoading }" v-bind="shownMd ? { id: 'att-md-panel-source', role: 'tabpanel', 'aria-labelledby': 'att-md-tab-source' } : {}">
+                <CodeView :code="shownText.text" :lang="langOf(shownText.file)" :label="shownText.file.name" max-height="560px" wrap />
               </div>
               <p v-else-if="shownFile && !isText(shownFile)" class="muted">This file isn't text. Open it to see it.</p>
               <p v-else-if="shownFile" class="muted">Loading…</p>
@@ -540,7 +572,7 @@ watch(
             </div>
           </section>
         </div>
-        <div ref="side" class="side">
+        <div id="att-review" ref="side" class="side">
           <ReviewPanel ref="review" :run-id="runId" :attempt-id="attemptId" />
         </div>
       </div>
@@ -959,6 +991,9 @@ watch(
 }
 .file-bar .md-tabs {
   margin-left: auto;
+}
+.stale {
+  opacity: 0.6;
 }
 .md-file {
   max-height: 560px;

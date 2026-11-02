@@ -414,6 +414,10 @@ a {
   grid-template-columns: minmax(0, 1fr);
   gap: var(--space-4);
 }
+/* Room under the last card for the floating Back to top / To the bottom group (PageOutline). */
+.ww-jumps .page {
+  padding-bottom: calc(var(--space-6) + 48px);
+}
 .card {
   background: var(--surface);
   border: var(--border-width) solid var(--line);

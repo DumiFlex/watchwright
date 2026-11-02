@@ -9,7 +9,8 @@ export type Route =
   /** An attempt; `line` opens its log at that line. */
   | { name: "attempt"; runId: string; attemptId: string; line?: number }
   | { name: "packs"; query: Record<string, string> }
-  | { name: "pack"; id: string }
+  /** A pack, on one of its tabs (dashboard, runs, readme, tests, params, flags, rubric). */
+  | { name: "pack"; id: string; tab?: string }
   /** The editor: a pack's file (null for the first one), optionally at a line; `record` starts Record there, `watch` shows an agent's explore session. */
   | { name: "edit"; id: string; file: string | null; line: number | null; record?: boolean; watch?: string }
   | { name: "compare"; query: Record<string, string> }
@@ -70,7 +71,7 @@ export function parseRoute(hash: string): Route {
     const line = Number(query.line);
     return { name: "attempt", runId: m[1]!, attemptId: m[2]!, ...(Number.isInteger(line) && line > 0 ? { line } : {}) };
   }
-  if ((m = new RegExp(`^/packs/${ID8}$`).exec(path))) return { name: "pack", id: m[1]! };
+  if ((m = new RegExp(`^/packs/${ID8}$`).exec(path))) return { name: "pack", id: m[1]!, ...(query.tab && /^[a-z]{2,12}$/.test(query.tab) ? { tab: query.tab } : {}) };
   if ((m = new RegExp(`^/packs/${ID8}/edit(?:/(.+))?$`).exec(path))) {
     let file: string | null;
     try {
@@ -102,7 +103,7 @@ export function href(route: Route): string {
     case "packs":
       return `#/packs${qs(route.query)}`;
     case "pack":
-      return `#/packs/${route.id}`;
+      return `#/packs/${route.id}${qs(route.tab ? { tab: route.tab } : {})}`;
     case "edit":
       return `#/packs/${route.id}/edit${route.file ? `/${route.file.split("/").map(encodeURIComponent).join("/")}` : ""}${qs({ ...(route.line ? { line: String(route.line) } : {}), ...(route.record ? { record: "1" } : {}), ...(route.watch ? { watch: route.watch } : {}) })}`;
     case "compare":

@@ -5,7 +5,7 @@
 import { Calendar, X } from "../icons";
 import { computed, nextTick, ref } from "vue";
 import { compareDays, parseDay, toIso, today, type Day } from "../calendar";
-import { useOutside, usePopup, usePopupHost } from "../popup";
+import { focusStill, useOutside, usePopup, usePopupHost } from "../popup";
 import CalendarMonth from "./CalendarMonth.vue";
 
 const props = withDefaults(defineProps<{ id?: string | undefined; min?: string | undefined; max?: string | undefined; placeholder?: string; disabled?: boolean; clearable?: boolean }>(), {
@@ -41,7 +41,7 @@ async function show() {
 }
 function hide(toButton = true) {
   open.value = false;
-  if (toButton) button.value?.focus();
+  if (toButton) focusStill(button.value);
 }
 function pick(d: Day) {
   model.value = toIso(d);

@@ -4,7 +4,7 @@
 // the others emit `select` with their value.
 import { Menu } from "../icons";
 import { nextTick, ref, useId } from "vue";
-import { useOutside, usePopup, usePopupHost } from "../popup";
+import { focusStill, useOutside, usePopup, usePopupHost } from "../popup";
 
 export interface MenuItem {
   value: string;
@@ -32,11 +32,11 @@ async function show(focus: "first" | "last" = "first") {
   open.value = true;
   await nextTick();
   const list = entries();
-  (focus === "first" ? list[0] : list[list.length - 1])?.focus();
+  focusStill(focus === "first" ? list[0] : list[list.length - 1]);
 }
 function hide(focusButton = true) {
   open.value = false;
-  if (focusButton) button.value?.focus();
+  if (focusButton) focusStill(button.value);
 }
 function pick(item: MenuItem) {
   hide(!item.href);
@@ -48,7 +48,7 @@ function onMenuKey(e: KeyboardEvent) {
   const to = { ArrowDown: i + 1, ArrowUp: i - 1, Home: 0, End: list.length - 1 }[e.key];
   if (to !== undefined) {
     e.preventDefault();
-    list[(to + list.length) % list.length]?.focus();
+    focusStill(list[(to + list.length) % list.length]);
   } else if (e.key === "Escape") {
     e.preventDefault();
     hide();

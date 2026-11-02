@@ -2,6 +2,7 @@
 import { onBeforeUnmount, onMounted, ref, useId } from "vue";
 import { LOOKS, MODES, type Theme } from "../theme";
 import { vTip } from "../tooltip";
+import { focusStill } from "../popup";
 
 const theme = defineModel<Theme>({ required: true });
 
@@ -12,7 +13,7 @@ const panelId = useId();
 
 function close(focusButton = false) {
   open.value = false;
-  if (focusButton) button.value?.focus();
+  if (focusButton) focusStill(button.value);
 }
 
 function onDocClick(e: MouseEvent) {
