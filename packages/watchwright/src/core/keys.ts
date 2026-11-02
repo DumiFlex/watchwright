@@ -1,4 +1,5 @@
 import type { Action, ActionGate } from "../actions/registry.js";
+import type { Login, LoginOptions } from "./access.js";
 import type { PluginPage } from "./plugin.js";
 import { serviceKey } from "./services.js";
 
@@ -13,3 +14,9 @@ export const ACTION_GATE = serviceKey<ActionGate>("action-gate");
 
 /** The port the server listens on (a plugin that writes a command to start this server again needs it). */
 export const SERVER_PORT = serviceKey<number>("server-port");
+
+/** Who a request comes from, when login is on; the auth plugin provides it. */
+export const LOGIN = serviceKey<Login>("login");
+
+/** How login was asked for (`--auth`, `--public-url`); the server provides it before plugins are set up. */
+export const LOGIN_OPTIONS = serviceKey<LoginOptions>("login-options");

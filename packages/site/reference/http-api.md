@@ -4,7 +4,8 @@ Everything the web page does goes through this API, so scripts and AI agents can
 
 - JSON in and out. Success is `{ "data": … }`. Failure is `{ "error": { "code", "message", "detail"? } }` with a snake_case `code` and a matching HTTP status.
 - Requests must pass the [request guard](../guide/safety#who-can-reach-the-server): a loopback `Host` with the server's port, and for changes no `Origin` header or the server's own (scripts and agents send none).
-- Send `x-watchwright-client: <name>` to be named as who started a run (default `api`).
+- With [login](../guide/safety#login) on, send an API token as `Authorization: Bearer <token>`; the web page uses its sign-in cookie. A call without them gets `401 sign_in_needed`, a call the role doesn't allow `403 not_allowed`. Each action lists its `access` level in `GET /actions`.
+- Send `x-watchwright-client: <name>` to be named as who started a run (default `api`). With login on, the person's name comes first: `Dumi via Claude Code`.
 - `GET /actions` lists every action with its JSON Schema input. The [CLI](./cli) builds its commands from the same list, and the [MCP server](./mcp) its tools.
 - `/api/v1/mcp` is the MCP endpoint (streamable HTTP), for AI agents.
 
@@ -12,9 +13,28 @@ Everything the web page does goes through this API, so scripts and AI agents can
 
 | Method and path | Does |
 |---|---|
-| `GET /health` | Whether the server is up, its version, its data folder, the loaded plugins with the newest store migration each one applied, and `pages`: the web app pages the plugins bring (`{ plugin, name, title, path, icon, menu, order, words? }`, in menu order), which the web app builds its menu from. |
-| `GET /actions` | Every action: `name`, `title`, `method`, `path`, JSON Schema `input`, and where set `output` (the JSON Schema of its data), `agent` (`{ tool, say? }`: the MCP tool it is offered as, and a hint for agents) and `destructive: true` (it deletes data or stops the server). |
+| `GET /health` | Whether the server is up, its version, its data folder, the loaded plugins with the newest store migration each one applied, `pages`: the web app pages the plugins bring (`{ plugin, name, title, path, icon, menu, order, words? }`, in menu order), which the web app builds its menu from, and `login: { on, user, setupNeeded }`. With login on and nobody signed in, only `name`, `version` and `login`. |
+| `GET /actions` | Every action: `name`, `title`, `method`, `path`, JSON Schema `input`, `access` (who may call it with login on: `public`, `viewer`, `user` or `admin`), and where set `output` (the JSON Schema of its data), `agent` (`{ tool, say? }`: the MCP tool it is offered as, and a hint for agents) and `destructive: true` (it deletes data or stops the server). |
 | `POST /stop` | Stops the server, as Ctrl+C in its terminal does. It answers `{ stopping: true }` first. Runs going at the time become `interrupted` and can be resumed after it starts again (by themselves with `runs.resumeOnStart`). 409 `cant_stop` for a server that wasn't started by the `watchwright` command. |
+
+## Login
+
+These work with [login](../guide/safety#login) on. With it off, the user routes still work (anyone who can reach the server is trusted), which is how to prepare accounts before turning it on.
+
+| Method and path | Does |
+|---|---|
+| `GET /auth/me` | `{ on, user, setupNeeded }`: whether login is on, who is signed in (`{ id, name, displayName, role, via }`, `via` is `session` or `token`), and whether the first admin still has to be made. Anyone may call it. |
+| `POST /auth/signin` `{ name, password }` | Signs in: sets the `ww_session` cookie (HttpOnly, SameSite=Lax, Secure on https, 30 days from the last use). 401 `wrong_sign_in`; 429 `too_many_tries` after five wrong tries for a name or an address within 15 minutes (the wait doubles from one second to a minute). |
+| `POST /auth/signout` | Ends this sign-in. |
+| `POST /auth/setup` `{ code, name, password }` | Creates the first admin with the one-time code the server printed at start, and signs in. 409 `set_up` once there is a user. |
+| `POST /auth/password` `{ current, password }` | Changes your own password. Your other sign-ins end; this one stays. |
+| `GET /auth/users` | Every user (admin). |
+| `POST /auth/users` `{ name, role, password?, displayName? }` | Adds a user (admin). Roles: `viewer` sees runs and results, `user` also starts runs, records, edits packs and reviews, `admin` also manages users, settings, secrets, sign-ins, alerts and the server. 409 `name_taken`, 400 `weak_password` (under 10 characters). |
+| `POST /auth/users/:id` `{ role?, password?, disabled?, displayName? }` | Changes a user (admin). A new password or disabling ends their sign-ins. 409 `last_admin` for the only admin. |
+| `DELETE /auth/users/:id` | Removes a user with their sign-ins and tokens (admin; waits for [approval](#approvals) from anything but the web page). |
+| `GET /auth/tokens` `?all=true` | Your API tokens (`{ id, name, kind, createdAt, usedAt, expiresAt }`); an admin's `all` lists everyone's. |
+| `POST /auth/tokens` `{ name, days? }` | Makes a token for the CLI, a script or an agent: `{ token, … }`, the only time the value is shown. `days` makes it expire. |
+| `DELETE /auth/tokens/:id` | Removes a token. |
 
 ## Packs
 

@@ -102,6 +102,7 @@ export const settingsPlugin = definePlugin({
       }),
       defineAction<{ values: Record<string, unknown> }>({
         name: "settings.set",
+        access: "admin",
         title: "Change settings (null puts one back to its default)",
         method: "POST",
         path: "/settings",

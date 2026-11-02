@@ -5,7 +5,9 @@ import path from "node:path";
 import fastifyStatic from "@fastify/static";
 import { ActionError, defineAction, type ObjectSchema } from "../../actions/registry.js";
 import { MAX_EVENT_WAIT_S } from "../../core/core-plugin.js";
+import { whoCalls } from "../../core/access.js";
 import { definePlugin } from "../../core/plugin.js";
+import { withAccess } from "../../core/route-access.js";
 import { serviceKey } from "../../core/services.js";
 import { contentTypeOf } from "../../jobs/recorder.js";
 import { sizeText } from "../../jobs/storage.js";
@@ -274,7 +276,7 @@ export const runsPlugin = definePlugin({
       return { ...preset.choices, ...choicesOf(input), packId: input.packId, ...(input.label !== undefined ? { label: input.label } : {}), ...(input.kind !== undefined ? { kind: input.kind } : {}) };
     };
     const control = (name: string, verb: string, title: string, fn: (id: string, client: string) => unknown) =>
-      defineAction<{ id: string }>({ name, title, method: "POST", path: `/runs/:id/${verb}`, input: byId, handler: ({ id }, { client }) => guard(() => fn(id, client)) });
+      defineAction<{ id: string }>({ name, title, method: "POST", path: `/runs/:id/${verb}`, input: byId, handler: ({ id }, { client: caller, user }) => guard(() => fn(id, whoCalls(caller, user))) });
     const CONTROLS = {
       pause: (id: string, client: string) => engine.pause(id, client),
       resume: (id: string) => engine.resume(id),
@@ -353,9 +355,9 @@ export const runsPlugin = definePlugin({
         path: "/runs",
         status: 201,
         input: START_INPUT,
-        handler: (body, { client }) => {
+        handler: (body, { client: caller, user }) => {
           const input = withPreset(body);
-          return guard(() => engine.start({ packId: input.packId, tests: input.tests, params: input.params, startedBy: client, options: runOptions(input), label: input.label, kind: input.kind }));
+          return guard(() => engine.start({ packId: input.packId, tests: input.tests, params: input.params, startedBy: whoCalls(caller, user), options: runOptions(input), label: input.label, kind: input.kind }));
         },
       }),
       defineAction<{ id: string }>({
@@ -365,7 +367,7 @@ export const runsPlugin = definePlugin({
         path: "/runs/:id/again",
         status: 201,
         input: byId,
-        handler: ({ id }, { client }) => guard(() => engine.again(id, client)),
+        handler: ({ id }, { client: caller, user }) => guard(() => engine.again(id, whoCalls(caller, user))),
       }),
       defineAction<{ id: string; label: string }>({
         name: "runs.label",
@@ -491,8 +493,8 @@ export const runsPlugin = definePlugin({
         method: "POST",
         path: "/runs/:id/control",
         input: { type: "object", properties: { id: RUN_ID, do: { type: "string", enum: Object.keys(CONTROLS) } }, required: ["id", "do"] },
-        handler: async ({ id, do: what }, { client }) => {
-          await guard(() => CONTROLS[what](id, client));
+        handler: async ({ id, do: what }, { client: caller, user }) => {
+          await guard(() => CONTROLS[what](id, whoCalls(caller, user)));
           return digest(engine.get(id)!);
         },
       }),
@@ -526,8 +528,8 @@ export const runsPlugin = definePlugin({
           },
           required: ["id"],
         },
-        handler: ({ id, testTimeoutMinutes, ...rest }, { client }) =>
-          guard(() => engine.changeSettings(id, { ...rest, ...(testTimeoutMinutes === undefined ? {} : { testTimeoutMinutes: testTimeoutMinutes === 0 ? null : testTimeoutMinutes }) }, client)),
+        handler: ({ id, testTimeoutMinutes, ...rest }, { client: caller, user }) =>
+          guard(() => engine.changeSettings(id, { ...rest, ...(testTimeoutMinutes === undefined ? {} : { testTimeoutMinutes: testTimeoutMinutes === 0 ? null : testTimeoutMinutes }) }, whoCalls(caller, user))),
       }),
       defineAction<Record<string, never>>({
         name: "runs.storage",
@@ -547,6 +549,7 @@ export const runsPlugin = definePlugin({
       }),
       defineAction<Record<string, never>>({
         name: "runs.cleanup",
+        access: "admin",
         destructive: true,
         explain: () => {
           const plan = engine.cleanupPlan();
@@ -556,7 +559,7 @@ export const runsPlugin = definePlugin({
         method: "POST",
         path: "/storage/cleanup",
         input: { type: "object", properties: {} },
-        handler: (_body, { client }) => engine.cleanup(client),
+        handler: (_body, { client: caller, user }) => engine.cleanup(whoCalls(caller, user)),
       }),
       control("runs.pause", "pause", "Pause at the next step", (id, client) => engine.pause(id, client)),
       control("runs.resume", "resume", "Resume a paused run, or continue an interrupted or stopped run where it was", (id) => engine.resume(id)),
@@ -631,7 +634,7 @@ export const runsPlugin = definePlugin({
     const dataDir = services.get(FILES_ROOT);
     const root = path.resolve(dataDir, "runs");
     // Artifact files, from the data folder's runs/ only. Ranges are served so videos can seek.
-    app.get("/files/*", async (req, reply) => {
+    app.get("/files/*", { config: { access: "viewer" } }, async (req, reply) => {
       // Fastify has already decoded the path once; decoding again would turn "%25" into "%".
       const rel = (req.params as { "*": string })["*"] ?? "";
       if (!rel.startsWith("runs/")) return reply.code(404).send(errorBody("not_found", "No such file."));
@@ -653,6 +656,6 @@ export const runsPlugin = definePlugin({
     });
     // Playwright's trace viewer, from our own origin: open /api/v1/trace-viewer/index.html?trace=<file url>.
     const viewer = traceViewerDir();
-    if (viewer) await app.register(fastifyStatic, { root: viewer, prefix: "/trace-viewer/", decorateReply: false, cacheControl: false });
+    if (viewer) await withAccess(app, "viewer", (scope) => scope.register(fastifyStatic, { root: viewer, prefix: "/trace-viewer/", decorateReply: false, cacheControl: false }));
   },
 });

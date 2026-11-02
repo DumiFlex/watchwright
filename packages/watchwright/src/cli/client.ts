@@ -31,6 +31,12 @@ export function clientName(flag: string | undefined, env: NodeJS.ProcessEnv = pr
   return AGENTS.find(([, test]) => test(env))?.[0] ?? "cli";
 }
 
+/** `Authorization: Bearer` from WATCHWRIGHT_TOKEN, for a server with login on; nothing when it isn't set. */
+export function tokenHeader(env: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const token = env.WATCHWRIGHT_TOKEN?.trim();
+  return token ? { authorization: `Bearer ${token}` } : {};
+}
+
 /** Seconds a request may take (past a wait's own timeout) before the command gives up. */
 export const REQUEST_LIMIT_S = 60;
 
@@ -67,7 +73,7 @@ export class Client {
 
   /** The server's health, or null when no Watchwright answers. */
   async health(timeoutMs = 2000): Promise<Health | null> {
-    const res = await fetch(`${this.base}api/v1/health`, { signal: AbortSignal.timeout(timeoutMs) }).catch(() => null);
+    const res = await fetch(`${this.base}api/v1/health`, { headers: tokenHeader(), signal: AbortSignal.timeout(timeoutMs) }).catch(() => null);
     if (!res) return null;
     const body = (await res.json().catch(() => null)) as { data?: Health } | null;
     return body?.data?.name === "watchwright" ? body.data : null;
@@ -90,7 +96,7 @@ export class Client {
     try {
       res = await fetch(url, {
         method,
-        headers: { "x-watchwright-client": this.client, ...(confirmed ? { "x-watchwright-confirmed": "terminal" } : {}), ...(body !== undefined ? { "content-type": "application/json" } : {}) },
+        headers: { "x-watchwright-client": this.client, ...tokenHeader(), ...(confirmed ? { "x-watchwright-confirmed": "terminal" } : {}), ...(body !== undefined ? { "content-type": "application/json" } : {}) },
         ...(body !== undefined ? { body } : {}),
         signal: signal ? AbortSignal.any([signal, limit]) : limit,
       });

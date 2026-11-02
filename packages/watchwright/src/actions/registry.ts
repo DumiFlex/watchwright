@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { accessOfAction, allows, refusal, type Access, type CallUser } from "../core/access.js";
 import { errorBody } from "../server/errors.js";
 
 // Every operation is declared once as an action: a name, an HTTP method and path, a JSON Schema
@@ -32,8 +33,13 @@ export interface ActionCall {
   client: string;
   /** Aborted when the HTTP client goes away (for actions that wait). */
   signal: AbortSignal;
-  /** True when the request comes from the web page (it carries the server's own Origin, which a browser sets and scripts don't). */
+  /** True when the request comes from the web page (it carries the server's own Origin, which a browser sets and scripts don't; with login on, also the page's sign-in cookie). */
   fromPage: boolean;
+  /**
+   * Who is signed in, when login is on: null when nobody is. Left out when login is off or the
+   * server calls by itself (a schedule, an approved action), which every access level allows.
+   */
+  user?: CallUser | null;
 }
 
 export interface Action<I = Record<string, unknown>, O = unknown> {
@@ -57,6 +63,11 @@ export interface Action<I = Record<string, unknown>, O = unknown> {
   explain?: (input: I) => string | Promise<string>;
   /** Input fields that hold a password or token: an approval of the call shows them as •••. */
   secret?: readonly string[];
+  /**
+   * Who may call it when login is on: `public`, or the lowest role (`viewer`, `user`, `admin`).
+   * Default: `viewer` for GET, `user` for everything else (docs/plans/self-hosting.md, section 2.4).
+   */
+  access?: Access;
   handler: (input: I, call: ActionCall) => O | Promise<O>;
 }
 
@@ -129,6 +140,11 @@ function pick(schema: ObjectSchema, keys: readonly string[], keep: boolean): Obj
  * MCP) calls actions through here, so none of them skips the approval. Throws what the handler throws.
  */
 export async function invokeAction(action: Action, input: Record<string, unknown>, call: ActionCall, gate: ActionGate | null, confirmed = false): Promise<{ status: number; data: unknown }> {
+  const access = accessOfAction(action);
+  if (call.user !== undefined && !allows(access, call.user)) {
+    const no = refusal(access, call.user);
+    throw new ActionError(no.code, no.message, no.status);
+  }
   if (action.destructive && gate) {
     const held = await gate({ action, input, call, confirmed });
     if (held) return held;
@@ -150,6 +166,7 @@ export function mountActions(app: FastifyInstance, actions: readonly Action[], g
       method: action.method,
       url: action.path,
       schema,
+      config: { access: accessOfAction(action) },
       // An empty POST (no body, no content type) is the same as `{}`.
       preValidation: async (req) => {
         if (req.body === undefined || req.body === null) req.body = {};
@@ -169,7 +186,10 @@ export function mountActions(app: FastifyInstance, actions: readonly Action[], g
         try {
           const client = String(req.headers["x-watchwright-client"] ?? "api").slice(0, 60);
           // The request guard already refused other origins, so an Origin header here is our own page.
-          const call: ActionCall = { client, signal: controller.signal, fromPage: typeof req.headers.origin === "string" };
+          // With login on, the page is also signed in with its cookie: a token never counts as the page.
+          const user = req.watchwrightUser;
+          const fromPage = typeof req.headers.origin === "string" && (user === undefined || user?.via === "session");
+          const call: ActionCall = { client, signal: controller.signal, fromPage, ...(user === undefined ? {} : { user }) };
           const out = await invokeAction(action, merged, call, gate(), req.headers["x-watchwright-confirmed"] === "terminal");
           return reply.code(out.status).send({ data: out.data ?? null });
         } catch (err) {
@@ -192,6 +212,8 @@ export interface ActionInfo {
   output?: JsonSchema;
   agent?: { tool: string; say?: string };
   destructive?: boolean;
+  /** Who may call it when login is on. */
+  access: Access;
 }
 
 /** The public description of an action (for `GET /actions`, the CLI and the MCP server). */
@@ -205,5 +227,6 @@ export function describeAction(a: Action): ActionInfo {
     ...(a.output ? { output: a.output } : {}),
     ...(a.agent ? { agent: a.agent } : {}),
     ...(a.destructive ? { destructive: true } : {}),
+    access: accessOfAction(a),
   };
 }

@@ -249,14 +249,14 @@ export const reviewsPlugin = definePlugin({
       }
     };
     const attachment = (name: string) => `attachment; filename="${name}"`;
-    app.get("/export.md", async (req, reply) => {
+    app.get("/export.md", { config: { access: "viewer" } }, async (req, reply) => {
       const c = load(req, reply);
       if (!c) return reply;
       const origin = `http://${req.headers.host ?? "127.0.0.1"}`;
       const md = toMarkdown(c, { link: (s) => origin + s.url, now: new Date().toISOString() });
       return reply.type("text/markdown; charset=utf-8").header("content-disposition", attachment(exportName(c, "md"))).send(md);
     });
-    app.get("/export.zip", async (req, reply) => {
+    app.get("/export.zip", { config: { access: "viewer" } }, async (req, reply) => {
       const c = load(req, reply);
       if (!c) return reply;
       const entries: ZipEntry[] = [];

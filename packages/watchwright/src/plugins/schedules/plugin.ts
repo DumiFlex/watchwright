@@ -231,6 +231,7 @@ export const schedulesPlugin = definePlugin({
       }),
       defineAction({
         name: "schedules.startup",
+        access: "admin",
         title: "Start at sign-in: whether this server starts when you sign in to the computer (Windows), and the command that starts it",
         method: "GET",
         path: "/startup",
@@ -238,6 +239,7 @@ export const schedulesPlugin = definePlugin({
       }),
       defineAction<{ enabled: boolean }>({
         name: "schedules.set-startup",
+        access: "admin",
         destructive: true,
         explain: ({ enabled }) => (enabled ? "Start this Watchwright server when you sign in to the computer" : "Stop starting this Watchwright server when you sign in"),
         title: "Turn start at sign-in on or off (Windows: a file in your Startup folder that starts this server with its port and data folder)",
