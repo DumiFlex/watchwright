@@ -21,6 +21,8 @@ export type Route =
   /** The server's settings, for admins. */
   | { name: "admin"; section?: string }
   | { name: "schedules" }
+  /** Proposed changes to packs' code; with `id`, one of them. */
+  | { name: "changes"; id: string | null }
   /** The link the server prints when login is on and there is no user: creates the first admin. */
   | { name: "setup"; code: string }
   /** An invitation link: makes an account with the role an admin chose. */
@@ -59,6 +61,8 @@ export function parseRoute(hash: string): Route {
     return query.section && /^[a-z-]{1,40}$/.test(query.section) ? { name, section: query.section } : { name };
   }
   if (path === "/schedules") return { name: "schedules" };
+  if (path === "/changes") return { name: "changes", id: null };
+  if ((m = new RegExp(`^/changes/${ID8}$`).exec(path))) return { name: "changes", id: m[1]! };
   if (path === "/setup") return { name: "setup", code: query.code ?? "" };
   if (path === "/invite") return { name: "invite", code: query.code ?? "" };
   if (path === "/signin") return { name: "signin", error: query.error ?? "" };
@@ -116,6 +120,8 @@ export function href(route: Route): string {
       return `#/${route.name}${qs(route.section ? { section: route.section } : {})}`;
     case "schedules":
       return "#/schedules";
+    case "changes":
+      return route.id ? `#/changes/${route.id}` : "#/changes";
     case "setup":
       return `#/setup${qs({ code: route.code })}`;
     case "invite":

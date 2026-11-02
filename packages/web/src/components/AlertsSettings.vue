@@ -63,6 +63,7 @@ const TRIGGERS: { value: string; label: string; note?: string }[] = [
   { value: "test_broken", label: "A test breaks", note: "While the run is still going" },
   { value: "schedule_missed", label: "A schedule misses a time", note: "Missed while Watchwright was off, or skipped because its last run was still going" },
   { value: "approval", label: "An agent waits for approval" },
+  { value: "proposal", label: "A code change waits for review" },
   { value: "storage_low", label: "The drive runs low", note: "Below the free space set in Admin > Storage, during a run" },
 ];
 const channels = ref<Channel[] | null>(null);

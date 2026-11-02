@@ -1,4 +1,4 @@
-import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
@@ -34,13 +34,32 @@ async function make() {
   const auth = app.watchwright.services.get(AUTH_STORE);
   const call = async (method: "GET" | "POST" | "DELETE", url: string, cookie: string, body?: unknown) => {
     const res = await app.inject({ method, url: `/api/v1${url}`, headers: { host: HOST, origin: `http://${HOST}`, cookie }, ...(body === undefined ? {} : { payload: body as object }) });
-    return { status: res.statusCode, body: res.json() as { data?: Record<string, unknown>; error?: { code: string; message: string } } };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test responses are checked field by field
+    return { status: res.statusCode, body: res.json() as { data?: Record<string, any>; error?: { code: string; message: string; detail?: unknown } } };
   };
   const signIn = async (name: string) => {
     const res = await app.inject({ method: "POST", url: "/api/v1/auth/signin", headers: { host: HOST, origin: `http://${HOST}` }, payload: { name, password: PASSWORD } });
     return String(res.headers["set-cookie"]).split(";")[0]!;
   };
-  return { auth, call, signIn };
+  return { app, auth, call, signIn };
+}
+
+const PASSWORDS = { ada: "admin", uma: "user", ulf: "user" } as const;
+
+async function withPack() {
+  const t = await make();
+  for (const [name, role] of Object.entries(PASSWORDS)) await t.auth.add({ name, password: PASSWORD, role });
+  const admin = await t.signIn("ada");
+  const user = await t.signIn("uma");
+  const other = await t.signIn("ulf");
+  const dir = tempDir("ww-pack-");
+  writeFiles(dir, {
+    "pack.yaml": "name: Mixed\nsite: { key: mixed, baseURL: http://127.0.0.1:9/ }\n",
+    "tests/home.yaml": "id: H1\ntitle: Home\nsteps:\n  - goto: /\n",
+    "lib/wait.ts": "export const WAIT = 100;\n",
+  });
+  const id = String((await t.call("POST", "/packs", admin, { path: dir })).body.data!.id);
+  return { ...t, admin, user, other, dir, id };
 }
 
 describe("who changes pack code", () => {
@@ -108,5 +127,68 @@ describe("what YAML tests and recordings reach", () => {
     symlinkSync(path.join(outside, "secret.txt"), path.join(dir, "link.txt"));
     expect(packFile(dir, "files/photo.txt")).toBe(path.join(dir, "files", "photo.txt"));
     for (const bad of [path.join(outside, "secret.txt"), `../${path.basename(outside)}/secret.txt`, "link.txt", "missing.txt"]) expect(() => packFile(dir, bad), bad).toThrow();
+  });
+});
+
+describe("proposed changes", () => {
+  it("lets a user propose code and an admin apply it after reading the diff", async () => {
+    const { call, admin, user, other, dir, id, app } = await withPack();
+    const seen: string[] = [];
+    app.watchwright.events.subscribe((e) => void (e.type.startsWith("proposal.") && seen.push(e.type)));
+    const read = await call("GET", `/packs/${id}/file?path=lib%2Fwait.ts`, user);
+    const made = await call("POST", `/packs/${id}/proposals`, user, {
+      note: "Wait longer",
+      files: [
+        { path: "lib/wait.ts", text: "export const WAIT = 500;\n", stamp: read.body.data!.stamp },
+        { path: "lib/new.ts", text: "export {};\n", stamp: "" },
+      ],
+    });
+    expect(made.status).toBe(201);
+    const pid = String(made.body.data!.id);
+    expect(made.body.data).toMatchObject({ status: "waiting", by: "uma", note: "Wait longer", paths: ["lib/new.ts", "lib/wait.ts"], packName: "Mixed" });
+    expect(readFileSync(path.join(dir, "lib/wait.ts"), "utf8")).toBe("export const WAIT = 100;\n");
+
+    const got = await call("GET", `/proposals/${pid}`, admin);
+    expect(got.body.data!.files).toEqual([
+      { path: "lib/new.ts", base: null, text: "export {};\n", current: null, changedSince: false },
+      { path: "lib/wait.ts", base: "export const WAIT = 100;\n", text: "export const WAIT = 500;\n", current: "export const WAIT = 100;\n", changedSince: false },
+    ]);
+    expect((await call("GET", "/proposals?status=waiting", other)).body.data!.waiting).toBe(1);
+
+    expect((await call("POST", `/proposals/${pid}/apply`, user, {})).status).toBe(403);
+    expect((await call("DELETE", `/proposals/${pid}`, other)).status).toBe(403);
+    const applied = await call("POST", `/proposals/${pid}/apply`, admin, { reply: "Thanks" });
+    expect(applied.status).toBe(200);
+    expect(applied.body.data!.proposal).toMatchObject({ status: "applied", answeredBy: "ada", reply: "Thanks" });
+    expect(readFileSync(path.join(dir, "lib/wait.ts"), "utf8")).toBe("export const WAIT = 500;\n");
+    expect(readFileSync(path.join(dir, "lib/new.ts"), "utf8")).toBe("export {};\n");
+    expect((await call("POST", `/proposals/${pid}/decline`, admin, {})).body.error?.code).toBe("not_waiting");
+    expect(seen).toEqual(["proposal.created", "proposal.applied"]);
+  });
+
+  it("won't apply over a file that moved on, unless asked to", async () => {
+    const { call, admin, user, dir, id } = await withPack();
+    const pid = String((await call("POST", `/packs/${id}/proposals`, user, { files: [{ path: "lib/wait.ts", text: "export const WAIT = 1;\n" }] })).body.data!.id);
+    writeFileSync(path.join(dir, "lib/wait.ts"), "export const WAIT = 200;\n");
+    expect((await call("GET", `/proposals/${pid}`, admin)).body.data!.files[0].changedSince).toBe(true);
+    const stale = await call("POST", `/proposals/${pid}/apply`, admin, {});
+    expect(stale.status).toBe(409);
+    expect(stale.body.error).toMatchObject({ code: "stale", detail: { paths: ["lib/wait.ts"] } });
+    expect((await call("POST", `/proposals/${pid}/apply`, admin, { force: true })).status).toBe(200);
+    expect(readFileSync(path.join(dir, "lib/wait.ts"), "utf8")).toBe("export const WAIT = 1;\n");
+  });
+
+  it("refuses a stale or empty proposal, and lets its owner change or withdraw it", async () => {
+    const { call, admin, user, id } = await withPack();
+    expect((await call("POST", `/packs/${id}/proposals`, user, { files: [{ path: "lib/wait.ts", text: "x", stamp: "0000000000000000" }] })).body.error?.code).toBe("stale");
+    expect((await call("POST", `/packs/${id}/proposals`, user, { files: [{ path: "lib/wait.ts", text: "export const WAIT = 100;\n" }] })).body.error?.message).toMatch(/Nothing to propose/);
+    expect((await call("POST", `/packs/${id}/proposals`, user, { files: [{ path: "../out.ts", text: "x" }] })).status).toBe(400);
+    const pid = String((await call("POST", `/packs/${id}/proposals`, user, { files: [{ path: "lib/wait.ts", delete: true }] })).body.data!.id);
+    const changed = await call("POST", `/proposals/${pid}`, user, { note: "Not needed any more" });
+    expect(changed.body.data).toMatchObject({ note: "Not needed any more", paths: ["lib/wait.ts"] });
+    expect((await call("GET", `/proposals/${pid}`, admin)).body.data!.files[0]).toMatchObject({ text: null });
+    expect((await call("DELETE", `/proposals/${pid}`, user)).body.data).toMatchObject({ status: "withdrawn" });
+    const pid2 = String((await call("POST", `/packs/${id}/proposals`, user, { files: [{ path: "lib/wait.ts", text: "y" }] })).body.data!.id);
+    expect((await call("POST", `/proposals/${pid2}/decline`, admin, { reply: "Keep 100" })).body.data).toMatchObject({ status: "declined", reply: "Keep 100" });
   });
 });

@@ -40,6 +40,8 @@ export function pageOf(route: Route): string | null {
       return "admin";
     case "schedules":
       return "schedules";
+    case "changes":
+      return "changes";
     case "kit":
     case "setup":
     case "invite":

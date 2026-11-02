@@ -13,9 +13,11 @@ const tone = computed(() => {
   switch (props.status) {
     case "passed":
     case "finished":
+    case "applied":
       return "ok";
     case "failed":
     case "failed_to_start":
+    case "declined":
       return "bad";
     case "broken":
     case "interrupted":
@@ -25,6 +27,7 @@ const tone = computed(() => {
       return "paused";
     case "running":
     case "queued":
+    case "waiting":
       return "accent";
     default:
       return "muted";

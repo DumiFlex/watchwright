@@ -49,6 +49,7 @@ export {
   FileText,
   Folder,
   FolderOpen,
+  GitPullRequest,
   FolderPlus,
   FolderSearch,
   FolderUp,

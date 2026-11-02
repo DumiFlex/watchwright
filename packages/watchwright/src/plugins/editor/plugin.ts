@@ -1,10 +1,11 @@
 import { createReadStream } from "node:fs";
 import { ActionError, defineAction, type ActionCall } from "../../actions/registry.js";
-import { allows } from "../../core/access.js";
+import { allows, whoCalls } from "../../core/access.js";
 import { definePlugin } from "../../core/plugin.js";
 import { PACKS, type PackRegistry, type PackSummary } from "../packs/registry.js";
 import { errorBody } from "../../server/errors.js";
-import { createPackFile, deletePackFile, FileError, isCodeFile, listFiles, packImage, readPackFile, renamePackFile, savePackFile } from "./files.js";
+import { createPackFile, deletePackFile, FileError, isCodeFile, listFiles, packImage, readPackFile, renamePackFile, resolveIn, savePackFile, stampOf } from "./files.js";
+import { baseStamp, PROPOSALS_SQL, ProposalStore, type Proposal, type ProposalFile, type ProposalStatus } from "./proposals.js";
 
 // The editor: reading and writing a pack's text files from the web app (or an agent). Every
 // change rebuilds the pack, and the answer says whether it still loads; a run that uses the pack
@@ -29,7 +30,7 @@ function packDir(registry: PackRegistry, id: string): string {
 export function checkCode(call: ActionCall, ...paths: string[]): void {
   if (allows("admin", call.user) || !paths.some(isCodeFile)) return;
   const file = paths.find(isCodeFile)!;
-  throw new ActionError("code_admin_only", `Only admins change a pack's code (${file}): it runs on the server. Users change YAML tests, pack.yaml and data files.`, 403, { path: file });
+  throw new ActionError("code_admin_only", `Only admins change a pack's code (${file}): it runs on the server. Propose the change instead (propose_change, or Propose change in the editor) and an admin reviews it.`, 403, { path: file });
 }
 
 function wrap<T>(fn: () => T): T {
@@ -41,9 +42,66 @@ function wrap<T>(fn: () => T): T {
   }
 }
 
+/** A file as it is on disk now, or null when it doesn't exist. */
+function onDisk(dir: string, rel: string): { text: string; stamp: string } | null {
+  try {
+    const f = readPackFile(dir, rel);
+    return { text: f.text, stamp: f.stamp };
+  } catch (err) {
+    if (err instanceof FileError && err.code === "not_found") return null;
+    throw err;
+  }
+}
+
+type FileInput = { path: string; text?: string; delete?: boolean; stamp?: string };
+
+const PROPOSAL_ID = { type: "string", pattern: "^[0-9a-f]{8}$", description: "Proposed change id." } as const;
+
+const PROPOSAL_FILES = {
+  type: "array",
+  minItems: 1,
+  maxItems: 20,
+  description: "The files it changes.",
+  items: {
+    type: "object",
+    properties: {
+      path: PATH,
+      text: { type: "string", description: "The whole new file." },
+      delete: { type: "boolean", description: "Delete the file instead (leave out `text`)." },
+      stamp: { type: "string", description: "The stamp the file was read with (empty: it didn't exist). When the file changed since, nothing is proposed. Leave out to propose against the file as it is now." },
+    },
+    required: ["path"],
+  },
+} as const;
+
+/** Files as a proposal keeps them: each with the text it is based on (the file on disk now). */
+function proposalFiles(dir: string, input: FileInput[]): ProposalFile[] {
+  const seen = new Set<string>();
+  const out: ProposalFile[] = [];
+  for (const f of input) {
+    const abs = resolveIn(dir, f.path);
+    const rel = abs.slice(dir.length + 1).split(/[\\/]/).join("/");
+    if (seen.has(rel)) throw new FileError("bad_path", `${rel} is in the proposal twice.`);
+    seen.add(rel);
+    const now = onDisk(dir, rel);
+    if (f.stamp !== undefined && (now?.stamp ?? "") !== f.stamp) throw new FileError("stale", `${rel} changed on disk since you opened it.`, { path: rel, text: now?.text ?? null, stamp: now?.stamp ?? null });
+    if (f.delete !== true && f.text === undefined) throw new FileError("bad_path", `Give ${rel} a \`text\`, or \`delete: true\`.`);
+    const text = f.delete === true ? null : (f.text ?? null);
+    if (text === null && now === null) throw new FileError("not_found", `${rel} doesn't exist, so there is nothing to delete.`);
+    if (text !== null && Buffer.byteLength(text) > 1024 * 1024) throw new FileError("too_big", `${rel} is over 1 MB.`);
+    if (text !== null && now !== null && text === now.text) continue;
+    out.push({ path: rel, base: now?.text ?? null, text });
+  }
+  if (out.length === 0) throw new FileError("bad_path", "Nothing to propose: every file is the same as on disk.");
+  return out;
+}
+
 export const editorPlugin = definePlugin({
   name: "editor",
-  actions: ({ services, events }) => {
+  migrations: [{ id: 1, name: "proposals", sql: PROPOSALS_SQL }],
+  pages: [{ name: "changes", title: "Proposed changes", path: "/changes", icon: "GitPullRequest", menu: "more", order: 45, words: "proposals review code diff apply", loginOnly: true }],
+  actions: ({ services, events, store }) => {
+    const proposals = new ProposalStore(store.db);
     const registry = services.get(PACKS);
     const rebuilt = async (id: string): Promise<PackState> => {
       await registry.reload(id).catch(() => undefined);
@@ -136,7 +194,166 @@ export const editorPlugin = definePlugin({
           return { ...r, pack: await rebuilt(id) };
         },
       }),
+      ...proposalActions(),
     ];
+
+    function packName(id: string): string {
+      return registry.get(id)?.name ?? id;
+    }
+    function find(id: string): Proposal {
+      const p = proposals.get(id);
+      if (!p) throw new ActionError("not_found", `No proposed change with id ${id}.`, 404);
+      return p;
+    }
+    function waiting(p: Proposal): void {
+      if (p.status !== "waiting") throw new ActionError("not_waiting", `This change was already ${p.status}.`, 409);
+    }
+    function mine(p: Proposal, call: ActionCall): void {
+      if (allows("admin", call.user) || (call.user && call.user.id === p.userId)) return;
+      throw new ActionError("not_allowed", "Only the person who proposed it, or an admin, can change or withdraw it.", 403);
+    }
+    function summary(p: Proposal) {
+      return { ...p, packName: packName(p.packId) };
+    }
+    function announce(type: string, p: Proposal, extra: Record<string, unknown> = {}) {
+      events.append(type, { proposalId: p.id, packId: p.packId, packName: packName(p.packId), by: p.by, note: p.note, paths: p.paths, ...extra });
+    }
+
+    function proposalActions() {
+      return [
+        defineAction<{ pack?: string; status?: ProposalStatus }>({
+          name: "proposals.list",
+          title: "Proposed changes to packs' code, newest first, with who proposed them and what became of them",
+          method: "GET",
+          path: "/proposals",
+          input: {
+            type: "object",
+            properties: {
+              pack: { type: "string", pattern: "^[0-9a-f]{8}$", description: "Only this pack's." },
+              status: { type: "string", enum: ["waiting", "applied", "declined", "withdrawn"] },
+            },
+          },
+          handler: ({ pack, status }) => ({ proposals: proposals.list({ packId: pack, status }).map(summary), waiting: proposals.waiting() }),
+        }),
+        defineAction<{ id: string }>({
+          name: "proposals.get",
+          agent: { tool: "get_proposal", say: "What became of a change you proposed: waiting, applied or declined, with the admin's reply." },
+          title: "One proposed change with its files: the text it was based on, the proposed text and the file as it is now",
+          method: "GET",
+          path: "/proposals/:id",
+          input: { type: "object", properties: { id: PROPOSAL_ID }, required: ["id"] },
+          handler: ({ id }) => {
+            const p = find(id);
+            const pack = registry.get(p.packId);
+            const files = proposals.files(id).map((f) => {
+              const now = pack && !pack.missing ? onDisk(pack.dir, f.path) : null;
+              return { ...f, current: now?.text ?? null, changedSince: (now?.stamp ?? null) !== baseStamp(f) };
+            });
+            return { ...summary(p), files };
+          },
+        }),
+        defineAction<{ id: string; note?: string; files: FileInput[] }>({
+          name: "proposals.create",
+          agent: {
+            tool: "propose_change",
+            say: "With login on, only admins change a pack's code (.ts, .js, package.json). Anyone else proposes the change here, with a note saying why; an admin reviews the diff and applies or declines it. Check on it with get_proposal.",
+          },
+          title: "Propose a change to a pack's files for an admin to review and apply",
+          method: "POST",
+          path: "/packs/:id/proposals",
+          status: 201,
+          input: { type: "object", properties: { id: ID, note: { type: "string", maxLength: 2000, description: "What it changes and why." }, files: PROPOSAL_FILES }, required: ["id", "files"] },
+          handler: ({ id, note = "", files }, call) => {
+            const dir = packDir(registry, id);
+            const kept = wrap(() => proposalFiles(dir, files));
+            const p = proposals.create({ packId: id, userId: call.user?.id ?? null, by: whoCalls(call.client, call.user), note: note.trim(), files: kept });
+            announce("proposal.created", p);
+            return summary(p);
+          },
+        }),
+        defineAction<{ id: string; note?: string; files?: FileInput[] }>({
+          name: "proposals.update",
+          title: "Change a proposed change that still waits: its note, or its files (they replace the ones it had)",
+          method: "POST",
+          path: "/proposals/:id",
+          input: { type: "object", properties: { id: PROPOSAL_ID, note: { type: "string", maxLength: 2000 }, files: PROPOSAL_FILES }, required: ["id"] },
+          handler: ({ id, note, files }, call) => {
+            const p = find(id);
+            waiting(p);
+            mine(p, call);
+            const kept = files ? wrap(() => proposalFiles(packDir(registry, p.packId), files)) : undefined;
+            const u = proposals.update(id, { note: note?.trim(), files: kept });
+            announce("proposal.updated", u);
+            return summary(u);
+          },
+        }),
+        defineAction<{ id: string }>({
+          name: "proposals.withdraw",
+          title: "Withdraw a proposed change that still waits",
+          method: "DELETE",
+          path: "/proposals/:id",
+          input: { type: "object", properties: { id: PROPOSAL_ID }, required: ["id"] },
+          handler: ({ id }, call) => {
+            const p = find(id);
+            waiting(p);
+            mine(p, call);
+            const u = proposals.answer(id, "withdrawn", whoCalls(call.client, call.user), null);
+            announce("proposal.withdrawn", u);
+            return summary(u);
+          },
+        }),
+        defineAction<{ id: string; force?: boolean; reply?: string }>({
+          name: "proposals.apply",
+          access: "admin",
+          title: "Apply a proposed change: write its files and rebuild the pack",
+          method: "POST",
+          path: "/proposals/:id/apply",
+          input: {
+            type: "object",
+            properties: {
+              id: PROPOSAL_ID,
+              force: { type: "boolean", default: false, description: "Write the files even where they changed on disk since the change was proposed." },
+              reply: { type: "string", maxLength: 2000, description: "A word for the person who proposed it." },
+            },
+            required: ["id"],
+          },
+          handler: async ({ id, force = false, reply }, call) => {
+            const p = find(id);
+            waiting(p);
+            const dir = packDir(registry, p.packId);
+            const files = proposals.files(id);
+            const moved = files.filter((f) => (onDisk(dir, f.path)?.stamp ?? null) !== baseStamp(f)).map((f) => f.path);
+            if (moved.length && !force) throw new ActionError("stale", `${moved.join(", ")} changed on disk since the change was proposed.`, 409, { paths: moved });
+            wrap(() => {
+              for (const f of files) {
+                if (f.text === null) {
+                  if (onDisk(dir, f.path)) deletePackFile(dir, f.path);
+                } else savePackFile(dir, f.path, f.text, null);
+              }
+            });
+            for (const f of files) changed(p.packId, f.text === null ? "delete" : "save", f.path, f.text === null ? {} : { stamp: stampOf(f.text) });
+            const u = proposals.answer(id, "applied", whoCalls(call.client, call.user), reply?.trim() || null);
+            announce("proposal.applied", u, { answeredBy: u.answeredBy });
+            return { proposal: summary(u), pack: await rebuilt(p.packId) };
+          },
+        }),
+        defineAction<{ id: string; reply?: string }>({
+          name: "proposals.decline",
+          access: "admin",
+          title: "Decline a proposed change, with a reply for the person who proposed it",
+          method: "POST",
+          path: "/proposals/:id/decline",
+          input: { type: "object", properties: { id: PROPOSAL_ID, reply: { type: "string", maxLength: 2000 } }, required: ["id"] },
+          handler: ({ id, reply }, call) => {
+            const p = find(id);
+            waiting(p);
+            const u = proposals.answer(id, "declined", whoCalls(call.client, call.user), reply?.trim() || null);
+            announce("proposal.declined", u, { answeredBy: u.answeredBy, reply: u.reply });
+            return summary(u);
+          },
+        }),
+      ];
+    }
   },
   routes(app, { services }) {
     const registry = services.get(PACKS);

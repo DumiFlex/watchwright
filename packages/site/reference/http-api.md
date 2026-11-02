@@ -81,6 +81,22 @@ Every change returns the pack's state after it loads again, `pack: { status, err
 | `DELETE /packs/:id/file?path=` | Deletes a file. Returns `{ deleted, pack }`. |
 | `GET /packs/:id/image?path=` | An image file from the pack folder (`.png`, `.jpg`, `.gif`, `.webp`, `.avif`, `.svg`, `.bmp`, `.ico`, up to 20 MB), sent as the image itself, not JSON, for Markdown previews. The same path rules apply; other files are 400 `not_text`. SVG is sent with a sandboxing `Content-Security-Policy`, so its scripts never run. |
 
+With [login](../guide/safety#login) on, saving, making, renaming and deleting a code file (`.ts`, `.js` and the like, `package.json`, `tsconfig.json`) needs the admin role; anyone else gets 403 `code_admin_only` and proposes the change instead.
+
+### Proposed changes
+
+| Method and path | Does |
+|---|---|
+| `POST /packs/:id/proposals` `{ note?, files: [{ path, text? \| delete: true, stamp? }] }` | Proposes a change for an admin to review. Each file keeps the text it is based on (the file on disk now). With `stamp` (empty for a file that didn't exist), 409 `stale` when the file changed since. 201 with the proposal. |
+| `GET /proposals?pack=&status=` | Proposed changes, newest first: `{ proposals, waiting }`. `status` is `waiting`, `applied`, `declined` or `withdrawn`. |
+| `GET /proposals/:id` | One, with `files: [{ path, base, text, current, changedSince }]`: `base` is what it was based on (null for a new file), `text` the proposed text (null to delete), `current` the file now. |
+| `POST /proposals/:id` `{ note?, files? }` | Changes a waiting proposal; only its author or an admin. |
+| `DELETE /proposals/:id` | Withdraws a waiting proposal; only its author or an admin. |
+| `POST /proposals/:id/apply` `{ reply?, force? }` | Admin: writes the files and rebuilds the pack. 409 `stale` with `detail: { paths }` when a file changed since it was proposed, unless `force`. Returns `{ proposal, pack }`. |
+| `POST /proposals/:id/decline` `{ reply? }` | Admin: declines it, with a reply for its author. |
+
+Each step adds an event: `proposal.created`, `proposal.updated`, `proposal.applied`, `proposal.declined` or `proposal.withdrawn`, with `{ proposalId, packId, packName, by, note, paths }`.
+
 ## Recording
 
 [Recording](../guide/recording) opens a browser for a pack and turns what is done on its page into YAML steps. A recording has an 8-character id. Its events carry that id as `runId`, and its screencast goes through the [live WebSocket](#live-websocket) the same way, so a viewer subscribes to a recording as to a run. A recording holds its pack's site: runs of the site wait for it, and it waits (status `waiting`) for a run of the site to end. It ends by itself after 30 minutes without input (15 minutes without a call when an agent started it).
