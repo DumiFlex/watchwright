@@ -1,12 +1,13 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-// One video of a whole run: the newest live frame of the page the live view follows, written
-// FPS times a second into Playwright's own ffmpeg (JPEG frames in, a VP8 WebM out, the encoder
-// Playwright uses for its per-attempt videos). Writing the newest frame on a timer, not each
-// frame as it comes, keeps pauses and still pages at their real length.
+// One video of a whole run: the live frames of the page the live view follows, fed to Playwright's
+// own ffmpeg the way Playwright feeds its per-attempt videos: JPEG frames with their times in a
+// small Matroska stream in, a WebM out. Each frame carries its time, so pauses and still pages keep
+// their real length. Playwright's ffmpeg is built with only what Playwright needs, and that
+// changed between releases (VP8 before, VP9 since), so the encoder is whichever one it has.
 
 export const RUN_VIDEO_FPS = 10;
 /** Target bit rate: a run video is a record to skim, so it takes less than an attempt's video. */
@@ -42,18 +43,70 @@ export function findFfmpeg(env: NodeJS.ProcessEnv = process.env, root = browsers
   return null;
 }
 
+/** The WebM encoder this ffmpeg has: VP9 (newer Playwright builds) or VP8 (older), else null. */
+export type VideoEncoder = "libvpx-vp9" | "libvpx";
+const encoders = new Map<string, VideoEncoder | null>();
+export function videoEncoder(ffmpeg: string): VideoEncoder | null {
+  let found = encoders.get(ffmpeg);
+  if (found !== undefined) return found;
+  const out = spawnSync(ffmpeg, ["-hide_banner", "-encoders"], { encoding: "utf8", windowsHide: true, timeout: 10_000 });
+  const list = `${out.stdout ?? ""}`;
+  found = /\slibvpx-vp9\s/.test(list) ? "libvpx-vp9" : /\slibvpx\s/.test(list) ? "libvpx" : null;
+  encoders.set(ffmpeg, found);
+  return found;
+}
+
 /** The ffmpeg arguments for a run video of `width`×`height` (even numbers). Frames of another size are cropped or padded to it. */
-export function ffmpegArgs(file: string, width: number, height: number, fps = RUN_VIDEO_FPS): string[] {
-  // Crop a bigger frame and pad a smaller one, both centered: Playwright's ffmpeg is built with
-  // only the filters its own videos use (crop and pad, no scale).
+export function ffmpegArgs(file: string, width: number, height: number, encoder: VideoEncoder): string[] {
+  // Crop a bigger frame and pad a smaller one, both centered (Playwright's ffmpeg has no scale).
   const fit = `crop=w=min(iw\\,${width}):h=min(ih\\,${height}),pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`;
+  const speed = encoder === "libvpx-vp9" ? ["-cpu-used", "8", "-lag-in-frames", "0", "-row-mt", "1"] : ["-speed", "8"];
   return [
     "-loglevel", "error",
-    "-f", "image2pipe", "-c:v", "mjpeg", "-framerate", String(fps), "-i", "pipe:0",
+    "-f", "matroska", "-fpsprobesize", "0", "-probesize", "32", "-analyzeduration", "0", "-i", "pipe:0",
+    // Each frame keeps its own time: a still page is one frame however long it stays.
+    "-y", "-an", "-fps_mode", "vfr",
+    "-c:v", encoder, "-qmin", "0", "-qmax", "50", "-crf", "10", "-b:v", BIT_RATE, "-deadline", "realtime", ...speed, "-threads", "1",
     "-vf", fit,
-    "-c:v", "vp8", "-qmin", "0", "-qmax", "50", "-crf", "10", "-b:v", BIT_RATE, "-deadline", "realtime", "-speed", "8", "-threads", "1",
-    "-y", "-an", file,
+    file,
   ];
+}
+
+// The Matroska stream: a header with one MJPEG video track, then one cluster per frame whose
+// timestamp is in milliseconds. Element ids are Matroska's (matroska.org, EBML).
+const ID = (hex: string) => Buffer.from(hex, "hex");
+
+/** An EBML variable-size integer. */
+function vint(n: number): Buffer {
+  let length = 1;
+  while (n >= 2 ** (7 * length) - 1) length++;
+  const b = Buffer.alloc(length);
+  for (let i = length - 1, v = n; i >= 0; i--, v = Math.floor(v / 256)) b[i] = v & 255;
+  b[0]! |= 1 << (8 - length);
+  return b;
+}
+function uint(n: number): Buffer {
+  const bytes: number[] = [];
+  for (let v = n; v > 0; v = Math.floor(v / 256)) bytes.unshift(v & 255);
+  return Buffer.from(bytes.length ? bytes : [0]);
+}
+const el = (id: string, payload: Buffer) => Buffer.concat([ID(id), vint(payload.length), payload]);
+
+export function matroskaHeader(): Buffer {
+  const ebml = el("1A45DFA3", Buffer.concat([el("4286", uint(1)), el("42F7", uint(1)), el("42F2", uint(4)), el("42F3", uint(8)), el("4282", Buffer.from("matroska")), el("4287", uint(4)), el("4285", uint(2))]));
+  // Timestamps in milliseconds (1,000,000 ns a tick).
+  const info = el("1549A966", Buffer.concat([el("2AD7B1", uint(1e6)), el("4D80", Buffer.from("watchwright")), el("5741", Buffer.from("watchwright"))]));
+  // The MJPEG decoder reads each frame's real size, so the track says 1×1.
+  const track = el("AE", Buffer.concat([el("D7", uint(1)), el("73C5", uint(1)), el("83", uint(1)), el("9C", uint(0)), el("86", Buffer.from("V_MJPEG")), el("E0", Buffer.concat([el("B0", uint(1)), el("BA", uint(1))]))]));
+  // The segment's size is unknown: the stream ends when the pipe closes.
+  return Buffer.concat([ebml, ID("18538067"), Buffer.from([1, 255, 255, 255, 255, 255, 255, 255]), info, el("1654AE6B", track)]);
+}
+
+/** The bytes before a frame: a cluster at `ms` holding one key-frame block of `length` bytes on track 1. */
+export function matroskaFrame(ms: number, length: number): Buffer {
+  const block = Buffer.concat([ID("A3"), vint(4 + length), vint(1), Buffer.from([0, 0]), Buffer.from([128])]);
+  const time = el("E7", uint(ms));
+  return Buffer.concat([ID("1F43B675"), vint(time.length + block.length + length), time, block]);
 }
 
 /** The next free run video file in a run's folder: `run-video.webm`, then `run-video-2.webm`, … */
@@ -89,7 +142,10 @@ export interface RunVideoOptions {
 export class RunVideo {
   private proc: ChildProcessWithoutNullStreams | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** The frame written last, and when (ms since the first one). */
   private last: Buffer | null = null;
+  private lastMs = 0;
+  private startedAt = 0;
   private busy = false;
   private failed = false;
   private exited: Promise<void> = Promise.resolve();
@@ -97,6 +153,7 @@ export class RunVideo {
 
   constructor(private readonly o: RunVideoOptions) {}
 
+  /** Looks for a new frame FPS times a second; a frame that didn't change isn't written again. */
   start(): void {
     if (this.timer) return;
     this.timer = setInterval(() => this.tick(), 1000 / (this.o.fps ?? RUN_VIDEO_FPS));
@@ -105,16 +162,23 @@ export class RunVideo {
   private tick(): void {
     if (this.failed) return;
     const f = this.o.frame();
-    if (f) this.last = f.data;
-    if (!this.last) return;
+    if (!f || f.data === this.last) return;
     if (!this.proc) {
-      if (!f) return;
       this.spawn(f.width, f.height);
       if (!this.proc) return;
+      this.startedAt = performance.now();
     }
-    // A slow disk or a busy machine: drop frames rather than queue them up.
+    // A slow disk or a busy machine: skip frames rather than queue them up.
     if (this.busy) return;
-    if (!this.proc.stdin.write(this.last)) {
+    this.write(f.data, Math.round(performance.now() - this.startedAt));
+  }
+
+  private write(data: Buffer, ms: number): void {
+    if (!this.proc) return;
+    this.last = data;
+    this.lastMs = ms;
+    this.proc.stdin.write(matroskaFrame(ms, data.length));
+    if (!this.proc.stdin.write(data)) {
       this.busy = true;
       this.proc.stdin.once("drain", () => (this.busy = false));
     }
@@ -123,7 +187,9 @@ export class RunVideo {
   private spawn(width: number, height: number): void {
     const even = (n: number) => Math.max(2, Math.floor(n / 2) * 2);
     try {
-      const proc = spawn(this.o.ffmpeg, ffmpegArgs(this.o.file, even(width), even(height), this.o.fps), { stdio: "pipe", windowsHide: true });
+      const encoder = videoEncoder(this.o.ffmpeg);
+      if (!encoder) return this.fail(`${this.o.ffmpeg} has no VP8 or VP9 encoder`);
+      const proc = spawn(this.o.ffmpeg, ffmpegArgs(this.o.file, even(width), even(height), encoder), { stdio: "pipe", windowsHide: true });
       proc.stderr.on("data", (d: Buffer) => (this.stderr = (this.stderr + d.toString()).slice(-2000)));
       proc.stdin.on("error", () => undefined);
       this.exited = new Promise((resolve) => {
@@ -136,6 +202,7 @@ export class RunVideo {
           resolve();
         });
       });
+      proc.stdin.write(matroskaHeader());
       this.proc = proc;
     } catch (err) {
       this.fail(err instanceof Error ? err.message : String(err));
@@ -148,10 +215,17 @@ export class RunVideo {
     this.o.onError(message);
   }
 
-  /** Ends the video: the frames written so far are kept. True when a file was written. */
+  /** Ends the video: the frames written so far are kept, the last one until now. True when a file was written. */
   async stop(): Promise<boolean> {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    // The last frame again at the end, so a still page before the stop keeps its length, and once
+    // more a frame later, which gives that last frame a known length.
+    if (this.last && !this.failed) {
+      const end = Math.max(this.lastMs + 1, Math.round(performance.now() - this.startedAt));
+      this.write(this.last, end);
+      this.write(this.last, end + Math.round(1000 / (this.o.fps ?? RUN_VIDEO_FPS)));
+    }
     const proc = this.proc;
     this.proc = null;
     if (!proc) return false;

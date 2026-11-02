@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, statSync, writeFileSync } from "node:
 import path from "node:path";
 import { chromium } from "playwright";
 import { afterEach, describe, expect, it } from "vitest";
-import { browsersPath, ffmpegArgs, findFfmpeg, nextRunVideoFile, RunVideo, runVideoFiles } from "../src/jobs/run-video.js";
+import { browsersPath, ffmpegArgs, findFfmpeg, matroskaFrame, matroskaHeader, nextRunVideoFile, RunVideo, runVideoFiles, videoEncoder } from "../src/jobs/run-video.js";
 import { cleanTempDirs, tempDir } from "./helpers/fixtures.js";
 
 afterEach(() => cleanTempDirs());
@@ -31,11 +31,27 @@ describe("finding Playwright's ffmpeg", () => {
     expect(findFfmpeg({}, path.join(root, "nowhere"))).toBeNull();
   });
 
-  it("fits frames of another size into the video's size", () => {
-    const args = ffmpegArgs("/v.webm", 1280, 800);
-    expect(args.join(" ")).toContain("crop=w=min(iw\\,1280):h=min(ih\\,800),pad=1280:800");
-    expect(args.join(" ")).not.toContain("scale=");
-    expect(args.at(-1)).toBe("/v.webm");
+  it("reads frames from a Matroska stream, fits other sizes in with crop and pad, and uses the encoder there is", () => {
+    const vp9 = ffmpegArgs("/v.webm", 1280, 800, "libvpx-vp9").join(" ");
+    expect(vp9).toContain("-f matroska");
+    expect(vp9).toContain("-c:v libvpx-vp9");
+    expect(vp9).toContain("-row-mt 1");
+    expect(vp9).toContain("-fps_mode vfr");
+    expect(vp9).toContain("crop=w=min(iw\\,1280):h=min(ih\\,800),pad=1280:800");
+    expect(vp9).not.toContain("scale=");
+    expect(vp9.endsWith("/v.webm")).toBe(true);
+    const vp8 = ffmpegArgs("/v.webm", 1280, 800, "libvpx").join(" ");
+    expect(vp8).toContain("-c:v libvpx -");
+    expect(vp8).toContain("-speed 8");
+  });
+
+  it("writes Matroska the way the spec has it: EBML header, a V_MJPEG track, a cluster per frame", () => {
+    const head = matroskaHeader();
+    expect(head.subarray(0, 4).toString("hex")).toBe("1a45dfa3");
+    expect(head.includes(Buffer.from("V_MJPEG"))).toBe(true);
+    // A cluster at 1234 ms holding a 300-byte frame: its id, its size (311: the timestamp, the
+    // block header and the frame), the timestamp element, then a key-frame block on track 1.
+    expect(matroskaFrame(1234, 300).toString("hex")).toBe("1f43b675" + "4137" + "e78204d2" + "a3" + "4130" + "81" + "0000" + "80");
   });
 });
 
@@ -59,7 +75,7 @@ describe("run video files", () => {
 
 const ffmpeg = findFfmpeg();
 describe.skipIf(!ffmpeg)("recording", () => {
-  it("writes the newest frame on a timer into a WebM, and fits a frame of another size", { timeout: 30_000 }, async () => {
+  it("writes each new frame with its time into a WebM, and fits a frame of another size", { timeout: 30_000 }, async () => {
     const browser = await chromium.launch();
     const page = await browser.newPage({ viewport: { width: 320, height: 200 } });
     await page.setContent("<body style='background:#c33'><h1>one</h1></body>");
@@ -68,6 +84,7 @@ describe.skipIf(!ffmpeg)("recording", () => {
     const square = await page.screenshot({ type: "jpeg" });
     await browser.close();
 
+    expect(["libvpx-vp9", "libvpx"]).toContain(videoEncoder(ffmpeg!));
     const dir = tempDir("ww-run-");
     const file = nextRunVideoFile(dir);
     const errors: string[] = [];
