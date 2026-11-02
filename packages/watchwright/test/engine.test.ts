@@ -213,6 +213,12 @@ test("H2", { title: "Counter", needs: ["H1"] }, async ({ h, expect }) => {
     const runId = await startRun(h, { packId, params: { label: "custom" } });
     const detail = await finished(h, runId);
     expect(detail.status).toBe("finished");
+    // Attempt events carry the attempt's row, so the run's page patches it in.
+    const row = detail.attempts.find((a) => a.testId === "H2")!;
+    const startedEv = await h.waitFor((e) => e.runId === runId && e.type === "attempt.started" && e.attemptId === row.id);
+    expect(startedEv.data.attempt).toMatchObject({ id: row.id, testId: "H2", status: "running", finishedAt: null });
+    const finishedEv = await h.waitFor((e) => e.runId === runId && e.type === "attempt.finished" && e.attemptId === row.id);
+    expect(finishedEv.data.attempt).toEqual(row);
     expect(byTest(detail)).toEqual({ "H1#1": "passed", "H1#2": "passed", "H2#1": "passed" });
     expect(detail.plan.map((p) => `${p.testId}#${p.number}/${p.of}:${p.status}`)).toEqual(["H1#1/2:passed", "H1#2/2:passed", "H2#1/1:passed"]);
     expect(detail.counts).toMatchObject({ passed: 3, planned: 3 });

@@ -400,7 +400,9 @@ export class Engine {
    * for the rest of the run so the run can finish without filling the drive. It never stops a run.
    */
   private async checkStorage(run: ActiveRun): Promise<void> {
-    run.sizeBytes = await dirSize(path.join(this.o.dataDir, "runs", run.id));
+    const size = await dirSize(path.join(this.o.dataDir, "runs", run.id));
+    if (size !== run.sizeBytes && this.active.has(run.id)) this.o.events.append("run.measured", { sizeBytes: size }, { runId: run.id });
+    run.sizeBytes = size;
     const drive = await driveSpace(this.o.dataDir);
     if (!drive || !this.active.has(run.id)) return;
     const { warnBelowGB, stopBelowGB } = this.limits();
@@ -1238,11 +1240,17 @@ export class Engine {
     return null;
   }
 
+  /** An attempt's row as the run's page lists it, sent with its events so pages patch instead of refetching the run. */
+  private attemptOf(id: string): AttemptSummary | null {
+    const a = this.o.repo.attempt(id);
+    return a ? attemptSummary(a) : null;
+  }
+
   private skipAttempt(ctx: RunCtx, item: PlanItem, parentId: string | null, reason: string): void {
     const id = newId(6);
     const title = ctx.kind.describe(ctx.pack, item.itemId).title;
     this.o.repo.insertSkipped({ id, runId: ctx.row.id, kind: ctx.kind.name, itemId: item.itemId, title, number: item.number, of: item.of, parentId, reason });
-    this.emit("attempt.finished", { testId: item.itemId, number: item.number, of: item.of, status: "skipped", reason, parentId }, ctx.row.id, id);
+    this.emit("attempt.finished", { testId: item.itemId, number: item.number, of: item.of, status: "skipped", reason, parentId, attempt: this.attemptOf(id) }, ctx.row.id, id);
   }
 
   /** The kind's helper object for one attempt (or the run's setup), built from the runtime every kind gets. */
@@ -1310,7 +1318,7 @@ export class Engine {
     run.attemptId = id;
     run.testId = item.itemId;
     run.step = null;
-    this.emit("attempt.started", { testId: item.itemId, title, number: item.number, of: item.of, try: tryNo, parentId }, row.id, id);
+    this.emit("attempt.started", { testId: item.itemId, title, number: item.number, of: item.of, try: tryNo, parentId, attempt: this.attemptOf(id) }, row.id, id);
 
     const top = parentId === null;
     if (top) run.recorder = recorder;
@@ -1479,7 +1487,7 @@ export class Engine {
     }
     this.emit(
       "attempt.finished",
-      { testId: item.itemId, number: item.number, of: item.of, try: tryNo, status: finalStatus, error: attemptError?.message ?? null, flags: recorder.flags.map((f) => f.name), parentId },
+      { testId: item.itemId, number: item.number, of: item.of, try: tryNo, status: finalStatus, error: attemptError?.message ?? null, flags: recorder.flags.map((f) => f.name), parentId, attempt: this.attemptOf(id) },
       row.id,
       id,
     );

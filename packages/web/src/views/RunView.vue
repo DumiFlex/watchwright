@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Ban, Keyboard, Pencil, Plus, Repeat, Settings, Undo2 } from "../icons";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { AttemptPatches, eventAttempt } from "../run-patch";
 import { getJson, sendJson, type ChangeSide, type Criterion, type Pack, type Review, type RunChanges, type RunDetail, type WwEvent } from "../api";
 import { LiveConnection, type LiveState } from "../live";
 import DataTable from "../components/DataTable.vue";
@@ -70,8 +71,11 @@ const testTitle = computed(() => {
   return id ? (run.value?.plan.find((p) => p.testId === id)?.title ?? id) : null;
 });
 
+const patches = new AttemptPatches();
 async function load() {
+  patches.begin();
   const res = await getJson<RunDetail>(`/api/v1/runs/${props.id}`);
+  patches.end(res.ok ? res.data : null);
   if (!res.ok) {
     error.value = res.error.message;
     return;
@@ -142,6 +146,13 @@ function onHello(head: number) {
   backlogHead = head;
   scheduleLoad();
 }
+// An attempt's row comes with its events; the whole run is fetched only when one didn't (or the
+// page has no run yet).
+function patchAttempt(e: WwEvent, started: boolean) {
+  const a = eventAttempt(e);
+  if (a && run.value && !refresh) patches.apply(run.value, a, started);
+  else scheduleLoad();
+}
 function onEvent(e: WwEvent) {
   if (e.runId !== props.id) return;
   const d = e.data;
@@ -176,11 +187,11 @@ function onEvent(e: WwEvent) {
       if (replayed) break;
       step.value = null;
       noteStep(e.time, `${String(d.testId)} starts`);
-      scheduleLoad();
+      patchAttempt(e, true);
       break;
     case "attempt.finished":
       addLog({ seq: e.seq, time: e.time, level: d.status === "passed" ? "info" : "warn", message: `${d.testId} ${d.status}${d.error ? `: ${String(d.error).split("\n")[0]}` : ""}`, test: String(d.testId) });
-      if (!replayed) scheduleLoad();
+      if (!replayed) patchAttempt(e, false);
       break;
     case "review.saved":
       void loadReviews();
@@ -188,6 +199,9 @@ function onEvent(e: WwEvent) {
     case "run.settings":
       addLog({ seq: e.seq, time: e.time, level: "info", message: settingsText(d), test: null });
       if (!replayed) scheduleLoad();
+      break;
+    case "run.measured":
+      if (!replayed && run.value && typeof d.sizeBytes === "number") run.value.sizeBytes = d.sizeBytes;
       break;
     case "video.unavailable":
       addLog({ seq: e.seq, time: e.time, level: "warn", message: String(d.message), test: null });
