@@ -4,7 +4,7 @@ import { ACTIONS, SERVER_PORT } from "../../core/keys.js";
 import { serviceKey } from "../../core/services.js";
 import { ENGINE, FILES_ROOT } from "../runs/plugin.js";
 import { ScheduleError, Scheduler, type MissedPolicy, type RunInput, type Schedule, type ScheduleInput } from "./scheduler.js";
-import { hostPlace, setStartup, startupInfo, type StartupPlace } from "./startup.js";
+import { hostPlace, refreshStartup, setStartup, startupInfo, type StartupPlace } from "./startup.js";
 import type { When } from "./when.js";
 
 // Schedules: runs that start by themselves, every so often or on a cron expression. A due schedule
@@ -97,6 +97,9 @@ export const schedulesPlugin = definePlugin({
       },
       going: (runId) => GOING.has(engine.get(runId)?.status ?? ""),
     });
+    // A start-at-sign-in file an older version wrote starts the server the current way from now on.
+    const port = services.has(SERVER_PORT) ? services.get(SERVER_PORT) : 0;
+    if (port > 0) void refreshStartup(services.has(STARTUP_PLACE) ? services.get(STARTUP_PLACE) : hostPlace(), port, services.get(FILES_ROOT));
   },
   close({ services }) {
     services.get(SCHEDULER).close();

@@ -257,7 +257,7 @@ onBeforeUnmount(() => {
           <template v-if="startup?.supported">
             <ToggleSwitch id="s-startup" v-model="startAtSignIn">Start at sign-in</ToggleSwitch>
             <p class="muted small">
-              Puts <code>Watchwright.cmd</code> in your Startup folder. It starts this server minimized when you sign in to Windows, on the same port and data folder, without opening the browser. Turning
+              Puts <code>Watchwright.cmd</code> in your Startup folder. It starts this server in the background, with no window, when you sign in to Windows, on the same port and data folder, without opening the browser. Turning
               this off deletes the file.
             </p>
           </template>

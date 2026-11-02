@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -53,11 +53,28 @@ export function startupInfo(place: StartupPlace, port: number, dataDir: string):
   return { supported: file !== null, enabled: file !== null && existsSync(file), file, command: startupCommand(place, port, dataDir) };
 }
 
-/** The .cmd file: `start /min` so the server runs in a minimized window and the script's own window closes. */
+/**
+ * The .cmd file: the server starts in the background with no window (`--background`); `start /min`
+ * keeps the few seconds it takes to answer in a minimized window that then closes.
+ */
 export function startupScript(place: StartupPlace, port: number, dataDir: string): string {
   // In a .cmd file a single % starts a variable, so a % in a path is written twice.
   const command = startupCommand(place, port, dataDir).replaceAll("%", "%%");
-  return ["@echo off", "rem Starts Watchwright when you sign in. Written by Settings > Server; turn it off there to delete this file.", `start "Watchwright" /min ${command}`, ""].join("\r\n");
+  return ["@echo off", "rem Starts Watchwright when you sign in. Written by Settings > Server; turn it off there to delete this file.", `start "Watchwright" /min ${command} --background`, ""].join("\r\n");
+}
+
+/** Rewrites a start-at-sign-in file an older version wrote, so it starts the server the current way. Never throws. */
+export async function refreshStartup(place: StartupPlace, port: number, dataDir: string): Promise<boolean> {
+  const file = fileOf(place);
+  if (!file || !existsSync(file)) return false;
+  try {
+    const want = startupScript(place, port, dataDir);
+    if (readFileSync(file, "utf8") === want) return false;
+    await writeFile(file, want);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function setStartup(place: StartupPlace, port: number, dataDir: string, enabled: boolean): Promise<StartupInfo> {
