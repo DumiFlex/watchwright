@@ -103,7 +103,7 @@ async function confirmRemove() {
 
 const menu = [
   { value: "download", label: "Download .zip" },
-  { value: "move", label: "Move to another folder…" },
+  ...(can("admin") ? [{ value: "move", label: "Move to another folder…" }] : []),
   { value: "remove", label: "Remove…", danger: true },
 ];
 function onMenu(p: Pack, v: string) {
@@ -179,8 +179,8 @@ onBeforeUnmount(() => live?.close());
         </p>
         <p v-else-if="p.status === 'error'" class="error small">{{ p.error }}</p>
         <div class="acts">
-          <button v-if="p.missing" class="btn primary" @click="locate(p)">Locate…</button>
-          <a v-else class="btn primary" :href="`#/new?pack=${p.id}`" :aria-disabled="p.status === 'error'" :class="{ off: p.status === 'error' }">New run</a>
+          <button v-if="p.missing && can('admin')" class="btn primary" @click="locate(p)">Locate…</button>
+          <a v-else-if="!p.missing" class="btn primary" :href="`#/new?pack=${p.id}`" :aria-disabled="p.status === 'error'" :class="{ off: p.status === 'error' }">New run</a>
           <button v-if="!p.missing" v-tip="'Build the pack again now'" class="btn" :disabled="reloading === p.id" @click="reload(p.id)">{{ reloading === p.id ? "Reloading…" : "Reload" }}</button>
           <span v-if="p.loadedAt && !p.missing" v-tip="when(p.loadedAt)" class="muted small">built {{ ago(p.loadedAt) }}</span>
           <MenuButton class="more" :items="menu" :label="`More for ${p.name}`" @select="onMenu(p, $event)">
@@ -191,15 +191,16 @@ onBeforeUnmount(() => live?.close());
     </ul>
     <section v-else-if="!loadError" class="card">
       <EmptyState :icon="Package" heading="No packs yet">
-        <p>A pack is a folder with a pack file (<code>pack.ts</code> or <code>pack.yaml</code>) and its tests, usually in the repository of the site it tests. Add one you have (the folder browser can also search a folder and the ones below it), or pick a folder and choose <strong>New pack here</strong> for a small starter pack.</p>
+        <p v-if="!can('admin')">A pack is a folder with a pack file and its tests. Packs run code on this server, so an admin adds them.</p>
+        <p v-else>A pack is a folder with a pack file (<code>pack.ts</code> or <code>pack.yaml</code>) and its tests, usually in the repository of the site it tests. Add one you have (the folder browser can also search a folder and the ones below it), or pick a folder and choose <strong>New pack here</strong> for a small starter pack.</p>
         <template #actions>
-          <button type="button" class="btn primary" @click="browse('add')"><FolderOpen :size="15" /> Add a pack…</button>
+          <button v-if="can('admin')" type="button" class="btn primary" @click="browse('add')"><FolderOpen :size="15" /> Add a pack…</button>
           <button v-if="can('admin')" type="button" class="btn" @click="uploadOpen = true"><Upload :size="15" /> Upload .zip…</button>
         </template>
       </EmptyState>
     </section>
 
-    <section class="card" aria-labelledby="add-title">
+    <section v-if="can('admin')" class="card" aria-labelledby="add-title">
       <h2 id="add-title" class="display">Add a pack</h2>
       <form class="add" @submit.prevent="addPack">
         <label class="sr-only" for="pack-path">Pack folder</label>

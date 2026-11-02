@@ -1,9 +1,10 @@
 import { createReadStream } from "node:fs";
-import { ActionError, defineAction } from "../../actions/registry.js";
+import { ActionError, defineAction, type ActionCall } from "../../actions/registry.js";
+import { allows } from "../../core/access.js";
 import { definePlugin } from "../../core/plugin.js";
 import { PACKS, type PackRegistry, type PackSummary } from "../packs/registry.js";
 import { errorBody } from "../../server/errors.js";
-import { createPackFile, deletePackFile, FileError, listFiles, packImage, readPackFile, renamePackFile, savePackFile } from "./files.js";
+import { createPackFile, deletePackFile, FileError, isCodeFile, listFiles, packImage, readPackFile, renamePackFile, savePackFile } from "./files.js";
 
 // The editor: reading and writing a pack's text files from the web app (or an agent). Every
 // change rebuilds the pack, and the answer says whether it still loads; a run that uses the pack
@@ -22,6 +23,13 @@ function packDir(registry: PackRegistry, id: string): string {
   if (!pack) throw new ActionError("not_found", `No pack with id ${id}.`, 404);
   if (pack.missing) throw new ActionError("pack_missing", "The pack's folder is gone; locate it first.", 409);
   return pack.dir;
+}
+
+/** With login on, only an admin writes, makes, renames or deletes a pack's code: it runs on the server. */
+export function checkCode(call: ActionCall, ...paths: string[]): void {
+  if (allows("admin", call.user) || !paths.some(isCodeFile)) return;
+  const file = paths.find(isCodeFile)!;
+  throw new ActionError("code_admin_only", `Only admins change a pack's code (${file}): it runs on the server. Users change YAML tests, pack.yaml and data files.`, 403, { path: file });
 }
 
 function wrap<T>(fn: () => T): T {
@@ -64,7 +72,7 @@ export const editorPlugin = definePlugin({
       }),
       defineAction<{ id: string; path: string; text: string; stamp?: string }>({
         name: "packs.file-save",
-        agent: { tool: "write_pack_file", say: "Creates the file when it is missing. Leave out `stamp` to overwrite. The answer says whether the pack still loads and lists its problems; fix them before running." },
+        agent: { tool: "write_pack_file", say: "Creates the file when it is missing. Leave out `stamp` to overwrite. The answer says whether the pack still loads and lists its problems; fix them before running. With login on, only an admin's token writes code files (.ts, .js, package.json); a user's gets code_admin_only, so write YAML tests instead." },
         title: "Save one of a pack's text files and rebuild the pack",
         method: "POST",
         path: "/packs/:id/file",
@@ -78,7 +86,8 @@ export const editorPlugin = definePlugin({
           },
           required: ["id", "path", "text"],
         },
-        handler: async ({ id, path, text, stamp }) => {
+        handler: async ({ id, path, text, stamp }, call) => {
+          checkCode(call, path);
           const file = wrap(() => savePackFile(packDir(registry, id), path, text, stamp ?? null));
           changed(id, "save", file.path, { stamp: file.stamp });
           return { file: { path: file.path, stamp: file.stamp }, pack: await rebuilt(id) };
@@ -91,7 +100,8 @@ export const editorPlugin = definePlugin({
         path: "/packs/:id/files",
         status: 201,
         input: { type: "object", properties: { id: ID, path: PATH, text: { type: "string", default: "", description: "What the file starts with." } }, required: ["id", "path"] },
-        handler: async ({ id, path, text = "" }) => {
+        handler: async ({ id, path, text = "" }, call) => {
+          checkCode(call, path);
           const file = wrap(() => createPackFile(packDir(registry, id), path, text));
           changed(id, "create", file.path, { stamp: file.stamp });
           return { file: { path: file.path, stamp: file.stamp }, pack: await rebuilt(id) };
@@ -103,7 +113,8 @@ export const editorPlugin = definePlugin({
         method: "POST",
         path: "/packs/:id/file/rename",
         input: { type: "object", properties: { id: ID, from: PATH, to: PATH }, required: ["id", "from", "to"] },
-        handler: async ({ id, from, to }) => {
+        handler: async ({ id, from, to }, call) => {
+          checkCode(call, from, to);
           const r = wrap(() => renamePackFile(packDir(registry, id), from, to));
           changed(id, "rename", r.to, { from: r.from });
           return { ...r, pack: await rebuilt(id) };
@@ -118,7 +129,8 @@ export const editorPlugin = definePlugin({
         method: "DELETE",
         path: "/packs/:id/file",
         input: { type: "object", properties: { id: ID, path: PATH }, required: ["id", "path"] },
-        handler: async ({ id, path }) => {
+        handler: async ({ id, path }, call) => {
+          checkCode(call, path);
           const r = wrap(() => deletePackFile(packDir(registry, id), path));
           changed(id, "delete", r.deleted);
           return { ...r, pack: await rebuilt(id) };

@@ -50,6 +50,19 @@ export function kindOf(file: string): FileKind {
   return "text";
 }
 
+/** Files that are run, or that change how code is built or installed (`package.json`, `tsconfig.json`). */
+const BUILD_FILES = /^(package(-lock)?\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|yarn\.lock|\.npmrc|\.yarnrc(\.yml)?|[tj]sconfig(\..+)?\.json)$/i;
+
+/**
+ * True for a file that is code, or decides how code is built: only admins change these when
+ * login is on (docs/research/teams-and-audience-dashboards.md). YAML tests, `pack.yaml` and data
+ * files are read by Watchwright itself and run nothing of the pack's own.
+ */
+export function isCodeFile(rel: string): boolean {
+  const base = path.basename(rel.replaceAll("\\", "/"));
+  return kindOf(base) === "code" || BUILD_FILES.test(base);
+}
+
 /** True for a file name the editor opens as text. */
 export function isTextName(name: string): boolean {
   const base = path.basename(name);

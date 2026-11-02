@@ -1,9 +1,9 @@
-import path from "node:path";
 import type { FrameLocator, Locator, Page } from "playwright";
 import { expect } from "playwright/test";
 import { StepError, type Helpers, type Outcome, type ParamValues, type TestBody } from "../api.js";
 import { summarize, type Step, type StepArgs } from "./steps.js";
 import type { Target, TargetMap, TextMatch } from "./targets.js";
+import { packFile, webAddress } from "../../../session/addresses.js";
 
 // Runs YAML steps through `h`. Each step is one `h.step`, so it is a pause point and shows live,
 // in the log and in the step timeline. A step that fails names its line in the YAML file as the
@@ -187,7 +187,7 @@ async function runOne(step: Step, env: StepEnv, secrets: Secrets): Promise<void>
   const pos = () => (a.position && typeof a.position === "object" ? { position: a.position as { x: number; y: number } } : {});
   switch (step.name) {
     case "goto":
-      return h.goto(str(a.url), a.waitUntil ? { waitUntil: a.waitUntil as "load" } : undefined);
+      return h.goto(webAddress(str(a.url), h.baseURL), a.waitUntil ? { waitUntil: a.waitUntil as "load" } : undefined);
     case "back":
       await page.goBack();
       return;
@@ -240,7 +240,7 @@ async function runOne(step: Step, env: StepEnv, secrets: Secrets): Promise<void>
       await act("hover", () => at(a.target).hover({ ...pos(), timeout: ACTION_TIMEOUT }));
       return;
     case "upload": {
-      const files = (Array.isArray(a.files) ? a.files : [a.files]).map((f) => path.resolve(env.packDir, str(f)));
+      const files = (Array.isArray(a.files) ? a.files : [a.files]).map((f) => packFile(env.packDir, str(f)));
       await act("set the files", () => at(a.target).setInputFiles(files, { timeout: ACTION_TIMEOUT }));
       return;
     }

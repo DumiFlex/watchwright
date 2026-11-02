@@ -31,6 +31,7 @@ import { join } from "../paths";
 import { toast } from "../toasts";
 import TabBar from "../components/TabBar.vue";
 import { vTip } from "../tooltip";
+import { can } from "../session";
 
 const props = defineProps<{ id: string }>();
 /** Runs shown above the tabs; the runs list has the rest. */
@@ -80,7 +81,7 @@ async function createRecording() {
 }
 const menu = [
   { value: "download", label: "Download .zip" },
-  { value: "move", label: "Move to another folder…" },
+  ...(can("admin") ? [{ value: "move", label: "Move to another folder…" }] : []),
   { value: "remove", label: "Remove…", danger: true },
 ];
 function onMenu(v: string) {
@@ -272,7 +273,7 @@ onBeforeUnmount(() => live?.close());
           <PathLine class="path" :path="pack.dir" :home="home" :openable="canOpen && !pack.missing" />
         </div>
         <div class="acts">
-          <button v-if="pack.missing" class="btn primary" @click="moveOpen = true">Locate…</button>
+          <button v-if="pack.missing && can('admin')" class="btn primary" @click="moveOpen = true">Locate…</button>
           <template v-else>
             <button class="btn" :disabled="reloading" @click="reload">{{ reloading ? "Reloading…" : "Reload" }}</button>
             <a class="btn" :href="href({ name: 'edit', id: pack.id, file: null, line: null })"><Pencil :size="15" /> Edit</a>

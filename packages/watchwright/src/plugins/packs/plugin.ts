@@ -63,6 +63,7 @@ export const packsPlugin = definePlugin({
       }),
       defineAction<{ path: string }>({
         name: "packs.add",
+        access: "admin",
         agent: { tool: "add_pack" },
         title: "Add a pack by its folder or pack file path, and load it",
         method: "POST",
@@ -82,6 +83,7 @@ export const packsPlugin = definePlugin({
       }),
       defineAction<{ path: string; name: string; baseURL: string; format?: "code" | "yaml" }>({
         name: "packs.create",
+        access: "admin",
         agent: { tool: "create_pack", say: "Use when the person wants tests for a site that has no pack yet. Prefer format yaml." },
         title: "Write a starter pack (pack file, a first test, a README) into a folder and add it",
         method: "POST",
@@ -108,6 +110,7 @@ export const packsPlugin = definePlugin({
       }),
       defineAction<{ path: string; depth?: number }>({
         name: "packs.discover",
+        access: "admin",
         title: "Find pack files in a folder and the folders below it",
         method: "POST",
         path: "/packs/discover",
@@ -148,6 +151,7 @@ export const packsPlugin = definePlugin({
       }),
       defineAction<{ id: string; path: string }>({
         name: "packs.move",
+        access: "admin",
         title: "Point a pack at its new folder, keeping its id and runs",
         method: "POST",
         path: "/packs/:id/move",
@@ -192,6 +196,7 @@ export const packsPlugin = definePlugin({
       }),
       defineAction<{ id: string; file: string }>({
         name: "packs.convert-test",
+        access: "admin",
         title: "Turn a YAML test file into a TypeScript test file that does the same",
         method: "POST",
         path: "/packs/:id/convert",
