@@ -9,13 +9,16 @@
 [![GitHub Sponsors](https://img.shields.io/github/sponsors/DumiFlex?logo=githubsponsors&color=db61a2)](https://github.com/sponsors/DumiFlex)
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-ffdd00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/dumiflex)
 
-**Browser test and benchmark runs you can watch, pause, fix and score, on your own machine or your own server, driven by your own AI agent.**
+**Browser tests you can watch live, pause, fix and review, on your own computer or your own server.**
 
-Watchwright is a test harness built on [Playwright](https://playwright.dev). It's for the runs plain `npx playwright test` isn't made for: long ones that take minutes or hours, where a broken step should pause rather than end the run, where you score what each attempt produced, or where your agent does the driving while you look on.
+Watchwright runs [Playwright](https://playwright.dev) tests from its own server and web page. You see the browser while each test runs, a broken step pauses the run so you can fix the test and retry it, and every attempt keeps its screenshots, video, trace and log for review. Runs can start on a schedule, and AI coding agents can drive it too.
 
-- **Bench your AI feature across models.** One pack runs per model or setting (`runs: { by: "model", q9: 3, haiku: 1 }`), every attempt keeps its screenshots, text and video, a rubric scores it, and Compare lines the runs up side by side.
-- **Let your agent test and fix your site while you watch.** Claude Code, Codex or any MCP client starts runs, reads results and writes tests. You see the browser live, a broken test pauses for you to fix and retry, and anything that deletes data waits for your approval.
-- **Check your site on a schedule.** Schedules start runs by themselves and alerts reach your phone or chat. The attempt that broke keeps its video, trace and log.
+It's good for:
+
+- **End-to-end tests of a web app**, written in TypeScript in the Playwright style, in YAML, or recorded by clicking through the site.
+- **Long or fragile flows**, where a failure should pause for you rather than end a run that took an hour to get there.
+- **Comparing setups**: the same tests with different settings (a browser, a language, a feature flag), runs side by side, and scores when a person judges the result.
+- **Watching a live site**, with scheduled runs and alerts to your phone or chat.
 
 Try it in one command (Node.js 22 or newer):
 

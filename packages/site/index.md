@@ -3,8 +3,8 @@ layout: home
 
 hero:
   name: Watchwright
-  text: Browser runs you can watch, pause, fix and score
-  tagline: Long test and benchmark runs on Playwright, on your own machine, driven by your own AI agent while you look on.
+  text: Browser tests you can watch, pause, fix and review
+  tagline: Playwright tests with their own server and web page, on your own computer or your own server.
   image:
     light: /logo-light.svg
     dark: /logo-dark.svg
@@ -18,15 +18,15 @@ hero:
       link: /guide/watchwright-or-playwright-test
 
 features:
-  - title: Bench your AI feature across models
-    details: One pack runs per model or setting, every attempt keeps its screenshots, text and video, a rubric scores it, and Compare lines the runs up side by side.
+  - title: End-to-end tests of your web app
+    details: Write tests in TypeScript in the Playwright style or in YAML, or record them by clicking through your site.
+    link: /guide/test-packs
+    linkText: Writing a test pack
+  - title: Compare setups
+    details: Run the same tests with different settings, such as a browser, a language or a feature flag, line the runs up side by side, and score them when a person judges the result.
     link: /guide/reviewing
     linkText: Reviewing results
-  - title: Let your agent test and fix your site while you watch
-    details: Claude Code, Codex or any MCP client starts runs, reads results and writes tests. You see the browser live, and anything that deletes data waits for your approval.
-    link: /guide/agents
-    linkText: Agents
-  - title: Check your site on a schedule
+  - title: Watch a live site
     details: Schedules start runs by themselves and alerts reach your phone or chat. The attempt that broke keeps its video, trace and log.
     link: /guide/schedules
     linkText: Schedules
@@ -41,7 +41,7 @@ features:
   - title: Built to grow
     details: Every capability is a plugin on one core of browser sessions, jobs, events and actions. Testing comes first; scraping and crawling can follow without reworking the base.
   - title: Safe on your machine
-    details: The server listens on 127.0.0.1 and refuses requests from other web pages open in your browser.
+    details: On your computer the server listens on 127.0.0.1 and refuses requests from other web pages open in your browser. On a server, login with roles is always on.
 ---
 
 <div class="ww-status">
