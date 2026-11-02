@@ -96,20 +96,55 @@ This is what "teams" usually means in a hosted tool: packs belong to a team, and
 
 And it still wouldn't hold for anyone who can **edit packs**: pack code runs on the server and can read the database and every team's files. A real boundary would need packs to run in a sandbox (a separate process per team with no access to the server's data, or a container per run). That is a different product from a self-hosted tester for one person or a small group.
 
-### Recommendation on teams
+## Who can run code on the server today
 
-Don't build teams now. Nothing in the project needs a boundary between groups of people yet; Dumi's server is one person plus public pages, and the line that matters (signed in vs public) is the one the audience design above makes cleaner. If a real multi-team server comes up later, start with (b) for viewers only (the one place it can hold), and keep groups-as-labels (a) as a small add-on to named dashboards if someone asks for "show the QA people this one first".
+Dumi asked: upload is admin-only because pack code runs on the server, so what stops a user from editing an admin's pack to add bad code? Today, nothing. With login on, these all need only `user` (the default for a state change):
+
+| Action | What it lets a user do |
+|---|---|
+| `packs.file-save`, `packs.file-create`, `packs.file-rename` (editor, `write_pack_file`) | write `pack.ts` or any `.ts`/`.js` file in any pack; the next run executes it |
+| `packs.convert-test` | turn a YAML test into code |
+| `packs.add`, `packs.create`, `packs.discover`, `packs.move` | add a folder as a pack (in server mode, within `WATCHWRIGHT_FOLDERS`), so code already there runs |
+
+The self-hosting plan chose this on purpose ("Users can run code on this server through packs. Give this role only to people you trust with it."), but upload being admin-only while editing is not makes the rule look stronger than it is, and it blocks any honest per-pack access.
+
+A YAML pack is data: `pack.yaml` and YAML tests are read by the built-in step runner (`packs/yaml/run.ts`) and run no code of the pack's own. That gives a clean line:
+
+- **Code is admin-only.** Writing, creating or renaming a code file (`.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.jsx`, `package.json`, and anything under `node_modules`), converting a YAML test to code, and adding, creating, discovering or moving packs need `admin`. Upload already does.
+- **Users keep everything that isn't code.** Running, reviewing, recording, editing YAML tests and `pack.yaml`, rubric and data files (`.json`, `.csv`, `.md`, images), schedules and dashboards. Recording already writes YAML.
+- **What it changes in the web app:** for a user, the editor opens code files read-only with a note ("Only admins change code"), New file offers YAML and data files, and Add pack / Upload / New pack are admin-only. The Users page's text for `user` changes from "can run code on this server" to "can run and edit tests, not code".
+
+This is a fix to an existing feature (FIX FIRST), about one PR, and it is what makes pack access below mean something for users.
+
+## Pack access (Dumi expects to need it soon)
+
+With code admin-only, a smaller form of (b) holds for viewers **and** users: an admin decides who sees each pack.
+
+- **Per pack: everyone (default) or chosen people and groups.** Set in the pack's menu (**Access…**) and listed in Admin › Users. Groups are the sign-in provider's groups (kept on the account at sign-in instead of thrown away) or local groups an admin makes. Admins see every pack.
+- **Role stays separate:** what you may do (viewer/user/admin) is your role; which packs you see is pack access. A viewer with access to pack A can look at A's runs; a user with access can run and edit A's tests.
+- **Everything that belongs to a pack follows it:** runs, attempts, files, reviews, shares, schedules, the event log and its WebSocket (events of hidden packs are left out), the live view, dashboards, exports, the MCP tools and the CLI. Server-wide things (secrets, saved sign-ins, runners, alerts) stay admin-managed; a pack can be limited to some of them later if needed.
+- **One check, one place.** A `PACK_ACCESS` service answers "may this caller see pack X" and "which packs may this caller see"; every plugin calls it, and a test in the spirit of the route inventory in `test/auth.test.ts` fails when an action or route that reads pack data doesn't. Hidden packs answer `not_found`, not `forbidden`, so their names don't leak.
+- **Login off:** everything is visible, as now.
+
+What it still doesn't do: an admin's pack code can read anything (admins are trusted), and a pack's code can't be limited per user. Real separation of code would need a sandbox per pack, which stays out.
+
+Cost: about three PRs after the code fix: the access store and service with the checks in runs, results, files and events; the web (Access dialog, Users page, filtered lists) and the MCP/CLI; docs and screenshots. Named dashboards could then also take a group as an audience.
+
+## Recommendation on teams
+
+Don't build full teams. Build, in this order:
+
+1. **Code is admin-only** (one PR, a fix, now).
+2. **Only admins publish tiles** (one small PR, a fix, now).
+3. **Pack access** (about three PRs), since Dumi expects other people on the server soon.
+4. **Named dashboards with an audience** (about three PRs), with groups as an audience once pack access has them.
 
 ## Now or later
 
-The FIX FIRST rule (2 November 2026) says no new capabilities until existing features are fixed. Named dashboards are not a new capability: they finish one that just shipped, and they fix a real gap (a `user` can publish tiles to the status page). Still, they are new work, so:
-
-- **Recommended:** build named dashboards after the open fixes from the functional audit and the Settings split land (it moves the status page's settings to Admin › Sharing). It is about three PRs.
-- **The one fix to make now**, as a small PR on its own: only an admin may turn a tile public, or change a public tile, through Customize. That closes the gap with the current design and doesn't wait for the rest.
-- **Teams:** later, only if a multi-team server is a real need, and with a sandbox for pack code in the plan.
+Items 1 and 2 close gaps in what already shipped, so they fit FIX FIRST. Items 3 and 4 are new work on features that exist (login, dashboards), not new capabilities; recommended after the open audit fixes and the Settings split (which moves Sharing to Admin › Sharing and reworks Users, where pack access would show).
 
 ## Questions for Dumi
 
-1. Go ahead with named dashboards with an audience (public, viewer, user, admin), after the fixes?
+1. Make code admin-only (users keep YAML tests, data and runs)?
 2. Make the "only admins publish tiles" fix now?
-3. Is there a real case for teams today (other people on your server who must not see some packs)? If not, it stays out.
+3. Pack access as above (per pack: everyone, or chosen people and groups) before named dashboards?
