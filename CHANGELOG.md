@@ -1,5 +1,48 @@
 # Changelog
 
+## [0.11.0](https://github.com/DumiFlex/watchwright/compare/v0.10.0...v0.11.0) (2026-11-02)
+
+
+### Features
+
+* a pack's dashboard on its page, with every kind of tile ([#182](https://github.com/DumiFlex/watchwright/issues/182)) ([26d40bf](https://github.com/DumiFlex/watchwright/commit/26d40bf53e9ad84284f57df215e663eb7fac2109))
+* change a run's settings while it goes ([#161](https://github.com/DumiFlex/watchwright/issues/161)) ([96e58d5](https://github.com/DumiFlex/watchwright/commit/96e58d534c67ef7d940085b75b0ffc93c3586ce8))
+* clean up old runs by age or count, by hand or once a day ([#164](https://github.com/DumiFlex/watchwright/issues/164)) ([db25fa0](https://github.com/DumiFlex/watchwright/commit/db25fa0c959ea2ab7e219d678d211fd58993aea8))
+* customize a pack's dashboard on its page, and every tile on #/kit ([#183](https://github.com/DumiFlex/watchwright/issues/183)) ([1e14217](https://github.com/DumiFlex/watchwright/commit/1e142174572bccd3b7d1ed08d19e62e37bac41d8))
+* dashboard tiles on the public status page, and shared runs with their tiles, texts and reviews ([#184](https://github.com/DumiFlex/watchwright/issues/184)) ([8082916](https://github.com/DumiFlex/watchwright/commit/8082916d222bd9494ed621bf20b16269f35a0598))
+* Docker image, server mode and self-hosting guide ([#176](https://github.com/DumiFlex/watchwright/issues/176)) ([ee04616](https://github.com/DumiFlex/watchwright/commit/ee046169997719ec473351fddc27fcb270150b95))
+* keep videos only on problems, and record a video of the whole run ([#162](https://github.com/DumiFlex/watchwright/issues/162)) ([c913938](https://github.com/DumiFlex/watchwright/commit/c9139384a29af670e4bd3d02b00b4e8c79d32dab))
+* optional login with users, roles and API tokens ([#169](https://github.com/DumiFlex/watchwright/issues/169)) ([dae692e](https://github.com/DumiFlex/watchwright/commit/dae692ebd09f37a841428073e2b518707e8577e5))
+* pack dashboards on the server: the dashboard block, tile data and changes kept per pack ([#181](https://github.com/DumiFlex/watchwright/issues/181)) ([803f088](https://github.com/DumiFlex/watchwright/commit/803f088785f7574e61921aa66b4ce313cc0f3365))
+* resume interrupted runs when Watchwright starts, and alert when a run is interrupted ([#166](https://github.com/DumiFlex/watchwright/issues/166)) ([546f172](https://github.com/DumiFlex/watchwright/commit/546f172931c0754d71f54b93dabdfc79bb5bdbf6))
+* runners, so a server's runs reach sites on another machine ([#179](https://github.com/DumiFlex/watchwright/issues/179)) ([fb26650](https://github.com/DumiFlex/watchwright/commit/fb26650cd674331f058499224d3155612eab1348))
+* serve --background starts the server with no window ([#165](https://github.com/DumiFlex/watchwright/issues/165)) ([2cec985](https://github.com/DumiFlex/watchwright/commit/2cec985c417ee4013e03db3f9cc9e480d42145a0))
+* share links and a public dashboard ([#173](https://github.com/DumiFlex/watchwright/issues/173)) ([cdce85d](https://github.com/DumiFlex/watchwright/commit/cdce85dd655ef857cffdbf73c2393f6ba3c6ee47))
+* show how much room each run takes, and warn when the drive runs low ([#163](https://github.com/DumiFlex/watchwright/issues/163)) ([6404f2d](https://github.com/DumiFlex/watchwright/commit/6404f2d9061df71975c112e009d044ef1a136bb9))
+* sign-in page, invitations, users and tokens in the web app ([#170](https://github.com/DumiFlex/watchwright/issues/170)) ([16ce29e](https://github.com/DumiFlex/watchwright/commit/16ce29e3700c06491b59ac8e5f737be6cb26cf59))
+* single sign-on with OpenID Connect or a trusted proxy header ([#172](https://github.com/DumiFlex/watchwright/issues/172)) ([fc359cc](https://github.com/DumiFlex/watchwright/commit/fc359ccd7606211569e6afca5e74cc48185eb5e6))
+* the runs list shows a pack's dashboard when filtered to it ([#185](https://github.com/DumiFlex/watchwright/issues/185)) ([b7a060f](https://github.com/DumiFlex/watchwright/commit/b7a060fe0259426feb43d8509a1827e7db0d687b))
+* upload and download packs as .zip ([#177](https://github.com/DumiFlex/watchwright/issues/177)) ([b53f7c6](https://github.com/DumiFlex/watchwright/commit/b53f7c64d0e66cdd60962ac16f3cb353f066045b))
+* watchwright login and per-user MCP settings for servers with login on ([#171](https://github.com/DumiFlex/watchwright/issues/171)) ([e56d8e3](https://github.com/DumiFlex/watchwright/commit/e56d8e38e27b400cd637d97e963190ab24178d21))
+
+
+### Bug Fixes
+
+* copy share links again from the list ([#174](https://github.com/DumiFlex/watchwright/issues/174)) ([f9f8e71](https://github.com/DumiFlex/watchwright/commit/f9f8e71c0f650044f1b8c88c97dfc0c3b5bad7c5))
+* drop Firefox's one-frame tile flashes from the live view and videos ([#178](https://github.com/DumiFlex/watchwright/issues/178)) ([49d7278](https://github.com/DumiFlex/watchwright/commit/49d7278bc6afba8abf9454e3fcbfbd8092947bd8))
+* harden long runs: Windows-safe test ids, tabs closed between tests, log cap, safer files, signals, CLI timeout ([#159](https://github.com/DumiFlex/watchwright/issues/159)) ([1050b01](https://github.com/DumiFlex/watchwright/commit/1050b01dc0953b811afbee1eded6058fa6936180))
+* keep the server up when a test leaves a promise unawaited ([#155](https://github.com/DumiFlex/watchwright/issues/155)) ([b47e500](https://github.com/DumiFlex/watchwright/commit/b47e50047fa444faf062b19983b1e3a5bf810849))
+* mask secrets in kept traces ([#157](https://github.com/DumiFlex/watchwright/issues/157)) ([6507773](https://github.com/DumiFlex/watchwright/commit/65077733861246b42b35eeefb8cd1399bf28264b))
+* open a run's log at once, and its live picture before the log ([#153](https://github.com/DumiFlex/watchwright/issues/153)) ([081c9cd](https://github.com/DumiFlex/watchwright/commit/081c9cd358cdca293e4aa74eb30a3e2e686f9d4d))
+* read a waited-on run once, not after every event ([#156](https://github.com/DumiFlex/watchwright/issues/156)) ([6ca9429](https://github.com/DumiFlex/watchwright/commit/6ca9429ea900cff2d1dafdfaa3126d7022ab4552))
+* self-hosting sign-off in the sandbox, and a homelab checklist ([#180](https://github.com/DumiFlex/watchwright/issues/180)) ([857587b](https://github.com/DumiFlex/watchwright/commit/857587b34b20013b655ef85a59955042e9360c1b))
+* **web:** open the editor's run dock without replaying the run's log ([#158](https://github.com/DumiFlex/watchwright/issues/158)) ([69b2395](https://github.com/DumiFlex/watchwright/commit/69b23957cae53c52b79ff365e6d6e6e617f701ac))
+
+
+### Performance
+
+* patch the run page from attempt events instead of fetching the whole run ([#167](https://github.com/DumiFlex/watchwright/issues/167)) ([f61c86c](https://github.com/DumiFlex/watchwright/commit/f61c86c7716347c764cec0bf93ce8472ca756dff))
+
 ## [0.10.0](https://github.com/DumiFlex/watchwright/compare/v0.9.3...v0.10.0) (2026-10-29)
 
 
