@@ -12,12 +12,7 @@ A site at `localhost:3000` on your own computer can't be reached from a server. 
 
 The image is `ghcr.io/dumiflex/watchwright`, for `linux/amd64` and `linux/arm64`. Tags are each version (`0.11.0`), each minor version (`0.11`, which takes patch releases) and `latest`.
 
-1. Make the two folders the container keeps its things in, owned by the container's user (uid 1001):
-
-   ```bash
-   sudo mkdir -p /opt/watchwright/data /opt/watchwright/packs
-   sudo chown -R 1001:1001 /opt/watchwright
-   ```
+1. Pick the two folders the container keeps its things in, such as `/opt/watchwright/data` and `/opt/watchwright/packs`. You don't need to make them first: on its first start the container makes them and gives them to its own user (uid 1001).
 
    - `data` holds the database, the runs, their screenshots and videos. Back it up.
    - `packs` holds your test packs. The folder browser in the web app shows only this folder.
@@ -87,7 +82,7 @@ To update, open the stack and press **Update the stack** with **Re-pull image an
 
 ### Proxmox
 
-Run Docker in a VM (Debian or Ubuntu, 2 cores and 4 GB of memory or more for a browser or two at a time), or in an LXC container with **Nesting** on (Options › Features). In an unprivileged LXC, give the folders to uid 1001 inside the container, as above. Portainer, or its agent, runs in the same VM or container.
+Run Docker in a VM (Debian or Ubuntu, 2 cores and 4 GB of memory or more for a browser or two at a time), or in an LXC container with **Nesting** on (Options › Features). Portainer, or its agent, runs in the same VM or container.
 
 ## Behind a reverse proxy
 

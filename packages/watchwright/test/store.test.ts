@@ -73,3 +73,19 @@ describe("store", () => {
     store.close();
   });
 });
+
+describe("the data folder", () => {
+  // Root may write anywhere and Windows has no POSIX modes, so this checks only where a folder can be locked.
+  const lockable = process.platform !== "win32" && process.getuid?.() !== 0;
+  it.skipIf(!lockable)("says how to fix a folder Watchwright can't write to", async () => {
+    const { chmodSync } = await import("node:fs");
+    const dir = mkdtempSync(path.join(tmpdir(), "ww-locked-"));
+    chmodSync(dir, 0o555);
+    try {
+      expect(() => openStore(dir, migrationsOf(BUILTIN_PLUGINS))).toThrow(/can't write to its data folder .*chown -R/s);
+    } finally {
+      chmodSync(dir, 0o755);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
