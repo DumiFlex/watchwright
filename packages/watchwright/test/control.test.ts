@@ -90,6 +90,31 @@ describe("run control", () => {
     }
   });
 
+  it("gives a broken pause that is going a new limit, counted from when it began", async () => {
+    vi.useFakeTimers();
+    try {
+      const { control } = make();
+      expect(control.setBrokenLimit(1000)).toBeNull();
+      const start = Date.now();
+      const a = control.waitBroken(60_000, () => false);
+      vi.advanceTimersByTime(50_000);
+      expect(control.setBrokenLimit(120_000)).toBe(new Date(start + 120_000).toISOString());
+      expect(control.deadline).toBe(new Date(start + 120_000).toISOString());
+      vi.advanceTimersByTime(20_000);
+      expect(control.state).toBe("paused");
+      vi.advanceTimersByTime(50_000);
+      await expect(a).resolves.toBe("skip");
+
+      // A limit already past skips at once.
+      const b = control.waitBroken(60_000, () => false);
+      vi.advanceTimersByTime(30_000);
+      control.setBrokenLimit(10_000);
+      await expect(b).resolves.toBe("skip");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("counts paused time", async () => {
     vi.useFakeTimers();
     try {

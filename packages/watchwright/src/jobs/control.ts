@@ -32,6 +32,9 @@ export class RunControl {
   deadline: string | null = null;
   private resumeWaiter: ((stop: boolean) => void) | null = null;
   private brokenWaiter: ((d: BrokenDecision) => void) | null = null;
+  /** While paused after a break: when the pause began and the timer that skips. */
+  private brokenSince: number | null = null;
+  private brokenTimer: ReturnType<typeof setTimeout> | null = null;
   private pausedSince: number | null = null;
   private pausedTotal = 0;
   /** Set while an attempt runs; checkpoints throw it once the attempt is aborted. */
@@ -129,19 +132,40 @@ export class RunControl {
    */
   async waitBroken(limitMs: number, changed: () => boolean, pollMs = 1000): Promise<BrokenDecision> {
     if (this.stopMode) return "stop";
-    this.deadline = new Date(Date.now() + limitMs).toISOString();
+    this.brokenSince = Date.now();
+    this.deadline = new Date(this.brokenSince + limitMs).toISOString();
     const decision = new Promise<BrokenDecision>((resolve) => (this.brokenWaiter = resolve));
     this.set("paused", "broken");
-    const timer = setTimeout(() => this.decide("skip"), limitMs);
+    this.brokenTimer = setTimeout(() => this.decide("skip"), limitMs);
     const poll = setInterval(() => {
       if (changed()) this.decide("retry");
     }, pollMs);
     try {
       return await decision;
     } finally {
-      clearTimeout(timer);
+      if (this.brokenTimer) clearTimeout(this.brokenTimer);
+      this.brokenTimer = null;
+      this.brokenSince = null;
       clearInterval(poll);
     }
+  }
+
+  /**
+   * A new time limit for the broken pause that is going, counted from when it began: a limit
+   * already past skips at once. Returns the new deadline, or null when no broken pause is going.
+   */
+  setBrokenLimit(limitMs: number): string | null {
+    if (this.state !== "paused" || this.reason !== "broken" || this.brokenSince === null || !this.brokenWaiter) return null;
+    const end = this.brokenSince + limitMs;
+    if (this.brokenTimer) clearTimeout(this.brokenTimer);
+    this.deadline = new Date(end).toISOString();
+    const left = end - Date.now();
+    if (left <= 0) {
+      this.decide("skip");
+      return this.deadline;
+    }
+    this.brokenTimer = setTimeout(() => this.decide("skip"), left);
+    return this.deadline;
   }
 
   /** Waits `ms`, not counting time spent paused; a pause point every so often. */

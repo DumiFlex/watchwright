@@ -360,6 +360,38 @@ test("S3", async () => {});`,
     expect(byTest(detail)).toEqual({ "B1#1": "broken", "B2#1": "broken", "B3#1": "passed" });
   });
 
+  it("changes settings while the run goes: a broken pause's limit at once, the time limit and video from then on", async () => {
+    const { h, packId } = await setup({
+      "tests/s.ts": `import { test } from "watchwright"; test("S1", async () => { throw new Error("x"); }); test("S2", async ({ h }) => { await h.goto("/"); await h.wait(3000); }); test("S3", async () => {});`,
+    });
+    const runId = await startRun(h, { packId, pauseLimitMinutes: 60 });
+    const paused = await h.waitFor((e) => e.type === "run.paused" && e.runId === runId && e.data.reason === "broken");
+    const before = Date.parse(String(paused.data.deadline));
+    const s = (await h.api<RunDetail>("GET", `/runs/${runId}`)).data.live?.settings;
+    expect(s).toEqual({ pauseOnBroken: true, pauseLimitMinutes: 60, testTimeoutMinutes: null, trace: "problems", video: true });
+
+    expect((await h.api("POST", `/runs/${runId}/settings`, {})).status).toBe(400);
+    const longer = await h.api<RunDetail>("POST", `/runs/${runId}/settings`, { pauseLimitMinutes: 70 });
+    expect(longer.status).toBe(200);
+    expect(Date.parse(longer.data.live!.deadline!) - before).toBe(10 * 60_000);
+    // A limit already past skips the broken attempt at once.
+    await h.api("POST", `/runs/${runId}/settings`, { pauseLimitMinutes: 0.05, video: false, testTimeoutMinutes: 0.02 });
+    const decision = await h.waitFor((e) => e.type === "run.decision" && e.runId === runId);
+    expect(decision.data).toMatchObject({ decision: "skip", testId: "S1" });
+    const changed = await h.waitFor((e) => e.type === "run.settings" && e.runId === runId && (e.data.changed as Record<string, unknown>).video === false);
+    expect(changed.data.changed).toEqual({ pauseLimitMinutes: 0.05, video: false, testTimeoutMinutes: 0.02 });
+
+    const detail = await finished(h, runId);
+    expect(byTest(detail)).toEqual({ "S1#1": "broken", "S2#1": "broken", "S3#1": "passed" });
+    const s2 = detail.attempts.find((a) => a.testId === "S2")!;
+    expect(s2.error?.message).toMatch(/time limit \(1 s\)/);
+    const doc = (await h.api<ResultDocument>("GET", `/runs/${runId}/attempts/${s2.id}`)).data;
+    expect(doc.artifacts.some((a) => a.kind === "video")).toBe(false);
+    // Kept with the run, so a resume keeps them.
+    expect(detail.options).toMatchObject({ pauseLimitMinutes: 0.05, video: false, testTimeout: 1200 });
+    expect((await h.api("POST", `/runs/${runId}/settings`, { video: true })).status).toBe(409);
+  });
+
   it("keeps going after a promise nobody awaited fails, and logs it on the running attempt", async () => {
     const before = process.listeners("unhandledRejection").length;
     const { h, packId } = await setup({

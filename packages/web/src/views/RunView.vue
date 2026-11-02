@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Ban, Keyboard, Pencil, Plus, Repeat, Undo2 } from "../icons";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Ban, Keyboard, Pencil, Plus, Repeat, Settings, Undo2 } from "../icons";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, sendJson, type ChangeSide, type Criterion, type Pack, type Review, type RunChanges, type RunDetail, type WwEvent } from "../api";
 import { LiveConnection, type LiveState } from "../live";
@@ -11,6 +11,7 @@ import LogViewer from "../components/LogViewer.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import MultiSelect from "../components/MultiSelect.vue";
 import PageSkeleton from "../components/PageSkeleton.vue";
+import RunSettingsDialog from "../components/RunSettingsDialog.vue";
 import SelectMenu from "../components/SelectMenu.vue";
 import StatusChip from "../components/StatusChip.vue";
 import TextArea from "../components/TextArea.vue";
@@ -26,7 +27,7 @@ import { useShortcut } from "../keys";
 import { offerNotify } from "../notify";
 import { resetHead, setIconDot, setTitle } from "../pagehead";
 import { openModals } from "../popup";
-import { runTitle, runTone } from "../runstate";
+import { runTitle, runTone, settingsText } from "../runstate";
 import { vTip } from "../tooltip";
 
 const props = defineProps<{ id: string }>();
@@ -182,6 +183,10 @@ function onEvent(e: WwEvent) {
     case "review.saved":
       void loadReviews();
       break;
+    case "run.settings":
+      addLog({ seq: e.seq, time: e.time, level: "info", message: settingsText(d), test: null });
+      if (!replayed) scheduleLoad();
+      break;
     case "video.unavailable":
       addLog({ seq: e.seq, time: e.time, level: "warn", message: String(d.message), test: null });
       break;
@@ -250,6 +255,14 @@ async function act(path: string, body: unknown = {}) {
   busy.value = false;
   if (!res.ok) actionError.value = res.error.message;
   else run.value = res.data;
+}
+
+// Settings while the run goes, and more time for a broken pause.
+const settingsOpen = ref(false);
+const MORE_TIME_MINUTES = 10;
+function moreTime() {
+  const s = live.value?.settings;
+  if (s) void act("settings", { pauseLimitMinutes: Math.min(1440, s.pauseLimitMinutes + MORE_TIME_MINUTES) });
 }
 
 function openAttempt(attemptId: string | null) {
@@ -513,9 +526,11 @@ async function remove() {
             <button v-if="live?.state === 'pausing' || pausedManual" v-tip="'Resume (Space)'" class="btn primary" aria-keyshortcuts="Space" :disabled="busy" @click="act('resume')">Resume</button>
             <button v-if="pausedBroken" v-tip="'Retry (R)'" class="btn primary" aria-keyshortcuts="R" :disabled="busy" @click="act('retry')">Retry</button>
             <button v-if="pausedBroken" v-tip="'Skip (S)'" class="btn" aria-keyshortcuts="S" :disabled="busy" @click="act('skip')">Skip</button>
+            <button v-if="pausedBroken" v-tip="`Wait ${MORE_TIME_MINUTES} minutes longer before it skips`" class="btn" :disabled="busy || !live?.settings" @click="moreTime">More time</button>
             <button v-tip="'Save the live view to this attempt, with a note (M)'" class="btn" aria-keyshortcuts="M" :disabled="busy || !live?.attemptId" @click="markOpen = true">Mark</button>
             <button v-tip="'Stop after this test (Shift+S)'" class="btn" aria-keyshortcuts="Shift+S" :disabled="busy || !!live?.stopping" @click="act('stop', { when: 'after' })">Stop after this test</button>
             <button class="btn danger" :disabled="busy || live?.stopping === 'now'" @click="act('stop', { when: 'now' })">Stop now</button>
+            <button v-tip="'Run settings: pause limit, time limit, trace, video'" class="btn" aria-label="Run settings" :disabled="!live?.settings" @click="settingsOpen = true"><Settings :size="15" /> Settings</button>
             <button v-tip="'Keyboard shortcuts (?)'" class="btn keysbtn" aria-label="Keyboard shortcuts" aria-keyshortcuts="?" @click="keysOpen = true"><Keyboard :size="15" /></button>
           </template>
           <button v-if="run.status === 'queued'" class="btn danger" :disabled="busy" @click="act('stop', { when: 'now' })">Cancel</button>
@@ -536,7 +551,7 @@ async function remove() {
 
       <div v-if="live" class="banner" :class="{ warn: live.state !== 'running' }" role="status">
         <template v-if="pausedBroken">
-          <strong>{{ live.testId }} broke.</strong> Fix the test file and it retries by itself, or press Retry or Skip. Skips by itself in {{ countdown }}.
+          <strong>{{ live.testId }} broke.</strong> Fix the test file and it retries by itself, or press Retry, Skip or More time. Skips by itself in {{ countdown }}.
         </template>
         <template v-else-if="pausedManual"><strong>Paused</strong> during {{ live.testId ?? "the run" }}{{ step ? `, at ${step}` : "" }}.</template>
         <template v-else-if="live.state === 'pausing'"><strong>Pausing at the next step…</strong></template>
@@ -717,6 +732,7 @@ async function remove() {
           <button class="btn danger" :disabled="busy" @click="remove">{{ busy ? "Deleting…" : "Delete run" }}</button>
         </template>
       </ModalDialog>
+      <RunSettingsDialog v-model="settingsOpen" :run-id="run.id" :settings="live?.settings ?? null" @saved="(r) => (run = r)" />
       <ModalDialog v-model="keysOpen" heading="Keyboard shortcuts">
         <dl class="shortcut-list">
           <template v-for="k in KEYS" :key="k.keys">

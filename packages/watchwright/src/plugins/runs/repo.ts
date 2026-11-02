@@ -163,6 +163,8 @@ export interface RunOptions {
   trace?: "problems" | "always" | "never";
   /** Record video, instead of the pack's setting. */
   video?: boolean;
+  /** Time limit for every attempt in ms, over the tests' and the pack's own (set while the run goes). */
+  testTimeout?: number;
   /** Start with the site's saved sign-in (true) or without it (false), instead of the pack's `site.signIn`. */
   signIn?: boolean;
   /** Queue edits made while the run went (order, skipped attempts). */
