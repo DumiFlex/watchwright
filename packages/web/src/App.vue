@@ -53,7 +53,7 @@ const down = ref(false);
 // doesn't show, and its address shows the runs list.
 const pages = computed(() => health.value?.pages ?? DEFAULT_PAGES);
 const nav = computed(() => navFrom(pages.value, route.value));
-const shown = computed(() => (route.value.name !== "setup" && route.value.name !== "invite" && hasPage(pages.value, route.value) ? route.value : ({ name: "runs", query: {} } as const)));
+const shown = computed(() => (route.value.name !== "setup" && route.value.name !== "invite" && route.value.name !== "signin" && hasPage(pages.value, route.value) ? route.value : ({ name: "runs", query: {} } as const)));
 
 // Mod+K anywhere opens the command palette: go to a page or switch the look and mode.
 const palette = ref(false);
@@ -114,7 +114,7 @@ const userItems = computed(() => [
 
 <template>
   <template v-if="locked">
-    <SignInView :setup-code="route.name === 'setup' ? route.code : null" :invite-code="route.name === 'invite' ? route.code : null" />
+    <SignInView :setup-code="route.name === 'setup' ? route.code : null" :invite-code="route.name === 'invite' ? route.code : null" :error="route.name === 'signin' ? route.error : null" />
     <ToastHost />
   </template>
   <template v-else>

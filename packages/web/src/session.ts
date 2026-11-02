@@ -15,7 +15,19 @@ export interface SessionUser {
   via: "session" | "token";
 }
 
-export const session = reactive<{ loaded: boolean; on: boolean; user: SessionUser | null; setupNeeded: boolean }>({ loaded: false, on: false, user: null, setupNeeded: false });
+/** How people sign in here: the single sign-on provider's name (for its button), and whether everyone may use a password. */
+export interface SigninWays {
+  oidc: string | null;
+  passwords: boolean;
+}
+
+export const session = reactive<{ loaded: boolean; on: boolean; user: SessionUser | null; setupNeeded: boolean; signin: SigninWays }>({
+  loaded: false,
+  on: false,
+  user: null,
+  setupNeeded: false,
+  signin: { oidc: null, passwords: true },
+});
 
 /** True when the person may do what needs `role`; always true with login off. */
 export function can(role: Role): boolean {
@@ -24,7 +36,7 @@ export function can(role: Role): boolean {
 }
 
 export async function loadSession(): Promise<boolean> {
-  const res = await getJson<{ on: boolean; user: SessionUser | null; setupNeeded: boolean }>("/api/v1/auth/me");
+  const res = await getJson<{ on: boolean; user: SessionUser | null; setupNeeded: boolean; signin?: SigninWays }>("/api/v1/auth/me");
   if (!res.ok) return false;
   Object.assign(session, res.data, { loaded: true });
   return true;

@@ -139,7 +139,15 @@ export async function buildServer({ store, port, webRoot, plugins = BUILTIN_PLUG
   /** Who the request comes from (on the request), and why it can't go on, if it can't. */
   function checkLogin(req: FastifyRequest): { status: number; code: string; message: string } | null {
     if (req.headers[INTERNAL_HEADER] === internalKey) return null;
-    const user = who!.identify({ cookie: req.headers.cookie, authorization: req.headers.authorization });
+    const user = who!.identify({
+      cookie: req.headers.cookie,
+      authorization: req.headers.authorization,
+      peer: req.socket.remoteAddress,
+      header: (name) => {
+        const v = req.headers[name.toLowerCase()];
+        return Array.isArray(v) ? v[0] : v;
+      },
+    });
     req.watchwrightUser = user;
     const access = req.routeOptions.config.access;
     // A route that matched nothing is answered as unknown; one that matched must say who may call it.

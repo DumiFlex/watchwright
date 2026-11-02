@@ -4,12 +4,12 @@
 // creates the first admin instead, and with an invitation link (`#/invite?code=…`) the invited
 // person's own account (docs/plans/self-hosting.md, section 2.2).
 import { computed, onMounted, ref } from "vue";
-import { LogIn } from "../icons";
+import { KeyRound, LogIn } from "../icons";
 import { acceptInvite, inviteFor, session, setUp, signIn, type Role } from "../session";
 import BrandMark from "../components/BrandMark.vue";
 import TextField from "../components/TextField.vue";
 
-const props = defineProps<{ setupCode: string | null; inviteCode: string | null }>();
+const props = defineProps<{ setupCode: string | null; inviteCode: string | null; error?: string | null }>();
 
 // What the form does: sign in, make the first admin, or make an invited account.
 const invite = ref<{ role: Role; expiresAt: string } | null>(null);
@@ -22,7 +22,10 @@ const name = ref("");
 const password = ref("");
 const again = ref("");
 const busy = ref(false);
-const error = ref<string | null>(null);
+const error = ref<string | null>(props.error || null);
+// With single sign-on and passwords off for everyone but admins, the form waits behind a link.
+const sso = computed(() => (mode.value === "signin" ? session.signin.oidc : null));
+const formShown = ref(session.signin.passwords || !session.signin.oidc);
 const nameField = ref<InstanceType<typeof TextField> | null>(null);
 onMounted(async () => {
   nameField.value?.focus();
@@ -74,23 +77,33 @@ async function submit() {
         <h1 class="display">Sign in</h1>
         <p v-if="inviteError" class="warn small" role="alert">{{ inviteError }} If you have an account already, sign in.</p>
       </template>
-      <div class="fld">
-        <label for="si-name" class="lbl small">Name</label>
-        <TextField id="si-name" ref="nameField" v-model="name" autocomplete="username" />
-      </div>
-      <div class="fld">
-        <label for="si-password" class="lbl small">Password</label>
-        <TextField id="si-password" v-model="password" type="password" :autocomplete="setup ? 'new-password' : 'current-password'" :invalid="short" />
-        <p v-if="short" class="muted small">At least {{ MIN }} characters.</p>
-      </div>
-      <div v-if="setup" class="fld">
-        <label for="si-again" class="lbl small">Same password again</label>
-        <TextField id="si-again" v-model="again" type="password" autocomplete="new-password" :invalid="differs" />
-        <p v-if="differs" class="muted small">The two passwords aren't the same.</p>
-      </div>
-      <p v-if="error" class="error small" role="alert">{{ error }}</p>
-      <button type="submit" class="btn primary go" :disabled="!ready || busy"><LogIn :size="15" /> {{ mode === "setup" ? "Create admin and sign in" : mode === "invite" ? "Make account and sign in" : "Sign in" }}</button>
-      <p v-if="!setup" class="muted small">Forgot your password? An admin can set a new one in Settings, or on the server with <code>watchwright users reset-password &lt;name&gt;</code>.</p>
+      <template v-if="sso">
+        <a class="btn primary go" href="/api/v1/auth/oidc/start"><LogIn :size="15" /> Sign in with {{ sso }}</a>
+        <p v-if="error" class="error small" role="alert">{{ error }}</p>
+        <div v-if="formShown" class="or small muted"><span>or with a password</span></div>
+        <div v-else>
+          <button type="button" class="linkish small" @click="formShown = true"><KeyRound :size="13" /> Admin? Sign in with a password</button>
+        </div>
+      </template>
+      <template v-if="!sso || formShown">
+        <div class="fld">
+          <label for="si-name" class="lbl small">Name</label>
+          <TextField id="si-name" ref="nameField" v-model="name" autocomplete="username" />
+        </div>
+        <div class="fld">
+          <label for="si-password" class="lbl small">Password</label>
+          <TextField id="si-password" v-model="password" type="password" :autocomplete="setup ? 'new-password' : 'current-password'" :invalid="short" />
+          <p v-if="short" class="muted small">At least {{ MIN }} characters.</p>
+        </div>
+        <div v-if="setup" class="fld">
+          <label for="si-again" class="lbl small">Same password again</label>
+          <TextField id="si-again" v-model="again" type="password" autocomplete="new-password" :invalid="differs" />
+          <p v-if="differs" class="muted small">The two passwords aren't the same.</p>
+        </div>
+        <p v-if="error && !sso" class="error small" role="alert">{{ error }}</p>
+        <button type="submit" :class="['btn', 'go', sso ? '' : 'primary']" :disabled="!ready || busy"><LogIn :size="15" /> {{ mode === "setup" ? "Create admin and sign in" : mode === "invite" ? "Make account and sign in" : "Sign in" }}</button>
+      </template>
+      <p v-if="!setup && (!sso || formShown)" class="muted small">Forgot your password? An admin can set a new one in Settings, or on the server with <code>watchwright users reset-password &lt;name&gt;</code>.</p>
     </form>
   </main>
 </template>
@@ -136,6 +149,31 @@ async function submit() {
 }
 .error {
   color: var(--bad);
+}
+.or {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.or::before,
+.or::after {
+  content: "";
+  flex: 1;
+  border-top: var(--border-width) solid var(--line);
+}
+.linkish {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+}
+.linkish:hover {
+  color: var(--text);
 }
 .warn {
   color: var(--warn);

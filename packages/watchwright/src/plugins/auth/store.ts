@@ -55,6 +55,15 @@ export const INVITES_SQL = `
   );
 `;
 
+/** Single sign-on: its settings, and accounts found by provider + subject. */
+export const SSO_SQL = `
+  CREATE TABLE auth_config (
+    key    TEXT PRIMARY KEY,
+    value  TEXT NOT NULL
+  );
+  CREATE UNIQUE INDEX users_subject ON users (source, subject) WHERE subject IS NOT NULL;
+`;
+
 export interface InviteInfo {
   id: string;
   role: Role;
@@ -213,6 +222,51 @@ export class AuthStore {
     if (!user) return false;
     if (user.role === "admin" && !user.disabled && this.admins() <= 1) throw new ActionError("last_admin", "This is the only admin. Make another admin first.", 409);
     return this.db.prepare("DELETE FROM users WHERE id = ?").run(id).changes > 0;
+  }
+
+  /** The account a provider (or proxy) knows by this subject, or null. */
+  bySubject(source: "oidc" | "header", subject: string): UserInfo | null {
+    const r = this.db.prepare("SELECT * FROM users WHERE source = ? AND subject = ?").get(source, subject) as UserRow | undefined;
+    return r ? toUser(r) : null;
+  }
+
+  /** A stored setting (JSON), or null. */
+  config<T>(key: string): T | null {
+    const r = this.db.prepare("SELECT value FROM auth_config WHERE key = ?").get(key) as { value: string } | undefined;
+    return r ? (JSON.parse(r.value) as T) : null;
+  }
+
+  setConfig(key: string, value: unknown): void {
+    this.db.prepare("INSERT INTO auth_config (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value").run(key, JSON.stringify(value));
+  }
+
+  /**
+   * The account of someone a sign-in provider (or a trusted proxy) vouches for, found by source and
+   * subject. `role` is what the provider's groups give them: it is set on the account when given
+   * (except that the last admin stays one), and a new account needs one. Null: no account and no
+   * role, or the account is disabled.
+   */
+  external(source: "oidc" | "header", subject: string, wanted: { name: string; displayName?: string | null | undefined }, role: Role | null): UserInfo | null {
+    const r = this.db.prepare("SELECT * FROM users WHERE source = ? AND subject = ?").get(source, subject) as UserRow | undefined;
+    const now = new Date().toISOString();
+    if (r) {
+      if (r.disabled === 1) return null;
+      const lastAdmin = r.role === "admin" && this.admins() <= 1;
+      if (role && role !== r.role && !(lastAdmin && role !== "admin")) this.db.prepare("UPDATE users SET role = ? WHERE id = ?").run(role, r.id);
+      if (wanted.displayName && wanted.displayName !== r.display_name) this.db.prepare("UPDATE users SET display_name = ? WHERE id = ?").run(wanted.displayName.slice(0, 120), r.id);
+      this.db.prepare("UPDATE users SET seen_at = ? WHERE id = ?").run(now, r.id);
+      return this.user(r.id);
+    }
+    if (!role) return null;
+    // A name for the account: what the provider calls them, made fit for a user name, unique.
+    const base = (wanted.name.replace(/[^A-Za-z0-9._@-]+/g, "-").replace(/^[^A-Za-z0-9]+/, "").slice(0, 60) || "user").replace(/-+$/, "") || "user";
+    let name = base;
+    for (let i = 2; this.byName(name); i++) name = `${base}-${i}`;
+    const id = randomBytes(6).toString("hex");
+    this.db
+      .prepare("INSERT INTO users (id, name, display_name, role, password, source, subject, created_at, seen_at) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?)")
+      .run(id, name, wanted.displayName?.slice(0, 120) || null, role, source, subject, now, now);
+    return this.user(id);
   }
 
   /** The user when name and password match an enabled local account; null otherwise. Takes as long either way. */

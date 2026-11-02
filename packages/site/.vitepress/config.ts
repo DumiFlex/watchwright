@@ -37,6 +37,7 @@ export default defineConfig({
           { text: "Schedules", link: "/guide/schedules" },
           { text: "Alerts", link: "/guide/alerts" },
           { text: "Safety", link: "/guide/safety" },
+          { text: "Single sign-on", link: "/guide/single-sign-on" },
         ],
       },
       {

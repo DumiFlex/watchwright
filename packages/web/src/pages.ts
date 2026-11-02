@@ -39,6 +39,7 @@ export function pageOf(route: Route): string | null {
     case "kit":
     case "setup":
     case "invite":
+    case "signin":
       return null;
   }
 }
