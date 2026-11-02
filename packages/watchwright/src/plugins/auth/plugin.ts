@@ -81,6 +81,7 @@ const states = new WeakMap<object, State>();
 
 export const authPlugin = definePlugin({
   name: "auth",
+  pages: [{ name: "account", title: "Your account", path: "/account", icon: "UserRound", menu: "more", order: 88, loginOnly: true, words: "password tokens sign out profile" }],
   migrations: [
     { id: 1, name: "init", sql: SQL },
     { id: 2, name: "invites", sql: INVITES_SQL },

@@ -43,4 +43,23 @@ describe("settings", () => {
     expect(bad.error?.code).toBe("invalid_setting");
     expect(h.app.watchwright.services.get(SETTINGS).get("settings.editor")).toBe("vscode");
   });
+
+  it("with login off, one's own values are the server's", async () => {
+    const h = await harness();
+    const mine = await h.api<{ values: Record<string, unknown>; server: Record<string, unknown> }>("POST", "/settings/mine", { values: { "runs.newRunFrom": "defaults" } });
+    expect(mine.data.values["runs.newRunFrom"]).toBe("defaults");
+    expect(mine.data.server["runs.newRunFrom"]).toBe("defaults");
+    expect(h.app.watchwright.services.get(SETTINGS).get("runs.newRunFrom")).toBe("defaults");
+    expect((await h.api("POST", "/settings/mine", { values: { "updates.check": false } })).error?.code).toBe("server_setting");
+    const defs = (await h.api<{ definitions: { key: string; scope: string }[] }>("GET", "/settings")).data.definitions;
+    expect(defs.find((d) => d.key === "settings.editor")?.scope).toBe("user");
+    expect(defs.find((d) => d.key === "runs.resumeOnStart")?.scope).toBe("server");
+  });
+
+  it("lists the Admin page but not the Account page with login off", async () => {
+    const h = await harness();
+    const pages = (await h.api<{ pages: { name: string }[] }>("GET", "/health")).data.pages.map((p) => p.name);
+    expect(pages).toContain("admin");
+    expect(pages).not.toContain("account");
+  });
 });

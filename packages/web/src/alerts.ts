@@ -1,4 +1,4 @@
-// Alert rules in words, for Settings > Alerts.
+// Alert rules in words, for Admin > Alerts.
 
 export interface Rule {
   id: string;

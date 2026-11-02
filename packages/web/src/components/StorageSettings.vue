@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Settings > Storage: how full the drive with the data folder is, what runs take, the largest
+// Admin > Storage (users see it on Settings): how full the drive with the data folder is, what runs take, the largest
 // runs, and the free space below which runs warn and then stop recording videos.
 import { computed, onMounted, ref } from "vue";
 import { getJson, runName, sendJson, type CleanupPlan, type StorageReport } from "../api";

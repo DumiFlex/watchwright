@@ -79,7 +79,7 @@ export async function updateCommand(argv: string[], io: UpdateIo = processUpdate
     return 0;
   }
   if (values.check) {
-    io.out(health ? "Update it with `watchwright update`, or with Update in Settings › Server." : `Update with \`watchwright update\`. ${deps.install() === "npm" ? "" : howToUpdate(deps.install())}`.trim());
+    io.out(health ? "Update it with `watchwright update`, or with Update in Admin › Server." : `Update with \`watchwright update\`. ${deps.install() === "npm" ? "" : howToUpdate(deps.install())}`.trim());
     return 0;
   }
 

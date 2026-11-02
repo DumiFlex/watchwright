@@ -5,15 +5,15 @@ With [login](./safety#login) on, people can sign in with the account they alread
 - **OpenID Connect.** Watchwright talks to your sign-in provider itself: VoidAuth, Authentik, Authelia, Pocket ID, Keycloak, and any other OpenID Connect provider. The sign-in page gets a **Sign in with …** button. Nothing changes in your reverse proxy.
 - **A trusted header.** Your reverse proxy signs people in itself (forward auth) and passes their name on in a header, such as `Remote-User`. Watchwright believes that header only when it comes from the proxy.
 
-Both are set up by an admin in **Settings › Single sign-on**. An account is made the first time someone signs in, and gets its role from their groups.
+Both are set up by an admin in **Admin › Single sign-on**. An account is made the first time someone signs in, and gets its role from their groups.
 
 ## OpenID Connect
 
 1. In your provider, make a client (also called an app or application) for Watchwright:
-   - **Redirect address:** `https://<your Watchwright address>/api/v1/auth/oidc/callback`. Settings › Single sign-on shows it with a copy button, for the address you opened the page at. Behind a reverse proxy, start the server with [`--public-url`](../reference/cli#serve) so this address is the one people use.
+   - **Redirect address:** `https://<your Watchwright address>/api/v1/auth/oidc/callback`. Admin › Single sign-on shows it with a copy button, for the address you opened the page at. Behind a reverse proxy, start the server with [`--public-url`](../reference/cli#serve) so this address is the one people use.
    - **Type:** confidential, with a client secret, using the authorization code flow. Public clients without a secret work too; Watchwright always uses PKCE.
    - **Scopes:** `openid profile email groups`, or whichever give the person's name and groups.
-2. In Settings › Single sign-on, turn on **Sign in with an OpenID Connect provider**. Fill in:
+2. In Admin › Single sign-on, turn on **Sign in with an OpenID Connect provider**. Fill in:
    - the button name, such as VoidAuth;
    - the issuer, which is the provider's address (its settings are at `<issuer>/.well-known/openid-configuration`);
    - the client id and secret.
@@ -61,4 +61,4 @@ People with a password can still sign in with it, so an admin is never locked ou
 
 When nobody can get in at all, `watchwright users` on the server's machine still works (see [users](../reference/cli#users)).
 
-The CLI and agents use [API tokens](../reference/cli#login) whichever way people sign in. Someone who signs in with single sign-on makes a token in **Settings › Your account** and gives it to `watchwright login --token`.
+The CLI and agents use [API tokens](../reference/cli#login) whichever way people sign in. Someone who signs in with single sign-on makes a token on **Your account** (the user menu) and gives it to `watchwright login --token`.

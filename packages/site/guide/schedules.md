@@ -27,11 +27,11 @@ Schedules only start runs while the Watchwright server is running. For a time mi
 
 To keep schedules going after a restart, start Watchwright when you sign in to the computer.
 
-On Windows, turn on **Start at sign-in** in Settings, under Server. It puts a small `Watchwright.cmd` file in your Startup folder (`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup`) that starts this server in the background (`serve --background`: no window stays open) on the same port and data folder, without opening the browser. A file an older version wrote is brought up to date when the server starts. Turning it off deletes the file.
+On Windows, turn on **Start at sign-in** on the Admin page, under Server. It puts a small `Watchwright.cmd` file in your Startup folder (`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup`) that starts this server in the background (`serve --background`: no window stays open) on the same port and data folder, without opening the browser. A file an older version wrote is brought up to date when the server starts. Turning it off deletes the file.
 
-On macOS and Linux, Settings shows the command that starts this server. Run it from a LaunchAgent or a systemd user unit.
+On macOS and Linux, Admin › Server shows the command that starts this server. Run it from a LaunchAgent or a systemd user unit.
 
-On macOS, save this as `~/Library/LaunchAgents/dev.watchwright.plist`, with the program and arguments from Settings, then run `launchctl load ~/Library/LaunchAgents/dev.watchwright.plist`:
+On macOS, save this as `~/Library/LaunchAgents/dev.watchwright.plist`, with the program and arguments from Admin › Server, then run `launchctl load ~/Library/LaunchAgents/dev.watchwright.plist`:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -55,7 +55,7 @@ On macOS, save this as `~/Library/LaunchAgents/dev.watchwright.plist`, with the 
 </plist>
 ```
 
-On Linux, save this as `~/.config/systemd/user/watchwright.service`, with the command from Settings, then run `systemctl --user enable --now watchwright`:
+On Linux, save this as `~/.config/systemd/user/watchwright.service`, with the command from Admin › Server, then run `systemctl --user enable --now watchwright`:
 
 ```ini
 [Unit]

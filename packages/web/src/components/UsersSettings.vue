@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Settings > Users (admins, while login is on): who can sign in and with which role. A new user
+// Admin > Users (admins, while login is on): who can sign in and with which role. A new user
 // gets a password here to pass on; they can change it under Your account.
 import { computed, onMounted, ref } from "vue";
 import { getJson, sendJson } from "../api";

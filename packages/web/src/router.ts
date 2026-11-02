@@ -15,6 +15,10 @@ export type Route =
   | { name: "compare"; query: Record<string, string> }
   | { name: "kit" }
   | { name: "settings"; section?: string }
+  /** Your account (login on). */
+  | { name: "account"; section?: string }
+  /** The server's settings, for admins. */
+  | { name: "admin"; section?: string }
   | { name: "schedules" }
   /** The link the server prints when login is on and there is no user: creates the first admin. */
   | { name: "setup"; code: string }
@@ -49,7 +53,10 @@ export function parseRoute(hash: string): Route {
   if (path === "/new") return { name: "new", query };
   if (path === "/packs") return { name: "packs", query };
   if (path === "/kit") return { name: "kit" };
-  if (path === "/settings") return query.section && /^[a-z-]{1,40}$/.test(query.section) ? { name: "settings", section: query.section } : { name: "settings" };
+  if (path === "/settings" || path === "/account" || path === "/admin") {
+    const name = path === "/settings" ? "settings" : path === "/account" ? "account" : "admin";
+    return query.section && /^[a-z-]{1,40}$/.test(query.section) ? { name, section: query.section } : { name };
+  }
   if (path === "/schedules") return { name: "schedules" };
   if (path === "/setup") return { name: "setup", code: query.code ?? "" };
   if (path === "/invite") return { name: "invite", code: query.code ?? "" };
@@ -103,7 +110,9 @@ export function href(route: Route): string {
     case "kit":
       return "#/kit";
     case "settings":
-      return `#/settings${qs(route.section ? { section: route.section } : {})}`;
+    case "account":
+    case "admin":
+      return `#/${route.name}${qs(route.section ? { section: route.section } : {})}`;
     case "schedules":
       return "#/schedules";
     case "setup":
