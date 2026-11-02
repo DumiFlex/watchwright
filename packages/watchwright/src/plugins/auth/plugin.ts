@@ -6,7 +6,8 @@ import { LOGIN, LOGIN_OPTIONS } from "../../core/keys.js";
 import { definePlugin } from "../../core/plugin.js";
 import { serviceKey } from "../../core/services.js";
 import { errorBody } from "../../server/errors.js";
-import { AuthStore, INVITES_SQL, SESSION_DAYS, SQL, type UserInfo } from "./store.js";
+import { DEFAULT_SSO, groupsOf, mergeSso, OidcClient, peerTest, publicSso, roleFromGroups, type SsoSettings } from "./sso.js";
+import { AuthStore, INVITES_SQL, SESSION_DAYS, SQL, SSO_SQL, type UserInfo } from "./store.js";
 import { Throttle } from "./throttle.js";
 
 // Login (docs/plans/self-hosting.md, section 2): accounts with three roles, the web page's sign-in
@@ -57,6 +58,24 @@ interface State {
   throttle: Throttle;
   setupCode: string | null;
   sweep: NodeJS.Timeout | null;
+  sso: SsoSettings;
+  /** Whether an address is the proxy that may set the sign-in header. */
+  fromProxy: (ip: string | undefined) => boolean;
+  oidc: OidcClient;
+  /** People signed in by the header lately, so every request doesn't write their account. */
+  byHeader: Map<string, { user: CallUser | null; at: number }>;
+  /** When a header from elsewhere than the proxy was last logged (once a minute is enough). */
+  refusedAt: number;
+}
+
+/** How long a header sign-in is remembered before the account is looked at again. */
+const HEADER_CACHE_MS = 60_000;
+
+/** Sets the settings and what follows from them. */
+function applySso(state: State, sso: SsoSettings): void {
+  state.sso = sso;
+  state.fromProxy = sso.header.on ? peerTest(sso.header.from) : () => false;
+  state.byHeader.clear();
 }
 const states = new WeakMap<object, State>();
 
@@ -65,11 +84,13 @@ export const authPlugin = definePlugin({
   migrations: [
     { id: 1, name: "init", sql: SQL },
     { id: 2, name: "invites", sql: INVITES_SQL },
+    { id: 3, name: "sso", sql: SSO_SQL },
   ],
   setup(ctx) {
     const store = new AuthStore(ctx.store.db);
     const options = ctx.services.get(LOGIN_OPTIONS);
-    const state: State = { store, throttle: new Throttle(), setupCode: null, sweep: null };
+    const state: State = { store, throttle: new Throttle(), setupCode: null, sweep: null, sso: DEFAULT_SSO, fromProxy: () => false, oidc: new OidcClient(), byHeader: new Map(), refusedAt: 0 };
+    applySso(state, { ...DEFAULT_SSO, ...store.config<SsoSettings>("sso") });
     if (options.on) {
       store.sweep();
       state.sweep = setInterval(() => store.sweep(), 24 * 60 * 60_000);
@@ -78,11 +99,35 @@ export const authPlugin = definePlugin({
     }
     states.set(ctx, state);
     ctx.services.provide(AUTH_STORE, store);
+    // Single sign-on through a header the reverse proxy sets after its own sign-in (forward auth).
+    // Only the proxy may set it: from anywhere else, the request is refused.
+    const headerUser = (name: string, headers: CredentialHeaders): CallUser | null => {
+      if (!state.fromProxy(headers.peer)) {
+        if (Date.now() - state.refusedAt > 60_000) {
+          state.refusedAt = Date.now();
+          ctx.events.append("auth.header-refused", { header: state.sso.header.user, from: headers.peer ?? null });
+        }
+        return null;
+      }
+      const groups = state.sso.header.groups ? groupsOf(headers.header?.(state.sso.header.groups) ?? "") : [];
+      const key = `${name.toLowerCase()}\n${groups.join(",")}`;
+      const cached = state.byHeader.get(key);
+      if (cached && Date.now() - cached.at < HEADER_CACHE_MS) return cached.user;
+      const subject = name.toLowerCase();
+      const { role, refused } = roleFromGroups(state.sso, groups, store.bySubject("header", subject) !== null);
+      const user = refused ? null : store.external("header", subject, { name }, role);
+      const who: CallUser | null = user ? { id: user.id, name: user.name, role: user.role, via: "session" } : null;
+      if (state.byHeader.size > 1000) state.byHeader.clear();
+      state.byHeader.set(key, { user: who, at: Date.now() });
+      return who;
+    };
     const login: Login = {
       on: options.on,
       identify(headers: CredentialHeaders): CallUser | null {
         const token = bearer(headers.authorization);
         if (token) return store.byToken(token);
+        const proxied = state.sso.header.on ? headers.header?.(state.sso.header.user)?.trim() : undefined;
+        if (proxied) return headerUser(proxied, headers);
         const cookie = cookieValue(headers.cookie);
         return cookie ? store.session(cookie) : null;
       },
@@ -106,7 +151,13 @@ export const authPlugin = definePlugin({
         handler: (_input, call) => {
           const login = ctx.services.get(LOGIN);
           const user = call.user ? store.user(call.user.id) : null;
-          return { on: login.on, user: user ? { ...userOut(user), via: call.user!.via, ...(call.user!.tokenId ? { tokenId: call.user!.tokenId } : {}) } : null, setupNeeded: login.on && login.setupCode() !== null };
+          const sso = states.get(ctx)!.sso;
+          return {
+            on: login.on,
+            user: user ? { ...userOut(user), via: call.user!.via, ...(call.user!.tokenId ? { tokenId: call.user!.tokenId } : {}) } : null,
+            setupNeeded: login.on && login.setupCode() !== null,
+            signin: { oidc: login.on && sso.oidc.on ? sso.oidc.name : null, passwords: sso.passwords },
+          };
         },
       }),
       defineAction({
@@ -244,6 +295,65 @@ export const authPlugin = definePlugin({
           return { removed: id };
         },
       }),
+      defineAction({
+        name: "auth.sso",
+        title: "Single sign-on settings: OpenID Connect, the trusted header, group roles (the client secret only as whether there is one)",
+        method: "GET",
+        path: "/auth/sso",
+        access: "admin",
+        handler: () => publicSso(states.get(ctx)!.sso),
+      }),
+      defineAction<Record<string, unknown>>({
+        name: "auth.set-sso",
+        title: "Change single sign-on settings; with OpenID Connect on, the provider must answer first",
+        method: "POST",
+        path: "/auth/sso",
+        access: "admin",
+        input: {
+          type: "object",
+          properties: {
+            oidc: {
+              type: "object",
+              properties: {
+                on: { type: "boolean" },
+                name: { type: "string", description: "What the sign-in button says: Sign in with <name>." },
+                issuer: { type: "string", description: "The provider's address (its discovery document is at <issuer>/.well-known/openid-configuration)." },
+                clientId: { type: "string" },
+                clientSecret: { type: "string", description: "Left out: the saved one stays. Empty: a public client." },
+                scopes: { type: "string" },
+                groupsClaim: { type: "string" },
+              },
+            },
+            header: {
+              type: "object",
+              properties: {
+                on: { type: "boolean" },
+                user: { type: "string", description: "The header with the user name, such as Remote-User." },
+                groups: { type: "string", description: "The header with the groups; empty: none." },
+                from: { type: "array", items: { type: "string" }, description: "The proxy's addresses or ranges; the header counts only from these." },
+              },
+            },
+            roles: { type: "array", items: { type: "object", properties: { group: { type: "string" }, role: ROLE }, required: ["group", "role"] } },
+            otherRole: { type: "string", enum: ["none", ...ROLES] },
+            passwords: { type: "boolean", description: "Everyone may sign in with a password too; off: only admins." },
+          },
+        },
+        handler: async (input, call) => {
+          const state = states.get(ctx)!;
+          const next = mergeSso(state.sso, input);
+          if (next.oidc.on) {
+            try {
+              await state.oidc.configuration(next.oidc);
+            } catch (err) {
+              throw new ActionError("provider_unreachable", `The provider at ${next.oidc.issuer} didn't answer with its OpenID settings: ${err instanceof Error ? err.message : String(err)}`, 400);
+            }
+          }
+          store.setConfig("sso", next);
+          applySso(state, next);
+          ctx.events.append("auth.sso-changed", { by: call.user?.name ?? null, oidc: next.oidc.on, header: next.header.on });
+          return publicSso(next);
+        },
+      }),
     ];
   },
   routes(app, ctx) {
@@ -273,6 +383,10 @@ export const authPlugin = definePlugin({
         return reply.code(401).send(errorBody("wrong_sign_in", "That name and password don't match an account that can sign in."));
       }
       throttle.cleared(keys);
+      if (!state.sso.passwords && user.role !== "admin") {
+        const via = state.sso.oidc.on ? `Sign in with ${state.sso.oidc.name} instead.` : "Ask an admin how to sign in.";
+        return reply.code(403).send(errorBody("passwords_off", `Signing in with a password is off on this server. ${via}`));
+      }
       ctx.events.append("auth.signed-in", { user: user.name, ip: req.ip });
       return signedIn(req, reply, user);
     });
@@ -327,6 +441,61 @@ export const authPlugin = definePlugin({
         if (err instanceof ActionError) return reply.code(err.status).send(errorBody(err.code, err.message));
         throw err;
       }
+    });
+
+    // OpenID Connect: the sign-in button sends the browser to the provider (authorization code with
+    // PKCE, state and nonce); the provider sends it back to the callback, which signs the person in.
+    const OIDC_COOKIE = "ww_oidc";
+    const oidcCookie = (value: string, secure: boolean, maxAgeS: number) => `${OIDC_COOKIE}=${value}; Path=/api/v1/auth/oidc; HttpOnly; SameSite=Lax; Max-Age=${maxAgeS}${secure ? "; Secure" : ""}`;
+    const publicUrls = ctx.services.get(LOGIN_OPTIONS).publicUrls;
+    /** The address the browser reached the server at: the --public-url with this host, else the request's own. */
+    const origin = (req: FastifyRequest) => {
+      const own = `${req.protocol}://${req.host}`;
+      const match = publicUrls.map((u) => new URL(u).origin).find((o) => new URL(o).host === req.host);
+      return match ?? own;
+    };
+    const failed = (reply: FastifyReply, message: string) => reply.redirect(`/#/signin?error=${encodeURIComponent(message)}`, 302);
+
+    app.get("/auth/oidc/start", { config: { access: "public" } }, async (req, reply) => {
+      const { oidc } = state.sso;
+      if (!on || !oidc.on) return failed(reply, "Single sign-on is off on this server.");
+      try {
+        const { url, state: key } = await state.oidc.start(oidc, `${origin(req)}/api/v1/auth/oidc/callback`);
+        reply.header("set-cookie", oidcCookie(key, isHttps(req), 600));
+        return reply.redirect(url, 302);
+      } catch (err) {
+        req.log.warn({ err }, "OpenID Connect sign-in couldn't start");
+        return failed(reply, `${oidc.name} didn't answer. Try again in a moment, or sign in with a password if you have one.`);
+      }
+    });
+
+    app.get<{ Querystring: Record<string, string | undefined> }>("/auth/oidc/callback", { config: { access: "public" } }, async (req, reply) => {
+      const { oidc } = state.sso;
+      reply.header("set-cookie", oidcCookie("", isHttps(req), 0));
+      if (!on || !oidc.on) return failed(reply, "Single sign-on is off on this server.");
+      const q = req.query;
+      if (q.error) return failed(reply, `${oidc.name} didn't sign you in: ${q.error_description ?? q.error}`);
+      const key = q.state ?? "";
+      const bound = cookieValue(req.headers.cookie, OIDC_COOKIE);
+      // The browser that started the sign-in must be the one that finishes it.
+      if (!key || !bound || bound.length !== key.length || !timingSafeEqual(Buffer.from(bound), Buffer.from(key))) return failed(reply, "This sign-in didn't start in this browser, or took too long. Try again.");
+      let person;
+      try {
+        person = await state.oidc.finish(oidc, new URLSearchParams(req.query as Record<string, string>), key);
+      } catch (err) {
+        req.log.warn({ err }, "OpenID Connect sign-in failed");
+        return failed(reply, `Signing in with ${oidc.name} didn't work: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      const { role, refused } = roleFromGroups(state.sso, person.groups, store.bySubject("oidc", person.subject) !== null);
+      const user = refused ? null : store.external("oidc", person.subject, { name: person.name, displayName: person.displayName }, role);
+      if (!user) {
+        ctx.events.append("auth.signin-failed", { name: person.name.slice(0, 64), ip: req.ip, via: "oidc" });
+        return failed(reply, refused ? `Your ${oidc.name} account has no access to this Watchwright. Ask an admin to add one of your groups.` : "Your account here is turned off. Ask an admin.");
+      }
+      ctx.events.append("auth.signed-in", { user: user.name, ip: req.ip, via: "oidc" });
+      const raw = store.startSession(user.id, req.headers["user-agent"]);
+      reply.header("set-cookie", [oidcCookie("", isHttps(req), 0), sessionCookie(raw, isHttps(req), SESSION_DAYS * 24 * 60 * 60)]);
+      return reply.redirect("/#/", 302);
     });
 
     app.post("/auth/signout", { config: { access: "public" } }, async (req, reply) => {

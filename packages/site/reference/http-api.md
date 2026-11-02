@@ -23,8 +23,8 @@ These work with [login](../guide/safety#login) on. With it off, the user routes 
 
 | Method and path | Does |
 |---|---|
-| `GET /auth/me` | `{ on, user, setupNeeded }`: whether login is on, who is signed in (`{ id, name, displayName, role, via, tokenId? }`, `via` is `session` or `token`, and `tokenId` says which token a client called with), and whether the first admin still has to be made. Anyone may call it. |
-| `POST /auth/signin` `{ name, password }` | Signs in: sets the `ww_session` cookie (HttpOnly, SameSite=Lax, Secure on https, 30 days from the last use). 401 `wrong_sign_in`; 429 `too_many_tries` after five wrong tries for a name or an address within 15 minutes (the wait doubles from one second to a minute). |
+| `GET /auth/me` | `{ on, user, setupNeeded }`: whether login is on, who is signed in (`{ id, name, displayName, role, via, tokenId? }`, `via` is `session` or `token`, and `tokenId` says which token a client called with), and `signin` (`{ oidc, passwords }`: the single sign-on button's name or null, and whether everyone may sign in with a password), and whether the first admin still has to be made. Anyone may call it. |
+| `POST /auth/signin` `{ name, password }` | Signs in: sets the `ww_session` cookie (HttpOnly, SameSite=Lax, Secure on https, 30 days from the last use). 401 `wrong_sign_in`; 429 `too_many_tries` after five wrong tries for a name or an address within 15 minutes (the wait doubles from one second to a minute); 403 `passwords_off` for anyone but an admin when password sign-in is turned off. |
 | `POST /auth/signout` | Ends this sign-in. |
 | `POST /auth/setup` `{ code, name, password }` | Creates the first admin with the one-time code the server printed at start, and signs in. 409 `set_up` once there is a user. |
 | `POST /auth/password` `{ current, password }` | Changes your own password. Your other sign-ins end; this one stays. |
@@ -37,6 +37,10 @@ These work with [login](../guide/safety#login) on. With it off, the user routes 
 | `DELETE /auth/invites/:id` | Takes an invitation back (admin). |
 | `GET /auth/invite?code=` | What an invitation is for: `{ role, expiresAt }`. 404 `bad_invite` when it's used, expired or taken back. Anyone may call it. |
 | `POST /auth/invite` `{ code, name, password }` | Makes the invited account with the invitation's role and signs in. 404 `bad_invite`, 409 `name_taken`, 400 `weak_password`, 429 `too_many_tries`. |
+| `GET /auth/sso` | [Single sign-on](../guide/single-sign-on) settings (admin): `{ oidc: { on, name, issuer, clientId, hasSecret, scopes, groupsClaim }, header: { on, user, groups, from }, roles: [{ group, role }], otherRole, passwords }`. The client secret is never answered. |
+| `POST /auth/sso` | Changes them (admin); fields left out stay. A `clientSecret` left out keeps the saved one. With OpenID Connect on, the provider must answer first: 400 `provider_unreachable`. |
+| `GET /auth/oidc/start` | Sends the browser to the provider to sign in (the sign-in page's button). |
+| `GET /auth/oidc/callback` | Where the provider sends it back: signs in and goes to `/#/`, or to `/#/signin?error=…`. |
 | `GET /auth/tokens` `?all=true` | Your API tokens (`{ id, name, kind, createdAt, usedAt, expiresAt }`); an admin's `all` lists everyone's. |
 | `POST /auth/tokens` `{ name, days? }` | Makes a token for the CLI, a script or an agent: `{ token, … }`, the only time the value is shown. `days` makes it expire. |
 | `DELETE /auth/tokens/:id` | Removes a token. |

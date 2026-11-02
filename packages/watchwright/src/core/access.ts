@@ -25,6 +25,10 @@ export interface CallUser {
 export interface CredentialHeaders {
   cookie?: string | undefined;
   authorization?: string | undefined;
+  /** The address the request came from directly (the reverse proxy, when there is one). */
+  peer?: string | undefined;
+  /** Any other request header, by name; for single sign-on through a header a trusted proxy sets. */
+  header?: ((name: string) => string | undefined) | undefined;
 }
 
 /** What the auth plugin tells the server and other plugins about login. */

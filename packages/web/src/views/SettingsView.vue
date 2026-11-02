@@ -16,6 +16,7 @@ import { toast } from "../toasts";
 import { sectionAt } from "../toc";
 import AboutCard from "../components/AboutCard.vue";
 import AccountSettings from "../components/AccountSettings.vue";
+import SsoSettings from "../components/SsoSettings.vue";
 import UsersSettings from "../components/UsersSettings.vue";
 import { can, session } from "../session";
 import AgentsSettings from "../components/AgentsSettings.vue";
@@ -134,6 +135,7 @@ const ALL_SECTIONS = [
   { id: "s-newrun", label: "New run", show: () => can("admin") },
   { id: "s-notify", label: "Notifications", show: () => true },
   { id: "s-users", label: "Users", show: () => session.on && can("admin") },
+  { id: "s-sso", label: "Single sign-on", show: () => session.on && can("admin") },
   { id: "s-secrets", label: "Secrets", show: () => can("user") },
   { id: "s-signins", label: "Sign-ins", show: () => can("user") },
   { id: "s-alerts", label: "Alerts", show: () => can("admin") },
@@ -245,6 +247,7 @@ onBeforeUnmount(() => {
         </section>
 
         <UsersSettings v-if="shows('s-users')" />
+        <SsoSettings v-if="shows('s-sso')" />
         <SecretsSettings v-if="shows('s-secrets')" />
         <SigninsSettings v-if="shows('s-signins')" />
         <AlertsSettings v-if="shows('s-alerts')" />
