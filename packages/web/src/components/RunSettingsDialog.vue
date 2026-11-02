@@ -17,7 +17,8 @@ const pauseLimit = ref(20);
 const ownLimit = ref(false);
 const testLimit = ref(30);
 const trace = ref<RunSettings["trace"]>("problems");
-const video = ref(true);
+const video = ref<RunSettings["video"]>("always");
+const runVideo = ref(false);
 const busy = ref(false);
 const error = ref<string | null>(null);
 
@@ -31,9 +32,15 @@ watch(open, (o) => {
   testLimit.value = s.testTimeoutMinutes ?? 30;
   trace.value = s.trace;
   video.value = s.video;
+  runVideo.value = s.runVideo;
   error.value = null;
 });
 
+const videoOptions = [
+  { value: "always" as const, label: "Every attempt" },
+  { value: "problems" as const, label: "Only on problems", note: "Keep a video when an attempt fails or breaks" },
+  { value: "never" as const, label: "Never" },
+];
 const traceOptions = [
   { value: "problems" as const, label: "Only on problems", note: "Keep a trace when an attempt fails or breaks" },
   { value: "always" as const, label: "Always", note: "Large for long tests" },
@@ -51,6 +58,7 @@ async function save() {
   if (limit !== s.testTimeoutMinutes) body.testTimeoutMinutes = limit ?? 0;
   if (trace.value !== s.trace) body.trace = trace.value;
   if (video.value !== s.video) body.video = video.value;
+  if (runVideo.value !== s.runVideo) body.runVideo = runVideo.value;
   if (Object.keys(body).length === 0) return void (open.value = false);
   busy.value = true;
   error.value = null;
@@ -91,7 +99,9 @@ async function save() {
       </div>
       <div class="opt">
         <span class="name">Video</span>
-        <ToggleSwitch id="rs-video" v-model="video">Record a video of each attempt</ToggleSwitch>
+        <RadioGroup v-model="video" :options="videoOptions" label="Video" />
+        <ToggleSwitch id="rs-run-video" v-model="runVideo">Record the whole run</ToggleSwitch>
+        <span class="muted small">{{ runVideo ? "Starts at once; turned off and on again, it goes on in a new part." : "One video of what the live view follows, pauses included." }}</span>
       </div>
     </div>
     <p v-if="error" class="error" role="alert">{{ error }}</p>

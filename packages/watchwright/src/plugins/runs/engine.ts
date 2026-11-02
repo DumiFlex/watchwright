@@ -1,4 +1,4 @@
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import path from "node:path";
 import type { BrowserContext, Page } from "playwright";
@@ -8,10 +8,11 @@ import type { AttemptEnv, JobKind, KindPlan, PlanItem } from "../../jobs/kind.js
 import type { JobKinds } from "../../jobs/kinds.js";
 import type { AttemptRuntime } from "../../jobs/runtime.js";
 import { AttemptRecorder, MAX_LOG_LINES, safeRelative, slug, type ArtifactInfo } from "../../jobs/recorder.js";
+import { findFfmpeg, nextRunVideoFile, RunVideo, runVideoFiles } from "../../jobs/run-video.js";
 import { unzip, zip } from "../../jobs/zip.js";
 import { BrowserSession } from "../../session/session.js";
 import type { FrameHub } from "../live/hub.js";
-import { StepError, type Collector, type CollectorAttempt, type CollectorRecord, type Outcome, type ParamValues } from "../packs/api.js";
+import { StepError, type Collector, type CollectorAttempt, type CollectorRecord, type Outcome, type ParamValues, videoMode, type VideoMode, type VideoSetting } from "../packs/api.js";
 import type { LoadedPack } from "../packs/loader.js";
 import { parentsOf, resolveParams } from "../packs/order.js";
 import type { PackRegistry } from "../packs/registry.js";
@@ -106,16 +107,19 @@ export interface RunSettings {
   /** The run's time limit for every attempt; null when each test's (or the pack's) limit holds. */
   testTimeoutMinutes: number | null;
   trace: "problems" | "always" | "never";
-  video: boolean;
+  video: VideoMode;
+  runVideo: boolean;
 }
 
 /** A change to a run's settings; fields left out stay. `testTimeoutMinutes: null` goes back to each test's own limit. */
-export type SettingsChange = Partial<Omit<RunSettings, "testTimeoutMinutes">> & { testTimeoutMinutes?: number | null };
+export type SettingsChange = Partial<Omit<RunSettings, "testTimeoutMinutes" | "video">> & { testTimeoutMinutes?: number | null; video?: VideoSetting };
 
 export interface RunDetail extends RunSummary {
   plan: (PlanEntry & { status: AttemptStatus | "pending"; attemptId: string | null })[];
   attempts: AttemptSummary[];
   live: LiveSnapshot | null;
+  /** Videos of the whole run (`runVideo`), in order: a resumed run, or one switched off and on, adds a part. */
+  runVideos: { path: string; url: string; size: number }[];
 }
 
 interface ActiveRun {
@@ -135,6 +139,9 @@ interface ActiveRun {
   shutdown: boolean;
   done: Promise<void>;
   videoWarned: boolean;
+  /** The video of the whole run while one is recorded. */
+  runVideo: RunVideo | null;
+  runVideoWarned: boolean;
   /** Set once the run is planned and set up. */
   ctx: RunCtx | null;
   /** The recorder of the top-level attempt that is running, for marks. */
@@ -263,7 +270,8 @@ export class Engine {
       pauseLimitMinutes: ctx.pauseLimitMs / 60_000,
       testTimeoutMinutes: ctx.options.testTimeout === undefined ? null : ctx.options.testTimeout / 60_000,
       trace: ctx.options.trace ?? o.trace ?? "problems",
-      video: ctx.options.video ?? o.video ?? true,
+      video: videoMode(ctx.options.video ?? o.video ?? "always"),
+      runVideo: ctx.run.runVideo !== null,
     };
   }
 
@@ -272,7 +280,7 @@ export class Engine {
    * keeps them) and take effect at the next attempt; a new pause limit applies at once to a broken
    * pause that is going, counted from when it began.
    */
-  changeSettings(id: string, change: SettingsChange, by = "api"): RunDetail {
+  async changeSettings(id: string, change: SettingsChange, by = "api"): Promise<RunDetail> {
     const r = this.requireRun(id);
     const keys = (Object.keys(change) as (keyof SettingsChange)[]).filter((k) => change[k] !== undefined);
     if (keys.length === 0) throw new EngineError("bad_input", "Name at least one setting to change.");
@@ -282,6 +290,7 @@ export class Engine {
       if (change.pauseLimitMinutes !== undefined) next.pauseLimitMinutes = change.pauseLimitMinutes;
       if (change.trace !== undefined) next.trace = change.trace;
       if (change.video !== undefined) next.video = change.video;
+      if (change.runVideo !== undefined) next.runVideo = change.runVideo;
       if (change.testTimeoutMinutes === null) delete next.testTimeout;
       else if (change.testTimeoutMinutes !== undefined) next.testTimeout = Math.round(change.testTimeoutMinutes * 60_000);
       return next;
@@ -303,6 +312,8 @@ export class Engine {
       ctx.pauseLimitMs = change.pauseLimitMinutes * 60_000;
       deadline = run.control.setBrokenLimit(ctx.pauseLimitMs);
     }
+    if (change.runVideo === true) this.startRunVideo(run);
+    if (change.runVideo === false) await this.stopRunVideo(run);
     this.o.repo.updateRun(id, { options: JSON.stringify(ctx.options) });
     this.emit("run.settings", { changed, by, settings: this.settingsOf(ctx), ...(deadline ? { deadline } : {}) }, id);
     return this.get(id)!;
@@ -433,7 +444,11 @@ export class Engine {
       const a = byKey.get(`${p.testId}#${p.number}`);
       return { ...p, status: a?.status ?? ("pending" as const), attemptId: a?.id ?? null };
     });
-    return { ...runSummary(r, this.o.repo.counts(id)), plan, attempts, live: this.snapshot(id) };
+    const runVideos = runVideoFiles(path.join(this.o.dataDir, "runs", id)).map((v) => {
+      const rel = `runs/${id}/${v.name}`;
+      return { path: rel, url: fileUrl(rel), size: v.size };
+    });
+    return { ...runSummary(r, this.o.repo.counts(id)), plan, attempts, live: this.snapshot(id), runVideos };
   }
 
   /** A run's status alone, from one row: cheap enough to check on every event. Null when there is no such run. */
@@ -747,6 +762,8 @@ export class Engine {
       shutdown: false,
       done: Promise.resolve(),
       videoWarned: false,
+      runVideo: null,
+      runVideoWarned: false,
       ctx: null,
       recorder: null,
     };
@@ -847,6 +864,7 @@ export class Engine {
       return;
     }
     run.session = session;
+    if (options.runVideo ?? o.run?.runVideo ?? false) this.startRunVideo(run);
 
     try {
       for (const c of o.collectors ?? []) run.collected.set(c.name, []);
@@ -933,6 +951,7 @@ export class Engine {
       this.flushAdded(ctx);
       if (!run.control.stopMode && !run.shutdown && mode === "normal") this.fileUnrunChildren(ctx);
     } finally {
+      await this.stopRunVideo(run);
       await session.stopCapture();
       await session.close();
       run.session = null;
@@ -942,6 +961,36 @@ export class Engine {
     const counts = repo.counts(row.id);
     if (status === "interrupted") this.emit("run.interrupted", { reason: "server_stopped" }, row.id);
     else this.emit("run.finished", { status, counts }, row.id);
+  }
+
+  /** Starts a video of the whole run, of the page the live view follows; a new part when the run already has one. */
+  private startRunVideo(run: ActiveRun): void {
+    if (run.runVideo) return;
+    const warn = (message: string) => {
+      if (run.runVideoWarned) return;
+      run.runVideoWarned = true;
+      this.emit("run.log", { level: "warn", message }, run.id);
+    };
+    const ffmpeg = findFfmpeg();
+    if (!ffmpeg) return warn("The run video can't be recorded: Playwright's ffmpeg isn't installed (npx playwright install ffmpeg). The run goes on without it.");
+    const dir = path.join(this.o.dataDir, "runs", run.id);
+    mkdirSync(dir, { recursive: true });
+    run.runVideo = new RunVideo({
+      file: nextRunVideoFile(dir),
+      ffmpeg,
+      frame: () => {
+        const list = this.o.frames.latestFrames(run.id);
+        return list.find((f) => f.pageId === run.session?.activePage) ?? list.at(-1) ?? null;
+      },
+      onError: (message) => warn(`The run video stopped: ${message}. The run goes on without it.`),
+    });
+    run.runVideo.start();
+  }
+
+  private async stopRunVideo(run: ActiveRun): Promise<void> {
+    const v = run.runVideo;
+    run.runVideo = null;
+    await v?.stop();
   }
 
   /** Which top-level attempts run, by mode. Keys are `test#number`. */
@@ -1068,14 +1117,14 @@ export class Engine {
     if (top) run.recorder = recorder;
     const o = pack.options.run ?? {};
     const traceMode = ctx.options.trace ?? o.trace ?? "problems";
-    const video = ctx.options.video ?? o.video ?? true;
+    const video = videoMode(ctx.options.video ?? o.video ?? "always");
     if (top) {
       // Tabs and popups the last test opened would keep their screencasts going and catch the live view.
       if (!o.keepTabs) {
         const closed = await session.closeExtraPages();
         if (closed > 0) recorder.addLog("info", `Closed ${closed === 1 ? "a tab" : `${closed} tabs`} the last test left open.`);
       }
-      await session.restartCapture(video ? dir : null);
+      await session.restartCapture(video !== "never" ? dir : null);
       if (traceMode !== "never") await session.startTraceChunk();
     }
 
@@ -1187,7 +1236,12 @@ export class Engine {
     for (const [name, mine] of added) recorder.write("collector", name, path.join("collectors", `${slug(name)}.json`), JSON.stringify(mine, null, 2), "application/json");
 
     if (top) {
-      for (const v of await session.restartCapture(null).catch(() => [])) recorder.register("video", `video ${v.pageId}`, v.path, "video/webm");
+      // "problems" keeps a video only when the attempt failed or broke, as "problems" does for traces.
+      const keepVideo = video === "always" || finalStatus === "broken" || finalStatus === "failed";
+      for (const v of await session.restartCapture(null).catch(() => [])) {
+        if (keepVideo) recorder.register("video", `video ${v.pageId}`, v.path, "video/webm");
+        else rmSync(v.path, { force: true });
+      }
       if (traceMode !== "never") {
         const keep = traceMode === "always" || finalStatus === "broken" || finalStatus === "failed";
         const file = path.join(dir, "trace.zip");

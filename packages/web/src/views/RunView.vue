@@ -16,9 +16,10 @@ import SelectMenu from "../components/SelectMenu.vue";
 import StatusChip from "../components/StatusChip.vue";
 import TextArea from "../components/TextArea.vue";
 import TextField from "../components/TextField.vue";
+import VideoPlayer from "../components/VideoPlayer.vue";
 import { CHANGES_SHOWN, splitChanges } from "../changes";
 import { exportUrl } from "../compare";
-import { countsText, duration } from "../format";
+import { countsText, duration, fileSize } from "../format";
 import { levelOf, type LogLine } from "../logview";
 import { href } from "../router";
 import { filterResults, resultRows, type ResultRow, type ResultShow } from "../review";
@@ -53,6 +54,7 @@ function noteStep(time: string, label: string) {
 
 const active = computed(() => run.value !== null && ["running", "pausing", "paused"].includes(run.value.status));
 const live = computed(() => run.value?.live ?? null);
+const runVideos = computed(() => run.value?.runVideos ?? []);
 const pausedBroken = computed(() => live.value?.state === "paused" && live.value.pauseReason === "broken");
 const pausedManual = computed(() => live.value?.state === "paused" && live.value.pauseReason === "manual");
 const canResumeRun = computed(() => run.value !== null && ["interrupted", "stopped", "failed_to_start"].includes(run.value.status));
@@ -436,6 +438,7 @@ watch(
   () => props.id,
   () => {
     run.value = null;
+    settingsOpen.value = markOpen.value = addOpen.value = confirmDelete.value = keysOpen.value = false;
     void load();
     connect();
   },
@@ -530,7 +533,7 @@ async function remove() {
             <button v-tip="'Save the live view to this attempt, with a note (M)'" class="btn" aria-keyshortcuts="M" :disabled="busy || !live?.attemptId" @click="markOpen = true">Mark</button>
             <button v-tip="'Stop after this test (Shift+S)'" class="btn" aria-keyshortcuts="Shift+S" :disabled="busy || !!live?.stopping" @click="act('stop', { when: 'after' })">Stop after this test</button>
             <button class="btn danger" :disabled="busy || live?.stopping === 'now'" @click="act('stop', { when: 'now' })">Stop now</button>
-            <button v-tip="'Run settings: pause limit, time limit, trace, video'" class="btn" aria-label="Run settings" :disabled="!live?.settings" @click="settingsOpen = true"><Settings :size="15" /> Settings</button>
+            <button v-tip="'Run settings: pause limit, time limit, trace, videos'" class="btn" aria-label="Run settings" :disabled="!live?.settings" @click="settingsOpen = true"><Settings :size="15" /> Settings</button>
             <button v-tip="'Keyboard shortcuts (?)'" class="btn keysbtn" aria-label="Keyboard shortcuts" aria-keyshortcuts="?" @click="keysOpen = true"><Keyboard :size="15" /></button>
           </template>
           <button v-if="run.status === 'queued'" class="btn danger" :disabled="busy" @click="act('stop', { when: 'now' })">Cancel</button>
@@ -687,6 +690,23 @@ async function remove() {
             <span class="num">{{ row.score === null ? "–" : row.score.toFixed(1) }}</span>
           </template>
         </DataTable>
+      </section>
+
+      <section v-if="runVideos.length || live?.settings?.runVideo" class="card" aria-labelledby="run-video-title">
+        <div class="loghead">
+          <h2 id="run-video-title" class="display">Run video</h2>
+          <span v-if="live?.settings?.runVideo" class="live-tag">recording</span>
+        </div>
+        <template v-if="!active">
+          <div v-for="(v, i) in runVideos" :key="v.path" class="runvideo">
+            <p v-if="runVideos.length > 1" class="muted small">Part {{ i + 1 }} · {{ fileSize(v.size) }}</p>
+            <VideoPlayer :src="v.url" :label="`Run video${runVideos.length > 1 ? `, part ${i + 1}` : ''}`" />
+          </div>
+          <p v-if="runVideos.length === 1" class="muted small">{{ fileSize(runVideos[0]!.size) }}</p>
+        </template>
+        <p v-else class="muted small">
+          What the live view follows, pauses included. It plays here when the run ends<template v-if="runVideos.length">; {{ fileSize(runVideos.reduce((s, v) => s + v.size, 0)) }} so far</template>.
+        </p>
       </section>
 
       <section class="card" aria-labelledby="log-title">
@@ -1134,6 +1154,13 @@ async function remove() {
 }
 .logtest {
   width: 200px;
+}
+.runvideo {
+  display: grid;
+  gap: var(--space-2);
+}
+.runvideo + .runvideo {
+  margin-top: var(--space-4);
 }
 @media (max-width: 640px) {
   .logtest {

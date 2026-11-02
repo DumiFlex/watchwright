@@ -103,7 +103,10 @@ export function settingsText(data: Record<string, unknown>): string {
   if (c.testTimeoutMinutes === null) bits.push("each test's own time limit");
   else if (typeof c.testTimeoutMinutes === "number") bits.push(`${c.testTimeoutMinutes} min per test`);
   if (typeof c.trace === "string") bits.push(`trace ${TRACE_WORDS[c.trace] ?? c.trace}`);
-  if (typeof c.video === "boolean") bits.push(c.video ? "video on" : "video off");
+  if (c.video === true || c.video === "always") bits.push("video of every attempt");
+  else if (c.video === "problems") bits.push("video only on problems");
+  else if (c.video === false || c.video === "never") bits.push("no video");
+  if (typeof c.runVideo === "boolean") bits.push(c.runVideo ? "run video on" : "run video off");
   const by = typeof data.by === "string" && data.by ? ` (${data.by})` : "";
   return `Settings changed${by}: ${bits.join(", ") || "nothing"}.`;
 }

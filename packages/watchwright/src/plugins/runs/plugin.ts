@@ -18,6 +18,7 @@ import { SIGNINS } from "../signins/plugin.js";
 import { digest, readRunFile, waitForRun } from "./digest.js";
 import { Engine, EngineError } from "./engine.js";
 import { RUNS_ARTIFACT_SET_SQL, RUNS_INFO_SQL, RUNS_LABELS_PRESETS_SQL, RUNS_MIGRATION_SQL, RUNS_STEPS_SQL, RunsRepo, type RunChoices, type RunOptions, type RunStatus } from "./repo.js";
+import type { VideoSetting } from "../packs/api.js";
 
 export const ENGINE = serviceKey<Engine>("runs.engine");
 /** Job kinds by name: a plugin registers its kinds here in `setup` (the testing plugin registers `test`). */
@@ -73,7 +74,11 @@ const CHOICE_PROPS = {
   pauseLimitMinutes: { type: "number", minimum: 0.05, maximum: 1440 },
   attempts: { type: "integer", minimum: 1, maximum: 100, description: "Attempts for every test, instead of each test's own count." },
   trace: { type: "string", enum: ["problems", "always", "never"], description: "Which attempts keep a Playwright trace (default: the pack's setting, else problems)." },
-  video: { type: "boolean", description: "Record a video per attempt (default: the pack's setting, else true)." },
+  video: {
+    anyOf: [{ type: "boolean" }, { type: "string", enum: ["always", "problems", "never"] }],
+    description: "Which attempts keep a video: always (also true), problems (failed or broken) or never (also false). Default: the pack's setting, else always.",
+  },
+  runVideo: { type: "boolean", description: "Record one video of the whole run, of what the live view follows (default: the pack's setting, else false)." },
   signIn: { type: "boolean", description: "Start with the site's saved sign-in (default: the pack's site.signIn)." },
 } as const;
 const CHOICE_KEYS = Object.keys(CHOICE_PROPS) as (keyof RunChoices)[];
@@ -108,6 +113,7 @@ function runOptions(input: RunChoices): RunOptions {
   if (input.attempts !== undefined) o.attempts = input.attempts;
   if (input.trace !== undefined) o.trace = input.trace;
   if (input.video !== undefined) o.video = input.video;
+  if (input.runVideo !== undefined) o.runVideo = input.runVideo;
   if (input.signIn !== undefined) o.signIn = input.signIn;
   return o;
 }
@@ -436,9 +442,9 @@ export const runsPlugin = definePlugin({
           return readRunFile(dataDir, id, rel) ?? notFound(`${id}: ${rel}`);
         },
       }),
-      defineAction<{ id: string; pauseOnBroken?: boolean; pauseLimitMinutes?: number; testTimeoutMinutes?: number; trace?: "problems" | "always" | "never"; video?: boolean }>({
+      defineAction<{ id: string; pauseOnBroken?: boolean; pauseLimitMinutes?: number; testTimeoutMinutes?: number; trace?: "problems" | "always" | "never"; video?: VideoSetting; runVideo?: boolean }>({
         name: "runs.settings",
-        title: "Change a going or queued run's settings: they're kept with the run and apply from the next attempt; a new pause limit applies at once to a broken pause",
+        title: "Change a going or queued run's settings: they're kept with the run and apply from the next attempt; a new pause limit applies at once to a broken pause, and the run video starts or stops at once",
         method: "POST",
         path: "/runs/:id/settings",
         input: {
@@ -450,6 +456,7 @@ export const runsPlugin = definePlugin({
             testTimeoutMinutes: { type: "number", minimum: 0, maximum: 1440, description: "A time limit for every attempt, over the tests' own; 0 goes back to each test's limit." },
             trace: CHOICE_PROPS.trace,
             video: CHOICE_PROPS.video,
+            runVideo: { type: "boolean", description: "Record a video of the whole run; turning it on starts a new part at once, off ends it." },
           },
           required: ["id"],
         },

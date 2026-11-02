@@ -181,6 +181,16 @@ export interface SetupContext {
   info(key: string, value: string | number | boolean): void;
 }
 
+/** Which attempts keep a video. */
+export type VideoMode = "always" | "problems" | "never";
+/** A video mode, or `true` (always) and `false` (never). */
+export type VideoSetting = VideoMode | boolean;
+
+/** The mode a video setting means: `true` is always, `false` never. */
+export function videoMode(v: VideoSetting): VideoMode {
+  return v === true ? "always" : v === false ? "never" : v;
+}
+
 export interface PackRunOptions {
   /** Pause the run when an attempt ends broken, waiting for Retry or Skip (default true). */
   pauseOnBroken?: boolean;
@@ -190,8 +200,13 @@ export interface PackRunOptions {
   testTimeout?: number;
   /** Which attempts keep a Playwright trace (default "problems": broken and failed). */
   trace?: "problems" | "always" | "never";
-  /** Record a video per attempt (default true; needs Playwright's ffmpeg). */
-  video?: boolean;
+  /**
+   * Record a video of each attempt (needs Playwright's ffmpeg): `"always"` (default, also `true`),
+   * `"problems"` (keep it only when the attempt fails or breaks) or `"never"` (also `false`).
+   */
+  video?: VideoSetting;
+  /** Record one video of the whole run, of what the live view follows (default false). */
+  runVideo?: boolean;
   /** Draw click points and action titles into the live view and video (default true). */
   showActions?: boolean;
   /** Show each `h.step` title as a small corner caption in the live view and video (default false). */

@@ -139,12 +139,20 @@ export function folderUrl(path: string): string {
 }
 
 export type TraceMode = "problems" | "always" | "never";
+export type VideoMode = "always" | "problems" | "never";
+
+/** The mode a stored video setting means: `true` is always, `false` never (older runs and presets). */
+export function videoMode(v: VideoMode | boolean | undefined, fallback: VideoMode = "always"): VideoMode {
+  return v === undefined ? fallback : v === true ? "always" : v === false ? "never" : v;
+}
 
 export interface PackRunDefaults {
   pauseOnBroken: boolean;
   pauseLimitMinutes: number;
   trace: TraceMode;
-  video: boolean;
+  /** Older servers say true or false. */
+  video: VideoMode | boolean;
+  runVideo?: boolean;
   /** Runs start with the site's saved sign-in (`site.signIn: saved`); older servers leave it out. */
   signIn?: boolean;
 }
@@ -155,7 +163,8 @@ export interface RunOptions {
   pauseLimitMinutes?: number;
   attempts?: number;
   trace?: TraceMode;
-  video?: boolean;
+  video?: VideoMode | boolean;
+  runVideo?: boolean;
   signIn?: boolean;
 }
 
@@ -271,13 +280,16 @@ export interface RunSettings {
   /** The run's limit for every attempt; null when each test's own holds. */
   testTimeoutMinutes: number | null;
   trace: "problems" | "always" | "never";
-  video: boolean;
+  video: VideoMode;
+  runVideo: boolean;
 }
 
 export interface RunDetail extends RunSummary {
   plan: { testId: string; title: string; number: number; of: number; children?: string[]; skip?: boolean; status: AttemptStatus | "pending"; attemptId: string | null }[];
   attempts: Attempt[];
   live: LiveSnapshot | null;
+  /** Videos of the whole run, in parts; older servers leave it out. */
+  runVideos?: { path: string; url: string; size: number }[];
 }
 
 export interface Artifact {
