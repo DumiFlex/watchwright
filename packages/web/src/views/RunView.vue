@@ -105,6 +105,11 @@ function scheduleLoad() {
 }
 
 const titles = computed(() => new Map((run.value?.plan ?? []).map((p) => [p.testId, p.title])));
+/** A test's id with its title, or the id alone when the title is the same or missing. */
+const testLabel = (id: string) => {
+  const t = titles.value.get(id);
+  return t && t !== id ? `${id} ${t}` : id;
+};
 // The log keeps its newest lines, and the server only replays that many when the page opens (a
 // long run has tens of thousands); line numbers count from the run's first line.
 const LOG_LIMIT = 5000;
@@ -186,7 +191,7 @@ function onEvent(e: WwEvent) {
       break;
     case "attempt.started":
       if (e.attemptId) attemptTests.set(e.attemptId, String(d.testId));
-      addLog({ seq: e.seq, time: e.time, level: "info", message: `Started ${d.testId} ${titles.value.get(String(d.testId)) ?? ""} (attempt ${d.number} of ${d.of}${Number(d.try) > 1 ? `, try ${d.try}` : ""})`, test: String(d.testId) });
+      addLog({ seq: e.seq, time: e.time, level: "info", message: `Started ${testLabel(String(d.testId))} (attempt ${d.number} of ${d.of}${Number(d.try) > 1 ? `, try ${d.try}` : ""})`, test: String(d.testId) });
       if (replayed) break;
       step.value = null;
       noteStep(e.time, `${String(d.testId)} starts`);
