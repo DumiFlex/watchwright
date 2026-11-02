@@ -13,7 +13,7 @@ import { pickPrevious, runChanges, type RunChanges } from "./changes.js";
 import { compare, type CompareCell, type CompareFile, type CompareShot, type Comparison } from "./compare.js";
 import { toMarkdown } from "./markdown.js";
 import { REVIEWS_MIGRATION_SQL, ReviewsRepo, type Review } from "./repo.js";
-import { zip, type ZipEntry } from "./zip.js";
+import { zip, type ZipEntry } from "../../jobs/zip.js";
 
 // Reviews: people and agents score each attempt on the run's rubric and leave a note. One review
 // per attempt per reviewer; the web app reviews as "web", an agent as its client name.

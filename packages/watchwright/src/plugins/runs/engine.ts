@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import path from "node:path";
 import type { BrowserContext, Page } from "playwright";
@@ -8,6 +8,7 @@ import type { AttemptEnv, JobKind, KindPlan, PlanItem } from "../../jobs/kind.js
 import type { JobKinds } from "../../jobs/kinds.js";
 import type { AttemptRuntime } from "../../jobs/runtime.js";
 import { AttemptRecorder, safeRelative, slug, type ArtifactInfo } from "../../jobs/recorder.js";
+import { unzip, zip } from "../../jobs/zip.js";
 import { BrowserSession } from "../../session/session.js";
 import type { FrameHub } from "../live/hub.js";
 import { StepError, type Collector, type CollectorAttempt, type CollectorRecord, type Outcome, type ParamValues } from "../packs/api.js";
@@ -165,7 +166,7 @@ export interface EngineOptions {
   dataDir: string;
   kinds: JobKinds;
   /** Secrets for `h.secret` and `${secret.…}`; every value is masked in what runs record and announce. */
-  secrets?: { get(name: string): string | undefined; mask(text: string): string } | undefined;
+  secrets?: { get(name: string): string | undefined; mask(text: string): string; maskBytes?(data: Buffer): Buffer | null } | undefined;
   /** Saved sign-ins: runs that start signed in get the site's storage state, and `h.saveSignIn` saves one. */
   signIns?: { get(siteKey: string): StorageState | undefined; save(siteKey: string, state: StorageState, source: string): unknown } | undefined;
 }
@@ -1094,7 +1095,9 @@ export class Engine {
       if (traceMode !== "never") {
         const keep = traceMode === "always" || finalStatus === "broken" || finalStatus === "failed";
         const file = path.join(dir, "trace.zip");
-        if (await session.stopTraceChunk(keep ? file : null)) recorder.register("trace", "trace", file, "application/zip");
+        if (await session.stopTraceChunk(keep ? file : null)) {
+          if (this.maskTrace(file, recorder)) recorder.register("trace", "trace", file, "application/zip");
+        }
       }
     }
 
@@ -1147,6 +1150,31 @@ export class Engine {
     } finally {
       run.attemptId = prev.attemptId;
       run.testId = prev.testId;
+    }
+  }
+
+  /**
+   * A trace records every action with its arguments (the text a `fill` typed) and the network
+   * traffic, so a secret a test used is in it as typed. Rewrites the trace with every secret masked; false when it had to be dropped instead.
+   */
+  private maskTrace(file: string, recorder: AttemptRecorder): boolean {
+    const maskBytes = this.o.secrets?.maskBytes?.bind(this.o.secrets);
+    if (!maskBytes) return true;
+    try {
+      let changed = false;
+      const entries = unzip(readFileSync(file)).map((e) => {
+        const masked = maskBytes(e.data);
+        if (!masked) return e;
+        changed = true;
+        return { name: e.name, data: masked };
+      });
+      if (changed) writeFileSync(file, zip(entries));
+      return true;
+    } catch (err) {
+      // A trace that can't be checked isn't kept: it could hold a secret.
+      rmSync(file, { force: true });
+      recorder.addLog("warn", `The trace couldn't be checked for secrets, so it wasn't kept: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
     }
   }
 

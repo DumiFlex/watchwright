@@ -104,7 +104,7 @@ Values read from `secret` and `env` are replaced with `•••` in logs, notes
 Passwords and tokens a test needs go on **Settings > Secrets** (or `watchwright secrets set --name SHOP_PASSWORD --value …`), not in the pack. Tests read them as `${secret.SHOP_PASSWORD}` in YAML and `h.secret("SHOP_PASSWORD")` in code; a test that asks for a secret nobody set breaks with a message that says where to add it.
 
 - The web page and the API show a secret's name, length and when it was set, never its value. From an agent or a script, setting or deleting one waits for your approval on the web page.
-- Every secret value (four characters or more) is replaced with `•••` wherever a run records or announces text: logs, notes, kept texts, step titles, errors, run facts and live events.
+- Every secret value (four characters or more) is replaced with `•••` wherever a run records or announces text: logs, notes, kept texts, step titles, errors, run facts, live events and kept traces (what a step typed and the network traffic, so a value sent in a form or a query string is masked too, URL-encoded or not).
 - Secrets are kept in Watchwright's database in its data folder, not encrypted. They stay out of packs, repos and results; they are not safe from someone who can read your data folder.
 - Screenshots and video show what the page shows. Type secrets into password fields so they appear as dots.
 
