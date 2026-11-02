@@ -301,6 +301,35 @@ export interface StorageReport {
   limits: { warnBelowGB: number; stopBelowGB: number };
 }
 
+export type VideoQuality = "full" | "compact" | "small";
+
+/** A Compress kept videos job, going or the last one. */
+export interface CompressJob {
+  state: "running" | "done" | "stopped" | "failed";
+  quality: VideoQuality;
+  total: number;
+  done: number;
+  kept: number;
+  failed: number;
+  beforeBytes: number;
+  afterBytes: number;
+  startedAt: string;
+  finishedAt: string | null;
+  reason: string | null;
+  by: string;
+}
+
+/** The videos ended runs kept, and how many Compress kept videos would make smaller. */
+export interface VideoReport {
+  quality: VideoQuality;
+  ffmpeg: boolean;
+  videos: number;
+  bytes: number;
+  toCompress: number;
+  toCompressBytes: number;
+  job: CompressJob | null;
+}
+
 /** What cleanup deletes now under the keep rules (0 turns a rule off): the runs, oldest first, and their room. */
 export interface CleanupPlan {
   rules: { keepDays: number; keepPerPack: number };

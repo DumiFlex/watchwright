@@ -10,6 +10,7 @@ import { definePlugin } from "../../core/plugin.js";
 import { withAccess } from "../../core/route-access.js";
 import { serviceKey } from "../../core/services.js";
 import { contentTypeOf } from "../../jobs/recorder.js";
+import { VIDEO_QUALITIES, type VideoQuality } from "../../jobs/run-video.js";
 import { sizeText } from "../../jobs/storage.js";
 import { errorBody } from "../../server/errors.js";
 import { FRAMES } from "../live/hub.js";
@@ -23,6 +24,7 @@ import { digest, readRunFile, waitForRun } from "./digest.js";
 import { DEFAULT_STORAGE_LIMITS, Engine, EngineError } from "./engine.js";
 import { RUNS_ARTIFACT_SET_SQL, RUNS_INFO_SQL, RUNS_LABELS_PRESETS_SQL, RUNS_MIGRATION_SQL, RUNS_SIZE_SQL, RUNS_STEPS_SQL, RUNS_STOPPED_BY_SERVER_SQL, RunsRepo, type RunChoices, type RunOptions, type RunStatus } from "./repo.js";
 import type { VideoSetting } from "../packs/api.js";
+import { VideoCompressor } from "./videos.js";
 
 export const ENGINE = serviceKey<Engine>("runs.engine");
 /** Job kinds by name: a plugin registers its kinds here in `setup` (the testing plugin registers `test`). */
@@ -140,6 +142,8 @@ function filesRoot(dataDir: string): string {
 
 /** Each engine's listener for unhandled rejections, taken off when its server closes. */
 const strays = new WeakMap<Engine, (reason: unknown) => void>();
+/** Each engine's Compress kept videos job. */
+const compressors = new WeakMap<Engine, VideoCompressor>();
 const sweeps = new WeakMap<Engine, ReturnType<typeof setTimeout>>();
 /** The cleanup sweep runs a minute after start (once every plugin is ready), then once a day. */
 const FIRST_SWEEP_MS = 60_000;
@@ -185,6 +189,12 @@ export const runsPlugin = definePlugin({
       default: DEFAULT_STORAGE_LIMITS.stopBelowGB,
     });
     settings.define({
+      key: "runs.videoQuality",
+      title: "How much room videos take: full (as Playwright records), compact (about 80% smaller, same size) or small (about 94% smaller, 3/4 size, 10 frames a second)",
+      schema: { type: "string", enum: [...VIDEO_QUALITIES] },
+      default: "full",
+    });
+    settings.define({
       key: "runs.resumeOnStart",
       title: "Resume runs a stop or crash of Watchwright interrupted when it starts again",
       schema: { type: "boolean" },
@@ -218,7 +228,19 @@ export const runsPlugin = definePlugin({
       runners: services.has(RUNNERS) ? services.get(RUNNERS) : undefined,
       storageLimits: () => ({ warnBelowGB: settings.get<number>("runs.storageWarnGB"), stopBelowGB: settings.get<number>("runs.storageStopGB") }),
       cleanupRules: () => ({ keepDays: settings.get<number>("runs.keepDays"), keepPerPack: settings.get<number>("runs.keepPerPack") }),
+      videoQuality: () => settings.get<VideoQuality>("runs.videoQuality"),
     });
+    compressors.set(
+      engine,
+      new VideoCompressor({
+        dataDir,
+        repo,
+        events,
+        quality: () => settings.get<VideoQuality>("runs.videoQuality"),
+        busy: () => engine.busy(),
+        measure: (id) => engine.measure(id),
+      }),
+    );
     engine.recover();
     services.provide(ENGINE, engine);
     // With a listener here, Node no longer exits on an unhandled rejection (its default), so one
@@ -261,12 +283,15 @@ export const runsPlugin = definePlugin({
     if (stray) process.off("unhandledRejection", stray);
     clearTimeout(sweeps.get(engine));
     sweeps.delete(engine);
+    await compressors.get(engine)?.stop("Watchwright stopped.");
     await engine.close();
   },
   actions: ({ services, events }) => {
     const engine = services.get(ENGINE);
     const dataDir = services.get(FILES_ROOT);
     const repo = services.get(RUNS_REPO);
+    const settings = services.get(SETTINGS);
+    const compressor = (): VideoCompressor => compressors.get(engine)!;
     const notFound = (id: string): never => {
       throw new ActionError("not_found", `No run with id ${id}.`, 404);
     };
@@ -565,6 +590,34 @@ export const runsPlugin = definePlugin({
         path: "/storage/cleanup",
         input: { type: "object", properties: {} },
         handler: (_body, { client: caller, user }) => engine.cleanup(whoCalls(caller, user)),
+      }),
+      defineAction<Record<string, never>>({
+        name: "runs.videos",
+        title: "The videos ended runs kept: how many, the room they take, how many Compress kept videos would make smaller at the Video quality setting, and the compress job going or last",
+        method: "GET",
+        path: "/storage/videos",
+        input: { type: "object", properties: {} },
+        handler: () => compressor().report(),
+      }),
+      defineAction<Record<string, never>>({
+        name: "runs.compress-videos",
+        access: "admin",
+        destructive: true,
+        explain: () => `Encode the videos ended runs kept again at the ${settings.get<string>("runs.videoQuality")} quality, replacing the old files`,
+        title: "Encode the videos ended runs kept again at the Video quality setting, in the background, one at a time; it stops by itself when a run starts",
+        method: "POST",
+        path: "/storage/videos/compress",
+        input: { type: "object", properties: {} },
+        handler: (_body, { client: caller, user }) => guard(() => compressor().start(whoCalls(caller, user))),
+      }),
+      defineAction<Record<string, never>>({
+        name: "runs.compress-videos-stop",
+        access: "admin",
+        title: "Stop compressing kept videos; the video being encoded stays as it was",
+        method: "POST",
+        path: "/storage/videos/compress/stop",
+        input: { type: "object", properties: {} },
+        handler: () => compressor().stop(),
       }),
       control("runs.pause", "pause", "Pause at the next step", (id, client) => engine.pause(id, client)),
       control("runs.resume", "resume", "Resume a paused run, or continue an interrupted or stopped run where it was", (id) => engine.resume(id)),

@@ -378,6 +378,16 @@ export class RunsRepo {
       .all({ before, keepPerPack: o.keepPerPack }) as RunRow[];
   }
 
+  /** Ended runs' ids, oldest first (the order Compress kept videos goes in). */
+  endedRunIds(): string[] {
+    return (this.db.prepare("SELECT id FROM runs WHERE status NOT IN ('queued', 'running', 'pausing', 'paused') ORDER BY created_at, rowid").all() as { id: string }[]).map((r) => r.id);
+  }
+
+  /** A file of a run got a new size (a video encoded again); `relPath` is relative to the data folder, as artifacts keep it. */
+  updateArtifactSize(relPath: string, size: number): void {
+    this.db.prepare("UPDATE runs_artifacts SET size = ? WHERE path = ?").run(size, relPath);
+  }
+
   /** The runs that take the most room, largest first. */
   largest(limit: number): RunRow[] {
     return this.db.prepare("SELECT * FROM runs WHERE size_bytes IS NOT NULL ORDER BY size_bytes DESC LIMIT ?").all(limit) as RunRow[];

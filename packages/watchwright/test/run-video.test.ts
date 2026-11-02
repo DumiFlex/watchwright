@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, statSync, writeFileSync } from "node:
 import path from "node:path";
 import { chromium } from "playwright";
 import { afterEach, describe, expect, it } from "vitest";
-import { browsersPath, ffmpegArgs, findFfmpeg, matroskaFrame, matroskaHeader, nextRunVideoFile, RunVideo, runVideoFiles, videoEncoder } from "../src/jobs/run-video.js";
+import { browsersPath, encodeArgs, ffmpegArgs, findFfmpeg, qualityFps, scaleFilter, smallerThan, matroskaFrame, matroskaHeader, nextRunVideoFile, RunVideo, runVideoFiles, videoEncoder } from "../src/jobs/run-video.js";
 import { cleanTempDirs, tempDir } from "./helpers/fixtures.js";
 
 afterEach(() => cleanTempDirs());
@@ -43,6 +43,31 @@ describe("finding Playwright's ffmpeg", () => {
     const vp8 = ffmpegArgs("/v.webm", 1280, 800, "libvpx").join(" ");
     expect(vp8).toContain("-c:v libvpx -");
     expect(vp8).toContain("-speed 8");
+  });
+
+  it("spends a bit rate at full quality and a constant quality below it, and says the quality in the title", () => {
+    const full = encodeArgs("libvpx-vp9", "full", "1M").join(" ");
+    expect(full).toContain("-crf 10 -b:v 1M");
+    expect(full).toContain("title=watchwright-video:full");
+    const compact = encodeArgs("libvpx-vp9", "compact").join(" ");
+    expect(compact).toContain("-qmax 63 -crf 40 -b:v 0");
+    expect(compact).toContain("title=watchwright-video:compact");
+    expect(encodeArgs("libvpx", "small").join(" ")).toContain("-crf 42 -b:v 0");
+  });
+
+  it("scales a small video to 3/4 after fitting it in, at 10 frames a second", () => {
+    expect(scaleFilter("full", 1600, 960)).toBeNull();
+    expect(scaleFilter("compact", 1600, 960)).toBeNull();
+    expect(scaleFilter("small", 1600, 960)).toBe("scale=1200:720");
+    expect(scaleFilter("small", 1366, 768)).toBe("scale=1024:576");
+    expect(ffmpegArgs("/v.webm", 1600, 960, "libvpx-vp9", "1M", "small").join(" ")).toContain("pad=1600:960:(ow-iw)/2:(oh-ih)/2,scale=1200:720");
+    expect(qualityFps("small", 25)).toBe(10);
+    expect(qualityFps("compact", 25)).toBe(25);
+    expect(qualityFps("full", 25)).toBe(25);
+    expect(smallerThan("small", "compact")).toBe(true);
+    expect(smallerThan("compact", "full")).toBe(true);
+    expect(smallerThan("full", "compact")).toBe(false);
+    expect(smallerThan("compact", "compact")).toBe(false);
   });
 
   it("writes Matroska the way the spec has it: EBML header, a V_MJPEG track, a cluster per frame", () => {
