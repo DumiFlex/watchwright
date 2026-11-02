@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.1](https://github.com/DumiFlex/watchwright/compare/v0.11.0...v0.11.1) (2026-11-02)
+
+
+### Bug Fixes
+
+* the Docker image takes over root-owned data and pack folders ([#194](https://github.com/DumiFlex/watchwright/issues/194)) ([ad185a5](https://github.com/DumiFlex/watchwright/commit/ad185a51d51e541bd2841815428fd2ec981f9d1d))
+
 ## [0.11.0](https://github.com/DumiFlex/watchwright/compare/v0.10.0...v0.11.0) (2026-11-02)
 
 
