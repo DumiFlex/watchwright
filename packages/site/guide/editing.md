@@ -10,6 +10,8 @@ The file list on the left shows the pack's folder. On a phone it opens from the 
 
 The editor can't reach a file outside the pack's folder, and it doesn't follow a link that points out of it.
 
+With [login](./safety#login) on, viewers read the files, users change YAML tests, `pack.yaml` and data files, and only admins change code (`.ts`, `.js` and the like, `package.json`, `tsconfig.json`) or convert a YAML test to TypeScript, since code runs on the server. For a user, a code file opens read-only with a note saying so.
+
 ## Source
 
 Source is a code editor with search (Ctrl+F) and save (Ctrl+S, Cmd+S on a Mac). Problems the pack has when it loads are underlined where they are and listed under the editor, and a click on one jumps to it. Problems in other files are listed too, with a link to open them.

@@ -182,6 +182,30 @@ tests:
     expect((await docOf(h, d, "B4")).error?.message).toMatch(/WW_NOT_SET_ANYWHERE isn't set/);
   });
 
+  it("opens only web addresses and uploads only the pack's own files", async () => {
+    const dir = tempDir("ww-pack-");
+    const outside = tempDir("ww-out-");
+    writeFileSync(path.join(outside, "secret.txt"), "not for tests");
+    writeFiles(dir, {
+      "pack.yaml": packYaml(),
+      "tests/reach.yaml": `tests:
+  - id: R1
+    steps:
+      - goto: "file://${outside.replaceAll("\\", "/")}/secret.txt"
+  - id: R2
+    steps:
+      - goto: /form
+      - upload: { target: { label: Photo }, files: "${path.join(outside, "secret.txt").replaceAll("\\", "/")}" }
+`,
+    });
+    const h = await harness();
+    const pack = await addPack(h, dir);
+    const d = await runToEnd(h, { packId: pack.id, pauseOnBroken: false });
+    expect(byTest(d)).toEqual({ "R1#1": "broken", "R2#1": "broken" });
+    expect((await docOf(h, d, "R1")).error?.message).toMatch(/Only http and https/);
+    expect((await docOf(h, d, "R2")).error?.message).toMatch(/isn't inside the pack folder/);
+  });
+
   it("runs children, calls a code pack's helpers, and picks up a fixed YAML file while paused", async () => {
     const dir = tempDir("ww-pack-");
     writeFiles(dir, {

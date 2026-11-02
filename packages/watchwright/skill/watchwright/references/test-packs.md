@@ -17,7 +17,7 @@ my-site/watchwright/
 
 ## Adding a pack
 
-There are five ways, and they all end the same: the server loads the pack and lists its tests.
+There are five ways, and they all end the same: the server loads the pack and lists its tests. With [login](https://dumiflex.github.io/watchwright/guide/safety#login) on, only admins add, upload or move packs, since a pack can bring code that runs on the server.
 
 - **On the Packs page**, type or paste the folder's path. The field suggests folders as you type (Tab completes, like a terminal) and says when the folder has a pack file. A path pasted with quotes (Windows Explorer's "Copy as path"), a `file://` address and `~` all work.
 - **Browse…** opens a folder browser of the server's machine: your home folder, the drives, the folders of packs already added and the folders you used recently on the side. Open the folder with the pack file and press **Add this pack**. Type to filter the list, or type a whole path and press Enter to jump there.

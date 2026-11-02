@@ -32,13 +32,14 @@ watchwright serve --auth --host 0.0.0.0 --public-url http://192.168.1.20:7420
 |---|---|---|---|
 | See packs, runs, results, files and the live view | yes | yes | yes |
 | Start, pause and stop runs, record, explore, review | | yes | yes |
-| Add and edit packs, presets, schedules | | yes | yes |
+| Edit YAML tests, `pack.yaml` and data files; presets, schedules | | yes | yes |
+| Add, upload and move packs; change pack code (`.ts`, `.js`, `package.json`, `tsconfig.json`) | | | yes |
 | Use secrets and saved sign-ins by name | | yes | yes |
 | Change secrets, saved sign-ins, settings and alerts | | | yes |
 | Users, start at sign-in, clean up old runs, stop the server | | | yes |
 
-::: warning Users can run code on the server
-A test pack is code that runs on the server, and it can read every secret. Anyone who can add or edit a pack can do anything the server's account can. Give the user role only to people you'd trust with that, and the viewer role to everyone else.
+::: warning Pack code is admin-only
+A code pack (`pack.ts` and its tests) runs on the server and can read every secret, so with login on only admins add packs or change code files. Users change what Watchwright reads without running it: YAML tests, `pack.yaml` and data files. A YAML test or a recording opens only `http` and `https` addresses and uploads only files from its pack's folder. Code an admin added still runs when a user starts a run, so add only code you trust.
 :::
 
 - **Who did it.** Runs, approvals and controls name the person: `Dumi`, or `Dumi via Claude Code` for an agent with Dumi's token. An approval is answered by the person whose agent asked, or by an admin.

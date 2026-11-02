@@ -23,7 +23,9 @@ import type { EditorProblem } from "../codemirror";
 import { dirtyPaths, dropDraft, getDraft, putDraft } from "../drafts";
 import { codeTestTemplate, defaultFile, fileTree, nextTestId, otherProblems, problemsIn, slug, testsInFile, yamlRole, yamlTestTemplate, type PackFile } from "../editfiles";
 import { buildErrorSpot, type SourceSpot } from "../editor";
-import { ArrowLeft, ChevronDown, CircleAlert, CircleDot, Ellipsis, FileCode, FilePlus, FileText, Folder, PanelLeft, Play, Save } from "../icons";
+import { ArrowLeft, ChevronDown, CircleAlert, CircleDot, Ellipsis, FileCode, FilePlus, FileText, Folder, Lock, PanelLeft, Play, Save } from "../icons";
+import { isCodeFile } from "../codefiles";
+import { can } from "../session";
 import { LiveConnection } from "../live";
 import { join, relativeTo } from "../paths";
 import { href } from "../router";
@@ -165,9 +167,16 @@ function go(file: string | null, line: number | null = null) {
   treeOpen.value = false;
 }
 
+// With login on, viewers only read pack files, and only admins change code: it runs on the server.
+const locked = computed<"viewer" | "code" | null>(() => {
+  if (!open.value) return null;
+  if (!can("user")) return "viewer";
+  return isCodeFile(open.value.path) && !can("admin") ? "code" : null;
+});
+
 async function save(force = false) {
   const o = open.value;
-  if (!o || saving.value) return;
+  if (!o || saving.value || locked.value) return;
   if (!force && o.text === o.saved && !conflict.value) return;
   saving.value = true;
   const res = await sendJson<{ file: { path: string; stamp: string }; pack: Pick<Pack, "status" | "error" | "problems"> }>(`/api/v1/packs/${props.id}/file`, {
@@ -286,7 +295,7 @@ async function runTest(testId: string) {
 // Record: steps from clicking on a recording browser go in at the cursor. The test runs up to the
 // cursor first: a YAML test's steps above it, a code test's code down to its line.
 const canWindow = ref(false);
-const canRecord = computed(() => !!open.value && (role.value === "test" || (open.value.kind === "code" && fileTests.value.length > 0)) && pack.value?.status !== "error");
+const canRecord = computed(() => !!open.value && !locked.value && (role.value === "test" || (open.value.kind === "code" && fileTests.value.length > 0)) && pack.value?.status !== "error");
 const recordMenu = computed(() => [
   { value: "here", label: "Record from here" },
   ...(canWindow.value ? [{ value: "window", label: "Record in a window" }] : []),
@@ -417,11 +426,15 @@ async function convert() {
   await loadPack();
   go(res.data.file);
 }
-const fileMenu = computed(() => [
-  { value: "rename", label: "Rename or move…" },
-  ...(role.value === "test" ? [{ value: "convert", label: "Convert to TypeScript…" }] : []),
-  { value: "delete", label: "Delete…", danger: true },
-]);
+const fileMenu = computed(() =>
+  locked.value
+    ? []
+    : [
+        { value: "rename", label: "Rename or move…" },
+        ...(role.value === "test" && can("admin") ? [{ value: "convert", label: "Convert to TypeScript…" }] : []),
+        { value: "delete", label: "Delete…", danger: true },
+      ],
+);
 function newFromDrawer(v: string) {
   treeOpen.value = false;
   startNew(v);
@@ -529,11 +542,17 @@ const problemSpot = (p: string) => buildErrorSpot(p);
               <template #button><ChevronDown :size="15" /></template>
             </MenuButton>
           </div>
-          <button type="button" class="btn primary" :disabled="!open || saving || (!isDirty && !conflict)" aria-keyshortcuts="Control+S" @click="save()"><Save :size="15" /> {{ saving ? "Saving…" : "Save" }}</button>
-          <MenuButton v-if="open" :items="fileMenu" label="More for this file" @select="onFileMenu">
+          <button v-if="!locked" type="button" class="btn primary" :disabled="!open || saving || (!isDirty && !conflict)" aria-keyshortcuts="Control+S" @click="save()"><Save :size="15" /> {{ saving ? "Saving…" : "Save" }}</button>
+          <MenuButton v-if="open && fileMenu.length" :items="fileMenu" label="More for this file" @select="onFileMenu">
             <template #button><Ellipsis :size="16" /></template>
           </MenuButton>
         </header>
+
+        <div v-if="locked" class="locked">
+          <Lock :size="16" />
+          <span v-if="locked === 'code'">Only admins change a pack's code, since it runs on the server. You can read this file and run its tests; YAML tests and data files are yours to change.</span>
+          <span v-else>You can read this pack's files. Users and admins change them.</span>
+        </div>
 
         <div v-if="conflict" class="conflict" role="alert">
           <CircleAlert :size="16" />
@@ -555,6 +574,7 @@ const problemSpot = (p: string) => buildErrorSpot(p);
               v-model="text"
               :lang="open.kind"
               :steps="role === 'test'"
+              :read-only="!!locked"
               :problems="editorProblems"
               :label="`Contents of ${open.path}`"
               @save="save()"
@@ -801,6 +821,19 @@ const problemSpot = (p: string) => buildErrorSpot(p);
   background: color-mix(in srgb, var(--warn) 12%, var(--surface));
   border-bottom: var(--border-width) solid var(--line);
   color: var(--text);
+}
+.locked {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--raised);
+  border-bottom: var(--border-width) solid var(--line);
+  color: var(--muted);
+}
+.locked > svg {
+  flex: none;
+  margin-top: 0.15em;
 }
 .conflict > svg {
   color: var(--warn);
