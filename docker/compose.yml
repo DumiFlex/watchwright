@@ -1,9 +1,8 @@
 # Watchwright with Docker Compose, or as a Portainer stack (Stacks > Add stack > Web editor:
 # paste this file). See https://dumiflex.github.io/watchwright/guide/self-hosting
 #
-# Before the first start, make the two folders and give them to the container's user (uid 1001):
-#   mkdir -p /opt/watchwright/data /opt/watchwright/packs && chown -R 1001:1001 /opt/watchwright
-# Then open the server's log: it prints a link to create the first admin.
+# The container makes the two folders below if they're missing and gives them to its own user
+# (uid 1001). After the first start, open the server's log: it prints a link to create the first admin.
 
 services:
   watchwright:
@@ -27,5 +26,6 @@ services:
       # Behind a reverse proxy (NPMplus, Caddy, Traefik): the proxy's address or network, so
       # Watchwright sees people's own addresses. Leave empty without one.
       WATCHWRIGHT_TRUST_PROXY: ""
-      # Times in schedules and on the page use this zone.
+      # The default time zone for schedules' cron times, such as "Europe/Berlin". A schedule can
+      # set its own; the web page always shows times in each viewer's own zone.
       TZ: "Etc/UTC"

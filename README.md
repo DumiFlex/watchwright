@@ -68,7 +68,7 @@ docker run -d --name watchwright --init --shm-size 1g --restart unless-stopped \
   ghcr.io/dumiflex/watchwright:latest
 ```
 
-The image (`linux/amd64` and `linux/arm64`) holds the server, the web app and the browsers. Login is always on: the log prints a link that creates the first admin. Make the two folders first, owned by uid 1001.
+The image (`linux/amd64` and `linux/arm64`) holds the server, the web app and the browsers. Login is always on: the log prints a link that creates the first admin. The container makes the two folders and takes them over on its first start.
 
 - [Self-hosting](https://dumiflex.github.io/watchwright/guide/self-hosting): Docker Compose, Portainer, reverse proxies (NPMplus, Caddy, Tailscale), updates and backups.
 - [Runners](https://dumiflex.github.io/watchwright/guide/self-hosting#runners): a server's runs reach a site that only runs on your PC, such as `localhost:3000`, with one copied command on that PC.

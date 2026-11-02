@@ -1,7 +1,7 @@
 # Watchwright
 
-[![npm version](https://img.shields.io/npm/v/watchwright?color=cb3837&logo=npm)](https://www.npmjs.com/package/watchwright)
-[![npm downloads](https://img.shields.io/npm/dm/watchwright?color=cb3837)](https://www.npmjs.com/package/watchwright)
+[![GitHub](https://img.shields.io/github/stars/DumiFlex/watchwright?logo=github&label=GitHub)](https://github.com/DumiFlex/watchwright)
+[![Docker image](https://img.shields.io/badge/docker-ghcr.io%2Fdumiflex%2Fwatchwright-2496ed?logo=docker&logoColor=white)](https://github.com/DumiFlex/watchwright/pkgs/container/watchwright)
 [![CI](https://github.com/DumiFlex/watchwright/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/DumiFlex/watchwright/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/node/v/watchwright?color=5fa04e&logo=nodedotjs&logoColor=white)](https://nodejs.org)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](https://github.com/DumiFlex/watchwright/blob/main/LICENSE)
