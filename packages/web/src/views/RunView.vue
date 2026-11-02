@@ -99,12 +99,33 @@ const titles = computed(() => new Map((run.value?.plan ?? []).map((p) => [p.test
 // long run has tens of thousands); line numbers count from the run's first line.
 const LOG_LIMIT = 5000;
 const logDropped = ref(0);
-function addLog(line: (typeof log.value)[number]) {
+type LogEntry = (typeof log.value)[number];
+// While a batch of the replayed backlog goes through `onEvent`, its lines gather here and join the
+// log in one change, so a long log opens at once instead of filling line by line.
+let gathering: LogEntry[] | null = null;
+function addLog(line: LogEntry) {
+  if (gathering) return void gathering.push(line);
   log.value.push(line);
+  trimLog();
+}
+function trimLog() {
   const over = log.value.length - LOG_LIMIT;
   if (over > 0) {
     log.value.splice(0, over);
     logDropped.value += over;
+  }
+}
+function onEvents(list: WwEvent[]) {
+  gathering = [];
+  try {
+    for (const e of list) onEvent(e);
+  } finally {
+    const lines = gathering;
+    gathering = null;
+    if (lines.length > 0) {
+      log.value = log.value.concat(lines);
+      trimLog();
+    }
   }
 }
 // Which test an attempt belongs to, so log lines can be filtered by test.
@@ -390,7 +411,7 @@ function connect() {
   markSaved.value = null;
   conn = new LiveConnection(
     { runId: props.id, frames: true, after: 0, logTail: LOG_LIMIT },
-    { onState: (s) => (liveState.value = s), onHello, onBacklog: (n) => (logDropped.value += n), onEvent, onFrame: (h, jpeg) => void viewer.value?.push(h, jpeg) },
+    { onState: (s) => (liveState.value = s), onHello, onBacklog: (n) => (logDropped.value += n), onEvent, onEvents, onFrame: (h, jpeg) => void viewer.value?.push(h, jpeg) },
   );
 }
 onMounted(() => {

@@ -18,6 +18,11 @@ export interface LiveHandlers {
   /** How many older log lines the server left out of the replay (with `logTail`). */
   onBacklog?(skippedLogs: number): void;
   onEvent?(event: WwEvent): void;
+  /**
+   * A page of the replayed backlog, oldest first. Without it each event goes to `onEvent`, all in
+   * the same task, so the page renders once per batch and not once per line.
+   */
+  onEvents?(events: WwEvent[]): void;
   onFrame?(header: FrameHeader, jpeg: Uint8Array): void;
 }
 
@@ -63,6 +68,14 @@ export class LiveConnection {
         if (typeof skipped === "number") this.handlers.onBacklog?.(skipped);
         return;
       }
+      if (parsed.type === "events") {
+        const list = parsed.data as unknown as WwEvent[];
+        if (!Array.isArray(list) || list.length === 0) return;
+        this.lastSeq = list[list.length - 1]!.seq;
+        if (this.handlers.onEvents) this.handlers.onEvents(list);
+        else for (const e of list) this.handlers.onEvent?.(e);
+        return;
+      }
       if (parsed.type !== "event") return;
       this.lastSeq = parsed.data.seq;
       this.handlers.onEvent?.(parsed.data);
@@ -78,7 +91,7 @@ export class LiveConnection {
   private send() {
     if (this.socket?.readyState !== WebSocket.OPEN) return;
     const after = this.lastSeq ?? this.sub.after;
-    this.socket.send(JSON.stringify({ type: "subscribe", runId: this.sub.runId ?? null, frames: this.sub.frames ?? false, ...(after === undefined ? {} : { after }), ...(this.sub.logTail ? { logTail: this.sub.logTail } : {}) }));
+    this.socket.send(JSON.stringify({ type: "subscribe", runId: this.sub.runId ?? null, frames: this.sub.frames ?? false, batch: true, ...(after === undefined ? {} : { after }), ...(this.sub.logTail ? { logTail: this.sub.logTail } : {}) }));
   }
 
   close() {
