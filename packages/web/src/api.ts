@@ -494,6 +494,11 @@ export function sendJson<T>(url: string, body: unknown = {}, method: "POST" | "D
   return call<T>(url, init, fetcher);
 }
 
+/** POST a file as the request body (a pack .zip), with its type. */
+export function sendFile<T>(url: string, file: Blob, type = "application/zip", fetcher: typeof fetch = fetch): Promise<ApiResult<T>> {
+  return call<T>(url, { method: "POST", headers: { accept: "application/json", "content-type": type, "x-watchwright-client": "web" }, body: file }, fetcher);
+}
+
 /** The live WebSocket address for the page's own origin (http → ws, https → wss). */
 export function liveUrl(location: Pick<Location, "protocol" | "host">): string {
   const scheme = location.protocol === "https:" ? "wss:" : "ws:";

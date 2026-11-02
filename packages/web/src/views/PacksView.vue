@@ -3,7 +3,7 @@
 // that completes folders as you type, a folder browser, and a search for packs in a folder.
 // The server lists the folders (a page can't learn a folder's path; docs/plans/step-qol.md).
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { Ellipsis, FolderOpen, Package, TriangleAlert } from "../icons";
+import { Ellipsis, FolderOpen, Package, TriangleAlert, Upload } from "../icons";
 import { getJson, sendJson, type FolderPlaces, type Pack } from "../api";
 import { ago, when } from "../format";
 import { LiveConnection } from "../live";
@@ -12,12 +12,14 @@ import MenuButton from "../components/MenuButton.vue";
 import EmptyState from "../components/EmptyState.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import PackFolderDialog from "../components/PackFolderDialog.vue";
+import PackUploadDialog from "../components/PackUploadDialog.vue";
 import PathInput from "../components/PathInput.vue";
 import PathLine from "../components/PathLine.vue";
 import SkeletonBlock from "../components/SkeletonBlock.vue";
 import StatusChip from "../components/StatusChip.vue";
 import { vTip } from "../tooltip";
 import { replaceRoute } from "../router";
+import { can } from "../session";
 
 const props = defineProps<{ query: Record<string, string> }>();
 
@@ -30,6 +32,9 @@ const adding = ref(false);
 const reloading = ref<string | null>(null);
 const home = ref<string | null>(null);
 const canOpen = ref(true);
+const start = ref<string | null>(null);
+const sep = ref("/");
+const uploadOpen = ref(false);
 
 const dialogOpen = ref(false);
 const dialogMode = ref<"add" | "find" | "move">("add");
@@ -78,6 +83,9 @@ function onAdded(list: Pack[]) {
   if (list.length === 1) window.location.hash = `#/packs/${list[0]!.id}`;
   else toast(`Added ${list.length} packs`, { tone: "ok" });
 }
+function onUploaded(p: Pack) {
+  window.location.hash = `#/packs/${p.id}`;
+}
 function onMoved(p: Pack) {
   void load();
   toast(`"${p.name}" now loads from its new folder`, { tone: "ok" });
@@ -94,11 +102,13 @@ async function confirmRemove() {
 }
 
 const menu = [
+  { value: "download", label: "Download .zip" },
   { value: "move", label: "Move to another folder…" },
   { value: "remove", label: "Remove…", danger: true },
 ];
 function onMenu(p: Pack, v: string) {
-  if (v === "move") locate(p);
+  if (v === "download") window.location.href = `/api/v1/packs/${p.id}/download`;
+  else if (v === "move") locate(p);
   else if (v === "remove") removing.value = p;
 }
 
@@ -124,6 +134,8 @@ onMounted(async () => {
   if (places.ok) {
     home.value = places.data.home;
     canOpen.value = places.data.canOpen ?? true;
+    start.value = places.data.start ?? places.data.home;
+    sep.value = places.data.sep;
   }
 });
 onBeforeUnmount(() => live?.close());
@@ -182,6 +194,7 @@ onBeforeUnmount(() => live?.close());
         <p>A pack is a folder with a pack file (<code>pack.ts</code> or <code>pack.yaml</code>) and its tests, usually in the repository of the site it tests. Add one you have (the folder browser can also search a folder and the ones below it), or pick a folder and choose <strong>New pack here</strong> for a small starter pack.</p>
         <template #actions>
           <button type="button" class="btn primary" @click="browse('add')"><FolderOpen :size="15" /> Add a pack…</button>
+          <button v-if="can('admin')" type="button" class="btn" @click="uploadOpen = true"><Upload :size="15" /> Upload .zip…</button>
         </template>
       </EmptyState>
     </section>
@@ -202,12 +215,14 @@ onBeforeUnmount(() => live?.close());
           @update:model-value="addError = null"
         />
         <button type="button" class="btn" @click="browse('add')"><FolderOpen :size="15" /> Browse…</button>
+        <button v-if="can('admin')" type="button" class="btn" @click="uploadOpen = true"><Upload :size="15" /> Upload .zip…</button>
         <button class="btn primary" type="submit" :disabled="!newPath.trim() || adding">{{ adding ? "Adding…" : "Add pack" }}</button>
       </form>
       <p v-if="addError" class="error small" role="alert">{{ addError }}</p>
       <p class="muted small hint">Pack code runs on this machine with your rights, so add only packs you trust.</p>
     </section>
 
+    <PackUploadDialog v-model="uploadOpen" :start="start" :sep="sep" @added="onUploaded" />
     <PackFolderDialog v-model="dialogOpen" :mode="dialogMode" :packs="packs" :moving="moving" :home="home" @added="onAdded" @moved="onMoved" />
 
     <ModalDialog v-model="removeOpen" heading="Remove this pack?">

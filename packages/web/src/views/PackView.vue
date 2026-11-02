@@ -76,11 +76,13 @@ async function createRecording() {
   window.location.hash = href({ name: "edit", id: props.id, file: res.data.file.path, line: t.line, record: true });
 }
 const menu = [
+  { value: "download", label: "Download .zip" },
   { value: "move", label: "Move to another folder…" },
   { value: "remove", label: "Remove…", danger: true },
 ];
 function onMenu(v: string) {
-  if (v === "move") moveOpen.value = true;
+  if (v === "download") window.location.href = `/api/v1/packs/${props.id}/download`;
+  else if (v === "move") moveOpen.value = true;
   else if (v === "remove") removeOpen.value = true;
 }
 async function confirmRemove() {

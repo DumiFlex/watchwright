@@ -80,11 +80,22 @@ export function zip(entries: readonly ZipEntry[], now = new Date()): Buffer {
   return Buffer.concat([...locals, dir, end]);
 }
 
+/** Limits for a zip that came from someone else: how many entries, and how many bytes once unpacked. */
+export interface UnzipLimits {
+  maxEntries?: number;
+  maxBytes?: number;
+}
+
+/** Thrown when a zip is over its limits. */
+export class ZipLimitError extends Error {}
+
 /** Every entry of a zip (stored or deflated), in order. Throws when `buf` isn't a zip this reads. */
-export function unzip(buf: Buffer): ZipEntry[] {
+export function unzip(buf: Buffer, limits: UnzipLimits = {}): ZipEntry[] {
   const end = buf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
   if (end < 0) throw new Error("Not a zip file.");
   const count = buf.readUInt16LE(end + 10);
+  if (limits.maxEntries !== undefined && count > limits.maxEntries) throw new ZipLimitError(`The zip has ${count} entries; at most ${limits.maxEntries} are allowed.`);
+  let left = limits.maxBytes ?? Infinity;
   let at = buf.readUInt32LE(end + 16);
   const out: ZipEntry[] = [];
   for (let i = 0; i < count; i++) {
@@ -99,7 +110,17 @@ export function unzip(buf: Buffer): ZipEntry[] {
     const dataAt = local + 30 + buf.readUInt16LE(local + 26) + buf.readUInt16LE(local + 28);
     const raw = buf.subarray(dataAt, dataAt + size);
     if (method !== 0 && method !== 8) throw new Error(`Zip method ${method} isn't supported.`);
-    out.push({ name, data: method === 8 ? inflateRawSync(raw) : Buffer.from(raw) });
+    if (dataAt + size > buf.length) throw new Error("Broken zip entry.");
+    let data: Buffer;
+    try {
+      data = method === 8 ? inflateRawSync(raw, Number.isFinite(left) ? { maxOutputLength: Math.max(1, left) } : {}) : Buffer.from(raw);
+    } catch (err) {
+      if (err instanceof RangeError) throw new ZipLimitError(`The zip unpacks to more than ${limits.maxBytes} bytes.`);
+      throw err;
+    }
+    left -= data.length;
+    if (left < 0) throw new ZipLimitError(`The zip unpacks to more than ${limits.maxBytes} bytes.`);
+    out.push({ name, data });
     at += 46 + nameLen + extraLen + commentLen;
   }
   return out;

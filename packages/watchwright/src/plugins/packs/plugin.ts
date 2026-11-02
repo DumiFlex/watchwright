@@ -1,6 +1,9 @@
 import { tmpdir } from "node:os";
 import path from "node:path";
+import type { FastifyReply } from "fastify";
 import { ActionError, defineAction } from "../../actions/registry.js";
+import { errorBody } from "../../server/errors.js";
+import { ArchiveError, packZip, unpackPack, UPLOAD_MAX_BYTES } from "./archive.js";
 import { definePlugin } from "../../core/plugin.js";
 import { FOLDERS, FolderError, isInside } from "../folders/folders.js";
 import { PACK_FILES, PackLoadError } from "./loader.js";
@@ -10,6 +13,8 @@ import { StarterError, writeStarter } from "./starter.js";
 import { packSchema, testFileSchema } from "./yaml/schema.js";
 import { PACK_SHAPE } from "./yaml/pack-shape.js";
 import { checkDocument, parseTestFile } from "./yaml/parse.js";
+
+const ARCHIVE_STATUS: Record<ArchiveError["code"], number> = { bad_zip: 400, no_pack_file: 400, too_big: 413, exists: 409, bad_name: 400 };
 
 const ID = { type: "string", pattern: "^[0-9a-f]{8}$", description: "Pack id." } as const;
 
@@ -220,5 +225,48 @@ export const packsPlugin = definePlugin({
         },
       }),
     ];
+  },
+  routes(app, { services }) {
+    // A pack as a .zip, in and out: how packs reach a server that has no desktop to copy them
+    // onto (docs/plans/self-hosting.md). Plain routes, since their bodies are files, not JSON.
+    const registry = services.get(PACKS);
+    const folders = services.get(FOLDERS);
+    const fail = (reply: FastifyReply, err: unknown) => {
+      if (err instanceof ArchiveError) return reply.code(ARCHIVE_STATUS[err.code]).send(errorBody(err.code, err.message));
+      if (err instanceof ActionError) return reply.code(err.status).send(errorBody(err.code, err.message));
+      if (err instanceof FolderError) return reply.code(err.code === "not_found" ? 404 : err.code === "not_allowed" || err.code === "unreadable" ? 403 : 400).send(errorBody(err.code, err.message));
+      throw err;
+    };
+
+    app.get<{ Params: { id: string } }>("/packs/:id/download", { config: { access: "viewer" } }, async (req, reply) => {
+      const pack = /^[0-9a-f]{8}$/.test(req.params.id) ? registry.get(req.params.id) : null;
+      if (!pack) return reply.code(404).send(errorBody("not_found", `No pack with id ${req.params.id}.`));
+      if (pack.missing) return reply.code(404).send(errorBody("not_found", "The pack's folder is gone."));
+      try {
+        const body = packZip(pack.dir);
+        const file = `${path.basename(pack.dir)}.zip`;
+        return reply
+          .type("application/zip")
+          .header("content-disposition", `attachment; filename="${file.replace(/[^\w.-]+/g, "-")}"; filename*=UTF-8''${encodeURIComponent(file)}`)
+          .send(body);
+      } catch (err) {
+        return fail(reply, err);
+      }
+    });
+
+    // Pack code runs on the server, so only admins may bring in a pack from a file.
+    app.addContentTypeParser(["application/zip", "application/x-zip-compressed", "application/octet-stream"], { parseAs: "buffer", bodyLimit: UPLOAD_MAX_BYTES }, (_req, body, done) => done(null, body));
+    app.post<{ Querystring: { name?: string; folder?: string } }>("/packs/upload", { config: { access: "admin" }, bodyLimit: UPLOAD_MAX_BYTES }, async (req, reply) => {
+      if (!Buffer.isBuffer(req.body)) return reply.code(415).send(errorBody("bad_zip", "Send the zip file as the body, with content type application/zip."));
+      try {
+        const parent = folders.list(req.query.folder?.trim() || folders.start).path; // a readable folder this server may show
+        const dir = unpackPack(req.body, parent, req.query.name ?? "pack");
+        const pack = await registry.add(dir);
+        folders.remember(pack.dir);
+        return reply.code(201).send({ data: pack });
+      } catch (err) {
+        return fail(reply, err);
+      }
+    });
   },
 });

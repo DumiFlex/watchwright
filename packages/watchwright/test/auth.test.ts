@@ -147,6 +147,9 @@ describe("login on", () => {
     expect((await call("GET", "/secrets", { cookie: user })).status).toBe(200);
     expect((await call("POST", "/secrets", { cookie: user, page: true, body: { name: "A", value: "b" } })).status).toBe(403);
     expect((await call("POST", "/settings", { cookie: user, page: true, body: { key: "settings.editor", value: "vscode" } })).status).toBe(403);
+    // Uploading a pack brings code onto the server: admins only (the body check comes after the role check).
+    expect((await call("POST", "/packs/upload", { cookie: user, page: true, body: {} })).status).toBe(403);
+    expect((await call("POST", "/packs/upload", { cookie: admin, page: true, body: {} })).status).toBe(415);
     const users = await call("GET", "/auth/users", { cookie: admin });
     expect(users.status).toBe(200);
     expect(users.body.data).toHaveLength(3);

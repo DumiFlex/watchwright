@@ -115,6 +115,7 @@ export {
   UserRound,
   UsersRound,
   UnfoldVertical,
+  Upload,
   Wallet,
   WrapText,
   X,

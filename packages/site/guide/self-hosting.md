@@ -31,7 +31,14 @@ The image is `ghcr.io/dumiflex/watchwright`, for `linux/amd64` and `linux/arm64`
    docker compose logs watchwright
    ```
 
-4. Open the link, choose your admin name and password, and add a pack from `/packs` under **Packs › Add pack**.
+4. Open the link, choose your admin name and password, and add a pack under **Packs › Add a pack**.
+
+### Getting packs onto the server
+
+- **Upload .zip** on the Packs page (admins) unpacks a zip into a new folder under `/packs` and adds it. Zip a pack folder on your PC, or use **Download .zip** from a pack's menu on another Watchwright.
+- **Download .zip** in a pack's menu gives you the pack's folder back, to edit it locally or move it to another server.
+- Or put pack folders into the packs folder on the host (`/opt/watchwright/packs`), for example with `git clone`, and add them with **Browse…**.
+- **New pack here** in the folder browser writes a starter pack, and the editor on a pack's page changes its files.
 
 The same with `docker run`:
 
