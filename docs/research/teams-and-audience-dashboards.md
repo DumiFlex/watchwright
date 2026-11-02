@@ -12,7 +12,7 @@ This note says what is there now, what each would take, and recommends a design.
 - **One dashboard per pack.** It comes from the pack's `dashboard:` block, or from a change made on the page (Customize), kept in the `dashboards` table, one row per pack, until someone resets it.
 - **Public is a per-tile switch.** Every tile has `public` (true by default). The public status page (`#/status`) shows a pack's tiles that are public and of a kind that makes sense there; a shared run shows the public tiles for that one run. The pack's `share:` block keeps texts, metrics, reviews or named outputs out of every public place.
 - **Three roles**, `viewer` < `user` < `admin` (`core/access.ts`). Every signed-in person sees every pack and every run; roles only decide what someone may *do*. Single sign-on maps the provider's groups to one of these roles (`auth/sso.ts`, `roleFromGroups`); the groups themselves are not kept.
-- **Who changes what.** Customize (`dashboards.save`) needs `user`. Turning the status page on, picking its packs and whether it shows tiles needs `admin` (Settings › Sharing).
+- **Who changes what.** Customize (`dashboards.save`) needs `user`. Turning the status page on, picking its packs and whether it shows tiles needs `admin` (Settings › Sharing today; Admin › Sharing after the Settings split).
 - **Pack code is server access.** A pack runs as code on the server (`pack.ts`, `h` helpers), and a `user` can edit packs in the editor. Anyone who can edit a pack can read anything the server can. The self-hosting research said this already: roles can't fence in someone who edits packs.
 
 Two things follow that matter for both questions:
@@ -65,12 +65,12 @@ dashboards:
 - **Once a pack has a `public` dashboard, that is what the public gets**, and the per-tile `public` switch is no longer read for that pack. One way to say "public" per pack, not two that fight.
 - **Dashboards made on the page.** Customize gets **New dashboard** (name, audience, start empty or from a copy) next to editing one. Dashboards made on the page are kept on the server like today's override; ones from the pack file can be changed and reset to the pack's, as now. The `dashboards` table gets a second migration: the key becomes (pack, dashboard name), with a column for where it came from (pack change or made on the page) and its audience.
 - **The server filters, not the page.** `GET /packs/:id/dashboards` lists only the dashboards the caller may see; `GET /packs/:id/dashboard?name=` refuses one above the caller's role (403). The `pack_dashboard` MCP tool gets an optional `name`.
-- **Who may change what.** Making or changing a dashboard needs `user`, as now, except that anything whose audience is `public` (making one, editing one, or moving one to `public`) needs `admin`. Publishing is an admin decision already (Settings › Sharing), and this closes the gap where a user's Customize change reaches the status page.
+- **Who may change what.** Making or changing a dashboard needs `user`, as now, except that anything whose audience is `public` (making one, editing one, or moving one to `public`) needs `admin`. Publishing is an admin decision already (Admin › Sharing), and this closes the gap where a user's Customize change reaches the status page.
 
 Where they show:
 
 - **Pack page and runs list for one pack**: a tab row (the kit's segmented control) when there is more than one dashboard the person may see; the last one picked is remembered per pack in the browser. One dashboard: no tabs, as now.
-- **Status page**: each pack shows its `public` dashboard. A pack with none falls back to today's public tiles. Settings › Sharing lets an admin pick which public dashboard a pack shows if it has several.
+- **Status page**: each pack shows its `public` dashboard. A pack with none falls back to today's public tiles. Admin › Sharing lets an admin pick which public dashboard a pack shows if it has several.
 - **Shared runs**: the run tiles come from the pack's public dashboard (or today's public tiles).
 
 ### Cost
@@ -104,7 +104,7 @@ Don't build teams now. Nothing in the project needs a boundary between groups of
 
 The FIX FIRST rule (2 November 2026) says no new capabilities until existing features are fixed. Named dashboards are not a new capability: they finish one that just shipped, and they fix a real gap (a `user` can publish tiles to the status page). Still, they are new work, so:
 
-- **Recommended:** build named dashboards after the open fixes from the functional audit and the Settings split land (the status page's settings sit in Settings › Sharing, which that split is moving). It is about three PRs.
+- **Recommended:** build named dashboards after the open fixes from the functional audit and the Settings split land (it moves the status page's settings to Admin › Sharing). It is about three PRs.
 - **The one fix to make now**, as a small PR on its own: only an admin may turn a tile public, or change a public tile, through Customize. That closes the gap with the current design and doesn't wait for the rest.
 - **Teams:** later, only if a multi-team server is a real need, and with a sandbox for pack code in the plan.
 
