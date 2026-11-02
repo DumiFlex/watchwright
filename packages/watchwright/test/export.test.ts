@@ -4,7 +4,7 @@ import type { Criterion } from "../src/plugins/packs/rubric.js";
 import { compare, onFive, type CompareInput } from "../src/plugins/reviews/compare.js";
 import { toMarkdown } from "../src/plugins/reviews/markdown.js";
 import type { Review } from "../src/plugins/reviews/repo.js";
-import { crc32, zip } from "../src/plugins/reviews/zip.js";
+import { crc32, zip } from "../src/jobs/zip.js";
 import type { RunDetail } from "../src/plugins/runs/engine.js";
 import type { ResultDocument } from "../src/plugins/runs/results.js";
 
