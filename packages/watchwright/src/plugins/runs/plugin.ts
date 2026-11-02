@@ -8,6 +8,7 @@ import { MAX_EVENT_WAIT_S } from "../../core/core-plugin.js";
 import { definePlugin } from "../../core/plugin.js";
 import { serviceKey } from "../../core/services.js";
 import { contentTypeOf } from "../../jobs/recorder.js";
+import { sizeText } from "../../jobs/storage.js";
 import { errorBody } from "../../server/errors.js";
 import { FRAMES } from "../live/hub.js";
 import { PACKS } from "../packs/registry.js";
@@ -134,6 +135,10 @@ function filesRoot(dataDir: string): string {
 
 /** Each engine's listener for unhandled rejections, taken off when its server closes. */
 const strays = new WeakMap<Engine, (reason: unknown) => void>();
+const sweeps = new WeakMap<Engine, ReturnType<typeof setTimeout>>();
+/** The cleanup sweep runs a minute after start (once every plugin is ready), then once a day. */
+const FIRST_SWEEP_MS = 60_000;
+const SWEEP_EVERY_MS = 24 * 60 * 60_000;
 
 /** Runs: starting, controlling and reading them, and the files they save. */
 export const runsPlugin = definePlugin({
@@ -172,6 +177,18 @@ export const runsPlugin = definePlugin({
       schema: { type: "number", minimum: 0, maximum: 100000 },
       default: DEFAULT_STORAGE_LIMITS.stopBelowGB,
     });
+    settings.define({
+      key: "runs.keepDays",
+      title: "Delete ended runs older than this many days (0 keeps them; labeled runs are always kept)",
+      schema: { type: "integer", minimum: 0, maximum: 36500 },
+      default: 0,
+    });
+    settings.define({
+      key: "runs.keepPerPack",
+      title: "Keep only this many of each pack's newest runs (0 keeps them all; labeled runs are always kept)",
+      schema: { type: "integer", minimum: 0, maximum: 100000 },
+      default: 0,
+    });
     const repo = new RunsRepo(store.db);
     services.provide(RUNS_REPO, repo);
     const kinds = new JobKinds();
@@ -186,6 +203,7 @@ export const runsPlugin = definePlugin({
       secrets: services.has(SECRETS) ? services.get(SECRETS) : undefined,
       signIns: services.has(SIGNINS) ? services.get(SIGNINS) : undefined,
       storageLimits: () => ({ warnBelowGB: settings.get<number>("runs.storageWarnGB"), stopBelowGB: settings.get<number>("runs.storageStopGB") }),
+      cleanupRules: () => ({ keepDays: settings.get<number>("runs.keepDays"), keepPerPack: settings.get<number>("runs.keepPerPack") }),
     });
     engine.recover();
     services.provide(ENGINE, engine);
@@ -201,11 +219,25 @@ export const runsPlugin = definePlugin({
     engine.schedule();
     // Runs from before sizes were kept, measured in the background.
     void engine.measureMissing().catch(() => undefined);
+    // Cleanup: off until a rule is set in Settings > Storage, then a sweep a day.
+    const sweep = (delay: number) => {
+      const timer = setTimeout(() => {
+        void engine
+          .cleanup("schedule")
+          .catch((err: unknown) => console.error(`Cleanup failed: ${err instanceof Error ? err.message : String(err)}`))
+          .finally(() => sweeps.has(engine) && sweep(SWEEP_EVERY_MS));
+      }, delay);
+      timer.unref();
+      sweeps.set(engine, timer);
+    };
+    sweep(FIRST_SWEEP_MS);
   },
   async close({ services }) {
     const engine = services.get(ENGINE);
     const stray = strays.get(engine);
     if (stray) process.off("unhandledRejection", stray);
+    clearTimeout(sweeps.get(engine));
+    sweeps.delete(engine);
     await engine.close();
   },
   actions: ({ services, events }) => {
@@ -488,6 +520,27 @@ export const runsPlugin = definePlugin({
         path: "/storage",
         input: { type: "object", properties: {} },
         handler: () => engine.storage(),
+      }),
+      defineAction<Record<string, never>>({
+        name: "runs.cleanup-preview",
+        title: "What cleanup would delete now under the keep rules in Settings > Storage: the runs, oldest first, and the room they take",
+        method: "GET",
+        path: "/storage/cleanup",
+        input: { type: "object", properties: {} },
+        handler: () => engine.cleanupPlan(),
+      }),
+      defineAction<Record<string, never>>({
+        name: "runs.cleanup",
+        destructive: true,
+        explain: () => {
+          const plan = engine.cleanupPlan();
+          return `Delete ${plan.runs.length} ${plan.runs.length === 1 ? "run" : "runs"} the keep rules don't keep, with their files (${sizeText(plan.bytes)})`;
+        },
+        title: "Delete the ended runs the keep rules in Settings > Storage don't keep, now (the daily sweep does the same)",
+        method: "POST",
+        path: "/storage/cleanup",
+        input: { type: "object", properties: {} },
+        handler: (_body, { client }) => engine.cleanup(client),
       }),
       control("runs.pause", "pause", "Pause at the next step", (id, client) => engine.pause(id, client)),
       control("runs.resume", "resume", "Resume a paused run, or continue an interrupted or stopped run where it was", (id) => engine.resume(id)),

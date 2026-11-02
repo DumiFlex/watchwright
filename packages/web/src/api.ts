@@ -290,6 +290,14 @@ export interface StorageReport {
   limits: { warnBelowGB: number; stopBelowGB: number };
 }
 
+/** What cleanup deletes now under the keep rules (0 turns a rule off): the runs, oldest first, and their room. */
+export interface CleanupPlan {
+  rules: { keepDays: number; keepPerPack: number };
+  runs: RunSummary[];
+  bytes: number;
+  unmeasured: number;
+}
+
 export interface RunSettings {
   pauseOnBroken: boolean;
   pauseLimitMinutes: number;
