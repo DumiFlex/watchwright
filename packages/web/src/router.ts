@@ -14,7 +14,7 @@ export type Route =
   | { name: "edit"; id: string; file: string | null; line: number | null; record?: boolean; watch?: string }
   | { name: "compare"; query: Record<string, string> }
   | { name: "kit" }
-  | { name: "settings" }
+  | { name: "settings"; section?: string }
   | { name: "schedules" };
 
 const ID8 = "([0-9a-f]{8})";
@@ -35,7 +35,7 @@ export function parseRoute(hash: string): Route {
   if (path === "/new") return { name: "new", query };
   if (path === "/packs") return { name: "packs", query };
   if (path === "/kit") return { name: "kit" };
-  if (path === "/settings") return { name: "settings" };
+  if (path === "/settings") return query.section && /^[a-z-]{1,40}$/.test(query.section) ? { name: "settings", section: query.section } : { name: "settings" };
   if (path === "/schedules") return { name: "schedules" };
   if (path === "/compare") return { name: "compare", query };
   if ((m = new RegExp(`^/runs/${ID8}$`).exec(path))) return { name: "run", id: m[1]! };
@@ -83,7 +83,7 @@ export function href(route: Route): string {
     case "kit":
       return "#/kit";
     case "settings":
-      return "#/settings";
+      return `#/settings${qs(route.section ? { section: route.section } : {})}`;
     case "schedules":
       return "#/schedules";
   }

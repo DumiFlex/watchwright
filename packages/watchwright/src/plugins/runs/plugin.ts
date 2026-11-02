@@ -16,8 +16,8 @@ import { JobKinds } from "../../jobs/kinds.js";
 import { SECRETS } from "../secrets/plugin.js";
 import { SIGNINS } from "../signins/plugin.js";
 import { digest, readRunFile, waitForRun } from "./digest.js";
-import { Engine, EngineError } from "./engine.js";
-import { RUNS_ARTIFACT_SET_SQL, RUNS_INFO_SQL, RUNS_LABELS_PRESETS_SQL, RUNS_MIGRATION_SQL, RUNS_STEPS_SQL, RunsRepo, type RunChoices, type RunOptions, type RunStatus } from "./repo.js";
+import { DEFAULT_STORAGE_LIMITS, Engine, EngineError } from "./engine.js";
+import { RUNS_ARTIFACT_SET_SQL, RUNS_INFO_SQL, RUNS_LABELS_PRESETS_SQL, RUNS_MIGRATION_SQL, RUNS_SIZE_SQL, RUNS_STEPS_SQL, RunsRepo, type RunChoices, type RunOptions, type RunStatus } from "./repo.js";
 import type { VideoSetting } from "../packs/api.js";
 
 export const ENGINE = serviceKey<Engine>("runs.engine");
@@ -148,6 +148,7 @@ export const runsPlugin = definePlugin({
     { id: 3, name: "run-info", sql: RUNS_INFO_SQL },
     { id: 4, name: "labels-presets", sql: RUNS_LABELS_PRESETS_SQL },
     { id: 5, name: "attempt-steps", sql: RUNS_STEPS_SQL },
+    { id: 6, name: "run-size", sql: RUNS_SIZE_SQL },
   ],
   setup({ store, events, services }) {
     const dataDir = filesRoot(store.dataDir);
@@ -157,6 +158,19 @@ export const runsPlugin = definePlugin({
       title: "What New run starts from: the pack's latest run, or the pack's defaults",
       schema: { type: "string", enum: ["latest", "defaults"] },
       default: "latest",
+    });
+    const settings = services.get(SETTINGS);
+    settings.define({
+      key: "runs.storageWarnGB",
+      title: "Warn when the drive with the data folder has less free space than this, in GB",
+      schema: { type: "number", minimum: 0, maximum: 100000 },
+      default: DEFAULT_STORAGE_LIMITS.warnBelowGB,
+    });
+    settings.define({
+      key: "runs.storageStopGB",
+      title: "Stop recording videos when the drive has less free space than this, in GB (runs go on)",
+      schema: { type: "number", minimum: 0, maximum: 100000 },
+      default: DEFAULT_STORAGE_LIMITS.stopBelowGB,
     });
     const repo = new RunsRepo(store.db);
     services.provide(RUNS_REPO, repo);
@@ -171,6 +185,7 @@ export const runsPlugin = definePlugin({
       kinds,
       secrets: services.has(SECRETS) ? services.get(SECRETS) : undefined,
       signIns: services.has(SIGNINS) ? services.get(SIGNINS) : undefined,
+      storageLimits: () => ({ warnBelowGB: settings.get<number>("runs.storageWarnGB"), stopBelowGB: settings.get<number>("runs.storageStopGB") }),
     });
     engine.recover();
     services.provide(ENGINE, engine);
@@ -182,7 +197,10 @@ export const runsPlugin = definePlugin({
   },
   // Queued runs start once every plugin has registered its job kinds.
   ready({ services }) {
-    services.get(ENGINE).schedule();
+    const engine = services.get(ENGINE);
+    engine.schedule();
+    // Runs from before sizes were kept, measured in the background.
+    void engine.measureMissing().catch(() => undefined);
   },
   async close({ services }) {
     const engine = services.get(ENGINE);
@@ -462,6 +480,14 @@ export const runsPlugin = definePlugin({
         },
         handler: ({ id, testTimeoutMinutes, ...rest }, { client }) =>
           guard(() => engine.changeSettings(id, { ...rest, ...(testTimeoutMinutes === undefined ? {} : { testTimeoutMinutes: testTimeoutMinutes === 0 ? null : testTimeoutMinutes }) }, client)),
+      }),
+      defineAction<Record<string, never>>({
+        name: "runs.storage",
+        title: "What runs take on the drive: free space, the space runs take, the largest runs, and the warning limits",
+        method: "GET",
+        path: "/storage",
+        input: { type: "object", properties: {} },
+        handler: () => engine.storage(),
       }),
       control("runs.pause", "pause", "Pause at the next step", (id, client) => engine.pause(id, client)),
       control("runs.resume", "resume", "Resume a paused run, or continue an interrupted or stopped run where it was", (id) => engine.resume(id)),

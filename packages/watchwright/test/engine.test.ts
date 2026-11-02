@@ -3,8 +3,9 @@ import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import { findFfmpeg } from "../src/jobs/run-video.js";
+import { dirSize } from "../src/jobs/storage.js";
 import { decodeFrame } from "../src/plugins/live/hub.js";
-import type { RunDetail } from "../src/plugins/runs/engine.js";
+import type { RunDetail, StorageReport } from "../src/plugins/runs/engine.js";
 import type { ResultDocument } from "../src/plugins/runs/results.js";
 import { cleanTempDirs, startSite, tempDir, writeFiles } from "./helpers/fixtures.js";
 import { readZip } from "./helpers/zip.js";
@@ -423,6 +424,44 @@ test("V3", async ({ h }) => { await h.goto("/"); await h.wait(1500); });`,
       const file = await h.app.inject({ url: detail.runVideos[0]!.url, headers: { host: h.host } });
       expect(file.headers["content-type"]).toBe("video/webm");
     } else expect(detail.runVideos).toEqual([]);
+  });
+
+  it("measures each run, reports storage, and stops recording videos when the drive runs low", async () => {
+    const { h, packId } = await setup({
+      "tests/st.ts": `import { test } from "watchwright"; test("T1", async ({ h }) => { await h.goto("/"); await h.shot("home"); }); test("T2", async ({ h }) => { await h.goto("/"); });`,
+    });
+    const first = await startRun(h, { packId });
+    const done = await finished(h, first);
+    const dataDir = h.app.watchwright.store.dataDir;
+    expect(done.sizeBytes).toBe(await dirSize(path.join(dataDir, "runs", first)));
+    expect(done.sizeBytes).toBeGreaterThan(0);
+    const list = (await h.api<{ id: string; sizeBytes: number | null }[]>("GET", "/runs")).data;
+    expect(list.find((r) => r.id === first)?.sizeBytes).toBe(done.sizeBytes);
+
+    // Runs from before sizes were kept are measured in the background.
+    h.app.watchwright.store.db.prepare("UPDATE runs SET size_bytes = NULL WHERE id = ?").run(first);
+    let report = (await h.api<StorageReport>("GET", "/storage")).data;
+    expect(report).toMatchObject({ runs: 1, runsBytes: 0, unmeasured: 1, largest: [], limits: { warnBelowGB: 5, stopBelowGB: 1 } });
+    expect(report.totalBytes).toBeGreaterThan(0);
+    expect(await engineOf(h).measureMissing()).toBe(1);
+    report = (await h.api<StorageReport>("GET", "/storage")).data;
+    expect(report).toMatchObject({ runsBytes: done.sizeBytes, unmeasured: 0 });
+    expect(report.largest.map((r) => r.id)).toEqual([first]);
+
+    // Limits above any drive: the next run warns, then records no videos, and still finishes.
+    expect((await h.api("POST", "/settings", { values: { "runs.storageWarnGB": 100000, "runs.storageStopGB": 100000 } })).status).toBe(200);
+    const second = await startRun(h, { packId, runVideo: true });
+    const low = await h.waitFor((e) => e.type === "storage.low" && e.runId === second);
+    expect(low.data).toMatchObject({ videosOff: true, warnBelowGB: 100000, stopBelowGB: 100000 });
+    const detail = await finished(h, second);
+    expect(detail.status).toBe("finished");
+    expect(detail.runVideos).toEqual([]);
+    for (const a of detail.attempts) {
+      const doc = (await h.api<ResultDocument>("GET", `/runs/${second}/attempts/${a.id}`)).data;
+      expect(doc.artifacts.some((x) => x.kind === "video")).toBe(false);
+    }
+    const log = await h.waitFor((e) => e.type === "run.log" && e.runId === second && String(e.data.message).includes("records no more videos"));
+    expect(log.data.level).toBe("warn");
   });
 
   it("keeps going after a promise nobody awaited fails, and logs it on the running attempt", async () => {

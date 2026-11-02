@@ -3,7 +3,7 @@
 // file links open in, recent folders). Machine-wide values are kept by the server (`/settings`),
 // so every browser and agent sees the same; the look stays in this browser. A list of the sections
 // beside the cards jumps to each.
-import { computed, inject, onBeforeUnmount, onMounted, ref, type Ref } from "vue";
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, type Ref } from "vue";
 import { History, Power, Trash2 } from "../icons";
 import { getJson, runName, sendJson, type FolderPlaces, type RunSummary } from "../api";
 import { EDITOR_OPTIONS, editorUrl, type Editor } from "../editor";
@@ -19,6 +19,7 @@ import AgentsSettings from "../components/AgentsSettings.vue";
 import AlertsSettings from "../components/AlertsSettings.vue";
 import SecretsSettings from "../components/SecretsSettings.vue";
 import SigninsSettings from "../components/SigninsSettings.vue";
+import StorageSettings from "../components/StorageSettings.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import RadioGroup from "../components/RadioGroup.vue";
 import SelectMenu from "../components/SelectMenu.vue";
@@ -126,6 +127,7 @@ const SECTIONS = [
   { id: "s-signins", label: "Sign-ins" },
   { id: "s-alerts", label: "Alerts" },
   { id: "s-agents", label: "Agents" },
+  { id: "s-storage", label: "Storage" },
   { id: "s-recent", label: "Recent folders" },
   { id: "s-server", label: "Server" },
   { id: "s-about", label: "About" },
@@ -150,7 +152,14 @@ const onScroll = () => {
   if (!frame) frame = requestAnimationFrame(markCurrent);
 };
 
+// `#/settings?section=storage` opens on that section.
+const props = defineProps<{ section?: string | undefined }>();
+
 onMounted(() => {
+  if (props.section) {
+    const id = `s-${props.section}`;
+    void nextTick(() => setTimeout(() => goTo(id), 300));
+  }
   void loadSettings(true);
   void loadRecent();
   void loadStartup();
@@ -224,6 +233,8 @@ onBeforeUnmount(() => {
         <AlertsSettings />
 
         <AgentsSettings />
+
+        <StorageSettings />
 
         <section class="card" aria-labelledby="s-recent">
           <h2 id="s-recent" class="display">Recent folders</h2>

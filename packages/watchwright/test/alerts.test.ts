@@ -167,6 +167,22 @@ describe("Alerter", () => {
     expect(w.titles()).toEqual(["Schedule Nightly: skipped a time", "Watchwright: waiting for your approval"]);
   });
 
+  it("tells when the drive runs low during a run", async () => {
+    const w = make();
+    const ch = w.alerter.createChannel({ name: "Hook", type: "webhook", url: "https://hooks.example.com/a" });
+    w.alerter.createRule({ name: "Disk", triggers: ["storage_low"], channels: [ch.id], packs: ["bbbb2222"] });
+    w.runs.set("abcdef01", { id: "abcdef01", packId: "aaaa1111", packName: "Shop", label: "", status: "running", startedBy: "web", error: null, counts: { passed: 0, failed: 0, broken: 0, skipped: 0, stopped: 0, planned: 2 } });
+    w.events.append("storage.low", { freeBytes: 3.5 * 1024 ** 3, warnBelowGB: 5, stopBelowGB: 1, videosOff: false }, { runId: "abcdef01" });
+    await w.flush();
+    expect(w.sent).toHaveLength(1);
+    const body = JSON.parse(w.sent[0]!.body) as { title: string; text: string; link: string };
+    expect(body).toMatchObject({
+      title: "Watchwright: the drive is almost full",
+      text: "Only 3.5 GB free on the drive with Watchwright's data folder, during run abcdef01. Below 1 GB, runs stop recording videos. Delete old runs in Settings > Storage.",
+      link: "http://127.0.0.1:7420/#/settings?section=storage",
+    });
+  });
+
   it("tries again with back-off, then logs alert.failed", async () => {
     let calls = 0;
     const w = make(async () => {

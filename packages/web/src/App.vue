@@ -126,7 +126,7 @@ onMounted(async () => {
   <EditView v-else-if="shown.name === 'edit'" :id="shown.id" :file="shown.file" :line="shown.line" :record="shown.record ?? false" :explore="shown.watch ?? null" />
   <CompareView v-else-if="shown.name === 'compare'" :query="shown.query" />
   <KitView v-else-if="shown.name === 'kit'" />
-  <SettingsView v-else-if="shown.name === 'settings'" />
+  <SettingsView v-else-if="shown.name === 'settings'" :section="shown.section" />
   <SchedulesView v-else-if="shown.name === 'schedules'" />
   <RunsView v-else :query="shown.query" />
   <CommandPalette v-model:open="palette" :commands="commands" />
