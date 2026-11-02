@@ -10,6 +10,7 @@ import { ChevronRight, Folder, FolderUp, HardDrive, History, House, Package } fr
 import { folderUrl, getJson, type FolderListing, type FolderPlaces } from "../api";
 import { crumbs, rootOf, tildify } from "../paths";
 import TextField from "./TextField.vue";
+import { revealInList } from "../popup";
 import { vTip } from "../tooltip";
 
 const props = withDefaults(
@@ -100,7 +101,7 @@ const optionId = (i: number) => `${listId}-f${i}`;
 function move(to: number) {
   if (shown.value.length === 0) return;
   active.value = Math.min(shown.value.length - 1, Math.max(0, to));
-  void nextTick(() => list.value?.querySelector(`#${CSS.escape(optionId(active.value))}`)?.scrollIntoView({ block: "nearest" }));
+  void nextTick(() => revealInList(list.value, list.value?.querySelector(`#${CSS.escape(optionId(active.value))}`)));
 }
 function up() {
   if (listing.value?.parent) go(listing.value.parent);

@@ -24,6 +24,7 @@ import { exportUrl } from "../compare";
 import { countsText, duration, fileSize } from "../format";
 import { levelOf, type LogLine } from "../logview";
 import { href } from "../router";
+import { useOutline, type OutlineItem } from "../outline";
 import { filterResults, resultRows, type ResultRow, type ResultShow } from "../review";
 import { canMove as canMoveRow, followTop, movable as movableRow, rowInView } from "../queue";
 import { useShortcut } from "../keys";
@@ -396,6 +397,19 @@ watch(showResults, () => void loadReviews(), { immediate: true });
 // Since the last run: attempts whose status, flags, score or time moved since the newest earlier
 // run of the same pack and params.
 const changes = ref<RunChanges | null>(null);
+// "On this page": the run's cards, so the log under a long results table is one click away.
+useOutline("Parts of this run", () => {
+  const r = run.value;
+  if (!r) return [];
+  const out: OutlineItem[] = [];
+  if (active.value || r.status === "queued") out.push({ id: "run-live", label: "Live view" });
+  if (!showResults.value) out.push({ id: "run-queue", label: "Queue" });
+  if (showResults.value && changes.value?.previous) out.push({ id: "run-changes", label: "Since the last run" });
+  if (showResults.value) out.push({ id: "run-results", label: "Results" });
+  if (runVideos.value.length || live.value?.settings?.runVideo) out.push({ id: "run-video", label: "Run video" });
+  out.push({ id: "run-log", label: "Log" });
+  return out;
+});
 async function loadChanges() {
   if (!showResults.value) return;
   const res = await getJson<RunChanges>(`/api/v1/runs/${props.id}/changes`);
@@ -597,12 +611,12 @@ async function remove() {
       </div>
 
       <div class="grid" :class="{ done: !active }">
-        <section v-if="active || run.status === 'queued'" class="card viewer-card" aria-label="Live view">
+        <section v-if="active || run.status === 'queued'" id="run-live" class="card viewer-card" aria-label="Live view">
           <LiveViewer ref="viewer" :pages="pages" :active-page-id="activePageId" :running="active" :run-id="run.id" :steps="recentSteps" @rewound="(m) => (rewound = m)" />
           <p v-if="liveState !== 'open'" class="muted small">Live connection: {{ liveState === "connecting" ? "connecting…" : "lost, retrying" }}</p>
         </section>
 
-        <section v-if="!showResults" class="card" aria-labelledby="queue-title">
+        <section v-if="!showResults" id="run-queue" class="card" aria-labelledby="queue-title">
           <div class="qhead">
             <h2 id="queue-title" class="display">Queue</h2>
             <button v-if="active" class="btn" :disabled="busy" @click="openAdd"><Plus :size="15" /> Add tests</button>
@@ -657,7 +671,7 @@ async function remove() {
         </section>
       </div>
 
-      <section v-if="showResults && changes?.previous" class="card" aria-labelledby="changes-title">
+      <section v-if="showResults && changes?.previous" id="run-changes" class="card" aria-labelledby="changes-title">
         <div class="reshead">
           <h2 id="changes-title" class="display">Since the last run</h2>
           <span class="muted small">
@@ -692,7 +706,7 @@ async function remove() {
         </div>
       </section>
 
-      <section v-if="showResults" class="card" aria-labelledby="results-title">
+      <section v-if="showResults" id="run-results" class="card" aria-labelledby="results-title">
         <div class="reshead">
           <h2 id="results-title" class="display">Results <span class="muted small">{{ countsText(run.counts) }}</span></h2>
           <span class="muted small">Score: the mean of the scale scores, on 1 to 5. Click a cell to open the attempt and review it.</span>
@@ -723,7 +737,7 @@ async function remove() {
         </DataTable>
       </section>
 
-      <section v-if="runVideos.length || live?.settings?.runVideo" class="card" aria-labelledby="run-video-title">
+      <section v-if="runVideos.length || live?.settings?.runVideo" id="run-video" class="card" aria-labelledby="run-video-title">
         <div class="loghead">
           <h2 id="run-video-title" class="display">Run video</h2>
           <span v-if="live?.settings?.runVideo" class="live-tag">recording</span>
@@ -740,7 +754,7 @@ async function remove() {
         </p>
       </section>
 
-      <section class="card" aria-labelledby="log-title">
+      <section id="run-log" class="card" aria-labelledby="log-title">
         <div class="loghead">
           <h2 id="log-title" class="display">Log</h2>
           <span v-if="active" class="live-tag">live</span>

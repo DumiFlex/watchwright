@@ -65,6 +65,8 @@ A finished run's page shows every test's attempts and scores as a grid, with **C
 
 Above the list, **At a glance** shows the last 7, 14 or 30 days: how many runs, the pass rate (passed out of passed, failed and broken), broken attempts and the median attempt time, each with its change against the same number of days before and a small trend line. **Show chart** opens a chart of attempts per day by outcome (point at a day for its numbers); it stays open or closed the way you left it. Days are your computer's calendar days. Picking one pack in the filter shows that pack's [dashboard](./dashboards) here instead, the same as on its page.
 
+Long pages have a way around them. An attempt's page, a run's page and a pack's page list their parts under **On this page**: in the right margin when the window is wide enough, like this site, else behind the list button at the bottom right. Picking a part scrolls to it; on an attempt's page, picking Log, Files or another saved tab also opens it. Every long page gets **Back to top** and **To the bottom** beside it.
+
 Press Ctrl+K (Cmd+K on a Mac) anywhere, or the search button at the top, to find a pack, a run (by pack, label, id, values or status) or a test, or to run a command: run the latest run again, start a new run of a pack, add a pack, go to a page, or switch the look and mode.
 
 ### Watching a run

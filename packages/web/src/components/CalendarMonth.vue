@@ -58,7 +58,7 @@ const limits = computed(() => {
 });
 
 function focusDay() {
-  void nextTick(() => grid.value?.querySelector<HTMLElement>(`#${CSS.escape(cellId(focus.value))}`)?.focus());
+  void nextTick(() => grid.value?.querySelector<HTMLElement>(`#${CSS.escape(cellId(focus.value))}`)?.focus({ preventScroll: true }));
 }
 function moveTo(d: Day) {
   focus.value = clamp(d);

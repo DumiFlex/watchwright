@@ -8,6 +8,7 @@ import BrandMark from "./components/BrandMark.vue";
 import CommandPalette, { type PaletteCommand } from "./components/CommandPalette.vue";
 import KeyHint from "./components/KeyHint.vue";
 import MenuButton from "./components/MenuButton.vue";
+import PageOutline from "./components/PageOutline.vue";
 import ThemePicker from "./components/ThemePicker.vue";
 import ToastHost from "./components/ToastHost.vue";
 import { useApprovals } from "./approvals";
@@ -137,6 +138,7 @@ const userItems = computed(() => [
     <SharedRunView v-if="route.name === 'shared'" :api="`/api/v1/shared/${route.token}`" />
     <SharedRunView v-else-if="route.name === 'status-run'" :api="`/api/v1/public/runs/${route.id}`" back="#/status" />
     <StatusView v-else />
+    <PageOutline />
     <ToastHost />
   </template>
   <template v-else-if="locked">
@@ -179,13 +181,14 @@ const userItems = computed(() => [
     <AttemptView v-else-if="shown.name === 'attempt'" :run-id="shown.runId" :attempt-id="shown.attemptId" :line="shown.line ?? null" />
     <NewRunView v-else-if="shown.name === 'new'" :query="shown.query" />
     <PacksView v-else-if="shown.name === 'packs'" :query="shown.query" />
-    <PackView v-else-if="shown.name === 'pack'" :id="shown.id" />
+    <PackView v-else-if="shown.name === 'pack'" :id="shown.id" :tab="shown.tab ?? null" />
     <EditView v-else-if="shown.name === 'edit'" :id="shown.id" :file="shown.file" :line="shown.line" :record="shown.record ?? false" :explore="shown.watch ?? null" />
     <CompareView v-else-if="shown.name === 'compare'" :query="shown.query" />
     <KitView v-else-if="shown.name === 'kit'" />
     <SettingsView v-else-if="shown.name === 'settings'" :section="shown.section" />
     <SchedulesView v-else-if="shown.name === 'schedules'" />
     <RunsView v-else :query="shown.query" />
+    <PageOutline :off="shown.name === 'edit'" />
     <CommandPalette v-model:open="palette" :commands="commands" />
     <ToastHost />
   </template>

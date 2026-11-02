@@ -160,3 +160,21 @@ export function usePopupHost(root: Ref<HTMLElement | null>) {
     return fs instanceof HTMLElement && root.value && fs.contains(root.value) ? fs : "body";
   });
 }
+
+/**
+ * Scrolls `list` (a popup's own scrolling box) so `item` shows whole, and nothing else.
+ * `scrollIntoView` would also scroll the page behind, which moved the page under people's
+ * feet when they opened or used a dropdown.
+ */
+export function revealInList(list: HTMLElement | null | undefined, item: Element | null | undefined): void {
+  if (!list || !(item instanceof HTMLElement)) return;
+  const box = list.getBoundingClientRect();
+  const r = item.getBoundingClientRect();
+  if (r.top < box.top) list.scrollTop -= box.top - r.top;
+  else if (r.bottom > box.bottom) list.scrollTop += r.bottom - box.bottom;
+}
+
+/** Moves focus without scrolling the page to it: popups are fixed, their anchors already in view. */
+export function focusStill(el: HTMLElement | null | undefined): void {
+  el?.focus({ preventScroll: true });
+}
