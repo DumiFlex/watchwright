@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { checkActions, defineAction, describeAction, type ActionInfo } from "../src/actions/registry.js";
 import { actionHelp, coerce, kebab, parseActionArgs, UsageError } from "../src/cli/args.js";
@@ -160,10 +161,10 @@ describe("what people read", () => {
 
 describe("status and actions", () => {
   // Spawned through tsx, like the stdio MCP test: main.ts runs on import.
-  const MAIN = new URL("../src/cli/main.ts", import.meta.url).pathname;
+  const MAIN = fileURLToPath(new URL("../src/cli/main.ts", import.meta.url));
   const cli = async (...args: string[]) => {
     const { spawnSync } = await import("node:child_process");
-    const r = spawnSync(process.execPath, ["--import", "tsx", MAIN, ...args], { cwd: new URL("..", import.meta.url).pathname, encoding: "utf8", env: { ...process.env, WATCHWRIGHT_URL: "http://127.0.0.1:9/" } });
+    const r = spawnSync(process.execPath, ["--import", "tsx", MAIN, ...args], { cwd: fileURLToPath(new URL("..", import.meta.url)), encoding: "utf8", env: { ...process.env, WATCHWRIGHT_URL: "http://127.0.0.1:9/" } });
     return { code: r.status, err: r.stderr };
   };
 
