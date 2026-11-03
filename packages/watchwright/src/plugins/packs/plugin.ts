@@ -250,6 +250,15 @@ export const packsPlugin = definePlugin({
           return { removed: id };
         },
       }),
+      defineAction({
+        name: "packs.access-all",
+        pack: "list",
+        access: "admin",
+        title: "Every pack kept to chosen people and groups, by pack id (packs not listed are open to everyone)",
+        method: "GET",
+        path: "/packs/access",
+        handler: () => access.all(),
+      }),
       defineAction<{ id: string }>({
         name: "packs.access",
         pack: { pack: "id" },

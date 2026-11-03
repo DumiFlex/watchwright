@@ -32,7 +32,7 @@ These work with [login](../guide/safety#login) on. With it off, the user routes 
 | `POST /auth/password` `{ current, password }` | Changes your own password. Your other sign-ins end; this one stays. |
 | `GET /auth/users` | Every user (admin). |
 | `POST /auth/users` `{ name, role, password?, displayName? }` | Adds a user (admin). Roles: `viewer` sees runs and results, `user` also starts runs, records, edits packs and reviews, `admin` also manages users, settings, secrets, sign-ins, alerts and the server. 409 `name_taken`, 400 `weak_password` (under 10 characters). |
-| `POST /auth/users/:id` `{ role?, password?, disabled?, displayName? }` | Changes a user (admin). A new password or disabling ends their sign-ins. 409 `last_admin` for the only admin. |
+| `POST /auth/users/:id` `{ role?, password?, disabled?, displayName?, groups? }` | Changes a user (admin). A new password or disabling ends their sign-ins. `groups` replaces the groups an admin set (for [pack access](../guide/safety#pack-access)); each user also lists `ssoGroups`, the ones their sign-in provider sent at their last sign-in. 409 `last_admin` for the only admin. |
 | `DELETE /auth/users/:id` | Removes a user with their sign-ins and tokens (admin; waits for [approval](#approvals) from anything but the web page). |
 | `GET /auth/invites` | Invitations nobody has used yet (admin): `{ id, role, note, by, createdAt, expiresAt }`. |
 | `POST /auth/invites` `{ role, days?, note? }` | Makes a one-time invitation (admin): `{ code, … }`, the only time the code is shown. The link to send is `<server>/#/invite?code=<code>`. `days` is 1 to 30 (7 by default); `note` says who it is for. |
@@ -64,6 +64,7 @@ These work with [login](../guide/safety#login) on. With it off, the user routes 
 | `GET /packs/:id/download` | The pack's folder as a `.zip`, inside a folder of the same name. `node_modules`, `.git` and links are left out. 413 `too_big` over 200 MB or 5000 files. |
 | `POST /packs/upload?name=&folder=` | Admins only. The body is a `.zip` (content type `application/zip`, at most 50 MB, at most 200 MB unpacked) with a pack file at its top or inside one folder at its top, as `download` makes it. It is unpacked into the new folder `folder/name` (`folder` defaults to where the folder browser starts) and added. 201 with the pack. 400 `bad_zip` for a file that isn't a zip or has paths outside its folder, 400 `no_pack_file`, 403 when `folder` is outside the folders the server shows, 409 `exists` when the folder is already there, 413 `too_big`. |
 | `DELETE /packs/:id` | Forgets the pack (its files and past runs stay). |
+| `GET /packs/access` | Every pack kept to chosen people, by pack id (admins only). Packs open to everyone are left out. |
 | `GET /packs/:id/access` | Who sees the pack (admins only): `{ mode: "everyone" }`, or `{ mode: "chosen", people, groups, updatedBy, updatedAt }`. See [Pack access](../guide/safety#pack-access). |
 | `POST /packs/:id/access` `{ mode, people?, groups? }` | Opens the pack to everyone signed in (`mode: "everyone"`), or keeps it to chosen people (user ids) and groups (`"chosen"`); admins always see it. Admins only. Emits `pack.access_changed`. |
 

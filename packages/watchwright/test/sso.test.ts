@@ -134,7 +134,7 @@ describe("single sign-on with OpenID Connect", () => {
     const cookie = sessionOf(res)!;
     const who = await app.inject({ method: "GET", url: "/api/v1/auth/me", headers: { host: HOST, cookie } });
     expect(who.json().data.user).toMatchObject({ name: "robin", displayName: "Robin Hood", role: "admin" });
-    expect(auth.users().find((u) => u.name === "robin")).toMatchObject({ source: "oidc", hasPassword: false });
+    expect(auth.users().find((u) => u.name === "robin")).toMatchObject({ source: "oidc", hasPassword: false, ssoGroups: ["staff", "ww-admins"], groups: [] });
   });
 
   it("refuses someone without a mapped group when others get no role, and a callback from another browser", async () => {

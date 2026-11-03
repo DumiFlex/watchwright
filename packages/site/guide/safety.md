@@ -54,11 +54,14 @@ With login on, every pack is open to everyone signed in until an admin keeps it 
 
 For everyone else a kept pack isn't there: it is left out of the packs, runs, schedules, reviews, compare and the live view, and a link to it, its runs or its files answers as if they didn't exist. Share links of its runs keep working for whoever has them, and the public status page shows what an admin put on it. Secrets, saved sign-ins, runners and alerts are server-wide, not per pack.
 
-An admin sets it with `POST /api/v1/packs/<id>/access` (see [Packs](../reference/http-api#packs) in the API), for example `{ "mode": "chosen", "people": ["<user id>"], "groups": ["qa"] }`, and opens it again with `{ "mode": "everyone" }`.
+To pick who sees a pack, open the pack, choose **Who sees this pack…** in its **⋯** menu, and pick **Only chosen people and groups**. Then pick people from the users on the server, groups the server already knows, or type a new group name. With nobody picked, only the admins see it. Admins see a **Chosen people** chip on a kept pack, on its page and in the packs list.
 
-::: info Planned
-An **Access…** item in the pack's menu, the packs each person sees in Admin › Users, and groups: the ones your sign-in provider sends, kept on the account at each sign-in, and groups an admin sets on a user. Until then a group in a pack's access matches people who sign in through a header your proxy sets with groups.
-:::
+**Groups** are names you make up, like `qa` or `night shift`; case doesn't matter. A person is in a group when:
+
+- an admin put them in it: in **Admin › Users**, the groups button on a person's line, which also shows which kept packs they see, or
+- their sign-in provider says so: with [single sign-on](./single-sign-on), the groups the provider sends are kept on the account at each sign-in, so a change at the provider carries over the next time they sign in.
+
+Scripts set it with `POST /api/v1/packs/<id>/access` (see [Packs](../reference/http-api#packs) in the API), for example `{ "mode": "chosen", "people": ["<user id>"], "groups": ["qa"] }`, and open it again with `{ "mode": "everyone" }`.
 
 ## Approvals
 

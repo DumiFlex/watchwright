@@ -3,7 +3,7 @@
 // code host shows one), its tests with their metadata (searchable and filtered, for packs with
 // hundreds of them), parameters, flag kinds and rubric. The tab is in the address, so nothing
 // sits under anything else: a big dashboard never pushes the tests down the page.
-import { ArrowLeft, ChevronDown, ChevronRight, CircleDot, Ellipsis, FilePlus, FileText, Pencil, Play, SearchX, TriangleAlert } from "../icons";
+import { ArrowLeft, ChevronDown, ChevronRight, CircleDot, Ellipsis, FilePlus, FileText, Lock, Pencil, Play, SearchX, TriangleAlert } from "../icons";
 import { nextTestId, recordingTestTemplate, slug, type PackFile } from "../editfiles";
 import { findReadme, packImageUrl, resolveRelative } from "../markdown";
 import MarkdownView from "../components/MarkdownView.vue";
@@ -14,7 +14,7 @@ import { NO_FILTER, filterTests, groupTests, isFiltered, sectionsOf, tagsOf, typ
 import { href, replaceRoute } from "../router";
 import { useOutline, type OutlineItem } from "../outline";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { getJson, sendJson, type Criterion, type FolderPlaces, type HistoryEntry, type Pack, type PackTest, type RunSummary } from "../api";
+import { getJson, sendJson, type Criterion, type FolderPlaces, type HistoryEntry, type Pack, type PackAccess, type PackTest, type RunSummary } from "../api";
 import { HISTORY_LIMIT, flakyReason, medianMs, passRate } from "../history";
 import { ago, countsText, duration, when } from "../format";
 import { LiveConnection } from "../live";
@@ -24,6 +24,7 @@ import HistoryStrip from "../components/HistoryStrip.vue";
 import MenuButton from "../components/MenuButton.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import PackDashboard from "../components/PackDashboard.vue";
+import PackAccessDialog from "../components/PackAccessDialog.vue";
 import PackFolderDialog from "../components/PackFolderDialog.vue";
 import PageSkeleton from "../components/PageSkeleton.vue";
 import PathLine from "../components/PathLine.vue";
@@ -33,7 +34,7 @@ import { join } from "../paths";
 import { toast } from "../toasts";
 import TabBar from "../components/TabBar.vue";
 import { vTip } from "../tooltip";
-import { can } from "../session";
+import { can, session } from "../session";
 
 const props = defineProps<{ id: string; tab?: string | null }>();
 /** Runs shown on the Runs tab; the runs list has the rest. */
@@ -81,13 +82,31 @@ async function createRecording() {
   recOpen.value = false;
   window.location.hash = href({ name: "edit", id: props.id, file: res.data.file.path, line: t.line, record: true });
 }
-const menu = [
+// Who sees the pack: only admins pick it, and only with login on (without it everyone sees everything).
+const manageAccess = computed(() => session.on && can("admin"));
+const access = ref<PackAccess | null>(null);
+const accessOpen = ref(false);
+async function loadAccess() {
+  if (!manageAccess.value) return;
+  const res = await getJson<PackAccess>(`/api/v1/packs/${props.id}/access`);
+  if (res.ok) access.value = res.data;
+}
+const accessTip = computed(() => {
+  const a = access.value;
+  if (a?.mode !== "chosen") return "";
+  const n = a.people.length;
+  const parts = [n ? `${n} ${n === 1 ? "person" : "people"}` : "", a.groups.length ? `${a.groups.length === 1 ? "group" : "groups"} ${a.groups.join(", ")}` : ""].filter(Boolean);
+  return `Only ${parts.length ? `${parts.join(" and ")} and ` : ""}the admins see this pack`;
+});
+const menu = computed(() => [
   { value: "download", label: "Download .zip" },
+  ...(manageAccess.value ? [{ value: "access", label: "Who sees this pack…" }] : []),
   ...(can("admin") ? [{ value: "move", label: "Move to another folder…" }] : []),
   { value: "remove", label: "Remove…", danger: true },
-];
+]);
 function onMenu(v: string) {
   if (v === "download") window.location.href = `/api/v1/packs/${props.id}/download`;
+  else if (v === "access") accessOpen.value = true;
   else if (v === "move") moveOpen.value = true;
   else if (v === "remove") removeOpen.value = true;
 }
@@ -257,6 +276,7 @@ async function load() {
   if (h.ok) history.value = h.data;
   if (!p.data.missing) void loadReadme();
   else readme.value = null;
+  void loadAccess();
 }
 
 async function reload() {
@@ -296,7 +316,10 @@ onBeforeUnmount(() => live?.close());
     <template v-if="pack">
       <div class="page-head">
         <div class="title">
-          <h1 class="display">{{ pack.name }} <StatusChip v-if="pack.status === 'error'" status="failed" /></h1>
+          <h1 class="display">
+            {{ pack.name }} <StatusChip v-if="pack.status === 'error'" status="failed" />
+            <button v-if="access?.mode === 'chosen'" v-tip="accessTip" type="button" class="kept" @click="accessOpen = true"><Lock :size="12" /> Chosen people</button>
+          </h1>
           <p v-if="pack.description">{{ pack.description }}</p>
           <p class="muted small">
             {{ pack.browser }}<template v-if="pack.baseURL"> · {{ pack.baseURL }}</template><template v-if="pack.siteKey"> · site key <code>{{ pack.siteKey }}</code></template>
@@ -501,6 +524,7 @@ onBeforeUnmount(() => live?.close());
       </section>
     </template>
     <PageSkeleton v-else-if="!error" label="Loading the pack" :cards="3" />
+    <PackAccessDialog v-if="pack && manageAccess" v-model="accessOpen" :pack-id="pack.id" :pack-name="pack.name" @saved="(a: PackAccess) => (access = a)" />
     <PackFolderDialog v-if="pack" v-model="moveOpen" mode="move" :packs="[]" :moving="pack" :home="home" @moved="load(), toast('The pack now loads from its new folder', { tone: 'ok' })" />
     <ModalDialog v-model="recOpen" heading="New recording" width="480px">
       <form class="form" @submit.prevent="createRecording">
@@ -542,8 +566,28 @@ onBeforeUnmount(() => live?.close());
 }
 .title h1 {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
+}
+.kept {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  border: var(--border-width) solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.kept:hover {
+  border-color: var(--line-strong);
+  color: var(--text);
 }
 .title {
   min-width: 0;
