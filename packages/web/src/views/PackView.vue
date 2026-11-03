@@ -3,7 +3,7 @@
 // code host shows one), its tests with their metadata (searchable and filtered, for packs with
 // hundreds of them), parameters, flag kinds and rubric. The tab is in the address, so nothing
 // sits under anything else: a big dashboard never pushes the tests down the page.
-import { ArrowLeft, ChevronDown, ChevronRight, CircleDot, Ellipsis, FilePlus, FileText, Pencil, Play, SearchX, TriangleAlert } from "../icons";
+import { ArrowLeft, ChevronDown, ChevronRight, CircleDot, Ellipsis, FilePlus, FileText, Pencil, Play, SearchX, Trash2, TriangleAlert } from "../icons";
 import { nextTestId, recordingTestTemplate, slug, type PackFile } from "../editfiles";
 import { findReadme, packImageUrl, resolveRelative } from "../markdown";
 import MarkdownView from "../components/MarkdownView.vue";
@@ -14,7 +14,7 @@ import { NO_FILTER, filterTests, groupTests, isFiltered, sectionsOf, tagsOf, typ
 import { href, replaceRoute } from "../router";
 import { useOutline, type OutlineItem } from "../outline";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { getJson, sendJson, type Criterion, type FolderPlaces, type HistoryEntry, type Pack, type PackTest, type RunSummary } from "../api";
+import { getJson, sendJson, type Criterion, type FolderPlaces, type HistoryEntry, type Pack, type PackStateEntry, type PackTask, type PackTest, type RunSummary } from "../api";
 import { HISTORY_LIMIT, flakyReason, medianMs, passRate } from "../history";
 import { ago, countsText, duration, when } from "../format";
 import { LiveConnection } from "../live";
@@ -99,12 +99,13 @@ async function confirmRemove() {
   toast(`Removed "${name}"`, { tone: "ok" });
   window.location.hash = "#/packs";
 }
-type Tab = "dashboard" | "runs" | "readme" | "tests" | "params" | "flags" | "rubric";
+type Tab = "dashboard" | "runs" | "readme" | "tests" | "tasks" | "params" | "flags" | "rubric";
 const tabs = computed(() => [
   ...(runs.value.length ? [{ value: "dashboard" as const, label: "Dashboard" }] : []),
   { value: "runs" as const, label: "Runs" },
   ...(readme.value ? [{ value: "readme" as const, label: "README" }] : []),
   { value: "tests" as const, label: "Tests", count: pack.value?.tests.length ?? 0 },
+  ...(pack.value?.tasks.length || packState.value.length ? [{ value: "tasks" as const, label: "Tasks", count: pack.value?.tasks.length ?? 0 }] : []),
   { value: "params" as const, label: "Parameters", count: Object.keys(pack.value?.params ?? {}).length },
   { value: "flags" as const, label: "Flags", count: Object.keys(pack.value?.flags ?? {}).length },
   { value: "rubric" as const, label: "Rubric", count: pack.value?.rubric.length ?? 0 },
@@ -125,6 +126,39 @@ const tab = computed<Tab>({
     replaceRoute({ name: "pack", id: props.id, tab: t });
   },
 });
+
+// Tasks: steps of the pack that run on their own, and the values the pack keeps between runs.
+const packState = ref<PackStateEntry[]>([]);
+const starting = ref<string | null>(null);
+/** The pack's run that is going or paused, which decides when a task starts. */
+const openRun = computed(() => runs.value.find((r) => r.kind !== "task" && ["running", "pausing", "paused"].includes(r.status)) ?? null);
+async function runTask(t: PackTask) {
+  starting.value = t.id;
+  const res = await sendJson<RunSummary>("/api/v1/runs", { packId: props.id, kind: "task", tests: [t.id] });
+  starting.value = null;
+  if (!res.ok) return void toast(res.error.message, { tone: "bad" });
+  window.location.hash = `#/runs/${res.data.id}`;
+}
+async function loadState() {
+  const res = await getJson<PackStateEntry[]>(`/api/v1/packs/${props.id}/state`);
+  packState.value = res.ok ? res.data : [];
+}
+const forgetting = ref<PackStateEntry | null>(null);
+const forgetOpen = computed({ get: () => forgetting.value !== null, set: (v) => void (v || (forgetting.value = null)) });
+async function forget() {
+  const key = forgetting.value?.key;
+  forgetting.value = null;
+  if (!key) return;
+  const res = await sendJson(`/api/v1/packs/${props.id}/state/${encodeURIComponent(key)}`, {}, "DELETE");
+  if (!res.ok) return void toast(res.error.message, { tone: "bad" });
+  toast(`Deleted "${key}"`, { tone: "ok" });
+  await loadState();
+}
+/** A value as one short line of JSON. */
+function valueText(v: unknown): string {
+  const text = typeof v === "string" ? v : JSON.stringify(v);
+  return text.length > 160 ? `${text.slice(0, 157)}…` : text;
+}
 
 // Finding tests: a search and filters, and descriptions that can be folded away (kept per browser).
 const filter = ref<TestFilter>({ ...NO_FILTER });
@@ -255,6 +289,7 @@ async function load() {
   if (r.ok) runs.value = r.data;
   dashStamp.value++;
   if (h.ok) history.value = h.data;
+  void loadState();
   if (!p.data.missing) void loadReadme();
   else readme.value = null;
 }
@@ -272,6 +307,7 @@ watch(
     filter.value = { ...NO_FILTER };
     readme.value = null;
     runs.value = [];
+    packState.value = [];
     picked.value = null;
     void load();
   },
@@ -454,6 +490,46 @@ onBeforeUnmount(() => live?.close());
           </EmptyState>
         </div>
 
+        <div v-show="tab === 'tasks'" id="pack-panel-tasks" role="tabpanel" aria-labelledby="pack-tab-tasks" class="panel tasks">
+          <p class="muted small intro">
+            Steps of the pack that run on their own, as a run you can watch. A task waits for the site like any run, but starts at once while the site's run is paused.
+            <template v-if="pack.hooks.teardown"> Runs of this pack end with its teardown.</template>
+          </p>
+          <p v-if="openRun && pack.tasks.length" class="note small" role="status">
+            <template v-if="openRun.status === 'paused'">
+              <a :href="`#/runs/${openRun.id}`">Run {{ openRun.label || openRun.id }}</a> is paused, so a task starts now. The run can go on once it's done<template v-if="pack.hooks.afterTask">, after the pack's afterTask</template>.
+            </template>
+            <template v-else>
+              <a :href="`#/runs/${openRun.id}`">Run {{ openRun.label || openRun.id }}</a> is going. A task waits until it pauses or ends.
+            </template>
+          </p>
+          <ul v-if="pack.tasks.length" class="task-list">
+            <li v-for="t in pack.tasks" :key="t.id" class="task">
+              <div class="task-text">
+                <div class="tline">
+                  <strong>{{ t.title }}</strong>
+                  <code v-if="t.title !== t.id" class="tid muted">{{ t.id }}</code>
+                  <span v-if="t.readOnly" v-tip="'Leaves the site as it found it: a paused run goes on where it was'" class="tag small" tabindex="0">read-only</span>
+                </div>
+                <p v-if="t.description" class="desc muted small">{{ t.description }}</p>
+              </div>
+              <button v-if="can('user')" type="button" class="btn" :disabled="pack.status !== 'ok' || starting !== null" @click="runTask(t)"><Play :size="15" /> {{ starting === t.id ? "Starting…" : "Run" }}</button>
+            </li>
+          </ul>
+          <p v-else class="muted">This pack has no tasks.</p>
+          <h3 class="sub">Saved values</h3>
+          <p class="muted small">What the pack keeps between runs and tasks, such as the name of a backup its setup took.</p>
+          <ul v-if="packState.length" class="state-list">
+            <li v-for="e in packState" :key="e.key">
+              <code class="skey">{{ e.key }}</code>
+              <code class="sval">{{ valueText(e.value) }}</code>
+              <span v-tip="when(e.updatedAt)" class="muted small">{{ ago(e.updatedAt) }}</span>
+              <button v-if="can('user')" v-tip="'Delete'" type="button" class="ib" :aria-label="`Delete ${e.key}`" @click="forgetting = e"><Trash2 :size="15" /></button>
+            </li>
+          </ul>
+          <p v-else class="muted small">Nothing saved yet.</p>
+        </div>
+
         <div v-show="tab === 'params'" id="pack-panel-params" role="tabpanel" aria-labelledby="pack-tab-params" class="panel">
           <dl v-if="Object.keys(pack.params).length" class="defs">
             <template v-for="(d, k) in pack.params" :key="k">
@@ -515,6 +591,13 @@ onBeforeUnmount(() => live?.close());
       <template #actions>
         <button type="button" class="btn" @click="recOpen = false">Cancel</button>
         <button type="button" class="btn primary" :disabled="!recPath.trim() || !recId.trim()" @click="createRecording">Start recording</button>
+      </template>
+    </ModalDialog>
+    <ModalDialog v-model="forgetOpen" heading="Delete this saved value?">
+      <p v-if="forgetting">The pack's setup, teardown or tasks may need <code>{{ forgetting.key }}</code>, such as the name of a backup to restore. Delete it only if you know it's no longer needed.</p>
+      <template #actions>
+        <button class="btn" @click="forgetting = null">Cancel</button>
+        <button class="btn danger" @click="forget">Delete value</button>
       </template>
     </ModalDialog>
     <ModalDialog v-model="removeOpen" heading="Remove this pack?">
@@ -859,6 +942,75 @@ button.fold > svg {
   font-weight: 600;
   color: var(--text);
 }
+.tasks .intro {
+  margin: 0 0 var(--space-3);
+}
+.note {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+}
+.task-list,
+.state-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.task {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-top: var(--border-width) solid var(--line);
+}
+.task:first-child {
+  border-top: 0;
+  padding-top: var(--space-1);
+}
+.task-text {
+  flex: 1;
+  min-width: 0;
+}
+.task .btn {
+  flex: none;
+}
+.state-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  padding: 6px 0;
+  border-top: var(--border-width) solid var(--line);
+}
+.state-list li:first-child {
+  border-top: 0;
+}
+.skey {
+  font-weight: 600;
+}
+.sval {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+.ib {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.ib:hover {
+  color: var(--bad);
+  background: var(--raised);
+}
 .rparams {
   display: inline-flex;
   flex-wrap: wrap;
@@ -866,6 +1018,13 @@ button.fold > svg {
   color: var(--muted);
 }
 @media (max-width: 720px) {
+  .task {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  .task-text {
+    flex-basis: 100%;
+  }
   .finder > .search {
     flex-basis: 100%;
   }

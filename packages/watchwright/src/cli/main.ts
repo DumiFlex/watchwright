@@ -18,7 +18,7 @@ Usage:
                     [--auth] [--public-url <address>]… [--trust-proxy <address>]…
   watchwright demo [--port ${DEFAULT_PORT}] [--data <folder>] [--no-open]
   watchwright status
-  watchwright run <pack> [test…] [--param key=value]… [--preset <name>] [--label <text>] [--wait]
+  watchwright run <pack> [test…] [--param key=value]… [--preset <name>] [--label <text>] [--kind <kind>] [--wait]
   watchwright wait <run> [--after <cursor>] [--timeout <seconds>]
   watchwright results <run> [--attempt <id>]
   watchwright actions
@@ -60,6 +60,7 @@ status     Whether the server is up, and the runs that are going.
 run        Starts a run of a pack (its id, name or folder): every test, or the tests named.
   --param key=value   A parameter value (repeat it); --params '{"key":1}' takes JSON.
   --preset, --label, --attempts <n>, --trace problems|always|never, --[no-]video, --[no-]pause-on-broken
+  --kind     The job kind (default test). --kind task runs one of the pack's tasks: run <pack> <task> --kind task.
   --wait     Wait for the run to end or pause, printing each attempt as it finishes.
   --timeout  With --wait: give up waiting after this many seconds (default: no limit).
 wait       Waits until a run ends or pauses, at most --timeout seconds (default 100), printing what
@@ -215,6 +216,7 @@ async function main(argv: string[]): Promise<number> {
             params: { type: "string" },
             preset: { type: "string" },
             label: { type: "string" },
+            kind: { type: "string" },
             attempts: { type: "string" },
             trace: { type: "string" },
             video: { type: "boolean" },
@@ -246,6 +248,7 @@ async function main(argv: string[]): Promise<number> {
         const opts: RunOpts = { params, wait: values.wait ?? false, timeout: number("timeout", values.timeout) ?? Number.POSITIVE_INFINITY, json: asJson };
         if (values.preset !== undefined) opts.preset = values.preset;
         if (values.label !== undefined) opts.label = values.label;
+        if (values.kind !== undefined) opts.kind = values.kind;
         const attempts = number("attempts", values.attempts);
         if (attempts !== undefined) opts.attempts = attempts;
         if (values.trace !== undefined) opts.trace = values.trace;

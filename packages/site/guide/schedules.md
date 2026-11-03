@@ -71,4 +71,4 @@ WantedBy=default.target
 
 ## From an agent or a script
 
-Schedules are in the [HTTP API](../reference/http-api#schedules), and so on the command line and as MCP actions. Creating, changing, resuming or deleting a schedule starts runs by itself later, so from anything but the web page it waits for you to approve it there.
+Schedules are in the [HTTP API](../reference/http-api#schedules), and so on the command line and as MCP actions. A schedule can also start one of a pack's [tasks](./tasks): give it the run fields `{ "kind": "task", "tests": ["<task>"] }`. Creating, changing, resuming or deleting a schedule starts runs by itself later, so from anything but the web page it waits for you to approve it there.

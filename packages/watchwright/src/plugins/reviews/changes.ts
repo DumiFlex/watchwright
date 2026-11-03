@@ -64,6 +64,8 @@ export interface RunPick {
   id: string;
   params: Record<string, unknown>;
   tests: string[];
+  /** The job kind: a pack's task runs aren't compared with its test runs. */
+  kind?: string;
 }
 
 /** Same params, whatever the key order. */
@@ -80,7 +82,7 @@ const sameTests = (a: readonly string[], b: readonly string[]) => a.length === b
  * full run, not with a quick run of three tests that happened in between.
  */
 export function pickPrevious(run: RunPick, earlier: readonly RunPick[]): string | undefined {
-  const candidates = earlier.filter((r) => r.id !== run.id && sameParams(r.params, run.params));
+  const candidates = earlier.filter((r) => r.id !== run.id && (r.kind ?? "test") === (run.kind ?? "test") && sameParams(r.params, run.params));
   return (candidates.find((r) => sameTests(r.tests, run.tests)) ?? candidates[0])?.id;
 }
 

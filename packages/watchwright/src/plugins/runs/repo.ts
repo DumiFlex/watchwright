@@ -399,6 +399,19 @@ export class RunsRepo {
     return this.db.prepare("SELECT * FROM runs WHERE size_bytes IS NOT NULL ORDER BY size_bytes DESC LIMIT ?").all(limit) as RunRow[];
   }
 
+  /**
+   * The pack's latest run that is mid-way: going, paused, stopped, interrupted, or queued to
+   * continue after it started. Leaves out `exceptId` and runs of the kinds named in `skipKinds`.
+   */
+  latestOpenRun(packId: string, exceptId: string, skipKinds: readonly string[]): RunRow | null {
+    const rows = this.db
+      .prepare(
+        "SELECT * FROM runs WHERE pack_id = ? AND id != ? AND (status IN ('running', 'pausing', 'paused', 'stopped', 'interrupted') OR (status = 'queued' AND started_at IS NOT NULL)) ORDER BY COALESCE(started_at, created_at) DESC, rowid DESC",
+      )
+      .all(packId, exceptId) as RunRow[];
+    return rows.find((r) => !skipKinds.includes(r.job_kind)) ?? null;
+  }
+
   queued(): RunRow[] {
     return this.db.prepare("SELECT * FROM runs WHERE status = 'queued' ORDER BY created_at, rowid").all() as RunRow[];
   }

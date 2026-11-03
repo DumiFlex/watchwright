@@ -20,6 +20,11 @@ export class AttemptAborted extends Error {
   override name = "AttemptAborted";
 }
 
+/** Thrown at a checkpoint when a task changed the site while the attempt was paused: it ends stopped and runs again. */
+export class AttemptRedo extends AttemptAborted {
+  override name = "AttemptRedo";
+}
+
 export interface ControlListener {
   onState(state: ControlState, info: { reason: PauseReason | null; deadline: string | null }): void;
 }

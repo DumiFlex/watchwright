@@ -15,6 +15,7 @@ import { sizeText } from "../../jobs/storage.js";
 import { errorBody } from "../../server/errors.js";
 import { FRAMES } from "../live/hub.js";
 import { PACKS } from "../packs/registry.js";
+import { PACK_STATE } from "../packs/state.js";
 import { PACK_ACCESS } from "../packs/access.js";
 import { SETTINGS } from "../settings/plugin.js";
 import { JobKinds } from "../../jobs/kinds.js";
@@ -230,6 +231,7 @@ export const runsPlugin = definePlugin({
       secrets: services.has(SECRETS) ? services.get(SECRETS) : undefined,
       signIns: services.has(SIGNINS) ? services.get(SIGNINS) : undefined,
       runners: services.has(RUNNERS) ? services.get(RUNNERS) : undefined,
+      packState: services.get(PACK_STATE),
       storageLimits: () => ({ warnBelowGB: settings.get<number>("runs.storageWarnGB"), stopBelowGB: settings.get<number>("runs.storageStopGB") }),
       cleanupRules: () => ({ keepDays: settings.get<number>("runs.keepDays"), keepPerPack: settings.get<number>("runs.keepPerPack") }),
       videoQuality: () => settings.get<VideoQuality>("runs.videoQuality"),
