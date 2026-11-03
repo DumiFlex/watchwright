@@ -9,7 +9,7 @@ import { VERSION } from "../../version.js";
 import { DEFAULT_ALLOW, parseAllow } from "./allow.js";
 import { RunnerHub, type RunnerProxy, type RunnerStatus } from "./hub.js";
 import type { Control } from "./protocol.js";
-import { PAIR_MINUTES, RUNNERS_SQL, RunnersStore, type RunnerInfo } from "./store.js";
+import { PAIR_MINUTES, RUNNERS_SERVICE_SQL, RUNNERS_SQL, RunnersStore, type RunnerInfo } from "./store.js";
 
 // Runners (docs/plans/self-hosting.md, section 6): a server in Docker or on another machine can't
 // reach a site that only listens on someone's PC. `watchwright runner` on that PC connects out to
@@ -33,6 +33,9 @@ const NAME = { type: "string", minLength: 1, maxLength: 60, pattern: "^[^\\x00-\
 const ID = { type: "string", pattern: "^[0-9a-f]{8}$" } as const;
 const SERVER = { type: "string", maxLength: 300, description: "The address the runner reaches this server at, for the command (default: the server's public URL)." } as const;
 
+/** What to run on a runner's machine to remove it there by hand. */
+const UNINSTALL = "npx watchwright runner uninstall --forget";
+
 /** Pair attempts one address may make in a minute: a code is 9 characters of 30, so guessing is hopeless anyway. */
 const PAIR_PER_MINUTE = 20;
 /** The runner has this long to send `auth` after connecting. */
@@ -40,7 +43,10 @@ const AUTH_MS = 10_000;
 
 export const runnersPlugin = definePlugin({
   name: "runners",
-  migrations: [{ id: 1, name: "init", sql: RUNNERS_SQL }],
+  migrations: [
+    { id: 1, name: "init", sql: RUNNERS_SQL },
+    { id: 2, name: "service", sql: RUNNERS_SERVICE_SQL },
+  ],
   setup({ store, events, services }) {
     const s = new RunnersStore(store.db);
     const hub = new RunnerHub(events);
@@ -54,7 +60,7 @@ export const runnersPlugin = definePlugin({
       find,
       async proxy(key, onRefused) {
         const r = find(key);
-        if (!r) throw new RunnerUnavailable(`No runner "${key}". Add one in Settings › Runners.`);
+        if (!r) throw new RunnerUnavailable(`No runner "${key}". Add one in Admin › Runners.`);
         if (!r.online) throw new RunnerUnavailable(`The runner "${r.name}" is offline. Start it on its machine with: watchwright runner`);
         return hub.proxy(r.id, onRefused);
       },
@@ -65,12 +71,15 @@ export const runnersPlugin = definePlugin({
   },
   actions: ({ services }) => {
     const runners = () => services.get(RUNNERS);
-    /** The command that pairs a runner, with the server's address. */
-    const command = (code: string, server: string | undefined) => {
+    /** The commands that pair a runner, with the server's address: in a terminal, and set up to start by itself. */
+    const commands = (code: string, server: string | undefined) => {
       const opts = services.get(LOGIN_OPTIONS);
       const port = services.has(SERVER_PORT) ? services.get(SERVER_PORT) : 7420;
       const base = (server?.trim() || opts.publicUrls[0] || `http://127.0.0.1:${port}`).replace(/\/+$/, "");
-      return `npx watchwright@${VERSION} runner --server ${base} --pair ${code}`;
+      return {
+        command: `npx watchwright@${VERSION} runner --server ${base} --pair ${code}`,
+        installCommand: `npx watchwright@${VERSION} runner install --server ${base} --pair ${code}`,
+      };
     };
     const out = (r: RunnerInfo) => ({ ...r, ...runners().hub.status(r.id) });
     return [
@@ -108,7 +117,7 @@ export const runnersPlugin = definePlugin({
           if (runners().store.get(n)) throw new ActionError("exists", `There is already a runner called ${n}.`, 409);
           const r = runners().store.add(n, list, call.user?.name ?? call.client);
           const pair = runners().store.pairCode(r.id);
-          return { runner: out(r), ...pair, minutes: PAIR_MINUTES, command: command(pair.code, server) };
+          return { runner: out(r), ...pair, minutes: PAIR_MINUTES, ...commands(pair.code, server) };
         },
       }),
       defineAction<{ id: string; server?: string }>({
@@ -121,21 +130,21 @@ export const runnersPlugin = definePlugin({
           const r = runners().store.get(id);
           if (!r) throw new ActionError("not_found", `No runner ${id}.`, 404);
           const pair = runners().store.pairCode(r.id);
-          return { runner: out(r), ...pair, minutes: PAIR_MINUTES, command: command(pair.code, server) };
+          return { runner: out(r), ...pair, minutes: PAIR_MINUTES, ...commands(pair.code, server) };
         },
       }),
       defineAction<{ id: string }>({
         name: "runners.remove",
-        title: "Remove a runner: it disconnects and its token stops working",
+        title: "Remove a runner: it disconnects and its token stops working; a connected runner also removes itself from its machine (its token there and its start-up entry)",
         method: "DELETE",
         path: "/runners/:id",
         destructive: true,
         explain: ({ id }) => `Remove the runner ${runners().store.get(id)?.name ?? id}`,
         input: { type: "object", properties: { id: ID }, required: ["id"] },
-        handler: ({ id }) => {
+        handler: async ({ id }) => {
           if (!runners().store.remove(id)) throw new ActionError("not_found", `No runner ${id}.`, 404);
-          runners().hub.drop(id);
-          return { removed: id };
+          const { online, cleaned } = await runners().hub.drop(id);
+          return { removed: id, online, cleaned, uninstallCommand: UNINSTALL };
         },
       }),
     ];
@@ -162,7 +171,7 @@ export const runnersPlugin = definePlugin({
       if (limited(req, reply)) return reply;
       const code = typeof req.body?.code === "string" ? req.body.code : "";
       const paired = code ? store.pair(code) : null;
-      if (!paired) return reply.code(404).send(errorBody("bad_code", "That pair code doesn't work: it was used, it expired (codes last 15 minutes) or it was mistyped. Make a new one in Settings › Runners."));
+      if (!paired) return reply.code(404).send(errorBody("bad_code", "That pair code doesn't work: it was used, it expired (codes last 15 minutes) or it was mistyped. Make a new one in Admin › Runners."));
       return { data: { id: paired.runner.id, name: paired.runner.name, allow: paired.runner.allow, token: paired.token } };
     });
 
@@ -183,7 +192,12 @@ export const runnersPlugin = definePlugin({
         }
         if (!msg || msg.type !== "auth" || typeof msg.token !== "string") return refuse('Send {"type":"auth", "token": …} first.');
         const runner = store.byToken(msg.token);
-        if (!runner) return refuse("This runner's token doesn't work: the runner was removed or paired again. Pair it again with a new code from Settings › Runners.");
+        if (!runner) {
+          socket.send(
+            JSON.stringify({ type: "refused", reason: "unknown_token", message: "This runner's token doesn't work: the runner was removed or paired again. Pair it again with a new code from Admin › Runners." } satisfies Control),
+          );
+          return socket.close(4003, "refused");
+        }
         let allow: string[];
         try {
           allow = parseAllow(Array.isArray(msg.allow) ? msg.allow.filter((a): a is string => typeof a === "string") : DEFAULT_ALLOW);
@@ -192,7 +206,8 @@ export const runnersPlugin = definePlugin({
         }
         const version = typeof msg.version === "string" ? msg.version.slice(0, 40) : "unknown";
         const platform = typeof msg.platform === "string" ? msg.platform.slice(0, 40) : "unknown";
-        store.seen(runner.id, { allow, version, platform });
+        const service = typeof msg.service === "string" ? msg.service.slice(0, 20) : undefined;
+        store.seen(runner.id, { allow, version, platform, ...(service ? { service } : {}) });
         hub.attach(socket, { ...runner, allow }, { allow, version, platform });
         socket.send(JSON.stringify({ type: "hello", name: runner.name, version: VERSION } satisfies Control));
       });

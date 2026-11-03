@@ -26,7 +26,7 @@ Usage:
   watchwright init-agent [folder] [--agent claude,codex,cursor] [--no-mcp] [--auth]
   watchwright login [--name <name>] [--password-stdin] [--token <token>]
   watchwright logout
-  watchwright runner [--server <address>] [--pair <code>] [--allow <list>]
+  watchwright runner [install|uninstall|status|start|stop] [--server <address>] [--pair <code>] [--allow <list>]
   watchwright users list|add|reset-password|role|disable|enable|remove …  (--help for details)
   watchwright update [--check] [--yes] [--now]
   watchwright <plugin> <verb> [args] [--options]     any action, such as: watchwright runs pause 0a1b2c3d
@@ -79,9 +79,10 @@ login      Signs in to a server that has login on (asks for name and password, o
            the web page instead (for single sign-on accounts).
 logout     Removes the saved token, on the server and here.
 runner     Lets a server reach sites through this machine (a site on this PC's localhost, for a
-           server in Docker or elsewhere). Add the runner in the server's Settings › Runners, which
+           server in Docker or elsewhere). Add the runner in the server's Admin › Runners, which
            shows the command with a one-time pair code; afterwards \`watchwright runner\` connects
-           again by itself. Runs until stopped.
+           again by itself. \`runner install\` makes it start by itself with no window (at sign-in,
+           or with systemd); \`uninstall\`, \`status\`, \`start\` and \`stop\` manage that.
   --pair     The pair code (works once, for 15 minutes). The token it gives is saved in the config folder.
   --allow    What the server may open here: loopback (the default: any port on this machine),
              host:port or host:*, separated by commas. Saved; only this machine can change it.

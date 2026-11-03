@@ -45,11 +45,18 @@ export function readOpen(payload: Buffer): { host: string; port: number } | null
 /**
  * Control messages (JSON text). The runner opens with `auth` (its token, version, allow list and
  * system); the server answers `hello` (the runner's name and the server's version) or `refused`
- * and closes.
+ * and closes. `refused` carries `reason: "unknown_token"` when the token doesn't work (the runner
+ * was removed, or paired again elsewhere): the runner then forgets it and removes its start-up
+ * entry. When a connected runner is removed the server sends `removed`, waits a moment for
+ * `cleaned` (the runner forgot its token and removed its start-up entry), then closes. `service`
+ * says how the runner was started: windows, systemd or launchd (a start-up entry), background, or
+ * none (a terminal). Fields added later are optional: old runners and servers leave them out.
  */
 export type Control =
-  | { type: "auth"; token: string; version: string; allow: string[]; platform: string }
+  | { type: "auth"; token: string; version: string; allow: string[]; platform: string; service?: string }
   | { type: "hello"; name: string; version: string }
-  | { type: "refused"; message: string }
+  | { type: "refused"; message: string; reason?: "unknown_token" }
+  | { type: "removed"; message: string }
+  | { type: "cleaned"; service: boolean }
   | { type: "ping" }
   | { type: "pong" };
