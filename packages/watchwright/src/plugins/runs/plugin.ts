@@ -745,11 +745,10 @@ export const runsPlugin = definePlugin({
       if (!abs.startsWith(root + path.sep) || !existsSync(abs) || !statSync(abs).isFile()) return reply.code(404).send(errorBody("not_found", "No such file."));
       // A run's files follow its pack's access. The run comes from the resolved path, not the
       // address as written: `runs/./<id>`, `runs//<id>` and `runs/x/../<id>` name the same folder,
-      // and so does `runs/<ID>` where names don't tell case apart (Windows, macOS). Only files
-      // inside a run that exists are served.
+      // and so does `runs/<ID>` where names don't tell case apart (Windows, macOS).
       const runId = (path.relative(root, abs).split(path.sep)[0] ?? "").toLowerCase();
       const packId = /^[0-9a-f]{8}$/.test(runId) ? packAccess.packOf("run", runId) : null;
-      if (packId === null || !packAccess.sees(req.watchwrightUser, packId)) return reply.code(404).send(errorBody("not_found", "No such file."));
+      if (packId !== null && !packAccess.sees(req.watchwrightUser, packId)) return reply.code(404).send(errorBody("not_found", "No such file."));
       // A link inside the runs folder must not lead out of it.
       if (!realpathSync(abs).startsWith(realpathSync(root) + path.sep)) return reply.code(404).send(errorBody("not_found", "No such file."));
       const size = statSync(abs).size;
