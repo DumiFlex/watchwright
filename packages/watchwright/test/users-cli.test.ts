@@ -29,6 +29,27 @@ function io(passwords: (string | null)[] = []) {
 }
 
 describe("watchwright users", () => {
+  it("merges a single sign-on duplicate into the account to keep", async () => {
+    const data = mkdtempSync(path.join(tmpdir(), "ww-users-"));
+    dirs.push(data);
+    expect(await usersCommand(["add", "dumi", "--role", "admin", "--password-stdin", "--data", data], io().it)).toBe(0);
+    const store = openStore(data, migrationsOf(BUILTIN_PLUGINS));
+    new AuthStore(store.db).external("oidc", "https://idp u-1", { name: "dumi" }, "admin");
+    store.close();
+    const list = io();
+    await usersCommand(["list", "--data", data], list.it);
+    expect(list.out.join("\n")).toMatch(/dumi-2\s+admin\s+\(oidc\)/);
+    const m = io();
+    expect(await usersCommand(["merge", "dumi-2", "dumi", "--data", data], m.it)).toBe(0);
+    expect(m.out.join("\n")).toBe("Merged dumi-2 into dumi: 1 single sign-on link and 0 tokens moved, dumi-2 removed.");
+    expect(await usersCommand(["merge", "dumi", "--data", data], io().it)).toBe(2);
+    const after = openStore(data, migrationsOf(BUILTIN_PLUGINS));
+    const auth = new AuthStore(after.db);
+    expect(auth.users().map((u) => u.name)).toEqual(["dumi"]);
+    expect(auth.bySubject("oidc", "https://idp u-1")?.name).toBe("dumi");
+    after.close();
+  });
+
   it("adds, lists, changes and removes users", async () => {
     const data = mkdtempSync(path.join(tmpdir(), "ww-users-"));
     dirs.push(data);

@@ -1,5 +1,6 @@
 // Talks to the Watchwright server. Shapes mirror packages/watchwright/src (plugins/packs, plugins/runs).
 import type { TileGroupResult } from "./dashboard";
+import type { LinkedSignIn } from "./session";
 
 export interface HealthData {
   name: "watchwright";
@@ -403,6 +404,7 @@ export interface UserInfo {
   source: "local" | "oidc" | "header";
   disabled: boolean;
   hasPassword: boolean;
+  signins: LinkedSignIn[];
   groups: string[];
   ssoGroups: string[];
   createdAt: string;

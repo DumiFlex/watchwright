@@ -21,10 +21,13 @@ export const USERS_HELP = `Usage:
   watchwright users disable <name>
   watchwright users enable <name>
   watchwright users remove <name>
+  watchwright users merge <name> <into>
 
 Works on the data folder (--data, else WATCHWRIGHT_DATA, else the OS's app data folder), with or
 without the server running. Passwords are asked for at the terminal, or read from the first line
-of standard input with --password-stdin. The role is user unless given.`;
+of standard input with --password-stdin. The role is user unless given. merge moves an account's
+single sign-on links and API tokens to <into>, then removes it (for a duplicate made by single
+sign-on).`;
 
 export interface UsersIo {
   out: (s: string) => void;
@@ -72,7 +75,7 @@ export async function usersCommand(argv: string[], io: UsersIo = usersIo): Promi
       case "list": {
         const users = auth.users();
         if (users.length === 0) io.out("No users yet. Add the first admin with: watchwright users add <name> --role admin");
-        for (const u of users) io.out(`${u.name.padEnd(24)} ${u.role.padEnd(7)} ${u.disabled ? "disabled " : ""}${u.source === "local" ? "" : `(${u.source}) `}last seen ${u.seenAt ?? "never"}`);
+        for (const u of users) io.out(`${u.name.padEnd(24)} ${u.role.padEnd(7)} ${u.disabled ? "disabled " : ""}${u.signins.length ? `(${u.signins.map((x) => x.source).join(", ")}) ` : ""}last seen ${u.seenAt ?? "never"}`);
         return 0;
       }
       case "add": {
@@ -116,6 +119,15 @@ export async function usersCommand(argv: string[], io: UsersIo = usersIo): Promi
         if (!u) return 1;
         auth.remove(u.id);
         io.out(`Removed ${u.name}.`);
+        return 0;
+      }
+      case "merge": {
+        if (!extra) return usage(io, "Name both accounts: watchwright users merge <name> <into>");
+        const from = find(name);
+        const into = from && find(extra);
+        if (!from || !into) return 1;
+        const { moved } = auth.merge(from.id, into.id);
+        io.out(`Merged ${from.name} into ${into.name}: ${moved.signins} single sign-on link${moved.signins === 1 ? "" : "s"} and ${moved.tokens} token${moved.tokens === 1 ? "" : "s"} moved, ${from.name} removed.`);
         return 0;
       }
       default:

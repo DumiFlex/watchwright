@@ -157,6 +157,7 @@ Accounts for [login](../guide/safety#login), made on the machine the server runs
 | `users role <name> <role>` | Changes the role. The last admin can't stop being one. |
 | `users disable <name>` / `users enable <name>` | Stops or allows signing in; disabling ends their sign-ins. |
 | `users remove <name>` | Removes the user with their sign-ins and tokens. |
+| `users merge <name> <into>` | Moves the user's [single sign-on links](../guide/single-sign-on#linking-to-an-account-you-already-have) and API tokens to `<into>`, then removes the user. For a duplicate account made by single sign-on. |
 
 Passwords (at least 10 characters) are asked for at the terminal, twice, without showing them. `--password-stdin` reads the first line of standard input instead, for scripts.
 
