@@ -1,4 +1,5 @@
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { unzip, zip, ZipLimitError, type ZipEntry } from "../../jobs/zip.js";
 import { PACK_FILES } from "./loader.js";
@@ -17,7 +18,7 @@ const SKIP_DIRS = new Set(["node_modules", ".git", ".hg", ".svn"]);
 
 export class ArchiveError extends Error {
   constructor(
-    readonly code: "bad_zip" | "no_pack_file" | "too_big" | "exists" | "bad_name",
+    readonly code: "bad_zip" | "no_pack_file" | "too_big" | "exists" | "bad_name" | "not_a_folder" | "busy",
     message: string,
   ) {
     super(message);
@@ -160,14 +161,8 @@ export function folderName(input: string): string {
   return name;
 }
 
-/**
- * Unpacks a pack zip into `<parent>/<name>`, a folder that must not exist yet. Returns the new
- * folder and the pack folders in it, shallowest first.
- */
-export function unpackPack(buf: Buffer, parent: string, name: string): { dir: string; packs: string[] } {
-  const files = packFiles(buf);
-  const dir = path.join(parent, folderName(name));
-  if (existsSync(dir)) throw new ArchiveError("exists", `${dir} already exists. Pick another name.`);
+/** Writes the zip's files into `dir` (made here), removing it again when a write fails. */
+function writeFiles(dir: string, files: readonly ZipEntry[]): void {
   mkdirSync(dir, { recursive: true });
   try {
     for (const f of files) {
@@ -179,5 +174,99 @@ export function unpackPack(buf: Buffer, parent: string, name: string): { dir: st
     rmSync(dir, { recursive: true, force: true });
     throw err;
   }
-  return { dir, packs: packFolders(files).map((d) => (d === "" ? dir : path.join(dir, ...d.split("/")))) };
+}
+
+const packDirs = (dir: string, files: readonly ZipEntry[]) => packFolders(files).map((d) => (d === "" ? dir : path.join(dir, ...d.split("/"))));
+
+/** The folder a pack zip unpacks into: `<parent>/<name>`, with the name made safe. */
+export function uploadTarget(parent: string, name: string): string {
+  return path.join(parent, folderName(name));
+}
+
+/**
+ * Unpacks a pack zip into `<parent>/<name>`, a folder that must not exist yet. Returns the new
+ * folder and the pack folders in it, shallowest first.
+ */
+export function unpackPack(buf: Buffer, parent: string, name: string): { dir: string; packs: string[] } {
+  const files = packFiles(buf);
+  const dir = uploadTarget(parent, name);
+  if (existsSync(dir)) throw new ArchiveError("exists", `${dir} already exists.`);
+  writeFiles(dir, files);
+  return { dir, packs: packDirs(dir, files) };
+}
+
+/** Folders a replace keeps from the old folder when the zip has none there: installed dependencies and version control. */
+function keptFolders(oldDir: string): string[] {
+  const out: string[] = [];
+  const walk = (rel: string) => {
+    let names: string[];
+    try {
+      names = readdirSync(path.join(oldDir, rel));
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      const r = rel ? path.join(rel, name) : name;
+      const st = lstatSync(path.join(oldDir, r));
+      if (!st.isDirectory()) continue;
+      if (SKIP_DIRS.has(name)) out.push(r);
+      else walk(r);
+    }
+  };
+  walk("");
+  return out;
+}
+
+/**
+ * Replaces the files of the existing folder `<parent>/<name>` with the zip's: an update of packs
+ * uploaded before, or of a folder a removed pack left behind. Files the zip doesn't have are gone
+ * afterwards, except installed dependencies and version control folders (`node_modules`, `.git`),
+ * which stay where the new files still have their parent folder. The zip is unpacked beside the
+ * folder first and swapped in by renaming, so a bad zip or a failed write leaves the old files
+ * as they were.
+ */
+export function replacePack(buf: Buffer, parent: string, name: string): { dir: string; packs: string[] } {
+  const files = packFiles(buf);
+  const dir = uploadTarget(parent, name);
+  if (!existsSync(dir)) return unpackPack(buf, parent, name);
+  if (!statSync(dir).isDirectory()) throw new ArchiveError("not_a_folder", `${dir} is a file, not a folder.`);
+  const tag = randomBytes(4).toString("hex");
+  const base = path.basename(dir);
+  const fresh = path.join(parent, `.${base}.upload-${tag}`);
+  const old = path.join(parent, `.${base}.old-${tag}`);
+  writeFiles(fresh, files);
+  const moved: string[] = [];
+  for (const rel of keptFolders(dir)) {
+    const to = path.join(fresh, rel);
+    if (existsSync(to) || !existsSync(path.dirname(to))) continue;
+    try {
+      renameSync(path.join(dir, rel), to);
+      moved.push(rel);
+    } catch {
+      // left behind with the old files; the pack may need it installed again
+    }
+  }
+  try {
+    renameSync(dir, old);
+  } catch (err) {
+    // Put back what moved, so the folder is as it was.
+    for (const rel of moved) {
+      try {
+        renameSync(path.join(fresh, rel), path.join(dir, rel));
+      } catch {
+        // nothing more to do
+      }
+    }
+    rmSync(fresh, { recursive: true, force: true });
+    throw new ArchiveError("busy", `Watchwright can't replace ${dir}: ${err instanceof Error ? err.message : String(err)}. Close programs that use files in it and try again.`);
+  }
+  try {
+    renameSync(fresh, dir);
+  } catch (err) {
+    renameSync(old, dir);
+    rmSync(fresh, { recursive: true, force: true });
+    throw new ArchiveError("busy", `Watchwright can't replace ${dir}: ${err instanceof Error ? err.message : String(err)}.`);
+  }
+  rmSync(old, { recursive: true, force: true });
+  return { dir, packs: packDirs(dir, files) };
 }

@@ -361,6 +361,12 @@ export class RunsRepo {
   }
 
   /** Removes a run with its attempts and artifacts. */
+  /** The pack id of the newest run of the pack file `packPath`, or null. */
+  packIdAt(packPath: string): string | null {
+    const row = this.db.prepare("SELECT pack_id FROM runs WHERE pack_path = ? ORDER BY created_at DESC LIMIT 1").get(packPath) as { pack_id: string } | undefined;
+    return row?.pack_id ?? null;
+  }
+
   deleteRun(id: string): boolean {
     return this.db.prepare("DELETE FROM runs WHERE id = ?").run(id).changes > 0;
   }

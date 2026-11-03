@@ -23,6 +23,7 @@ import FileLink from "../components/FileLink.vue";
 import HistoryStrip from "../components/HistoryStrip.vue";
 import MenuButton from "../components/MenuButton.vue";
 import ModalDialog from "../components/ModalDialog.vue";
+import PackRemoveDialog from "../components/PackRemoveDialog.vue";
 import PackDashboard from "../components/PackDashboard.vue";
 import PackAccessDialog from "../components/PackAccessDialog.vue";
 import PackFolderDialog from "../components/PackFolderDialog.vue";
@@ -110,12 +111,8 @@ function onMenu(v: string) {
   else if (v === "move") moveOpen.value = true;
   else if (v === "remove") removeOpen.value = true;
 }
-async function confirmRemove() {
-  const name = pack.value?.name;
-  const res = await sendJson(`/api/v1/packs/${props.id}`, {}, "DELETE");
-  removeOpen.value = false;
-  if (!res.ok) return void toast(res.error.message, { tone: "bad" });
-  toast(`Removed "${name}"`, { tone: "ok" });
+function onRemoved(p: Pack, deleted: boolean) {
+  toast(deleted ? `Removed "${p.name}" and deleted its files` : `Removed "${p.name}"`, { tone: "ok" });
   window.location.hash = "#/packs";
 }
 type Tab = "dashboard" | "runs" | "readme" | "tests" | "tasks" | "params" | "flags" | "rubric";
@@ -625,13 +622,7 @@ onBeforeUnmount(() => live?.close());
         <button class="btn danger" @click="forget">Delete value</button>
       </template>
     </ModalDialog>
-    <ModalDialog v-model="removeOpen" heading="Remove this pack?">
-      <p v-if="pack"><strong>{{ pack.name }}</strong> leaves the list. Its folder and files stay as they are, and its earlier runs stay in the runs list. You can add it again later.</p>
-      <template #actions>
-        <button class="btn" @click="removeOpen = false">Cancel</button>
-        <button class="btn danger" @click="confirmRemove">Remove pack</button>
-      </template>
-    </ModalDialog>
+    <PackRemoveDialog v-model="removeOpen" :pack="pack" @removed="onRemoved" />
   </main>
 </template>
 

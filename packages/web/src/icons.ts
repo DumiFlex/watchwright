@@ -78,6 +78,7 @@ export {
   LogOut,
   Maximize,
   Menu,
+  Merge,
   MessageSquareWarning,
   MessageSquarePlus,
   Minimize,

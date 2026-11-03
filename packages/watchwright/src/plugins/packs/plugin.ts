@@ -1,13 +1,15 @@
-import { tmpdir } from "node:os";
+import { existsSync, rmSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import type { FastifyReply } from "fastify";
 import { ActionError, defineAction } from "../../actions/registry.js";
 import { errorBody } from "../../server/errors.js";
-import { ArchiveError, packZip, unpackPack, UPLOAD_MAX_BYTES, zipRoot } from "./archive.js";
+import { ArchiveError, packFiles, packZip, replacePack, unpackPack, uploadTarget, UPLOAD_MAX_BYTES, zipRoot } from "./archive.js";
+import { allows, refusal } from "../../core/access.js";
 import { definePlugin } from "../../core/plugin.js";
 import { FOLDERS, FolderError, isInside } from "../folders/folders.js";
 import { PACK_FILES, PackLoadError } from "./loader.js";
-import { discoverPacks, PACKS, PACKS_MIGRATION_SQL, PackRegistry } from "./registry.js";
+import { discoverPacks, PACKS, PACKS_MIGRATION_SQL, PackRegistry, type PackSummary } from "./registry.js";
 import { PACK_ACCESS, PACK_ACCESS_SQL, PackAccessStore } from "./access.js";
 import { PACK_STATE, PACK_STATE_SQL, PackStateStore } from "./state.js";
 import { SECRETS } from "../secrets/plugin.js";
@@ -19,7 +21,7 @@ import { packSchema, testFileSchema } from "./yaml/schema.js";
 import { PACK_SHAPE } from "./yaml/pack-shape.js";
 import { checkDocument, parseTestFile } from "./yaml/parse.js";
 
-const ARCHIVE_STATUS: Record<ArchiveError["code"], number> = { bad_zip: 400, no_pack_file: 400, too_big: 413, exists: 409, bad_name: 400 };
+const ARCHIVE_STATUS: Record<ArchiveError["code"], number> = { bad_zip: 400, no_pack_file: 400, too_big: 413, exists: 409, bad_name: 400, not_a_folder: 400, busy: 409 };
 
 const ID = { type: "string", pattern: "^[0-9a-f]{8}$", description: "Pack id." } as const;
 
@@ -37,6 +39,18 @@ async function packCall<T>(fn: () => Promise<T> | T): Promise<T> {
     if (err instanceof FolderError) throw new ActionError(err.code, err.message, err.code === "not_found" ? 404 : 400);
     throw err;
   }
+}
+
+/**
+ * Why a folder that packs come from must not be deleted or replaced now, or null: a run of one of
+ * its packs is going on. `within` are the packs whose folders are it or inside it.
+ */
+function busyIn(registry: PackRegistry, within: readonly PackSummary[]): string | null {
+  for (const p of within) {
+    const why = registry.busy(p.id);
+    if (why) return within.length > 1 ? `${why} (pack "${p.name}")` : why;
+  }
+  return null;
 }
 
 /** Test packs: adding them by path, building them, listing their tests. */
@@ -62,7 +76,7 @@ export const packsPlugin = definePlugin({
     // Bring stored packs up to date in the background: their files may have changed while the server was down.
     for (const p of registry.list()) void registry.reload(p.id).catch(() => undefined);
   },
-  actions: ({ services, events }) => {
+  actions: ({ services, events, store }) => {
     const registry = services.get(PACKS);
     const folders = services.get(FOLDERS);
     const access = services.get(PACK_ACCESS);
@@ -242,20 +256,54 @@ export const packsPlugin = definePlugin({
           });
         },
       }),
-      defineAction<{ id: string }>({
+      defineAction<{ id: string; deleteFiles?: boolean }>({
         name: "packs.remove",
         pack: { pack: "id" },
         destructive: true,
-        explain: ({ id }: { id: string }) => `Remove the pack "${registry.get(id)?.name ?? id}" from Watchwright (its files and past runs stay)`,
-        title: "Remove a pack from this server (its files and past runs stay)",
+        explain: ({ id, deleteFiles }: { id: string; deleteFiles?: boolean }) => {
+          const p = registry.get(id);
+          return deleteFiles ? `Remove the pack "${p?.name ?? id}" and delete its folder ${p?.dir ?? ""} from the server (its past runs stay)` : `Remove the pack "${p?.name ?? id}" from Watchwright (its files and past runs stay)`;
+        },
+        title: "Remove a pack from this server; its past runs stay, and its files too unless deleteFiles",
         method: "DELETE",
         path: "/packs/:id",
-        input: { type: "object", properties: { id: ID }, required: ["id"] },
-        handler: ({ id }) => {
-          if (!registry.remove(id)) notFound(id);
+        input: {
+          type: "object",
+          properties: {
+            id: ID,
+            deleteFiles: { type: "boolean", default: false, description: "Also delete the pack's folder and every file in it from the server (admins only). Its past runs stay." },
+          },
+          required: ["id"],
+        },
+        handler: ({ id, deleteFiles = false }, call) => {
+          const pack = registry.get(id) ?? notFound(id);
+          const del = deleteFiles && !pack.missing;
+          if (deleteFiles) {
+            if (!allows("admin", call.user)) {
+              const r = refusal("admin", call.user ?? null);
+              throw new ActionError(r.code, `Only admins may delete a pack's files. ${r.message}`, r.status);
+            }
+          }
+          if (del) {
+            const dir = pack.dir;
+            const guarded = [...folders.roots(), folders.start, homedir(), ...(store.dataDir === ":memory:" ? [] : [path.resolve(store.dataDir)])];
+            if (!folders.shows(dir)) throw new ActionError("not_allowed", `This server only shows folders inside ${folders.roots().join(", ")}, so it doesn't delete ${dir}.`, 403);
+            const hit = guarded.find((g) => isInside(g, dir));
+            if (hit) throw new ActionError("not_allowed", `${dir} holds ${hit}, so Watchwright won't delete it. Remove the pack and delete the files by hand.`, 403);
+            const others = registry.within(dir).filter((p) => p.id !== id);
+            if (others.length) throw new ActionError("folder_shared", `${dir} also holds the pack${others.length === 1 ? "" : "s"} ${others.map((p) => `"${p.name}"`).join(", ")}. Remove ${others.length === 1 ? "it" : "them"} first, or remove this pack and keep its files.`, 409);
+            const busy = registry.busy(id);
+            if (busy) throw new ActionError("pack_busy", busy, 409);
+          }
+          registry.remove(id);
           access.forget(id);
           state.forget(id);
-          return { removed: id };
+          if (del) {
+            rmSync(pack.dir, { recursive: true, force: true });
+            folders.forget(pack.dir);
+            events.append("pack.files_deleted", { packId: id, packName: pack.name, dir: pack.dir, by: call.user?.name ?? call.client });
+          }
+          return { removed: id, deleted: del ? pack.dir : null };
         },
       }),
       defineAction({
@@ -368,14 +416,38 @@ export const packsPlugin = definePlugin({
 
     // Pack code runs on the server, so only admins may bring in a pack from a file.
     app.addContentTypeParser(["application/zip", "application/x-zip-compressed", "application/octet-stream"], { parseAs: "buffer", bodyLimit: UPLOAD_MAX_BYTES }, (_req, body, done) => done(null, body));
-    app.post<{ Querystring: { name?: string; folder?: string } }>("/packs/upload", { config: { access: "admin", pack: "none" }, bodyLimit: UPLOAD_MAX_BYTES }, async (req, reply) => {
+    // Uploading onto a folder that's there already is refused with what's in it (`exists`, with
+    // `detail`), and goes through with `replace=1`: the zip's files take the folder's place, and
+    // packs added from it keep their ids, runs, schedules and dashboards.
+    app.post<{ Querystring: { name?: string; folder?: string; replace?: string } }>("/packs/upload", { config: { access: "admin", pack: "none" }, bodyLimit: UPLOAD_MAX_BYTES }, async (req, reply) => {
       if (!Buffer.isBuffer(req.body)) return reply.code(415).send(errorBody("bad_zip", "Send the zip file as the body, with content type application/zip."));
       try {
         const parent = folders.list(req.query.folder?.trim() || folders.start).path; // a readable folder this server may show
-        const { packs } = unpackPack(req.body, parent, req.query.name ?? "pack");
+        const name = req.query.name ?? "pack";
+        const replace = req.query.replace === "1" || req.query.replace === "true";
+        const target = uploadTarget(parent, name);
+        const within = registry.within(target);
+        if (!replace && existsSync(target)) {
+          packFiles(req.body); // a zip that isn't a pack says so first
+          const packs = within.map((p) => ({ id: p.id, name: p.name, dir: p.dir }));
+          const added = packs.length ? ` Packs added from it: ${packs.map((p) => `"${p.name}"`).join(", ")}.` : "";
+          return reply.code(409).send(errorBody("exists", `${target} already exists.${added} Upload again with replace to put the zip's files in its place.`, { dir: target, packs, busy: busyIn(registry, within) }));
+        }
+        if (replace) {
+          const busy = busyIn(registry, within);
+          if (busy) return reply.code(409).send(errorBody("pack_busy", busy));
+        }
+        const { packs } = replace ? replacePack(req.body, parent, name) : unpackPack(req.body, parent, name);
         // Every pack in the zip is added (a folder of shared files can hold several); the answer is the first.
         const added = [];
-        for (const dir of packs) added.push(await registry.add(dir));
+        for (const dir of packs) {
+          const before = registry.byDir(dir);
+          const pack = await registry.add(dir);
+          if (before) await registry.reload(pack.id).catch(() => undefined); // new files: build it again
+          added.push(registry.get(pack.id)!);
+        }
+        // Packs that were added from the folder but aren't in the zip any more now show as missing.
+        for (const p of within) if (!added.some((a) => a.id === p.id)) await registry.reload(p.id).catch(() => undefined);
         folders.remember(added[0]!.dir);
         return reply.code(201).send({ data: added[0] });
       } catch (err) {

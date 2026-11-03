@@ -4,7 +4,7 @@
 // - find: search a folder and the ones below it for pack files and add the ones you tick,
 // - move: point a pack whose folder moved at its new folder (it keeps its runs).
 import { computed, ref, watch } from "vue";
-import { FolderPlus, FolderSearch, Package } from "../icons";
+import { FolderPlus, FolderSearch, Package, Plus } from "../icons";
 import { sendJson, type FolderListing, type FoundPack, type Pack } from "../api";
 import { join, tildify } from "../paths";
 import CheckBox from "./CheckBox.vue";
@@ -68,10 +68,15 @@ const places = computed(() => props.packs.filter((p) => !p.missing).map((p) => (
 const packHere = computed(() => listing.value?.marks.pack ?? null);
 const addedHere = computed(() => props.packs.find((p) => p.dir === listing.value?.path) ?? null);
 
-async function addHere() {
-  if (!listing.value) return;
+const addedAt = (dir: string) => props.packs.find((p) => p.dir === dir) ?? null;
+/** A pack folder in the list that isn't added: one never added, or one a removed pack left behind. */
+const loosePacks = computed(() => (props.mode === "add" ? (listing.value?.folders ?? []).filter((f) => f.marks.pack && !addedAt(f.path)) : []));
+
+async function addHere(dir = listing.value?.path) {
+  if (!dir) return;
   busy.value = true;
-  const res = await sendJson<Pack>("/api/v1/packs", { path: listing.value.path });
+  error.value = null;
+  const res = await sendJson<Pack>("/api/v1/packs", { path: dir });
   busy.value = false;
   if (!res.ok) return void (error.value = res.error.message);
   emit("added", [res.data]);
@@ -156,10 +161,15 @@ function rel(dir: string): string {
       </ul>
     </template>
     <FolderBrowser v-else v-model:path="path" :places="places" :mark-labels="{ pack: 'Pack' }" @listing="listing = $event">
+      <template v-if="mode === 'add'" #row="{ entry }">
+        <span v-if="entry.marks.pack && addedAt(entry.path)" class="rowtag muted small">Added</span>
+        <button v-else-if="entry.marks.pack" type="button" class="btn rowadd small" :disabled="busy" :aria-label="`Add the pack in ${entry.name}`" @click.stop="addHere(entry.path)"><Plus :size="14" /> Add</button>
+      </template>
       <template #footer="{ listing: l }">
         <p v-if="l && mode !== 'find'" class="here small" :class="packHere ? 'ok' : 'muted'">
           <template v-if="addedHere && mode === 'add'">This pack is already added as "{{ addedHere.name }}".</template>
           <template v-else-if="packHere">This folder has a pack: {{ packHere }}.</template>
+          <template v-else-if="loosePacks.length">{{ loosePacks.length === 1 ? "A folder here has a pack that isn't added" : `${loosePacks.length} folders here have packs that aren't added` }}: press Add on its row, or open it.</template>
           <template v-else>No pack file in this folder. Open the folder that has <code>pack.ts</code> or <code>pack.yaml</code>, or search this one.</template>
         </p>
       </template>
@@ -182,7 +192,7 @@ function rel(dir: string): string {
       <template v-else>
         <button class="btn" :class="{ primary: mode === 'find' }" :disabled="busy || !listing" @click="search"><FolderSearch :size="15" /> {{ mode === "find" ? "Search this folder" : "Find packs here" }}</button>
         <button v-if="mode === 'add'" class="btn" :disabled="busy || !listing" @click="startNew"><FolderPlus :size="15" /> New pack here…</button>
-        <button v-if="mode === 'add'" class="btn primary" :disabled="busy || !packHere || !!addedHere" @click="addHere">{{ busy ? "Adding…" : "Add this pack" }}</button>
+        <button v-if="mode === 'add'" class="btn primary" :disabled="busy || !packHere || !!addedHere" @click="addHere()">{{ busy ? "Adding…" : "Add this pack" }}</button>
       </template>
     </template>
   </ModalDialog>
@@ -231,6 +241,14 @@ function rel(dir: string): string {
 }
 .pre {
   white-space: pre-line;
+}
+.rowadd {
+  flex: none;
+  padding: 0 8px;
+}
+.rowtag {
+  flex: none;
+  padding: 0 4px;
 }
 .btn {
   display: inline-flex;

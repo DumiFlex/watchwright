@@ -153,6 +153,8 @@ interface Pending {
   nonce: string;
   redirectUri: string;
   at: number;
+  /** Linking from Your account: the account the identity goes to. */
+  linkUser?: string | undefined;
 }
 
 const PENDING_MS = 10 * 60_000;
@@ -163,6 +165,8 @@ export interface OidcPerson {
   name: string;
   displayName: string | null;
   groups: string[];
+  /** Set when the sign-in was started to link the identity to this account. */
+  linkUser?: string | undefined;
 }
 
 /** The OpenID Connect side: the provider's settings (fetched once per issuer and client), sign-ins in progress. */
@@ -186,14 +190,14 @@ export class OidcClient {
   }
 
   /** Where to send the browser to sign in, and the `state` that comes back with it. */
-  async start(s: SsoSettings["oidc"], redirectUri: string): Promise<{ url: string; state: string }> {
+  async start(s: SsoSettings["oidc"], redirectUri: string, linkUser?: string): Promise<{ url: string; state: string }> {
     const config = await this.configuration(s);
     const verifier = oidc.randomPKCECodeVerifier();
     const state = oidc.randomState();
     const nonce = oidc.randomNonce();
     const now = Date.now();
     for (const [k, p] of this.pending) if (now - p.at > PENDING_MS || this.pending.size >= PENDING_MAX) this.pending.delete(k);
-    this.pending.set(state, { verifier, nonce, redirectUri, at: now });
+    this.pending.set(state, { verifier, nonce, redirectUri, at: now, linkUser });
     const url = oidc.buildAuthorizationUrl(config, {
       redirect_uri: redirectUri,
       scope: s.scopes,
@@ -228,6 +232,6 @@ export class OidcClient {
     const text = (v: unknown) => (typeof v === "string" && v.trim() !== "" ? v.trim() : null);
     const email = text(info.email);
     const name = text(info.preferred_username) ?? (email ? email.split("@")[0]! : null) ?? text(info.name) ?? claims.sub;
-    return { subject: `${claims.iss} ${claims.sub}`, name, displayName: text(info.name), groups: s.groupsClaim ? groupsOf(info[s.groupsClaim]) : [] };
+    return { subject: `${claims.iss} ${claims.sub}`, name, displayName: text(info.name), groups: s.groupsClaim ? groupsOf(info[s.groupsClaim]) : [], ...(pending.linkUser ? { linkUser: pending.linkUser } : {}) };
   }
 }

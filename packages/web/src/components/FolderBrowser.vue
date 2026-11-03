@@ -4,7 +4,8 @@
 // (home, drives, recent folders, extra places from the page), the path as crumbs, and the
 // folders inside, with marked folders (a pack folder) badged. Keyboard: type to filter (or
 // type a path and press Enter to go there), arrows to move, Enter to open, Backspace in an
-// empty filter to go up. The page decides what to do with the open folder (the `footer` slot).
+// empty filter to go up. The page decides what to do with the open folder (the `footer` slot),
+// and can put a control at the end of a folder's row (the `row` slot).
 import { computed, nextTick, onMounted, ref, useId, watch, type Component } from "vue";
 import { ChevronRight, Folder, FolderUp, HardDrive, History, House, Package } from "../icons";
 import { folderUrl, getJson, type FolderListing, type FolderPlaces } from "../api";
@@ -185,6 +186,7 @@ defineExpose({ reload: () => listing.value && load(listing.value.path), focus: (
           <Folder v-else class="ficon" :size="16" />
           <span class="fname">{{ e.name }}</span>
           <span v-if="badge(e.marks)" class="badge small">{{ badge(e.marks) }}</span>
+          <slot name="row" :entry="e" />
         </li>
         <li v-if="listing && shown.length === 0" class="empty muted small" role="presentation">{{ filter && !looksLikePath ? "No folder matches." : "No folders here." }}</li>
       </ul>

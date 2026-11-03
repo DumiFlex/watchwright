@@ -1,10 +1,14 @@
+import { mkdtempSync, rmSync } from "node:fs";
 import { createServer, type Server } from "node:http";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterEach, describe, expect, it } from "vitest";
 import { BUILTIN_PLUGINS } from "../src/core/builtin.js";
 import { migrationsOf } from "../src/core/plugin.js";
 import { AUTH_STORE } from "../src/plugins/auth/plugin.js";
+import { AuthStore } from "../src/plugins/auth/store.js";
 import { PACK_ACCESS } from "../src/plugins/packs/access.js";
 import { groupsOf, mergeSso, peerTest, roleFromGroups, DEFAULT_SSO } from "../src/plugins/auth/sso.js";
 import { buildServer } from "../src/server/app.js";
@@ -103,16 +107,27 @@ async function make() {
   return { app, auth, asAdmin };
 }
 
-/** The browser's way through a sign-in: start, the provider, back to the callback. */
-async function signInThrough(app: FastifyInstance, idp: Awaited<ReturnType<typeof provider>>) {
-  const start = await app.inject({ method: "GET", url: "/api/v1/auth/oidc/start", headers: { host: HOST } });
+/** The browser's way through a sign-in: start, the provider, back to the callback. `cookie`: the browser's session, `link`: from Your account. */
+async function signInThrough(app: FastifyInstance, idp: Awaited<ReturnType<typeof provider>>, o: { cookie?: string; link?: boolean } = {}) {
+  const start = await app.inject({ method: "GET", url: `/api/v1/auth/oidc/start${o.link ? "?link=1" : ""}`, headers: { host: HOST, ...(o.cookie ? { cookie: o.cookie } : {}) } });
   expect(start.statusCode).toBe(302);
   const bound = String(start.headers["set-cookie"]).split(";")[0]!;
   const back = idp.authorize(String(start.headers.location));
-  return app.inject({ method: "GET", url: `${back.pathname}${back.search}`, headers: { host: HOST, cookie: bound } });
+  return app.inject({ method: "GET", url: `${back.pathname}${back.search}`, headers: { host: HOST, cookie: [bound, o.cookie].filter(Boolean).join("; ") } });
 }
 
-const sessionOf = (res: { headers: Record<string, unknown> }) => ([res.headers["set-cookie"]].flat() as string[]).find((c) => c.startsWith("ww_session=") && !c.startsWith("ww_session=;"))?.split(";")[0];
+const cookieOf = (res: { headers: Record<string, unknown> }, name: string) => ([res.headers["set-cookie"]].flat() as string[]).find((c) => c?.startsWith(`${name}=`) && !c.startsWith(`${name}=;`))?.split(";")[0];
+const sessionOf = (res: { headers: Record<string, unknown> }) => cookieOf(res, "ww_session");
+const ORIGIN = `http://${HOST}`;
+
+/** Signs in with a password, as the web page does: the session cookie. */
+async function passwordCookie(app: FastifyInstance, name: string, password = "correct horse battery") {
+  const res = await app.inject({ method: "POST", url: "/api/v1/auth/signin", headers: { host: HOST, origin: ORIGIN }, payload: { name, password } });
+  expect(res.statusCode).toBe(200);
+  return sessionOf(res)!;
+}
+
+const VOID = (issuer: string) => ({ oidc: { on: true, name: "VoidAuth", issuer, clientId: "watchwright" } });
 
 describe("single sign-on with OpenID Connect", () => {
   it("signs in through the provider, making the account with the role of its groups", async () => {
@@ -167,6 +182,142 @@ describe("single sign-on with OpenID Connect", () => {
     const signin = (name: string) => app.inject({ method: "POST", url: "/api/v1/auth/signin", headers: { host: HOST }, payload: { name, password: "correct horse battery" } });
     expect((await signin("sam")).json().error.code).toBe("passwords_off");
     expect((await signin("boss")).statusCode).toBe(200);
+  });
+});
+
+describe("linking single sign-on to an existing account", () => {
+  it("asks for the password of an account with the same name instead of making name-2, then signs straight in", async () => {
+    const idp = await provider({ sub: "u-9", preferred_username: "boss", name: "The Boss" });
+    const { app, auth, asAdmin } = await make();
+    await asAdmin("POST", "/auth/sso", VOID(idp.issuer));
+    const res = await signInThrough(app, idp);
+    expect(res.headers.location).toBe("/#/signin?link=1");
+    expect(sessionOf(res)).toBeUndefined();
+    const link = cookieOf(res, "ww_link")!;
+    expect(link).toBeTruthy();
+    const page = (method: "GET" | "POST", url: string, payload?: object) => app.inject({ method, url: `/api/v1${url}`, headers: { host: HOST, origin: ORIGIN, cookie: link }, ...(payload ? { payload } : {}) });
+
+    expect((await page("GET", "/auth/link")).json().data).toEqual({ provider: "VoidAuth", name: "boss", account: "boss" });
+    const wrong = await page("POST", "/auth/link", { name: "boss", password: "not the password" });
+    expect(wrong.statusCode).toBe(401);
+    const ok = await page("POST", "/auth/link", { name: "boss", password: "correct horse battery" });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json().data.user.name).toBe("boss");
+    expect(sessionOf(ok)).toBeTruthy();
+    expect(auth.users().map((u) => u.name)).toEqual(["boss"]);
+    expect(auth.byName("boss")!.signins).toMatchObject([{ source: "oidc", name: "boss" }]);
+    // Used up.
+    expect((await page("GET", "/auth/link")).statusCode).toBe(404);
+
+    // From now on the provider signs in to boss directly.
+    const again = await signInThrough(app, idp);
+    expect(again.headers.location).toBe("/#/");
+    const who = await app.inject({ method: "GET", url: "/api/v1/auth/me", headers: { host: HOST, cookie: sessionOf(again)! } });
+    expect(who.json().data.user).toMatchObject({ name: "boss", hasPassword: true, signins: [{ source: "oidc" }] });
+  });
+
+  it("makes a separate account when the person asks, and never offers an account without a password", async () => {
+    const idp = await provider({ sub: "u-10", preferred_username: "boss" });
+    const { app, auth, asAdmin } = await make();
+    await asAdmin("POST", "/auth/sso", VOID(idp.issuer));
+    const link = cookieOf(await signInThrough(app, idp), "ww_link")!;
+    const made = await app.inject({ method: "POST", url: "/api/v1/auth/link/new", headers: { host: HOST, origin: ORIGIN, cookie: link } });
+    expect(made.statusCode).toBe(200);
+    expect(made.json().data.user.name).toBe("boss-2");
+
+    // kim has no password (made by the header): a provider's "kim" gets kim-2 as before.
+    auth.external("header", "kim", { name: "kim" }, "viewer");
+    const kim = await provider({ sub: "u-11", preferred_username: "kim" });
+    await asAdmin("POST", "/auth/sso", VOID(kim.issuer));
+    const res = await signInThrough(app, kim);
+    expect(res.headers.location).toBe("/#/");
+    expect(auth.byName("kim-2")).not.toBeNull();
+  });
+
+  it("links from Your account only for the browser signed in to that account, and not an identity linked elsewhere", async () => {
+    const idp = await provider({ sub: "u-12", preferred_username: "robin" });
+    const { app, auth, asAdmin } = await make();
+    await asAdmin("POST", "/auth/sso", VOID(idp.issuer));
+    await auth.add({ name: "sam", password: "correct horse battery", role: "user" });
+    const sam = await passwordCookie(app, "sam");
+
+    // Without a session: back to sign in.
+    const anon = await app.inject({ method: "GET", url: "/api/v1/auth/oidc/start?link=1", headers: { host: HOST } });
+    expect(anon.headers.location).toMatch(/^\/#\/signin\?error=Sign%20in%20first/);
+
+    const res = await signInThrough(app, idp, { cookie: sam, link: true });
+    expect(res.headers.location).toBe("/#/account?section=sso-links&linked=1");
+    expect(auth.byName("sam")!.signins).toMatchObject([{ source: "oidc", name: "robin" }]);
+    expect(auth.byName("robin")).toBeNull();
+    const mine = await app.inject({ method: "GET", url: "/api/v1/auth/signins", headers: { host: HOST, cookie: sam } });
+    expect(mine.json().data).toHaveLength(1);
+
+    // The same identity can't be linked to boss too.
+    const boss = await passwordCookie(app, "boss");
+    const taken = await signInThrough(app, idp, { cookie: boss, link: true });
+    expect(decodeURIComponent(String(taken.headers.location))).toMatch(/already linked to the account sam/);
+  });
+
+  it("unlinks a sign-in, but not an account's only way in", async () => {
+    const { app, auth } = await make();
+    const sam = await auth.add({ name: "sam", password: "correct horse battery", role: "user" });
+    const s = auth.link(sam.id, "oidc", "https://idp x", "sam");
+    const robin = auth.external("oidc", "https://idp y", { name: "robin" }, "viewer")!;
+    expect(() => auth.unlink(robin.signins[0]!.id)).toThrow(/only way/);
+    const cookie = await passwordCookie(app, "sam");
+    const del = (id: string) => app.inject({ method: "DELETE", url: `/api/v1/auth/signins/${id}`, headers: { host: HOST, origin: ORIGIN, cookie } });
+    // Someone else's: not found.
+    expect((await del(robin.signins[0]!.id)).statusCode).toBe(404);
+    expect((await del(s.id)).statusCode).toBe(200);
+    expect(auth.user(sam.id)!.signins).toEqual([]);
+  });
+
+  it("merges a duplicate into the account to keep: sign-ins and tokens move, the duplicate goes", async () => {
+    const idp = await provider({ sub: "u-13", preferred_username: "boss" });
+    const { app, auth, asAdmin } = await make();
+    // A duplicate made before linking existed.
+    const dup = auth.external("oidc", `${idp.issuer} u-13`, { name: "boss-2" }, "admin")!;
+    auth.addToken(dup.id, "mcp");
+    const boss = auth.byName("boss")!;
+    const cookie = await passwordCookie(app, "boss");
+    const merged = await app.inject({ method: "POST", url: `/api/v1/auth/users/${dup.id}/merge`, headers: { host: HOST, origin: ORIGIN, cookie }, payload: { into: boss.id } });
+    expect(merged.statusCode).toBe(200);
+    expect(merged.json().data.moved).toEqual({ signins: 1, tokens: 1 });
+    expect(auth.user(dup.id)).toBeNull();
+    expect(auth.tokens(boss.id).map((t) => t.name).sort()).toEqual(["mcp", "test"]);
+
+    await asAdmin("POST", "/auth/sso", VOID(idp.issuer));
+    const res = await signInThrough(app, idp);
+    expect(res.headers.location).toBe("/#/");
+    const who = await app.inject({ method: "GET", url: "/api/v1/auth/me", headers: { host: HOST, cookie: sessionOf(res)! } });
+    expect(who.json().data.user.name).toBe("boss");
+  });
+
+  it("won't merge away the last admin into a non-admin", async () => {
+    const { auth } = await make();
+    const boss = auth.byName("boss")!;
+    const sam = await auth.add({ name: "sam", password: "correct horse battery", role: "user" });
+    expect(() => auth.merge(boss.id, sam.id)).toThrow(/only admin/);
+    expect(() => auth.merge(boss.id, boss.id)).toThrow(/two different/);
+  });
+
+  it("moves each account's single sign-on pair into the linked sign-ins (migration 5)", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "ww-ident-"));
+    try {
+      const all = migrationsOf(BUILTIN_PLUGINS);
+      const before = openStore(dir, { ...all, auth: all.auth!.filter((m) => m.id < 5) });
+      before.db.prepare("INSERT INTO users (id, name, role, source, subject, created_at) VALUES ('aaaaaaaaaaaa', 'robin', 'user', 'oidc', 'https://idp u-1', '2026-11-01T00:00:00Z')").run();
+      before.db.prepare("INSERT INTO users (id, name, role, password, created_at) VALUES ('bbbbbbbbbbbb', 'sam', 'user', 'x', '2026-11-01T00:00:00Z')").run();
+      before.close();
+      const after = openStore(dir, all);
+      const auth = new AuthStore(after.db);
+      expect(auth.bySubject("oidc", "https://idp u-1")?.name).toBe("robin");
+      expect(auth.byName("robin")!.signins).toMatchObject([{ source: "oidc", name: "robin" }]);
+      expect(auth.byName("sam")!.signins).toEqual([]);
+      after.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

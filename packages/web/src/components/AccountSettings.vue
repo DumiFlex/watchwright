@@ -1,11 +1,12 @@
 <script setup lang="ts">
-// The Account page's cards, while login is on: who you are, your password, and your API tokens for
-// the CLI, scripts and agents. A new token is shown once, here, and never again.
+// The Account page's cards, while login is on: who you are, your password, the single sign-on
+// identities linked to the account, and your API tokens for the CLI, scripts and agents. A new
+// token is shown once, here, and never again.
 import { computed, onMounted, ref } from "vue";
 import { getJson, sendJson } from "../api";
 import { when } from "../format";
-import { Copy, KeyRound, LogOut, Trash2 } from "../icons";
-import { session, signOut } from "../session";
+import { Copy, KeyRound, Link, LogOut, Trash2 } from "../icons";
+import { loadSession, session, signInLabel, signOut, type LinkedSignIn } from "../session";
 import { toast } from "../toasts";
 import { vTip } from "../tooltip";
 import ModalDialog from "./ModalDialog.vue";
@@ -35,7 +36,9 @@ const pwBusy = ref(false);
 const pwError = ref<string | null>(null);
 const short = computed(() => next.value !== "" && next.value.length < 10);
 const differs = computed(() => again.value !== "" && again.value !== next.value);
-const pwReady = computed(() => current.value !== "" && next.value.length >= 10 && again.value === next.value);
+/** An account made by single sign-on has no password to give first: it sets one. */
+const hasPassword = computed(() => session.user?.hasPassword !== false);
+const pwReady = computed(() => (current.value !== "" || !hasPassword.value) && next.value.length >= 10 && again.value === next.value);
 async function changePassword() {
   if (!pwReady.value) return;
   pwBusy.value = true;
@@ -44,7 +47,39 @@ async function changePassword() {
   pwBusy.value = false;
   if (!res.ok) return void (pwError.value = res.error.message);
   current.value = next.value = again.value = "";
-  toast("Password changed. Your other sign-ins have ended.", { tone: "ok" });
+  toast(hasPassword.value ? "Password changed. Your other sign-ins have ended." : "Password set. You can sign in with it too.", { tone: "ok" });
+  await loadSession();
+}
+
+// Single sign-on: the identities linked to this account, and linking the provider's.
+const signins = computed(() => session.user?.signins ?? []);
+const provider = computed(() => session.signin.oidc);
+const oidcLinked = computed(() => signins.value.some((s) => s.source === "oidc"));
+/** The account's only way in can't be unlinked. */
+const onlyWay = computed(() => !hasPassword.value && signins.value.length <= 1);
+onMounted(() => {
+  // Back from the provider: `#/account?section=sso-links&linked=1` or `&error=…`.
+  const q = new URLSearchParams(location.hash.split("?")[1] ?? "");
+  const err = q.get("error");
+  if (err) toast(err, { tone: "bad", timeout: 8000 });
+  else if (q.get("linked")) toast(`Linked. Sign in with ${provider.value ?? "single sign-on"} now opens this account.`, { tone: "ok" });
+  if (err || q.get("linked")) history.replaceState(null, "", "#/account?section=sso-links");
+});
+const unlinking = ref<LinkedSignIn | null>(null);
+const unlinkOpen = computed({
+  get: () => unlinking.value !== null,
+  set: (open: boolean) => {
+    if (!open) unlinking.value = null;
+  },
+});
+async function unlink() {
+  const s = unlinking.value;
+  unlinking.value = null;
+  if (!s) return;
+  const res = await sendJson(`/api/v1/auth/signins/${s.id}`, {}, "DELETE");
+  if (!res.ok) return void toast(res.error.message, { tone: "bad" });
+  toast(`Unlinked ${signInLabel(s.source)}.`);
+  await loadSession();
 }
 
 // Tokens
@@ -124,9 +159,10 @@ const day = (iso: string) => new Date(iso).toLocaleDateString();
 
   <section class="card" aria-labelledby="s-password">
     <h2 id="s-password" class="display">Password</h2>
-    <p class="muted small">Changing it ends your sign-ins in other browsers.</p>
-    <form class="pw" @submit.prevent="changePassword">
-      <div class="fld">
+    <p v-if="hasPassword" class="muted small">Changing it ends your sign-ins in other browsers.</p>
+    <p v-else class="muted small">Your account signs in with single sign-on and has no password. Set one to sign in without the provider too{{ session.signin.passwords ? "" : " (only admins may, while passwords are off on this server)" }}.</p>
+    <form :class="['pw', { first: !hasPassword }]" @submit.prevent="changePassword">
+      <div v-if="hasPassword" class="fld">
         <label for="s-pw-current" class="lbl small">Current password</label>
         <TextField id="s-pw-current" v-model="current" type="password" autocomplete="current-password" />
       </div>
@@ -138,11 +174,40 @@ const day = (iso: string) => new Date(iso).toLocaleDateString();
         <label for="s-pw-again" class="lbl small">Same again</label>
         <TextField id="s-pw-again" v-model="again" type="password" autocomplete="new-password" :invalid="differs" />
       </div>
-      <button type="submit" class="btn" :disabled="!pwReady || pwBusy">Change password</button>
+      <button type="submit" class="btn" :disabled="!pwReady || pwBusy">{{ hasPassword ? "Change password" : "Set password" }}</button>
     </form>
     <p v-if="short" class="muted small">At least 10 characters.</p>
     <p v-else-if="differs" class="muted small">The two new passwords aren't the same.</p>
     <p v-else-if="pwError" class="error small" role="alert">{{ pwError }}</p>
+  </section>
+
+  <section v-if="provider || signins.length" class="card" aria-labelledby="s-sso-links">
+    <h2 id="s-sso-links" class="display">Single sign-on</h2>
+    <p class="muted small">Sign-ins from your sign-in provider that open this account. Link one when signing in with {{ provider ?? "single sign-on" }} made a separate account, or before you start using it.</p>
+    <ul v-if="signins.length" class="tokens">
+      <li v-for="s in signins" :key="s.id">
+        <Link :size="15" class="muted" />
+        <div class="who">
+          <span class="tname">{{ signInLabel(s.source) }}<span v-if="s.name" class="muted"> as {{ s.name }}</span></span>
+          <span v-tip="s.usedAt ? `Last used ${when(s.usedAt)}` : 'Not used yet'" class="muted small">linked {{ day(s.createdAt) }}{{ s.usedAt ? ` · used ${day(s.usedAt)}` : "" }}</span>
+        </div>
+        <button v-tip="onlyWay ? 'Your only way in: set a password first' : 'Unlink'" type="button" class="ib" :disabled="onlyWay" :aria-label="`Unlink ${signInLabel(s.source)}`" @click="unlinking = s"><Trash2 :size="14" /></button>
+      </li>
+    </ul>
+    <p v-else class="muted">Nothing linked yet.</p>
+    <div v-if="provider && !oidcLinked">
+      <a class="btn primary" href="/api/v1/auth/oidc/start?link=1"><Link :size="15" /> Link {{ provider }}</a>
+    </div>
+    <p v-if="provider && !oidcLinked" class="muted small">You sign in at {{ provider }}, then come back here. If that sign-in already has its own account on this server, ask an admin to merge it into yours, under Users on the Admin page.</p>
+    <ModalDialog v-model="unlinkOpen" heading="Unlink this sign-in?">
+      <p>
+        Signing in with <strong>{{ unlinking ? signInLabel(unlinking.source) : "" }}</strong> won't open this account any more. The next time you use it, it asks to link again or makes a separate account.
+      </p>
+      <template #actions>
+        <button class="btn" @click="unlinking = null">Cancel</button>
+        <button class="btn danger" @click="unlink">Unlink</button>
+      </template>
+    </ModalDialog>
   </section>
 
   <section class="card" aria-labelledby="s-tokens">
@@ -225,6 +290,9 @@ const day = (iso: string) => new Date(iso).toLocaleDateString();
   align-items: end;
   gap: var(--space-3);
 }
+.pw.first {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+}
 .add {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 200px auto;
@@ -303,15 +371,20 @@ const day = (iso: string) => new Date(iso).toLocaleDateString();
   color: var(--muted);
   cursor: pointer;
 }
-.ib:hover {
+.ib:hover:not(:disabled) {
   background: var(--hover);
   color: var(--bad);
+}
+.ib:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 .ib.copy:hover {
   color: var(--text);
 }
 @media (max-width: 720px) {
   .pw,
+  .pw.first,
   .add {
     grid-template-columns: 1fr;
   }

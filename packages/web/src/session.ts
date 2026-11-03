@@ -13,6 +13,56 @@ export interface SessionUser {
   displayName: string | null;
   role: Role;
   via: "session" | "token";
+  hasPassword?: boolean;
+  /** Single sign-on identities linked to the account. */
+  signins?: LinkedSignIn[];
+}
+
+/** A single sign-on identity linked to an account. */
+export interface LinkedSignIn {
+  id: string;
+  source: "oidc" | "header";
+  /** What the provider calls the person. */
+  name: string | null;
+  createdAt: string;
+  usedAt: string | null;
+}
+
+/** What a kind of linked sign-in is called: the provider's button name, or the proxy. */
+export function signInLabel(source: LinkedSignIn["source"]): string {
+  return source === "oidc" ? (session.signin.oidc ?? "Single sign-on") : "Reverse proxy";
+}
+
+/** A provider sign-in waiting to be linked: the provider, what it calls the person, and the account here with that name. */
+export interface PendingLink {
+  provider: string;
+  name: string;
+  account: string;
+}
+
+export async function pendingLink(): Promise<PendingLink | string> {
+  const res = await getJson<PendingLink>("/api/v1/auth/link");
+  return res.ok ? res.data : res.error.message;
+}
+
+/** Links the waiting provider sign-in to the account with this name and password, and signs in. */
+export async function linkAndSignIn(name: string, password: string): Promise<string | null> {
+  const res = await sendJson("/api/v1/auth/link", { name, password });
+  if (!res.ok) return res.error.message;
+  await loadSession();
+  return null;
+}
+
+/** Makes a separate account for the waiting provider sign-in, and signs in. */
+export async function separateAccount(): Promise<string | null> {
+  const res = await sendJson("/api/v1/auth/link/new");
+  if (!res.ok) return res.error.message;
+  await loadSession();
+  return null;
+}
+
+export async function cancelLink(): Promise<void> {
+  await sendJson("/api/v1/auth/link/cancel");
 }
 
 /** How people sign in here: the single sign-on provider's name (for its button), and whether everyone may use a password. */

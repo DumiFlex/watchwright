@@ -10,9 +10,9 @@ import { LiveConnection } from "../live";
 import { toast } from "../toasts";
 import MenuButton from "../components/MenuButton.vue";
 import EmptyState from "../components/EmptyState.vue";
-import ModalDialog from "../components/ModalDialog.vue";
 import PackFolderDialog from "../components/PackFolderDialog.vue";
 import PackUploadDialog from "../components/PackUploadDialog.vue";
+import PackRemoveDialog from "../components/PackRemoveDialog.vue";
 import PathInput from "../components/PathInput.vue";
 import PathLine from "../components/PathLine.vue";
 import SkeletonBlock from "../components/SkeletonBlock.vue";
@@ -92,7 +92,8 @@ function onAdded(list: Pack[]) {
   if (list.length === 1) window.location.hash = `#/packs/${list[0]!.id}`;
   else toast(`Added ${list.length} packs`, { tone: "ok" });
 }
-function onUploaded(p: Pack) {
+function onUploaded(p: Pack, replaced: boolean) {
+  if (replaced) toast(`Replaced the files of "${p.name}"`, { tone: "ok" });
   window.location.hash = `#/packs/${p.id}`;
 }
 function onMoved(p: Pack) {
@@ -100,13 +101,8 @@ function onMoved(p: Pack) {
   toast(`"${p.name}" now loads from its new folder`, { tone: "ok" });
 }
 
-async function confirmRemove() {
-  const p = removing.value;
-  if (!p) return;
-  const res = await sendJson(`/api/v1/packs/${p.id}`, {}, "DELETE");
-  removing.value = null;
-  if (!res.ok) return void toast(res.error.message, { tone: "bad" });
-  toast(`Removed "${p.name}"`, { tone: "ok" });
+async function onRemoved(p: Pack, deleted: boolean) {
+  toast(deleted ? `Removed "${p.name}" and deleted its files` : `Removed "${p.name}"`, { tone: "ok" });
   await load();
 }
 
@@ -236,15 +232,7 @@ onBeforeUnmount(() => live?.close());
     <PackUploadDialog v-model="uploadOpen" :start="start" :sep="sep" @added="onUploaded" />
     <PackFolderDialog v-model="dialogOpen" :mode="dialogMode" :packs="packs" :moving="moving" :home="home" @added="onAdded" @moved="onMoved" />
 
-    <ModalDialog v-model="removeOpen" heading="Remove this pack?">
-      <p v-if="removing">
-        <strong>{{ removing.name }}</strong> leaves the list. Its folder and files stay as they are, and its earlier runs stay in the runs list. You can add it again later.
-      </p>
-      <template #actions>
-        <button class="btn" @click="removing = null">Cancel</button>
-        <button class="btn danger" @click="confirmRemove">Remove pack</button>
-      </template>
-    </ModalDialog>
+    <PackRemoveDialog v-model="removeOpen" :pack="removing" @removed="onRemoved" />
   </main>
 </template>
 

@@ -70,6 +70,29 @@ export const GROUPS_SQL = `
   ALTER TABLE users ADD COLUMN sso_groups TEXT NOT NULL DEFAULT '[]';
 `;
 
+/**
+ * Migration 5: the sign-ins linked to an account, so one account can have a password, an OpenID
+ * Connect identity and a header name (docs/research/sso-account-linking.md). The pair each account
+ * had moves here; `users.source` stays as how the account was first made.
+ */
+export const IDENTITIES_SQL = `
+  CREATE TABLE auth_identities (
+    id          TEXT PRIMARY KEY,
+    source      TEXT NOT NULL,
+    subject     TEXT NOT NULL,
+    user_id     TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    name        TEXT,
+    created_at  TEXT NOT NULL,
+    used_at     TEXT
+  );
+  CREATE UNIQUE INDEX auth_identities_subject ON auth_identities (source, subject);
+  CREATE INDEX auth_identities_user ON auth_identities (user_id);
+  INSERT INTO auth_identities (id, source, subject, user_id, name, created_at, used_at)
+    SELECT lower(hex(randomblob(6))), source, subject, id, name, created_at, seen_at FROM users WHERE subject IS NOT NULL AND source IN ('oidc', 'header');
+  DROP INDEX users_subject;
+  UPDATE users SET subject = NULL;
+`;
+
 /** A group name as kept: trimmed, at most 200 characters; empty ones and repeats (ignoring case) go. */
 export function cleanGroups(list: readonly string[]): string[] {
   const out = new Map<string, string>();
@@ -116,8 +139,37 @@ export interface UserInfo {
   ssoGroups: string[];
   /** Has a password (local sign-in works). */
   hasPassword: boolean;
+  /** Single sign-on identities linked to the account. */
+  signins: SignInInfo[];
   createdAt: string;
   seenAt: string | null;
+}
+
+/** A single sign-on identity linked to an account (the subject itself isn't answered). */
+export interface SignInInfo {
+  id: string;
+  source: "oidc" | "header";
+  /** What the provider calls the person, such as their user name there. */
+  name: string | null;
+  createdAt: string;
+  usedAt: string | null;
+}
+
+interface IdentityRow {
+  id: string;
+  source: string;
+  subject: string;
+  user_id: string;
+  name: string | null;
+  created_at: string;
+  used_at: string | null;
+}
+
+const toSignIn = (r: IdentityRow): SignInInfo => ({ id: r.id, source: r.source as SignInInfo["source"], name: r.name, createdAt: r.created_at, usedAt: r.used_at });
+
+/** An account name from what a provider calls someone: fit for a user name (not yet unique). */
+export function accountName(wanted: string): string {
+  return (wanted.replace(/[^A-Za-z0-9._@-]+/g, "-").replace(/^[^A-Za-z0-9]+/, "").slice(0, 60) || "user").replace(/-+$/, "") || "user";
 }
 
 export interface TokenInfo {
@@ -145,7 +197,7 @@ interface UserRow {
   seen_at: string | null;
 }
 
-const toUser = (r: UserRow): UserInfo => ({
+const toUser = (r: UserRow, signins: SignInInfo[] = []): UserInfo => ({
   id: r.id,
   name: r.name,
   displayName: r.display_name,
@@ -155,6 +207,7 @@ const toUser = (r: UserRow): UserInfo => ({
   groups: cleanGroups(JSON.parse(r.groups ?? "[]") as string[]),
   ssoGroups: cleanGroups(JSON.parse(r.sso_groups ?? "[]") as string[]),
   hasPassword: r.password !== null,
+  signins,
   createdAt: r.created_at,
   seenAt: r.seen_at,
 });
@@ -191,17 +244,82 @@ export class AuthStore {
   }
 
   users(): UserInfo[] {
-    return (this.db.prepare("SELECT * FROM users ORDER BY name COLLATE NOCASE").all() as UserRow[]).map(toUser);
+    const ids = new Map<string, SignInInfo[]>();
+    for (const r of this.db.prepare("SELECT * FROM auth_identities ORDER BY created_at").all() as IdentityRow[]) ids.set(r.user_id, [...(ids.get(r.user_id) ?? []), toSignIn(r)]);
+    return (this.db.prepare("SELECT * FROM users ORDER BY name COLLATE NOCASE").all() as UserRow[]).map((r) => toUser(r, ids.get(r.id)));
   }
 
   user(id: string): UserInfo | null {
     const r = this.db.prepare("SELECT * FROM users WHERE id = ?").get(id) as UserRow | undefined;
-    return r ? toUser(r) : null;
+    return r ? toUser(r, this.signins(r.id)) : null;
   }
 
   byName(name: string): UserInfo | null {
     const r = this.db.prepare("SELECT * FROM users WHERE name = ? COLLATE NOCASE").get(name) as UserRow | undefined;
-    return r ? toUser(r) : null;
+    return r ? toUser(r, this.signins(r.id)) : null;
+  }
+
+  /** The single sign-on identities linked to an account. */
+  signins(userId: string): SignInInfo[] {
+    return (this.db.prepare("SELECT * FROM auth_identities WHERE user_id = ? ORDER BY created_at").all(userId) as IdentityRow[]).map(toSignIn);
+  }
+
+  /** A linked identity by its id, with the account it belongs to. */
+  signin(id: string): (SignInInfo & { userId: string }) | null {
+    const r = this.db.prepare("SELECT * FROM auth_identities WHERE id = ?").get(id) as IdentityRow | undefined;
+    return r ? { ...toSignIn(r), userId: r.user_id } : null;
+  }
+
+  /**
+   * Links an identity the provider vouched for to an account. Already linked to it: refreshed.
+   * Linked to another account: refused, since only an admin may move it (`merge`).
+   */
+  link(userId: string, source: "oidc" | "header", subject: string, name: string | null): SignInInfo {
+    const user = this.user(userId);
+    if (!user) throw new ActionError("not_found", `No user with id ${userId}.`, 404);
+    const now = new Date().toISOString();
+    const found = this.db.prepare("SELECT * FROM auth_identities WHERE source = ? AND subject = ?").get(source, subject) as IdentityRow | undefined;
+    if (found && found.user_id !== userId) {
+      const other = this.user(found.user_id);
+      throw new ActionError("linked_elsewhere", `This sign-in is already linked to the account ${other?.name ?? found.user_id}. An admin can merge that account into yours in Admin › Users.`, 409);
+    }
+    if (found) {
+      this.db.prepare("UPDATE auth_identities SET used_at = ?, name = COALESCE(?, name) WHERE id = ?").run(now, name, found.id);
+      return toSignIn({ ...found, used_at: now, name: name ?? found.name });
+    }
+    const id = randomBytes(6).toString("hex");
+    this.db.prepare("INSERT INTO auth_identities (id, source, subject, user_id, name, created_at, used_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(id, source, subject, userId, name?.slice(0, 120) ?? null, now, now);
+    return this.signin(id)!;
+  }
+
+  /** Unlinks an identity, unless it is the account's only way in. */
+  unlink(id: string): boolean {
+    const s = this.signin(id);
+    if (!s) return false;
+    const user = this.user(s.userId)!;
+    if (!user.hasPassword && user.signins.length <= 1)
+      throw new ActionError("last_sign_in", "This is the only way this account signs in. Set a password or link another sign-in first.", 409);
+    return this.db.prepare("DELETE FROM auth_identities WHERE id = ?").run(id).changes > 0;
+  }
+
+  /**
+   * Merges one account into another: its linked sign-ins and API tokens move to `into`, then it is
+   * removed (with its sessions). Runs and reviews keep the name they were made under.
+   */
+  merge(fromId: string, intoId: string): { moved: { signins: number; tokens: number }; into: UserInfo } {
+    if (fromId === intoId) throw new ActionError("bad_input", "Pick two different accounts.");
+    const from = this.user(fromId);
+    const into = this.user(intoId);
+    if (!from) throw new ActionError("not_found", `No user with id ${fromId}.`, 404);
+    if (!into) throw new ActionError("not_found", `No user with id ${intoId}.`, 404);
+    if (from.role === "admin" && !from.disabled && (into.role !== "admin" || into.disabled) && this.admins() <= 1)
+      throw new ActionError("last_admin", `${from.name} is the only admin. Make ${into.name} an admin first.`, 409);
+    return this.db.transaction(() => {
+      const signins = this.db.prepare("UPDATE auth_identities SET user_id = ? WHERE user_id = ?").run(intoId, fromId).changes;
+      const tokens = this.db.prepare("UPDATE auth_tokens SET user_id = ? WHERE user_id = ?").run(intoId, fromId).changes;
+      this.db.prepare("DELETE FROM users WHERE id = ?").run(fromId);
+      return { moved: { signins, tokens }, into: this.user(intoId)! };
+    })();
   }
 
   private admins(): number {
@@ -253,8 +371,8 @@ export class AuthStore {
 
   /** The account a provider (or proxy) knows by this subject, or null. */
   bySubject(source: "oidc" | "header", subject: string): UserInfo | null {
-    const r = this.db.prepare("SELECT * FROM users WHERE source = ? AND subject = ?").get(source, subject) as UserRow | undefined;
-    return r ? toUser(r) : null;
+    const r = this.db.prepare("SELECT u.* FROM auth_identities i JOIN users u ON u.id = i.user_id WHERE i.source = ? AND i.subject = ?").get(source, subject) as UserRow | undefined;
+    return r ? toUser(r, this.signins(r.id)) : null;
   }
 
   /** A stored setting (JSON), or null. */
@@ -274,7 +392,7 @@ export class AuthStore {
    * role, or the account is disabled.
    */
   external(source: "oidc" | "header", subject: string, wanted: { name: string; displayName?: string | null | undefined; groups?: readonly string[] | undefined }, role: Role | null): UserInfo | null {
-    const r = this.db.prepare("SELECT * FROM users WHERE source = ? AND subject = ?").get(source, subject) as UserRow | undefined;
+    const r = this.db.prepare("SELECT u.* FROM auth_identities i JOIN users u ON u.id = i.user_id WHERE i.source = ? AND i.subject = ?").get(source, subject) as UserRow | undefined;
     const now = new Date().toISOString();
     const ssoGroups = JSON.stringify(cleanGroups(wanted.groups ?? []));
     if (r) {
@@ -284,18 +402,31 @@ export class AuthStore {
       if (role && role !== r.role && !(lastAdmin && role !== "admin")) this.db.prepare("UPDATE users SET role = ? WHERE id = ?").run(role, r.id);
       if (wanted.displayName && wanted.displayName !== r.display_name) this.db.prepare("UPDATE users SET display_name = ? WHERE id = ?").run(wanted.displayName.slice(0, 120), r.id);
       this.db.prepare("UPDATE users SET seen_at = ? WHERE id = ?").run(now, r.id);
+      this.db.prepare("UPDATE auth_identities SET used_at = ?, name = ? WHERE source = ? AND subject = ?").run(now, wanted.name.slice(0, 120), source, subject);
       return this.user(r.id);
     }
     if (!role) return null;
     // A name for the account: what the provider calls them, made fit for a user name, unique.
-    const base = (wanted.name.replace(/[^A-Za-z0-9._@-]+/g, "-").replace(/^[^A-Za-z0-9]+/, "").slice(0, 60) || "user").replace(/-+$/, "") || "user";
+    const base = accountName(wanted.name);
     let name = base;
     for (let i = 2; this.byName(name); i++) name = `${base}-${i}`;
     const id = randomBytes(6).toString("hex");
-    this.db
-      .prepare("INSERT INTO users (id, name, display_name, role, password, source, subject, sso_groups, created_at, seen_at) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)")
-      .run(id, name, wanted.displayName?.slice(0, 120) || null, role, source, subject, ssoGroups, now, now);
+    this.db.transaction(() => {
+      this.db
+        .prepare("INSERT INTO users (id, name, display_name, role, password, source, sso_groups, created_at, seen_at) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?)")
+        .run(id, name, wanted.displayName?.slice(0, 120) || null, role, source, ssoGroups, now, now);
+      this.db.prepare("INSERT INTO auth_identities (id, source, subject, user_id, name, created_at, used_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(randomBytes(6).toString("hex"), source, subject, id, wanted.name.slice(0, 120), now, now);
+    })();
     return this.user(id);
+  }
+
+  /**
+   * The account a new identity would collide with: an enabled account with a password that already
+   * has the name the provider gives. Its owner can link the identity by proving the password.
+   */
+  nameClash(wanted: string): UserInfo | null {
+    const u = this.byName(accountName(wanted));
+    return u && u.hasPassword && !u.disabled ? u : null;
   }
 
   /** The user when name and password match an enabled local account; null otherwise. Takes as long either way. */

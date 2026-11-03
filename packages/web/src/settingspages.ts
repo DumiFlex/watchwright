@@ -30,6 +30,7 @@ const shared = (role: Role) => (): SettingsPage | null => (can("admin") ? "admin
 export const SECTIONS: readonly SectionDef[] = [
   { id: "account", label: "Your account", where: account },
   { id: "password", label: "Password", where: account },
+  { id: "sso-links", label: "Single sign-on", where: () => (signedIn() && (session.signin.oidc || session.user?.signins?.length) ? "account" : null) },
   { id: "tokens", label: "API tokens", where: account },
 
   { id: "look", label: "Look and mode", where: mine },
