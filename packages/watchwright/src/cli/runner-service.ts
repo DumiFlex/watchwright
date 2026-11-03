@@ -68,9 +68,10 @@ export function serviceFile(h: Host, kind: ServiceKind): string {
     case "windows":
       return path.join(h.env.APPDATA || path.join(h.home, "AppData", "Roaming"), "Microsoft", "Windows", "Start Menu", "Programs", "Startup", "Watchwright runner.cmd");
     case "systemd":
-      return h.uid === 0 ? path.join("/etc/systemd/system", UNIT) : path.join(h.env.XDG_CONFIG_HOME || path.join(h.home, ".config"), "systemd", "user", UNIT);
+      // Linux and macOS paths, written with / whatever system this code runs on.
+      return h.uid === 0 ? path.posix.join("/etc/systemd/system", UNIT) : path.posix.join(h.env.XDG_CONFIG_HOME || path.posix.join(h.home, ".config"), "systemd", "user", UNIT);
     case "launchd":
-      return path.join(h.home, "Library", "LaunchAgents", `${LABEL}.plist`);
+      return path.posix.join(h.home, "Library", "LaunchAgents", `${LABEL}.plist`);
   }
 }
 
@@ -97,7 +98,7 @@ export function runnerProgram(h: Host, args: string[]): string[] {
 
 /** A PATH that starts with this node's folder: start-up entries on Linux and macOS get a short PATH. */
 export function servicePath(h: Host): string {
-  const parts = [path.dirname(h.node), "/usr/local/bin", "/usr/bin", "/bin"];
+  const parts = [path.posix.dirname(h.node), "/usr/local/bin", "/usr/bin", "/bin"];
   if (h.platform === "darwin") parts.splice(1, 0, "/opt/homebrew/bin");
   return [...new Set(parts)].join(":");
 }
