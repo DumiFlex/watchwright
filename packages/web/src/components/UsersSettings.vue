@@ -2,28 +2,17 @@
 // Admin > Users (admins, while login is on): who can sign in and with which role. A new user
 // gets a password here to pass on; they can change it under Your account.
 import { computed, onMounted, ref } from "vue";
-import { getJson, sendJson } from "../api";
+import { getJson, sendJson, type Pack, type PackAccess, type UserInfo } from "../api";
 import { when } from "../format";
-import { Copy, KeyRound, Mail, Trash2, UserRound } from "../icons";
+import { Copy, KeyRound, Mail, Trash2, UserRound, UsersRound } from "../icons";
 import { session, type Role } from "../session";
 import { toast } from "../toasts";
 import { vTip } from "../tooltip";
+import GroupsField from "./GroupsField.vue";
 import ModalDialog from "./ModalDialog.vue";
 import SelectMenu from "./SelectMenu.vue";
 import TextField from "./TextField.vue";
 import ToggleSwitch from "./ToggleSwitch.vue";
-
-interface UserInfo {
-  id: string;
-  name: string;
-  displayName: string | null;
-  role: Role;
-  source: "local" | "oidc" | "header";
-  disabled: boolean;
-  hasPassword: boolean;
-  createdAt: string;
-  seenAt: string | null;
-}
 
 const ROLE_OPTIONS = [
   { value: "viewer" as const, label: "Viewer" },
@@ -143,6 +132,48 @@ async function reset() {
   if (await change(u, { password: resetPassword.value }, `New password set for ${u.name}; their sign-ins have ended.`)) resetting.value = null;
 }
 
+// Groups, for pack access: the ones set here, and the ones the sign-in provider sends (read-only).
+const kept = ref<Record<string, PackAccess>>({});
+const packNames = ref<Record<string, string>>({});
+async function loadPacks() {
+  const [a, p] = await Promise.all([getJson<Record<string, PackAccess>>("/api/v1/packs/access"), getJson<Pack[]>("/api/v1/packs")]);
+  kept.value = a.ok ? a.data : {};
+  packNames.value = p.ok ? Object.fromEntries(p.data.map((x) => [x.id, x.name])) : {};
+}
+onMounted(loadPacks);
+const knownGroups = computed(() => [...(users.value ?? []).flatMap((u) => [...u.groups, ...u.ssoGroups]), ...Object.values(kept.value).flatMap((a) => (a.mode === "chosen" ? a.groups : []))]);
+const grouping = ref<UserInfo | null>(null);
+const groupsDraft = ref<string[]>([]);
+const groupsOpen = computed({
+  get: () => grouping.value !== null,
+  set: (open: boolean) => {
+    if (!open) grouping.value = null;
+  },
+});
+function askGroups(u: UserInfo) {
+  groupsDraft.value = [...u.groups];
+  grouping.value = u;
+}
+async function saveGroups() {
+  const u = grouping.value;
+  if (u && (await change(u, { groups: groupsDraft.value }, `Groups saved for ${u.name}.`))) grouping.value = null;
+}
+const groupsOf = (u: UserInfo) => [...new Map([...u.groups, ...u.ssoGroups].map((g) => [g.toLowerCase(), g])).values()];
+/** The kept packs this person sees (with the groups being edited), and the ones they don't. */
+const keptFor = computed(() => {
+  const u = grouping.value;
+  if (!u) return { sees: [] as string[], not: [] as string[] };
+  const mine = new Set([...groupsDraft.value, ...u.ssoGroups].map((g) => g.toLowerCase()));
+  const sees: string[] = [];
+  const not: string[] = [];
+  for (const [id, a] of Object.entries(kept.value)) {
+    if (a.mode !== "chosen") continue;
+    const name = packNames.value[id] ?? id;
+    (u.role === "admin" || a.people.includes(u.id) || a.groups.some((g) => mine.has(g.toLowerCase())) ? sees : not).push(name);
+  }
+  return { sees: sees.sort(), not: not.sort() };
+});
+
 // Remove
 const doomed = ref<UserInfo | null>(null);
 const removeOpen = computed({
@@ -174,10 +205,11 @@ const seen = (u: UserInfo) => (u.seenAt ? `seen ${new Date(u.seenAt).toLocaleDat
         <UserRound :size="15" class="muted" />
         <div class="who">
           <span class="uname">{{ u.displayName ?? u.name }}<span v-if="u.displayName" class="muted small login">{{ u.name }}</span><span v-if="u.id === session.user?.id" class="muted small"> (you)</span></span>
-          <span v-tip="u.seenAt ? when(u.seenAt) : 'Not signed in yet'" class="muted small">{{ u.disabled ? "can't sign in · " : "" }}{{ seen(u) }}</span>
+          <span class="muted small"><span v-tip="u.seenAt ? when(u.seenAt) : 'Not signed in yet'">{{ u.disabled ? "can't sign in · " : "" }}{{ seen(u) }}</span><template v-if="groupsOf(u).length"> · {{ groupsOf(u).join(", ") }}</template></span>
         </div>
         <SelectMenu :id="`s-user-role-${u.id}`" class="role" :model-value="u.role" :options="ROLE_OPTIONS" :disabled="u.id === session.user?.id" @update:model-value="(r: Role) => setRole(u, r)" />
         <ToggleSwitch :id="`s-user-on-${u.id}`" :model-value="!u.disabled" :disabled="u.id === session.user?.id" @update:model-value="(on: boolean) => setEnabled(u, on)"><span class="small">Can sign in</span></ToggleSwitch>
+        <button v-tip="'Groups'" type="button" class="ib key grp" :aria-label="`Groups of ${u.name}`" @click="askGroups(u)"><UsersRound :size="15" /></button>
         <button v-tip="'Set a new password'" type="button" class="ib key" :aria-label="`Set a new password for ${u.name}`" @click="askReset(u)"><KeyRound :size="15" /></button>
         <button v-tip="'Remove this user'" type="button" class="ib" :disabled="u.id === session.user?.id" :aria-label="`Remove ${u.name}`" @click="doomed = u"><Trash2 :size="14" /></button>
       </li>
@@ -249,6 +281,33 @@ const seen = (u: UserInfo) => (u.seenAt ? `seen ${new Date(u.seenAt).toLocaleDat
       <template #actions>
         <button class="btn" @click="resetting = null">Cancel</button>
         <button class="btn primary" :disabled="resetPassword.length < 10" @click="reset">Set password</button>
+      </template>
+    </ModalDialog>
+    <ModalDialog v-model="groupsOpen" :heading="`Groups of ${grouping?.displayName ?? grouping?.name ?? ''}`" width="520px">
+      <div class="groups">
+        <p class="muted small">An admin can keep a pack to chosen people and groups (Who sees this pack, in the pack's menu). Groups are names you make up, like <em>qa</em> or <em>night shift</em>.</p>
+        <div class="fld">
+          <label for="s-user-groups" class="lbl small">Groups set here</label>
+          <GroupsField id="s-user-groups" v-model="groupsDraft" :known="knownGroups" />
+        </div>
+        <div v-if="grouping?.ssoGroups.length" class="fld">
+          <span class="lbl small">From the sign-in provider</span>
+          <p class="small">{{ grouping.ssoGroups.join(", ") }}</p>
+          <p class="muted small">Updated each time they sign in; change them at the provider.</p>
+        </div>
+        <div class="fld">
+          <span class="lbl small">Packs kept to chosen people</span>
+          <p v-if="grouping?.role === 'admin'" class="muted small">Admins see every pack.</p>
+          <p v-else-if="!keptFor.sees.length && !keptFor.not.length" class="muted small">None: every pack is open to everyone signed in.</p>
+          <template v-else>
+            <p class="small">Sees: {{ keptFor.sees.length ? keptFor.sees.join(", ") : "none of them" }}</p>
+            <p v-if="keptFor.not.length" class="muted small">Doesn't see: {{ keptFor.not.join(", ") }}</p>
+          </template>
+        </div>
+      </div>
+      <template #actions>
+        <button class="btn" @click="grouping = null">Cancel</button>
+        <button class="btn primary" @click="saveGroups">Save</button>
       </template>
     </ModalDialog>
     <ModalDialog v-model="removeOpen" heading="Remove this user?">
@@ -350,6 +409,13 @@ const seen = (u: UserInfo) => (u.seenAt ? `seen ${new Date(u.seenAt).toLocaleDat
   display: grid;
   gap: var(--space-1);
 }
+.groups {
+  display: grid;
+  gap: var(--space-3);
+}
+.groups p {
+  margin: 0;
+}
 .error {
   color: var(--bad);
 }
@@ -375,21 +441,20 @@ const seen = (u: UserInfo) => (u.seenAt ? `seen ${new Date(u.seenAt).toLocaleDat
   cursor: default;
 }
 @media (max-width: 720px) {
-  /* Name, then the remove button, on the first line; the controls on the next, under the name. */
+  /* Name and the buttons on the first line; the role and the switch on the next, under the name. */
   .users li {
     flex-wrap: wrap;
     gap: var(--space-2);
   }
   .who {
-    flex-basis: calc(100% - 64px);
+    flex-basis: calc(100% - 128px);
   }
-  .users li > .ib:not(.key) {
+  .users li > .ib {
     order: 1;
   }
   .users li > :deep(.mb),
   .users li > .role,
-  .users li > :deep(.sw),
-  .users li > .key {
+  .users li > :deep(.sw) {
     order: 2;
   }
   .users li > .role {

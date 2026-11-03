@@ -63,6 +63,24 @@ describe("pack loader", () => {
     expect((err as PackLoadError).problems[0]).toMatch(/tests\/a\.ts:1/);
   });
 
+  it("lists files it imports from outside its folder, and says so when they're missing", async () => {
+    const root = tempDir();
+    const smoke = path.join(root, "bench", "smoke");
+    const pk = `import { pack } from "watchwright"; import { label } from "../shared.js"; import "./local.js"; export default pack({ name: label, site: { key: "demo" } });`;
+    writeFiles(root, { "bench/shared.ts": `import { more } from "./more.js"; export const label: string = "Shared" + more;`, "bench/more.ts": `export const more = "!";`, "bench/smoke/pack.ts": pk, "bench/smoke/local.ts": "export {};" });
+    const loaded = await loadPack(smoke, tempDir());
+    expect(loaded.options.name).toBe("Shared!");
+    expect(loaded.outside).toEqual([path.join(root, "bench", "more.ts"), path.join(root, "bench", "shared.ts")]);
+
+    // Only the pack's folder made it to the server.
+    const alone = path.join(tempDir(), "smoke");
+    writeFiles(alone, { "pack.ts": pk, "local.ts": "export {};" });
+    const err = (await loadPack(alone, tempDir()).catch((e: unknown) => e)) as PackLoadError;
+    expect(err).toBeInstanceOf(PackLoadError);
+    expect(err.message).toMatch(/^The pack imports files from outside its folder that aren't on this server\./);
+    expect(err.problems).toEqual([`pack.ts:1:58 imports "../shared.js" from outside the pack's folder, and it isn't in ${path.dirname(alone)}.`]);
+  });
+
   it("refuses a folder without a pack file, and a pack file without pack()", async () => {
     await expect(loadPack(tempDir(), tempDir())).rejects.toThrow(/has no pack file/);
     const dir = tempDir();

@@ -56,7 +56,7 @@ describe("server", () => {
         plugins: [
           { name: "core", schemaVersion: 2 },
           { name: "settings", schemaVersion: 2 },
-          { name: "auth", schemaVersion: 3 },
+          { name: "auth", schemaVersion: 4 },
           { name: "secrets", schemaVersion: 1 },
           { name: "signins", schemaVersion: 1 },
           { name: "runners", schemaVersion: 2 },

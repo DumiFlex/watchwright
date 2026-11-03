@@ -158,7 +158,8 @@ describe("packs: discover and move", () => {
     const root = tempDir("ww-tree-");
     writeFiles(root, {
       "shop/watchwright/pack.ts": PACK,
-      "shop/watchwright/tests/inner/pack.ts": PACK, // inside a pack: not searched
+      "shop/watchwright/tests/inner/pack.ts": PACK, // deeper inside a pack: not searched
+      "shop/watchwright/smoke/pack.ts": PACK, // a pack's direct subfolder: found
       "blog/e2e/pack.mjs": PACK,
       "blog/node_modules/lib/pack.ts": PACK,
       ".hidden/pack.ts": PACK,
@@ -170,6 +171,7 @@ describe("packs: discover and move", () => {
     expect(res.data.found).toEqual([
       { dir: path.join(root, "blog", "e2e"), packFile: "pack.mjs", packId: null },
       { dir: path.join(root, "shop", "watchwright"), packFile: "pack.ts", packId: added.data.id },
+      { dir: path.join(root, "shop", "watchwright", "smoke"), packFile: "pack.ts", packId: null },
     ]);
     const deeper = await h.api<{ found: { dir: string }[] }>("POST", "/packs/discover", { path: root, depth: 6 });
     expect(deeper.data.found.map((f) => f.dir)).toContain(path.join(root, "deep", "a", "b", "c", "d", "e"));

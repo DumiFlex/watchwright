@@ -21,8 +21,8 @@ There are five ways, and they all end the same: the server loads the pack and li
 
 - **On the Packs page**, type or paste the folder's path. The field suggests folders as you type (Tab completes, like a terminal) and says when the folder has a pack file. A path pasted with quotes (Windows Explorer's "Copy as path"), a `file://` address and `~` all work.
 - **Browse…** opens a folder browser of the server's machine: your home folder, the drives, the folders of packs already added and the folders you used recently on the side. Open the folder with the pack file and press **Add this pack**. Type to filter the list, or type a whole path and press Enter to jump there.
-- In the folder browser, **Find packs here** searches the open folder and the four levels below it for pack files (skipping `node_modules`, build output and hidden folders) and adds the ones you tick. Handy for a folder of projects. The Ctrl+K command **Find packs in a folder** opens the browser ready to search.
-- **Upload .zip…** (admins only, since pack code runs on the server) takes a zip with the pack file at its top or in one folder at its top, unpacks it into a new folder and adds it. This is the way onto a [server in Docker](https://dumiflex.github.io/watchwright/guide/self-hosting#getting-packs-onto-the-server). **Download .zip** in a pack's menu gives the pack's folder back as a zip, without `node_modules` and `.git`.
+- In the folder browser, **Find packs here** searches the open folder and the four levels below it for pack files (skipping `node_modules`, build output and hidden folders) and adds the ones you tick. Inside a pack it looks only in the pack's direct subfolders, for [packs that share its files](#packs-that-share-files). Handy for a folder of projects. The Ctrl+K command **Find packs in a folder** opens the browser ready to search.
+- **Upload .zip…** (admins only, since pack code runs on the server) takes a zip of a pack's folder, or of a folder that holds packs and the files they share, unpacks it into a new folder and adds every pack in it. This is the way onto a [server in Docker](https://dumiflex.github.io/watchwright/guide/self-hosting#getting-packs-onto-the-server). **Download .zip** in a pack's menu gives the pack's folder back as a zip, without `node_modules` and `.git`, together with any files the pack imports from outside its folder.
 - **When you start the server**: `watchwright serve ./watchwright` adds that folder (or reloads it when it's already added). When the server is already running, the same command adds the pack there and opens the page.
 
 Through the [API](https://dumiflex.github.io/watchwright/reference/http-api#packs) it's `POST /api/v1/packs` with `{ "path": "/abs/path/to/my-site/watchwright" }`.
@@ -30,6 +30,23 @@ Through the [API](https://dumiflex.github.io/watchwright/reference/http-api#pack
 **Starting from nothing?** In the folder browser, open the folder the pack should live in and press **New pack here…**. Give it a name and the site's address, pick YAML or TypeScript, and Watchwright writes a small pack that works (a pack file, a first test that opens the site and takes a screenshot, and a `README.md`) and adds it. It never overwrites a file that's already there.
 
 A pack's page is split into tabs: **Dashboard** (once the pack has run; see [Dashboards](https://dumiflex.github.io/watchwright/guide/dashboards)), **Runs** (its ten latest runs, with a link to all of them), **README**, **Tests**, **Parameters**, **Flags** and **Rubric**. The tab you pick is in the page's address (`#/packs/<id>?tab=tests`), so a reload or a copied link opens on it. Without one the page opens on Dashboard once the pack has run, else on its README, else on Tests. On **Tests**, search by id, title, tag, file or description (every word must match), and filter by section, tag or how the latest attempts went (failing lately, flaky, passing lately, never run); the search and filters stay at the top while the list scrolls. Each test takes one line (point at a cut-off title to read it whole). In a pack with more than one section, tests sit under a row per section that folds away, and **Fold all sections** leaves only those rows; searching or filtering opens them all. The **Descriptions** switch shows each test's description under it: on by default in packs of up to 30 tests, off in bigger ones, and the browser remembers your choice. Once the pack has run, each test shows its last 20 attempts as a row of ticks (newest on the right, green passed, red failed, amber broken, grey skipped or stopped), its pass rate and its typical time. Point at a tick to see its run, date, time and values; click it to open the attempt. A tick with a notch passed only on a later try. A test is marked **flaky** when it went from passing to failing and back with the same parameter values, or passed only when it was run again; a test that started failing once and stayed that way isn't flaky, it broke. When the pack's folder has a `README.md` at its top (or `README`, `readme.markdown` and the like), the **README** tab shows it rendered as on a code host, with a pencil to edit it: GitHub's Markdown (tables, task lists, footnotes, alerts such as `> [!NOTE]`) and the safe HTML tags READMEs use, like `<details>`, `<summary>`, `<kbd>`, `<sub>`, `<sup>` and `<img width>`. Scripts, styles, frames and event handlers are dropped. Links in it to other pack files open them in the [editor](https://dumiflex.github.io/watchwright/guide/editing).
+
+### Packs that share files
+
+A pack can import code from outside its folder, for example a second, quicker pack in a subfolder that reuses the first one's helpers:
+
+```text
+bench/
+  pack.ts         the full pack
+  shared.ts       helpers both packs use
+  smoke/
+    pack.ts       imports "../shared.js"
+    tests/…
+```
+
+The server builds `smoke` from its own folder and follows the import up to `bench/shared.ts`, so the folder above has to be on the server too. When it isn't (only `smoke/` was copied or zipped), the pack page says the pack imports files from outside its folder that aren't on this server, and names each import and where it looked. To fix it, copy the folder above the pack onto the server as well and press **Reload**, or upload a zip of that folder.
+
+**Download .zip** on a server where such a pack loads brings those files along: the zip for `smoke` is `bench-smoke.zip`, with `bench/shared.ts` and `bench/smoke/…` in it (only the files the pack imports, not the rest of `bench/`). **Upload .zip** puts it back in the same layout and adds `smoke` from its subfolder, so the imports work as they did.
 
 If a pack's folder moves, its card says the folder is gone; **Locate…** points it at the new folder and keeps its runs. **Remove** in the card's menu takes a pack off the list without touching its files or runs.
 

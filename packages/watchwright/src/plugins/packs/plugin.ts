@@ -3,7 +3,7 @@ import path from "node:path";
 import type { FastifyReply } from "fastify";
 import { ActionError, defineAction } from "../../actions/registry.js";
 import { errorBody } from "../../server/errors.js";
-import { ArchiveError, packZip, unpackPack, UPLOAD_MAX_BYTES } from "./archive.js";
+import { ArchiveError, packZip, unpackPack, UPLOAD_MAX_BYTES, zipRoot } from "./archive.js";
 import { definePlugin } from "../../core/plugin.js";
 import { FOLDERS, FolderError, isInside } from "../folders/folders.js";
 import { PACK_FILES, PackLoadError } from "./loader.js";
@@ -258,6 +258,15 @@ export const packsPlugin = definePlugin({
           return { removed: id };
         },
       }),
+      defineAction({
+        name: "packs.access-all",
+        pack: "list",
+        access: "admin",
+        title: "Every pack kept to chosen people and groups, by pack id (packs not listed are open to everyone)",
+        method: "GET",
+        path: "/packs/access",
+        handler: () => access.all(),
+      }),
       defineAction<{ id: string }>({
         name: "packs.state",
         pack: { pack: "id" },
@@ -342,8 +351,12 @@ export const packsPlugin = definePlugin({
       if (!pack) return reply.code(404).send(errorBody("not_found", `No pack with id ${req.params.id}.`));
       if (pack.missing) return reply.code(404).send(errorBody("not_found", "The pack's folder is gone."));
       try {
-        const body = packZip(pack.dir);
-        const file = `${path.basename(pack.dir)}.zip`;
+        // Files the pack imports from outside its folder come along, when the folder browser may show them.
+        const build = registry.build(pack.id) ?? (await registry.current(pack.id).catch(() => undefined));
+        const outside = (build?.outside ?? []).filter((f) => folders.shows(f));
+        const { top, extra } = zipRoot(pack.dir, outside);
+        const body = packZip(pack.dir, extra);
+        const file = extra.length > 0 ? `${top}-${path.basename(pack.dir)}.zip` : `${path.basename(pack.dir)}.zip`;
         return reply
           .type("application/zip")
           .header("content-disposition", `attachment; filename="${file.replace(/[^\w.-]+/g, "-")}"; filename*=UTF-8''${encodeURIComponent(file)}`)
@@ -359,10 +372,12 @@ export const packsPlugin = definePlugin({
       if (!Buffer.isBuffer(req.body)) return reply.code(415).send(errorBody("bad_zip", "Send the zip file as the body, with content type application/zip."));
       try {
         const parent = folders.list(req.query.folder?.trim() || folders.start).path; // a readable folder this server may show
-        const dir = unpackPack(req.body, parent, req.query.name ?? "pack");
-        const pack = await registry.add(dir);
-        folders.remember(pack.dir);
-        return reply.code(201).send({ data: pack });
+        const { packs } = unpackPack(req.body, parent, req.query.name ?? "pack");
+        // Every pack in the zip is added (a folder of shared files can hold several); the answer is the first.
+        const added = [];
+        for (const dir of packs) added.push(await registry.add(dir));
+        folders.remember(added[0]!.dir);
+        return reply.code(201).send({ data: added[0] });
       } catch (err) {
         return fail(reply, err);
       }
