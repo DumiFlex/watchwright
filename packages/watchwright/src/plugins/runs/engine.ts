@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { hasDesktop } from "../../host.js";
 import { rm } from "node:fs/promises";
 import path from "node:path";
@@ -290,7 +290,10 @@ export class Engine {
 
   /** On boot: runs a crash left running become interrupted, ready for resume. */
   recover(): void {
-    for (const id of this.o.repo.interruptLeftovers()) this.o.events.append("run.interrupted", { reason: "server_stopped" }, { runId: id });
+    for (const id of this.o.repo.interruptLeftovers()) {
+      dropEmptyVideos(path.join(this.o.dataDir, "runs", id));
+      this.o.events.append("run.interrupted", { reason: "server_stopped" }, { runId: id });
+    }
   }
 
   /**
@@ -1884,4 +1887,26 @@ export class Engine {
     }
   }
 
+}
+
+/**
+ * A server killed outright (Task Manager, Stop-Process) leaves the videos it was writing empty: a
+ * run's video part and the cut-off attempt's. They can't be played, so they go before the run resumes.
+ */
+export function dropEmptyVideos(runDir: string): void {
+  let names: string[];
+  try {
+    names = readdirSync(runDir, { recursive: true, encoding: "utf8" });
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    if (!name.endsWith(".webm")) continue;
+    const file = path.join(runDir, name);
+    try {
+      if (statSync(file).size === 0) unlinkSync(file);
+    } catch {
+      // Gone or locked: it stays.
+    }
+  }
 }

@@ -157,3 +157,22 @@ describe("what people read", () => {
     expect(missingBrowser("chromium", new Error("Target closed"))).toBeNull();
   });
 });
+
+describe("status and actions", () => {
+  // Spawned through tsx, like the stdio MCP test: main.ts runs on import.
+  const MAIN = new URL("../src/cli/main.ts", import.meta.url).pathname;
+  const cli = async (...args: string[]) => {
+    const { spawnSync } = await import("node:child_process");
+    const r = spawnSync(process.execPath, ["--import", "tsx", MAIN, ...args], { cwd: new URL("..", import.meta.url).pathname, encoding: "utf8", env: { ...process.env, WATCHWRIGHT_URL: "http://127.0.0.1:9/" } });
+    return { code: r.status, err: r.stderr };
+  };
+
+  it("refuse options they don't take, and point --port at --server", { timeout: 30_000 }, async () => {
+    const port = await cli("status", "--port", "7651");
+    expect(port.code).toBe(EXIT.usage);
+    expect(port.err).toContain("use --server 7651");
+    const other = await cli("actions", "--verbose");
+    expect(other.code).toBe(EXIT.usage);
+    expect(other.err).toContain("Unknown option --verbose for actions");
+  });
+});

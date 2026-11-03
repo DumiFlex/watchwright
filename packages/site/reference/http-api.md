@@ -177,8 +177,8 @@ Runs that start by themselves; see [Schedules](../guide/schedules). A due schedu
 | `POST /schedules/:id/run` | Starts the schedule's run now (201, `{ runId }`); its next time stays. |
 | `POST /schedules/:id/pause` | Pauses it: `enabled` false, no `nextAt`. |
 | `POST /schedules/:id/resume` | Resumes it from its next time. |
-| `GET /startup` | Start at sign-in: `{ supported, enabled, file, command }`. `supported` is true on Windows, where the server writes `file`; `command` starts this server with its port and data folder. |
-| `POST /startup` `{ enabled }` | Turns start at sign-in on or off (Windows). 400 `not_supported` elsewhere. |
+| `GET /startup` | Start at sign-in: `{ supported, enabled, other, file, command }`. `supported` is true on Windows, where the server writes `file`; `enabled` is true when the file starts this server, `other` when it starts another one on this computer (another port or data folder); `command` starts this server with its port and data folder. |
+| `POST /startup` `{ enabled }` | Turns start at sign-in on or off (Windows). Turning it off leaves another server's file alone. 400 `not_supported` elsewhere. |
 
 Events: `schedule.created`, `schedule.updated`, `schedule.deleted`, `schedule.fired` (with `runId` and `why`: `due`, `missed` or `now`), `schedule.skipped` (its last run was still going), `schedule.missed` (a time passed while the server was off, with the `policy` used) and `schedule.failed` (the run didn't start, with `message`).
 

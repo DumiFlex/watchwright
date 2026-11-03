@@ -189,10 +189,18 @@ async function main(argv: string[]): Promise<number> {
       console.log(HELP);
       return EXIT.ok;
     }
+    // `status` and `actions` take no other options: say so rather than answer for the default server.
+    const noMore = () => {
+      if (args.length === 0) return;
+      const port = args[0] === "--port" ? args[1] : undefined;
+      throw new UsageError(`Unknown ${args[0]!.startsWith("-") ? "option" : "argument"} ${args[0]} for ${command}.${port ? ` For the server on port ${port}, use --server ${port}.` : " Options: --server <address>, --json."}`);
+    };
     switch (command) {
       case "status":
+        noMore();
         return statusCommand(client, io, asJson);
       case "actions":
+        noMore();
         return actionsCommand(client, io, asJson);
       case "wait": {
         const after = number("after", takeValue(args, "after"));

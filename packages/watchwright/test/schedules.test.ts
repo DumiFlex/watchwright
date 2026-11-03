@@ -236,7 +236,7 @@ describe("start at sign-in", () => {
     expect(text).toBe(startupScript(p, 7420, data));
     expect(text).toContain("\r\n");
     // A file an older version wrote is brought up to date; a current one is left alone.
-    writeFileSync(on.file!, "@echo off\r\nstart old\r\n");
+    writeFileSync(on.file!, `@echo off\r\nstart "Watchwright" /min node main.js serve --port 7420 --data "C:\\Users\\me\\100%% data" --no-open\r\n`);
     expect(await refreshStartup(p, 7420, data)).toBe(true);
     expect(readFileSync(on.file!, "utf8")).toBe(startupScript(p, 7420, data));
     expect(await refreshStartup(p, 7420, data)).toBe(false);
@@ -244,6 +244,23 @@ describe("start at sign-in", () => {
     expect(off.enabled).toBe(false);
     expect(existsSync(on.file!)).toBe(false);
     expect(await refreshStartup(p, 7420, data)).toBe(false);
+  });
+
+  it("leaves the entry of another server on this computer alone", async () => {
+    const p = place("win32", tempDir("ww-appdata-"));
+    const on = await setStartup(p, 7420, "C:\\data", true);
+    const theirs = readFileSync(on.file!, "utf8");
+    // A second server, on another port or data folder, starts: it doesn't take the entry.
+    for (const [port, data] of [[7651, "C:\\data"], [7420, "C:\\test data"]] as const) {
+      expect(await refreshStartup(p, port, data)).toBe(false);
+      expect(startupInfo(p, port, data)).toMatchObject({ enabled: false, other: true });
+      expect((await setStartup(p, port, data, false)).other).toBe(true);
+      expect(readFileSync(on.file!, "utf8")).toBe(theirs);
+    }
+    expect(startupInfo(p, 7420, "C:\\data")).toMatchObject({ enabled: true, other: false });
+    // Turning it on there points it at that server.
+    expect(await setStartup(p, 7651, "C:\\data", true)).toMatchObject({ enabled: true, other: false });
+    expect(startupInfo(p, 7420, "C:\\data")).toMatchObject({ enabled: false, other: true });
   });
 
   it("only gives the command elsewhere", async () => {
