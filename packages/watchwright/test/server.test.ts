@@ -59,7 +59,7 @@ describe("server", () => {
           { name: "auth", schemaVersion: 3 },
           { name: "secrets", schemaVersion: 1 },
           { name: "signins", schemaVersion: 1 },
-          { name: "runners", schemaVersion: 1 },
+          { name: "runners", schemaVersion: 2 },
           { name: "approvals", schemaVersion: 2 },
           { name: "live", schemaVersion: 0 },
           { name: "folders", schemaVersion: 1 },

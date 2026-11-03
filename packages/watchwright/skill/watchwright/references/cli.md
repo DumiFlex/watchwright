@@ -120,8 +120,21 @@ Removes the saved token for the server, both on the server and on this machine.
 Lets a server reach sites through this machine (see [Runners](https://dumiflex.github.io/watchwright/guide/self-hosting#runners)). Add the runner in the server's **Admin › Runners** (a user finds Runners on Settings), which shows the command with a pair code:
 
 ```bash
-npx watchwright runner --server https://watchwright.example.com --pair 7KQ-M2X-PLD
+npx watchwright runner install --server https://watchwright.example.com --pair 7KQ-M2X-PLD
 ```
+
+```
+watchwright runner [install | uninstall | status | start | stop] [--server <address>] [--pair <code>] [--allow <list>] [--forget]
+```
+
+| Command | |
+|---|---|
+| (none) | Runs in this terminal until you stop it (Ctrl+C). |
+| `install` | Starts by itself from now on, with no window: a Startup folder entry on Windows, a systemd unit on Linux (a system unit as root), a LaunchAgent on macOS (see [Starting by itself](https://dumiflex.github.io/watchwright/guide/self-hosting#starting-by-itself)). Also starts it now. Takes `--pair` to pair first. |
+| `uninstall` | Stops it and removes the start-up entry. With `--forget`, also deletes the saved tokens (of `--server` only, when given). |
+| `status` | The servers this machine is paired with, the start-up entry, and whether it runs now. |
+| `start` | Starts it now in the background, through the start-up entry when there is one. |
+| `stop` | Stops the background runner; the start-up entry stays. |
 
 | Option | |
 |---|---|
@@ -129,7 +142,9 @@ npx watchwright runner --server https://watchwright.example.com --pair 7KQ-M2X-P
 | `--pair <code>` | A pair code from the Runners section. Works once, within 15 minutes; the token it gives is saved in `runner.json` in your config folder, readable only by you. |
 | `--allow <list>` | What the server may open here: `loopback` (any port on this machine; the default), `host:port` or `host:*`, comma-separated. Saved for next time; only this machine can change it. |
 
-It runs until you stop it (Ctrl+C), reconnecting by itself when the link drops, and exits with 1 when the server removes the runner.
+| `--forget` | With `uninstall`: also delete the saved tokens. |
+
+It reconnects by itself when the link drops. When the server removes the runner, it removes itself from this machine too (forgets the token, removes the start-up entry) and stops: with 1 in a terminal, with 0 from a start-up entry so it isn't started again. Background runners log to `logs/runner.log` in the config folder, systemd ones to the journal.
 
 ### users
 

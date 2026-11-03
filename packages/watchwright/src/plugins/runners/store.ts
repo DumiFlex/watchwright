@@ -25,6 +25,9 @@ export const RUNNERS_SQL = `
   );
 `;
 
+/** How the runner was started, as it said when it last connected (docs/research/runner-service.md). */
+export const RUNNERS_SERVICE_SQL = `ALTER TABLE runners ADD COLUMN service TEXT;`;
+
 /** A pair code works for this long. */
 export const PAIR_MINUTES = 15;
 
@@ -39,6 +42,8 @@ export interface RunnerInfo {
   lastSeen: string | null;
   version: string | null;
   platform: string | null;
+  /** How it was started: windows, systemd or launchd (it starts by itself), background, none (a terminal), or null when not known. */
+  service: string | null;
 }
 
 interface Row {
@@ -52,6 +57,7 @@ interface Row {
   last_seen: string | null;
   version: string | null;
   platform: string | null;
+  service?: string | null;
 }
 
 const toInfo = (r: Row): RunnerInfo => ({
@@ -64,6 +70,7 @@ const toInfo = (r: Row): RunnerInfo => ({
   lastSeen: r.last_seen,
   version: r.version,
   platform: r.platform,
+  service: r.service ?? null,
 });
 
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -134,11 +141,11 @@ export class RunnersStore {
   }
 
   /** What a runner said about itself when it connected. */
-  seen(id: string, info: { allow?: string[]; version?: string; platform?: string }): void {
+  seen(id: string, info: { allow?: string[]; version?: string; platform?: string; service?: string }): void {
     const r = this.db.prepare("SELECT * FROM runners WHERE id = ?").get(id) as Row | undefined;
     if (!r) return;
     this.db
-      .prepare("UPDATE runners SET last_seen = ?, allow = ?, version = ?, platform = ? WHERE id = ?")
-      .run(new Date().toISOString(), info.allow ? JSON.stringify(info.allow) : r.allow, info.version ?? r.version, info.platform ?? r.platform, id);
+      .prepare("UPDATE runners SET last_seen = ?, allow = ?, version = ?, platform = ?, service = ? WHERE id = ?")
+      .run(new Date().toISOString(), info.allow ? JSON.stringify(info.allow) : r.allow, info.version ?? r.version, info.platform ?? r.platform, info.service ?? null, id);
   }
 }
