@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.2](https://github.com/DumiFlex/watchwright/compare/v0.14.1...v0.14.2) (2026-11-03)
+
+
+### Bug Fixes
+
+* **web:** set Admin and Settings group headings apart from their links ([#233](https://github.com/DumiFlex/watchwright/issues/233)) ([c1763fa](https://github.com/DumiFlex/watchwright/commit/c1763fae74539de1fa73d443fabdd4d055e55df6))
+
 ## [0.14.1](https://github.com/DumiFlex/watchwright/compare/v0.14.0...v0.14.1) (2026-11-03)
 
 
