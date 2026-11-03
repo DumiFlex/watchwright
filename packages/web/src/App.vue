@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
-import { CircleArrowUp, Moon, Palette, Plus, Search, Settings, ShieldCheck, Sun, SunMoon } from "./icons";
+import { CircleArrowUp, GitPullRequest, Moon, Palette, Plus, Search, Settings, ShieldCheck, Sun, SunMoon } from "./icons";
 import { getJson, sendJson, type HealthData, type Pack, type RunSummary } from "./api";
 import { finderCommands } from "./finder";
 import ApprovalBar from "./components/ApprovalBar.vue";
@@ -18,6 +18,7 @@ import { PUBLIC_ROUTES, useRoute } from "./router";
 import { DEFAULT_PAGES, hasPage, navFrom, pageIcon } from "./pages";
 import { vTip } from "./tooltip";
 import { loadUpdates, updates } from "./updates";
+import { listProposals } from "./proposals";
 import { useShortcut } from "./keys";
 import { applyTheme, browserStore, loadTheme, LOOKS, saveTheme, type Theme } from "./theme";
 import AttemptView from "./views/AttemptView.vue";
@@ -39,6 +40,7 @@ import { can, loadSession, session, signOut } from "./session";
 import { UserRound } from "./icons";
 // The editor (CodeMirror, the YAML checker) loads only when a pack is opened for editing.
 const EditView = defineAsyncComponent(() => import("./views/EditView.vue"));
+const ChangesView = defineAsyncComponent(() => import("./views/ChangesView.vue"));
 
 const theme = ref<Theme>(loadTheme(browserStore()));
 watch(
@@ -104,11 +106,21 @@ async function loadHealth() {
     health.value = res.data;
     // Only admins can update; the note is for them.
     if (!res.data.login?.on || res.data.login.user?.role === "admin") void loadUpdates();
+    void loadToReview();
   } else down.value = true;
 }
 onMounted(async () => {
   await Promise.all([loadHealth(), loadSession()]);
 });
+
+// Proposed code changes waiting for an admin: a note in the top bar, checked again on every page change.
+const toReview = ref(0);
+async function loadToReview() {
+  if (!session.on || !can("admin") || !health.value?.pages.some((p) => p.name === "changes")) return void (toReview.value = 0);
+  const res = await listProposals("waiting");
+  toReview.value = res.ok ? res.data.waiting : 0;
+}
+watch(() => route.value.name, () => void loadToReview());
 // Share links and the public dashboard open for anyone, signed in or not, with no menu.
 const isPublic = computed(() => PUBLIC_ROUTES.includes(route.value.name));
 // With login on, nothing but the sign-in page shows until someone is signed in.
@@ -120,7 +132,7 @@ watch(
     if (id && before === undefined && session.on) void loadHealth();
   },
 );
-const roleWords: Record<string, string> = { viewer: "Viewer: sees runs and results", user: "User: runs, records and edits packs", admin: "Admin: also users and settings" };
+const roleWords: Record<string, string> = { viewer: "Viewer: sees runs and results", user: "User: runs, records, edits YAML tests and proposes code", admin: "Admin: also users and settings" };
 const userItems = computed(() => [
   { value: "account", label: "Your account and tokens", href: "#/account" },
   { value: "settings", label: "Settings", href: "#/settings" },
@@ -157,6 +169,7 @@ const userItems = computed(() => [
         <span class="wordmark">Watchwright</span>
       </a>
       <span v-if="health" v-tip="`Data folder: ${health.dataDir}`" class="version num">v{{ health.version }}</span>
+      <a v-if="toReview > 0" v-tip="'Proposed code changes wait for an admin'" class="newer" href="#/changes"><GitPullRequest :size="14" /> {{ toReview }} to review</a>
       <a v-if="updates.status?.newer && can('admin')" v-tip="`Watchwright ${updates.status.latest} is out`" class="newer" href="#/admin?section=server"><CircleArrowUp :size="14" /> Update</a>
       <span v-else-if="down" class="down" role="alert">Server unreachable</span>
       <nav class="nav" aria-label="Main">
@@ -195,6 +208,7 @@ const userItems = computed(() => [
     <AccountView v-else-if="shown.name === 'account'" :section="shown.section" />
     <AdminView v-else-if="shown.name === 'admin'" :section="shown.section" />
     <SchedulesView v-else-if="shown.name === 'schedules'" />
+    <ChangesView v-else-if="shown.name === 'changes'" :id="shown.id" />
     <RunsView v-else :query="shown.query" />
     <PageOutline :off="shown.name === 'edit'" />
     <CommandPalette v-model:open="palette" :commands="commands" />

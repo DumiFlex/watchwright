@@ -9,7 +9,7 @@ import { CHANNEL_TYPES, checkUrl, outgoing, send, shownUrl, type AlertMessage, t
 // a schedule's) outcome instead of one per run. A send that fails is tried three more times with
 // back-off, then logged as `alert.failed`.
 
-export const TRIGGERS = ["failed", "broken", "stopped", "passed", "failed_to_start", "recovered", "test_broken", "schedule_missed", "approval", "storage_low", "interrupted"] as const;
+export const TRIGGERS = ["failed", "broken", "stopped", "passed", "failed_to_start", "recovered", "test_broken", "schedule_missed", "approval", "proposal", "storage_low", "interrupted"] as const;
 export type Trigger = (typeof TRIGGERS)[number];
 
 export interface Channel {
@@ -391,6 +391,15 @@ export class Alerter {
         for (const id of Array.isArray(e.data.interrupted) ? e.data.interrupted.map(String) : []) this.onInterrupted(e, id, "Watchwright stopping", resumed.has(id));
         return;
       }
+      case "proposal.created":
+        this.fire(this.rules().filter((r) => r.enabled && r.triggers.includes("proposal")), {
+          trigger: "proposal",
+          title: `${String(e.data.packName ?? "A pack")}: a change to review`,
+          text: `${String(e.data.by ?? "Someone")} proposed a change to ${(Array.isArray(e.data.paths) ? e.data.paths.map(String) : []).join(", ") || "its files"}${e.data.note ? `: ${String(e.data.note).slice(0, 200)}` : ""}. Review it on the Watchwright page.`,
+          link: `${this.d.base()}#/changes/${String(e.data.proposalId ?? "")}`,
+          event: { seq: e.seq, type: e.type, data: e.data },
+        });
+        return;
       case "approval.requested":
         this.fire(this.rules().filter((r) => r.enabled && r.triggers.includes("approval")), {
           trigger: "approval",

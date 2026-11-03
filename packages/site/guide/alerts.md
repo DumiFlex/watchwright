@@ -1,6 +1,6 @@
 # Alerts
 
-Alerts send a message to your phone or a chat when something needs you: a run fails, a pack passes again, a test breaks, a schedule misses a time, an agent waits for your approval, or the drive runs low. Admins set them up on the Admin page, under Alerts. **Channels** say where messages go, and **rules** say when.
+Alerts send a message to your phone or a chat when something needs you: a run fails, a pack passes again, a test breaks, a schedule misses a time, an agent waits for your approval, a code change waits for review, or the drive runs low. Admins set them up on the Admin page, under Alerts. **Channels** say where messages go, and **rules** say when.
 
 ## Channels
 
@@ -27,6 +27,7 @@ A rule picks when to send, for which packs or schedules, and to which channels.
 - **A test breaks**: while the run is still going, so you can look before it ends. It links to the attempt.
 - **A schedule misses a time**: a time missed while Watchwright was off, or skipped because the schedule's last run was still going. See [Schedules](./schedules).
 - **An agent waits for approval**: an agent asked for something that needs you to approve it on the Watchwright page.
+- **A code change waits for review**: someone [proposed a change](./editing#proposing-a-code-change) to a pack's code for an admin to apply.
 - **The drive runs low**: during a run, the drive with the data folder has less free space than **Admin › Storage** allows. It is sent once per run when the warning limit is crossed, and again if the run stops recording videos.
 
 With no packs or schedules picked, a rule covers all of them. Approvals and a low drive aren't about a pack, so a rule sends them whatever packs it covers.

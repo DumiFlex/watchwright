@@ -167,6 +167,17 @@ describe("Alerter", () => {
     expect(w.titles()).toEqual(["Schedule Nightly: skipped a time", "Watchwright: waiting for your approval"]);
   });
 
+  it("tells admins about a code change to review", async () => {
+    const w = make();
+    const ch = w.alerter.createChannel({ name: "Hook", type: "webhook", url: "https://hooks.example.com/a" });
+    w.alerter.createRule({ name: "Review", triggers: ["proposal"], channels: [ch.id] });
+    w.events.append("proposal.created", { proposalId: "0a1b2c3d", packId: "aaaa1111", packName: "Shop", by: "uma", note: "Wait longer", paths: ["lib/wait.ts"] });
+    w.events.append("proposal.applied", { proposalId: "0a1b2c3d", packId: "aaaa1111", packName: "Shop", by: "uma", note: "", paths: ["lib/wait.ts"] });
+    await w.flush();
+    expect(w.sent).toHaveLength(1);
+    expect(JSON.parse(w.sent[0]!.body)).toMatchObject({ title: "Shop: a change to review", text: "uma proposed a change to lib/wait.ts: Wait longer. Review it on the Watchwright page.", link: "http://127.0.0.1:7420/#/changes/0a1b2c3d" });
+  });
+
   it("tells when the drive runs low during a run", async () => {
     const w = make();
     const ch = w.alerter.createChannel({ name: "Hook", type: "webhook", url: "https://hooks.example.com/a" });

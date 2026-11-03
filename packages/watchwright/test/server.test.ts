@@ -64,7 +64,7 @@ describe("server", () => {
           { name: "live", schemaVersion: 0 },
           { name: "folders", schemaVersion: 1 },
           { name: "packs", schemaVersion: 1 },
-          { name: "editor", schemaVersion: 0 },
+          { name: "editor", schemaVersion: 1 },
           { name: "runs", schemaVersion: 7 },
           { name: "testing", schemaVersion: 0 },
           { name: "schedules", schemaVersion: 1 },
