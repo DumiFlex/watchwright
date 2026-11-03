@@ -23,6 +23,9 @@ describe("router", () => {
     expect(parseRoute("#/settings?section=storage")).toEqual({ name: "settings", section: "storage" });
     expect(parseRoute("#/settings?section=Bad!")).toEqual({ name: "settings" });
     expect(parseRoute("#/account")).toEqual({ name: "account" });
+    expect(parseRoute("#/account?section=sso-links&linked=1")).toEqual({ name: "account", section: "sso-links" });
+    expect(parseRoute("#/signin?link=1")).toEqual({ name: "signin", error: "", link: true });
+    expect(href({ name: "signin", error: "", link: true })).toBe("#/signin?link=1");
     expect(parseRoute("#/admin?section=server")).toEqual({ name: "admin", section: "server" });
     expect(parseRoute("#/schedules")).toEqual({ name: "schedules" });
     expect(parseRoute("#/compare?runs=0a1b2c3d,1a1b2c3d")).toEqual({ name: "compare", query: { runs: "0a1b2c3d,1a1b2c3d" } });

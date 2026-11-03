@@ -2,21 +2,24 @@
 // The sign-in page, shown instead of every other page while the server has login on and nobody is
 // signed in. With the setup link the server prints on its first start (`#/setup?code=…`) it
 // creates the first admin instead, and with an invitation link (`#/invite?code=…`) the invited
-// person's own account (docs/plans/self-hosting.md, section 2.2).
+// person's own account (docs/plans/self-hosting.md, section 2.2). Back from single sign-on with a
+// name an account here already has (`#/signin?link=1`), it offers to link the two with that
+// account's password, or to make a separate account (docs/research/sso-account-linking.md).
 import { computed, onMounted, ref } from "vue";
-import { KeyRound, LogIn } from "../icons";
-import { acceptInvite, inviteFor, session, setUp, signIn, type Role } from "../session";
+import { KeyRound, Link, LogIn, UserRound } from "../icons";
+import { acceptInvite, cancelLink, inviteFor, linkAndSignIn, pendingLink, separateAccount, session, setUp, signIn, type PendingLink, type Role } from "../session";
 import BrandMark from "../components/BrandMark.vue";
 import TextField from "../components/TextField.vue";
 
-const props = defineProps<{ setupCode: string | null; inviteCode: string | null; error?: string | null }>();
+const props = defineProps<{ setupCode: string | null; inviteCode: string | null; error?: string | null; link?: boolean }>();
 
-// What the form does: sign in, make the first admin, or make an invited account.
+// What the form does: sign in, make the first admin, make an invited account, or link single sign-on to an account.
 const invite = ref<{ role: Role; expiresAt: string } | null>(null);
 const inviteError = ref<string | null>(null);
-const mode = computed<"setup" | "invite" | "signin">(() => (session.setupNeeded ? "setup" : invite.value ? "invite" : "signin"));
+const linking = ref<PendingLink | null>(null);
+const mode = computed<"setup" | "invite" | "signin" | "link">(() => (session.setupNeeded ? "setup" : invite.value ? "invite" : linking.value ? "link" : "signin"));
 /** Making a new account (choose a password twice) rather than signing in. */
-const setup = computed(() => mode.value !== "signin");
+const setup = computed(() => mode.value === "setup" || mode.value === "invite");
 const ROLE_WORDS: Record<Role, string> = { viewer: "a viewer: you'll see runs, results and packs", user: "a user: you'll start runs, record, review and edit packs", admin: "an admin: you'll also manage users and settings" };
 const name = ref("");
 const password = ref("");
@@ -25,10 +28,19 @@ const busy = ref(false);
 const error = ref<string | null>(props.error || null);
 // With single sign-on and passwords off for everyone but admins, the form waits behind a link.
 const sso = computed(() => (mode.value === "signin" ? session.signin.oidc : null));
+const linkShown = computed(() => mode.value === "link");
 const formShown = ref(session.signin.passwords || !session.signin.oidc);
 const nameField = ref<InstanceType<typeof TextField> | null>(null);
 onMounted(async () => {
   nameField.value?.focus();
+  if (props.link && !session.setupNeeded) {
+    const found = await pendingLink();
+    if (typeof found === "string") error.value = found;
+    else {
+      linking.value = found;
+      name.value = found.account;
+    }
+  }
   if (props.inviteCode && !session.setupNeeded) {
     const found = await inviteFor(props.inviteCode);
     if (typeof found === "string") inviteError.value = found;
@@ -47,13 +59,38 @@ async function submit() {
   busy.value = true;
   error.value = null;
   const n = name.value.trim();
-  const err = mode.value === "setup" ? await setUp(props.setupCode ?? "", n, password.value) : mode.value === "invite" ? await acceptInvite(props.inviteCode ?? "", n, password.value) : await signIn(n, password.value);
+  const err =
+    mode.value === "setup"
+      ? await setUp(props.setupCode ?? "", n, password.value)
+      : mode.value === "invite"
+        ? await acceptInvite(props.inviteCode ?? "", n, password.value)
+        : mode.value === "link"
+          ? await linkAndSignIn(n, password.value)
+          : await signIn(n, password.value);
   busy.value = false;
   if (err) {
     error.value = err;
     return;
   }
-  if (location.hash.startsWith("#/setup") || location.hash.startsWith("#/invite")) location.hash = "#/";
+  if (location.hash.startsWith("#/setup") || location.hash.startsWith("#/invite") || location.hash.startsWith("#/signin")) location.hash = "#/";
+}
+
+async function separate() {
+  if (busy.value) return;
+  busy.value = true;
+  error.value = null;
+  const err = await separateAccount();
+  busy.value = false;
+  if (err) error.value = err;
+  else location.hash = "#/";
+}
+
+async function cancel() {
+  await cancelLink();
+  linking.value = null;
+  name.value = password.value = "";
+  error.value = null;
+  location.hash = "#/signin";
 }
 </script>
 
@@ -72,6 +109,12 @@ async function submit() {
         <h1 class="display">Create the first admin</h1>
         <p v-if="setupCode" class="muted small">This server has login on and no users yet. The admin you make here can add other people and change the server's settings.</p>
         <p v-else class="warn small" role="alert">Open the setup link the server printed when it started: it carries a one-time code. Or run <code>watchwright users add &lt;name&gt; --role admin</code> on the server.</p>
+      </template>
+      <template v-else-if="mode === 'link' && linking">
+        <h1 class="display">Link your account</h1>
+        <p class="muted small">
+          You signed in with {{ linking.provider }} as <strong>{{ linking.name }}</strong>, and this server already has an account named <strong>{{ linking.account }}</strong>. If it's yours, enter its password once to link them. After that, Sign in with {{ linking.provider }} takes you straight to it.
+        </p>
       </template>
       <template v-else>
         <h1 class="display">Sign in</h1>
@@ -101,9 +144,17 @@ async function submit() {
           <p v-if="differs" class="muted small">The two passwords aren't the same.</p>
         </div>
         <p v-if="error && !sso" class="error small" role="alert">{{ error }}</p>
-        <button type="submit" :class="['btn', 'go', sso ? '' : 'primary']" :disabled="!ready || busy"><LogIn :size="15" /> {{ mode === "setup" ? "Create admin and sign in" : mode === "invite" ? "Make account and sign in" : "Sign in" }}</button>
+        <button type="submit" :class="['btn', 'go', sso ? '' : 'primary']" :disabled="!ready || busy">
+          <template v-if="linkShown"><Link :size="15" /> Link and sign in</template>
+          <template v-else><LogIn :size="15" /> {{ mode === "setup" ? "Create admin and sign in" : mode === "invite" ? "Make account and sign in" : "Sign in" }}</template>
+        </button>
       </template>
-      <p v-if="!setup && (!sso || formShown)" class="muted small">Forgot your password? An admin can set a new one on the Admin page, or on the server with <code>watchwright users reset-password &lt;name&gt;</code>.</p>
+      <template v-if="linkShown && linking">
+        <div class="or small muted"><span>not your account?</span></div>
+        <button type="button" class="btn go" :disabled="busy" @click="separate"><UserRound :size="15" /> Make a separate account</button>
+        <p class="muted small">It gets its own name, such as {{ linking.account }}-2, and nothing of {{ linking.account }}'s. <button type="button" class="linkish small" @click="cancel">Cancel</button></p>
+      </template>
+      <p v-if="!setup && !linkShown && (!sso || formShown)" class="muted small">Forgot your password? An admin can set a new one on the Admin page, or on the server with <code>watchwright users reset-password &lt;name&gt;</code>.</p>
     </form>
   </main>
 </template>

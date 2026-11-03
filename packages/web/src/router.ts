@@ -28,7 +28,7 @@ export type Route =
   /** An invitation link: makes an account with the role an admin chose. */
   | { name: "invite"; code: string }
   /** The sign-in page, with what went wrong on the way back from single sign-on. */
-  | { name: "signin"; error: string }
+  | { name: "signin"; error: string; link?: boolean }
   /** A share link: one run, read-only, for anyone who has the link (no sign-in). */
   | { name: "shared"; token: string }
   /** The public dashboard, and one of its runs. */
@@ -65,7 +65,7 @@ export function parseRoute(hash: string): Route {
   if ((m = new RegExp(`^/changes/${ID8}$`).exec(path))) return { name: "changes", id: m[1]! };
   if (path === "/setup") return { name: "setup", code: query.code ?? "" };
   if (path === "/invite") return { name: "invite", code: query.code ?? "" };
-  if (path === "/signin") return { name: "signin", error: query.error ?? "" };
+  if (path === "/signin") return query.link ? { name: "signin", error: query.error ?? "", link: true } : { name: "signin", error: query.error ?? "" };
   if (path === "/compare") return { name: "compare", query };
   if (path === "/status") return { name: "status" };
   if ((m = /^\/s\/([A-Za-z0-9_-]{22})$/.exec(path))) return { name: "shared", token: m[1]! };
@@ -127,7 +127,7 @@ export function href(route: Route): string {
     case "invite":
       return `#/invite${qs({ code: route.code })}`;
     case "signin":
-      return `#/signin${qs({ error: route.error })}`;
+      return `#/signin${qs({ ...(route.error ? { error: route.error } : {}), ...(route.link ? { link: "1" } : {}) })}`;
     case "shared":
       return `#/s/${route.token}`;
     case "status":

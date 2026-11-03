@@ -6,8 +6,8 @@ import { LOGIN, LOGIN_OPTIONS } from "../../core/keys.js";
 import { definePlugin } from "../../core/plugin.js";
 import { serviceKey } from "../../core/services.js";
 import { errorBody } from "../../server/errors.js";
-import { DEFAULT_SSO, groupsOf, mergeSso, OidcClient, peerTest, publicSso, roleFromGroups, type SsoSettings } from "./sso.js";
-import { AuthStore, cleanGroups, GROUPS_SQL, INVITES_SQL, SESSION_DAYS, SQL, SSO_SQL, type UserInfo } from "./store.js";
+import { DEFAULT_SSO, groupsOf, mergeSso, OidcClient, peerTest, publicSso, roleFromGroups, type OidcPerson, type SsoSettings } from "./sso.js";
+import { AuthStore, cleanGroups, GROUPS_SQL, IDENTITIES_SQL, INVITES_SQL, SESSION_DAYS, SQL, SSO_SQL, type UserInfo } from "./store.js";
 import { Throttle } from "./throttle.js";
 
 // Login (docs/plans/self-hosting.md, section 2): accounts with three roles, the web page's sign-in
@@ -66,7 +66,22 @@ interface State {
   byHeader: Map<string, { user: CallUser | null; at: number }>;
   /** When a header from elsewhere than the proxy was last logged (once a minute is enough). */
   refusedAt: number;
+  /**
+   * Provider sign-ins whose name is taken by an account with a password, waiting for the person to
+   * prove that password (to link) or ask for a separate account; by the `ww_link` cookie's value.
+   */
+  links: Map<string, PendingLink>;
 }
+
+interface PendingLink {
+  person: OidcPerson;
+  /** The account with the same name. */
+  account: string;
+  at: number;
+}
+
+/** How long a sign-in waits to be linked. */
+const LINK_MS = 10 * 60_000;
 
 /** How long a header sign-in is remembered before the account is looked at again. */
 const HEADER_CACHE_MS = 60_000;
@@ -87,11 +102,12 @@ export const authPlugin = definePlugin({
     { id: 2, name: "invites", sql: INVITES_SQL },
     { id: 3, name: "sso", sql: SSO_SQL },
     { id: 4, name: "groups", sql: GROUPS_SQL },
+    { id: 5, name: "identities", sql: IDENTITIES_SQL },
   ],
   setup(ctx) {
     const store = new AuthStore(ctx.store.db);
     const options = ctx.services.get(LOGIN_OPTIONS);
-    const state: State = { store, throttle: new Throttle(), setupCode: null, sweep: null, sso: DEFAULT_SSO, fromProxy: () => false, oidc: new OidcClient(), byHeader: new Map(), refusedAt: 0 };
+    const state: State = { store, throttle: new Throttle(), setupCode: null, sweep: null, sso: DEFAULT_SSO, fromProxy: () => false, oidc: new OidcClient(), byHeader: new Map(), refusedAt: 0, links: new Map() };
     applySso(state, { ...DEFAULT_SSO, ...store.config<SsoSettings>("sso") });
     if (options.on) {
       store.sweep();
@@ -162,7 +178,7 @@ export const authPlugin = definePlugin({
           const sso = states.get(ctx)!.sso;
           return {
             on: login.on,
-            user: user ? { ...userOut(user), via: call.user!.via, ...(call.user!.tokenId ? { tokenId: call.user!.tokenId } : {}) } : null,
+            user: user ? { ...userOut(user), hasPassword: user.hasPassword, signins: user.signins, via: call.user!.via, ...(call.user!.tokenId ? { tokenId: call.user!.tokenId } : {}) } : null,
             setupNeeded: login.on && login.setupCode() !== null,
             signin: { oidc: login.on && sso.oidc.on ? sso.oidc.name : null, passwords: sso.passwords },
           };
@@ -232,6 +248,51 @@ export const authPlugin = definePlugin({
         handler: ({ id }, call) => {
           if (call.user?.id === id) throw new ActionError("not_allowed", "You can't remove yourself.", 409);
           if (!store.remove(id)) throw new ActionError("not_found", `No user with id ${id}.`, 404);
+          return { removed: id };
+        },
+      }),
+      defineAction<{ id: string; into: string }>({
+        name: "auth.merge-users",
+        pack: "none",
+        title: "Merge an account into another: its single sign-on links and API tokens move over, then it is removed",
+        method: "POST",
+        path: "/auth/users/:id/merge",
+        access: "admin",
+        destructive: true,
+        explain: ({ id, into }) => `Merge the user ${store.user(id)?.name ?? id} into ${store.user(into)?.name ?? into}: its sign-ins and tokens move over, then it is removed.`,
+        input: { type: "object", properties: { id: ID, into: { ...ID, description: "The account to keep" } }, required: ["id", "into"] },
+        handler: ({ id, into }, call) => {
+          const from = store.user(id);
+          const result = store.merge(id, into);
+          states.get(ctx)!.byHeader.clear();
+          ctx.events.append("auth.users-merged", { from: from?.name ?? id, into: result.into.name, by: call.user?.name ?? null, ...result.moved });
+          return result;
+        },
+      }),
+      defineAction({
+        name: "auth.signins",
+        pack: "none",
+        title: "The single sign-on identities linked to your account",
+        method: "GET",
+        path: "/auth/signins",
+        access: "viewer",
+        handler: (_input, call) => store.signins(me(call).id),
+      }),
+      defineAction<{ id: string }>({
+        name: "auth.remove-signin",
+        pack: "none",
+        title: "Unlink a single sign-on identity from an account (yours, or anyone's for an admin); not its only way in",
+        method: "DELETE",
+        path: "/auth/signins/:id",
+        access: "viewer",
+        input: { type: "object", properties: { id: ID }, required: ["id"] },
+        handler: ({ id }, call) => {
+          const u = me(call);
+          const s = store.signin(id);
+          if (!s || (s.userId !== u.id && u.role !== "admin")) throw new ActionError("not_found", `No linked sign-in with id ${id}.`, 404);
+          store.unlink(id);
+          states.get(ctx)!.byHeader.clear();
+          ctx.events.append("auth.signin-unlinked", { user: store.user(s.userId)?.name ?? s.userId, source: s.source, by: u.name });
           return { removed: id };
         },
       }),
@@ -483,11 +544,23 @@ export const authPlugin = definePlugin({
     };
     const failed = (reply: FastifyReply, message: string) => reply.redirect(`/#/signin?error=${encodeURIComponent(message)}`, 302);
 
-    app.get("/auth/oidc/start", { config: { access: "public" } }, async (req, reply) => {
+    const LINK_COOKIE = "ww_link";
+    const linkCookie = (value: string, secure: boolean, maxAgeS: number) => `${LINK_COOKIE}=${value}; Path=/api/v1/auth; HttpOnly; SameSite=Lax; Max-Age=${maxAgeS}${secure ? "; Secure" : ""}`;
+    /** Back to Your account's single sign-on card, with what went wrong. */
+    const toAccount = (reply: FastifyReply, error?: string) => reply.redirect(`/#/account?section=sso-links${error ? `&error=${encodeURIComponent(error)}` : "&linked=1"}`, 302);
+
+    app.get<{ Querystring: { link?: string } }>("/auth/oidc/start", { config: { access: "public" } }, async (req, reply) => {
       const { oidc } = state.sso;
       if (!on || !oidc.on) return failed(reply, "Single sign-on is off on this server.");
+      // Linking from Your account: only a browser signed in to that account (not a token) may.
+      let linkUser: string | undefined;
+      if (req.query.link !== undefined) {
+        const u = req.watchwrightUser;
+        if (!u || u.via !== "session") return failed(reply, "Sign in first, then link your account from Your account.");
+        linkUser = u.id;
+      }
       try {
-        const { url, state: key } = await state.oidc.start(oidc, `${origin(req)}/api/v1/auth/oidc/callback`);
+        const { url, state: key } = await state.oidc.start(oidc, `${origin(req)}/api/v1/auth/oidc/callback`, linkUser);
         reply.header("set-cookie", oidcCookie(key, isHttps(req), 600));
         return reply.redirect(url, 302);
       } catch (err) {
@@ -513,8 +586,30 @@ export const authPlugin = definePlugin({
         req.log.warn({ err }, "OpenID Connect sign-in failed");
         return failed(reply, `Signing in with ${oidc.name} didn't work: ${err instanceof Error ? err.message : String(err)}`);
       }
-      const { role, refused } = roleFromGroups(state.sso, person.groups, store.bySubject("oidc", person.subject) !== null);
-      const user = refused ? null : store.external("oidc", person.subject, { name: person.name, displayName: person.displayName, groups: person.groups }, role);
+      const wanted = { name: person.name, displayName: person.displayName, groups: person.groups };
+      if (person.linkUser) {
+        // Linking from Your account: the browser must still be signed in to the account that asked.
+        const u = req.watchwrightUser;
+        if (!u || u.via !== "session" || u.id !== person.linkUser) return failed(reply, "You signed out while linking. Sign in and try again from Your account.");
+        const linked = linkTo(u.id, person);
+        if (typeof linked === "string") return toAccount(reply, linked);
+        ctx.events.append("auth.signin-linked", { user: linked.name, source: "oidc", via: "account" });
+        return toAccount(reply);
+      }
+      const known = store.bySubject("oidc", person.subject);
+      const clash = known ? null : store.nameClash(person.name);
+      if (clash) {
+        // Someone with this name has an account with a password here: ask before making name-2.
+        if (roleFromGroups(state.sso, person.groups, true).refused) return failed(reply, `Your ${oidc.name} account has no access to this Watchwright. Ask an admin to add one of your groups.`);
+        const token = randomBytes(24).toString("base64url");
+        const now = Date.now();
+        for (const [k, p] of state.links) if (now - p.at > LINK_MS || state.links.size >= 1000) state.links.delete(k);
+        state.links.set(token, { person, account: clash.name, at: now });
+        reply.header("set-cookie", [oidcCookie("", isHttps(req), 0), linkCookie(token, isHttps(req), LINK_MS / 1000)]);
+        return reply.redirect("/#/signin?link=1", 302);
+      }
+      const { role, refused } = roleFromGroups(state.sso, person.groups, known !== null);
+      const user = refused ? null : store.external("oidc", person.subject, wanted, role);
       if (!user) {
         ctx.events.append("auth.signin-failed", { name: person.name.slice(0, 64), ip: req.ip, via: "oidc" });
         return failed(reply, refused ? `Your ${oidc.name} account has no access to this Watchwright. Ask an admin to add one of your groups.` : "Your account here is turned off. Ask an admin.");
@@ -523,6 +618,90 @@ export const authPlugin = definePlugin({
       const raw = store.startSession(user.id, req.headers["user-agent"]);
       reply.header("set-cookie", [oidcCookie("", isHttps(req), 0), sessionCookie(raw, isHttps(req), SESSION_DAYS * 24 * 60 * 60)]);
       return reply.redirect("/#/", 302);
+    });
+
+    /** Links a provider's identity to an account and brings its groups and role over; an error message when it can't. */
+    const linkTo = (userId: string, person: OidcPerson): UserInfo | string => {
+      const { role, refused } = roleFromGroups(state.sso, person.groups, true);
+      if (refused) return `Your ${state.sso.oidc.name} account's groups give no access here, so it can't be linked.`;
+      try {
+        store.link(userId, "oidc", person.subject, person.name);
+      } catch (err) {
+        if (err instanceof ActionError) return err.message;
+        throw err;
+      }
+      return store.external("oidc", person.subject, { name: person.name, displayName: null, groups: person.groups }, role) ?? "Your account here is turned off. Ask an admin.";
+    };
+    /** The sign-in waiting to be linked, from the request's cookie; null when there is none (or it took too long). */
+    const pendingLink = (req: FastifyRequest): { token: string; link: PendingLink } | null => {
+      const token = cookieValue(req.headers.cookie, LINK_COOKIE);
+      const link = token ? state.links.get(token) : undefined;
+      if (!token || !link) return null;
+      if (Date.now() - link.at > LINK_MS) {
+        state.links.delete(token);
+        return null;
+      }
+      return { token, link };
+    };
+    const linkGone = (reply: FastifyReply) => reply.code(404).send(errorBody("link_expired", "This sign-in took too long. Sign in with single sign-on again."));
+
+    // What the sign-in page shows while a provider sign-in waits to be linked.
+    app.get("/auth/link", { config: { access: "public", pack: "none" } }, async (req, reply) => {
+      const p = pendingLink(req);
+      if (!p) return linkGone(reply);
+      return { data: { provider: state.sso.oidc.name, name: p.link.person.name, account: p.link.account } };
+    });
+
+    // Links the waiting sign-in to an account whose name and password the person knows, and signs in.
+    app.post<{ Body: { name?: unknown; password?: unknown } }>("/auth/link", { config: { access: "public", pack: "none" } }, async (req, reply) => {
+      if (!on || !state.sso.oidc.on) return reply.code(409).send(errorBody("login_off", "Single sign-on is off on this server."));
+      const p = pendingLink(req);
+      if (!p) return linkGone(reply);
+      const { name, password } = req.body ?? {};
+      if (typeof name !== "string" || typeof password !== "string" || !name.trim()) return reply.code(400).send(errorBody("bad_input", "Send { name, password }."));
+      const keys = [`name:${name.trim().toLowerCase()}`, `ip:${req.ip}`];
+      const wait = throttle.waitMs(keys);
+      if (wait > 0) return reply.code(429).header("retry-after", Math.ceil(wait / 1000)).send(errorBody("too_many_tries", `Too many wrong sign-ins. Try again in ${Math.ceil(wait / 1000)} seconds.`));
+      const account = await store.signIn(name, password);
+      if (!account) {
+        throttle.failed(keys);
+        ctx.events.append("auth.signin-failed", { name: name.trim().slice(0, 64), ip: req.ip, via: "link" });
+        return reply.code(401).send(errorBody("wrong_sign_in", "That name and password don't match an account that can sign in."));
+      }
+      throttle.cleared(keys);
+      const linked = linkTo(account.id, p.link.person);
+      if (typeof linked === "string") return reply.code(409).send(errorBody("not_linked", linked));
+      state.links.delete(p.token);
+      ctx.events.append("auth.signin-linked", { user: linked.name, source: "oidc", via: "sign-in", ip: req.ip });
+      ctx.events.append("auth.signed-in", { user: linked.name, ip: req.ip, via: "oidc" });
+      const raw = store.startSession(linked.id, req.headers["user-agent"]);
+      reply.header("set-cookie", [linkCookie("", isHttps(req), 0), sessionCookie(raw, isHttps(req), SESSION_DAYS * 24 * 60 * 60)]);
+      return { data: { user: userOut(linked) } };
+    });
+
+    // A different person who shares the name: make a separate account, as before linking existed.
+    app.post("/auth/link/new", { config: { access: "public", pack: "none" } }, async (req, reply) => {
+      if (!on || !state.sso.oidc.on) return reply.code(409).send(errorBody("login_off", "Single sign-on is off on this server."));
+      const p = pendingLink(req);
+      if (!p) return linkGone(reply);
+      state.links.delete(p.token);
+      const { person } = p.link;
+      const known = store.bySubject("oidc", person.subject) !== null;
+      const { role, refused } = roleFromGroups(state.sso, person.groups, known);
+      const user = refused ? null : store.external("oidc", person.subject, { name: person.name, displayName: person.displayName, groups: person.groups }, role);
+      reply.header("set-cookie", linkCookie("", isHttps(req), 0));
+      if (!user) return reply.code(403).send(errorBody("no_access", refused ? `Your ${state.sso.oidc.name} account has no access to this Watchwright. Ask an admin to add one of your groups.` : "Your account here is turned off. Ask an admin."));
+      ctx.events.append("auth.signed-in", { user: user.name, ip: req.ip, via: "oidc" });
+      const raw = store.startSession(user.id, req.headers["user-agent"]);
+      reply.header("set-cookie", [linkCookie("", isHttps(req), 0), sessionCookie(raw, isHttps(req), SESSION_DAYS * 24 * 60 * 60)]);
+      return { data: { user: userOut(user) } };
+    });
+
+    app.post("/auth/link/cancel", { config: { access: "public", pack: "none" } }, async (req, reply) => {
+      const p = pendingLink(req);
+      if (p) state.links.delete(p.token);
+      reply.header("set-cookie", linkCookie("", isHttps(req), 0));
+      return { data: { cancelled: true } };
     });
 
     app.post("/auth/signout", { config: { access: "public" } }, async (req, reply) => {
