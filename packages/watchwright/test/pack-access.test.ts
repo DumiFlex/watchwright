@@ -116,7 +116,9 @@ describe("pack access", () => {
     for (const who of ["ulf", "vic"]) {
       expect(await packNames(who), who).toEqual(["Shop"]);
       expect(await runIds(who), who).toEqual([OTHER_RUN]);
-      for (const url of [`/packs/${secret.id}`, `/packs/${secret.id}/files`, `/packs/${secret.id}/dashboard`, `/packs/${secret.id}/history`, `/runs/${RUN}`, `/runs/${RUN}/summary`, `/runs/${RUN}/changes`, `/compare?runs=${RUN}`, `/files/runs/${RUN}/note.txt`, `/packs/${secret.id}/download`]) {
+      for (const url of [`/packs/${secret.id}`, `/packs/${secret.id}/files`, `/packs/${secret.id}/dashboard`, `/packs/${secret.id}/history`, `/runs/${RUN}`, `/runs/${RUN}/summary`, `/runs/${RUN}/changes`, `/compare?runs=${RUN}`, `/files/runs/${RUN}/note.txt`, `/packs/${secret.id}/download`,
+        // The same file by other spellings of its path.
+        `/files/runs/./${RUN}/note.txt`, `/files/runs//${RUN}/note.txt`, `/files/runs/x/../${RUN}/note.txt`, `/files/runs/%2e/${RUN}/note.txt`]) {
         const res = await as(who, "GET", url);
         expect(res.status, `${who} ${url}`).toBe(404);
         expect(res.body.error?.code, `${who} ${url}`).toBe("not_found");
