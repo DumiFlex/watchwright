@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.14.0](https://github.com/DumiFlex/watchwright/compare/v0.13.0...v0.14.0) (2026-11-03)
+
+
+### Features
+
+* **auth:** link single sign-on to existing accounts ([#224](https://github.com/DumiFlex/watchwright/issues/224)) ([e5fdb14](https://github.com/DumiFlex/watchwright/commit/e5fdb1451b1c32551ab5af17758d916dc422da74))
+
+
+### Bug Fixes
+
+* **packs:** re-add, update and delete the files of removed packs ([#225](https://github.com/DumiFlex/watchwright/issues/225)) ([cb8e6e9](https://github.com/DumiFlex/watchwright/commit/cb8e6e9842e48a8379fa5297cddea9286185c1ed))
+
 ## [0.13.0](https://github.com/DumiFlex/watchwright/compare/v0.12.0...v0.13.0) (2026-11-03)
 
 
