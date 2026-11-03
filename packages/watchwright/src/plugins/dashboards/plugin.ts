@@ -6,7 +6,7 @@ import { serviceKey, type Services } from "../../core/services.js";
 import { DEFAULT_DASHBOARD, MAX_RUNS, readDashboard, type Dashboard } from "../packs/dashboard.js";
 import { PACKS, type PackSummary } from "../packs/registry.js";
 import { REVIEWS } from "../reviews/plugin.js";
-import { RUNS_REPO } from "../runs/plugin.js";
+import { JOB_KINDS, RUNS_REPO } from "../runs/plugin.js";
 import { dashboardData, dashboardNames, type DashboardQuery, type DashboardResult } from "./data.js";
 
 // Dashboards (docs/plans/dashboards.md): what a pack's page shows at the top, made of tiles. The
@@ -103,6 +103,11 @@ function checkPublic(user: CallUser | null | undefined, before: Dashboard, after
   );
 }
 
+/** Job kinds that keep a site in order (pack tasks): their runs aren't on a dashboard. */
+function upkeepKinds(services: Services): string[] {
+  return services.has(JOB_KINDS) ? services.get(JOB_KINDS).list().filter((k) => k.upkeep).map((k) => k.name) : [];
+}
+
 function packOf(services: Services, id: string): PackSummary {
   const pack = services.get(PACKS).get(id);
   if (!pack) throw new ActionError("not_found", `No pack with id ${id}.`, 404);
@@ -120,7 +125,7 @@ export const dashboardsPlugin = definePlugin({
         const pack = packOf(services, packId);
         const d = dashboards.of(pack);
         const reviews = services.has(REVIEWS) ? services.get(REVIEWS) : null;
-        return { ...d, ...dashboardData({ runs: services.get(RUNS_REPO), reviews, pack }, d.dashboard, q) };
+        return { ...d, ...dashboardData({ runs: services.get(RUNS_REPO), skipKinds: upkeepKinds(services), reviews, pack }, d.dashboard, q) };
       },
     });
   },
@@ -159,7 +164,7 @@ export const dashboardsPlugin = definePlugin({
         handler: ({ id }) => {
           const pack = packOf(services, id);
           const reviews = services.has(REVIEWS) ? services.get(REVIEWS) : null;
-          return dashboardNames({ runs: services.get(RUNS_REPO), reviews, pack });
+          return dashboardNames({ runs: services.get(RUNS_REPO), skipKinds: upkeepKinds(services), reviews, pack });
         },
       }),
       defineAction<{ id: string; tiles?: unknown[]; groups?: unknown[]; runs?: number; days?: number; filters?: string[] }>({

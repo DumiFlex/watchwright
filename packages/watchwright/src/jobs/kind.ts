@@ -123,6 +123,11 @@ export interface JobKind<H = unknown> {
    * until they end; then it gets `afterTask` (unless `touchesSite` says the run left the site alone).
    */
   whilePaused?: boolean;
+  /**
+   * Runs of this kind keep the site in order rather than check it (pack tasks): a pack's dashboard
+   * and the new-run form's "copy the latest run" leave them out.
+   */
+  upkeep?: boolean;
   /** A label for a new run of these items when the starter gives none (a task's title). */
   runLabel?(pack: LoadedPack, items: readonly string[]): string;
   /** For a `whilePaused` kind: whether a run of these items may change the site (default true). */

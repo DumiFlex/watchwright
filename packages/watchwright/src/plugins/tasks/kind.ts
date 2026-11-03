@@ -18,6 +18,7 @@ export const taskKind: JobKind<Helpers> = {
   name: "task",
   labels: { passed: "done" },
   whilePaused: true,
+  upkeep: true,
 
   helpers: (rt, pack) => testKind.helpers(rt, pack),
   classify,

@@ -15,6 +15,8 @@ import type { AttemptRow, AttemptStatus, RunRow, RunsRepo, RunStatus } from "../
 /** What the data is read from. */
 export interface DashboardSource {
   runs: RunsRepo;
+  /** Job kinds whose runs the dashboard leaves out (upkeep runs such as pack tasks). */
+  skipKinds?: readonly string[];
   /** The reviews of the pack's runs, and each run's rubric; null when the reviews plugin isn't loaded. */
   reviews: { list(f: { packId: string }): Review[]; rubrics(runId: string): Record<string, Criterion[]> | null } | null;
   pack: PackSummary;
@@ -150,7 +152,7 @@ export function dashboardData(src: DashboardSource, dashboard: Dashboard, q: Das
   const since = days !== null ? new Date(now.getTime() - days * 86_400_000).toISOString() : null;
   const statuses: RunStatus[] = ["running", "pausing", "paused", "finished", "stopped", "interrupted", "failed_to_start"];
   const one = q.run !== undefined ? src.runs.run(q.run) : null;
-  const rows = q.run !== undefined ? (one && one.pack_id === src.pack.id ? [one] : []) : src.runs.runs({ packId: src.pack.id, statuses, limit: days !== null ? 2000 : Math.min(want, 2000) });
+  const rows = q.run !== undefined ? (one && one.pack_id === src.pack.id ? [one] : []) : src.runs.runs({ packId: src.pack.id, statuses, skipKinds: src.skipKinds, limit: days !== null ? 2000 : Math.min(want, 2000) });
 
   const parse = (r: RunRow): Run => ({ row: r, params: JSON.parse(r.params) as Record<string, unknown>, info: JSON.parse(r.info ?? "{}") as Record<string, unknown>, attempts: [] });
   const all = rows.map(parse);
@@ -687,7 +689,7 @@ export function dashboardNames(src: DashboardSource, limit = 50): DashboardNames
   const criteria = new Map<string, Criterion>();
   for (const c of src.pack.rubric) criteria.set(c.id, c);
   for (const t of src.pack.tests) for (const c of t.rubric) if (!criteria.has(c.id)) criteria.set(c.id, c);
-  for (const r of src.runs.runs({ packId: src.pack.id, limit })) {
+  for (const r of src.runs.runs({ packId: src.pack.id, skipKinds: src.skipKinds, limit })) {
     for (const k of Object.keys(JSON.parse(r.params) as object)) params.add(k);
     for (const k of Object.keys(JSON.parse(r.info ?? "{}") as object)) info.add(k);
     for (const a of src.runs.attempts(r.id)) {

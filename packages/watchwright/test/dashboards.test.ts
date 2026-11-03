@@ -198,6 +198,21 @@ describe("dashboard data", () => {
     expect(tileOf(d, "duration").data).toMatchObject({ runs: [{ runId: "00000001", ms: 60_000 }], slowest: [{ testId: "W1" }, { testId: "W2" }] });
   });
 
+  it("leaves out runs of pack tasks, and the runs list finds runs by kind", async () => {
+    const { h, packId, repo, run, attempt } = await setup();
+    run("00000001", 1, "q9");
+    attempt("00000001", "W1", "passed");
+    // A task ran after it: it keeps the site in order and isn't one of the pack's checks.
+    repo.insertRun({ id: "00000002", pack_id: packId, pack_name: "Bench", pack_path: "", site_key: "bench", job_kind: "task", tests: '["restore"]', params: "{}", options: "{}", label: "Task: Restore", status: "finished", started_by: "web", created_at: "2026-10-02T10:00:00.000Z" });
+    const d = (await h.api<PackDashboard & DashboardResult>("GET", `/packs/${packId}/dashboard`)).data;
+    expect((tileOf(d, "outcome").data as { runs: { id: string }[] }).runs.map((r) => r.id)).toEqual(["00000001"]);
+    expect((tileOf(d, "duration").data as { runs: { runId: string }[] }).runs.map((r) => r.runId)).toEqual(["00000001"]);
+    const ids = async (q: string) => (await h.api<{ id: string }[]>("GET", `/runs?pack=${packId}${q}`)).data.map((r) => r.id);
+    expect(await ids("")).toEqual(["00000002", "00000001"]);
+    expect(await ids("&kind=test")).toEqual(["00000001"]);
+    expect(await ids("&kind=task")).toEqual(["00000002"]);
+  });
+
   it("works out every kind of tile from runs, attempts and reviews", async () => {
     const tiles = [
       "{ leaderboard: model, columns: [score.quality, metric.AI s, flags.finding, passrate, runs], width: 4 }",
