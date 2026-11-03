@@ -15,6 +15,7 @@ import { sizeText } from "../../jobs/storage.js";
 import { errorBody } from "../../server/errors.js";
 import { FRAMES } from "../live/hub.js";
 import { PACKS } from "../packs/registry.js";
+import { PACK_ACCESS } from "../packs/access.js";
 import { SETTINGS } from "../settings/plugin.js";
 import { JobKinds } from "../../jobs/kinds.js";
 import { SECRETS } from "../secrets/plugin.js";
@@ -214,6 +215,9 @@ export const runsPlugin = definePlugin({
     });
     const repo = new RunsRepo(store.db);
     services.provide(RUNS_REPO, repo);
+    const packAccess = services.get(PACK_ACCESS);
+    packAccess.resolve("run", (id) => repo.run(id)?.pack_id ?? null);
+    packAccess.resolve("preset", (id) => repo.preset(id)?.packId ?? null);
     const kinds = new JobKinds();
     services.provide(JOB_KINDS, kinds);
     const engine = new Engine({
@@ -290,6 +294,7 @@ export const runsPlugin = definePlugin({
     const engine = services.get(ENGINE);
     const dataDir = services.get(FILES_ROOT);
     const repo = services.get(RUNS_REPO);
+    const access = services.get(PACK_ACCESS);
     const settings = services.get(SETTINGS);
     const compressor = (): VideoCompressor => compressors.get(engine)!;
     const notFound = (id: string): never => {
@@ -306,7 +311,7 @@ export const runsPlugin = definePlugin({
       return { ...preset.choices, ...choicesOf(input), packId: input.packId, ...(input.label !== undefined ? { label: input.label } : {}), ...(input.kind !== undefined ? { kind: input.kind } : {}) };
     };
     const control = (name: string, verb: string, title: string, fn: (id: string, client: string) => unknown) =>
-      defineAction<{ id: string }>({ name, title, method: "POST", path: `/runs/:id/${verb}`, input: byId, handler: ({ id }, { client: caller, user }) => guard(() => fn(id, whoCalls(caller, user))) });
+      defineAction<{ id: string }>({ name, title, method: "POST", path: `/runs/:id/${verb}`, input: byId, pack: { run: "id" }, handler: ({ id }, { client: caller, user }) => guard(() => fn(id, whoCalls(caller, user))) });
     const CONTROLS = {
       pause: (id: string, client: string) => engine.pause(id, client),
       resume: (id: string) => engine.resume(id),
@@ -318,6 +323,7 @@ export const runsPlugin = definePlugin({
     return [
       defineAction<{ limit?: number; pack?: string; status?: string; before?: string; q?: string }>({
         name: "runs.list",
+        pack: "list",
         agent: { tool: "list_runs" },
         title: "List runs, newest first",
         method: "GET",
@@ -332,11 +338,12 @@ export const runsPlugin = definePlugin({
             q: { type: "string", maxLength: 200, description: "Search: words that must each appear in the run's id, label, pack name, values, facts or status." },
           },
         },
-        handler: ({ limit, pack, status, before, q }) =>
-          engine.list({ limit, packId: pack, statuses: status ? (status.split(",") as RunStatus[]) : undefined, before, q }),
+        handler: ({ limit, pack, status, before, q }, { user }) =>
+          engine.list({ limit, packId: pack, hidePacks: access.hiddenFrom(user), statuses: status ? (status.split(",") as RunStatus[]) : undefined, before, q }),
       }),
       defineAction<{ days?: number; pack?: string; tz?: number; until?: string }>({
         name: "runs.stats",
+        pack: "list",
         title: "Runs and attempt outcomes per day for the last days, with the totals of the period before",
         method: "GET",
         path: "/runs/stats",
@@ -349,10 +356,11 @@ export const runsPlugin = definePlugin({
             until: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$", description: "The last day, YYYY-MM-DD. Default: today in the caller's time zone." },
           },
         },
-        handler: ({ days, pack, tz, until }) => engine.stats({ days: days ?? 14, offset: tz ?? 0, packId: pack, until }),
+        handler: ({ days, pack, tz, until }, { user }) => engine.stats({ days: days ?? 14, offset: tz ?? 0, packId: pack, until, hidePacks: access.hiddenFrom(user) }),
       }),
       defineAction<{ id: string; limit?: number }>({
         name: "runs.history",
+        pack: { pack: "id" },
         title: "Each test's last finished attempts in a pack's runs, oldest first, keyed by test id",
         method: "GET",
         path: "/packs/:id/history",
@@ -365,6 +373,7 @@ export const runsPlugin = definePlugin({
       }),
       defineAction<{ id: string }>({
         name: "runs.delete",
+        pack: { run: "id" },
         agent: { tool: "delete_run", say: "Only delete runs you started, unless the person asks." },
         destructive: true,
         explain: ({ id }: { id: string }) => {
@@ -379,6 +388,7 @@ export const runsPlugin = definePlugin({
       }),
       defineAction<StartBody>({
         name: "runs.start",
+        pack: { pack: "packId" },
         agent: { tool: "start_run", say: "The run shows live on the web page at /#/runs/<id>: tell the person so they can watch. Then call wait_for_run." },
         title: "Start a run: a pack, the tests to run (default all), parameter values and options",
         method: "POST",
@@ -392,6 +402,7 @@ export const runsPlugin = definePlugin({
       }),
       defineAction<{ id: string }>({
         name: "runs.again",
+        pack: { run: "id" },
         title: "Start a new run with another run's pack, tests, values, options and label",
         method: "POST",
         path: "/runs/:id/again",
@@ -401,6 +412,7 @@ export const runsPlugin = definePlugin({
       }),
       defineAction<{ id: string; label: string }>({
         name: "runs.label",
+        pack: { run: "id" },
         title: "Name a run (an empty label takes the name away)",
         method: "POST",
         path: "/runs/:id/label",
@@ -409,14 +421,16 @@ export const runsPlugin = definePlugin({
       }),
       defineAction<{ pack?: string }>({
         name: "runs.presets.list",
+        pack: "list",
         title: "Saved run choices (presets), by pack and name",
         method: "GET",
         path: "/presets",
         input: { type: "object", properties: { pack: { ...PACK_ID, description: "Only this pack's presets." } } },
-        handler: ({ pack }) => repo.presets(pack),
+        handler: ({ pack }, { sees }) => repo.presets(pack).filter((p) => sees?.(p.packId) ?? true),
       }),
       defineAction<RunChoices & { packId: string; name: string }>({
         name: "runs.presets.save",
+        pack: { pack: "packId" },
         title: "Save run choices under a name for a pack (replaces the pack's preset with that name)",
         method: "POST",
         path: "/presets",
@@ -426,6 +440,7 @@ export const runsPlugin = definePlugin({
       }),
       defineAction<{ id: string; name: string }>({
         name: "runs.presets.rename",
+        pack: { preset: "id" },
         title: "Rename a preset",
         method: "POST",
         path: "/presets/:id",
@@ -440,6 +455,7 @@ export const runsPlugin = definePlugin({
       }),
       defineAction<{ id: string }>({
         name: "runs.presets.delete",
+        pack: { preset: "id" },
         destructive: true,
         explain: ({ id }: { id: string }) => `Delete the preset "${repo.preset(id)?.name ?? id}"`,
         title: "Delete a preset",
@@ -453,6 +469,7 @@ export const runsPlugin = definePlugin({
       }),
       defineAction<StartBody>({
         name: "runs.preview",
+        pack: { pack: "packId" },
         title: "Plan a run without starting it: every attempt in order, and the tests that join because they're needed",
         method: "POST",
         path: "/runs/preview",
@@ -461,6 +478,7 @@ export const runsPlugin = definePlugin({
       }),
       defineAction<Record<string, never>>({
         name: "runs.kinds",
+        pack: "none",
         title: "The job kinds loaded, with the words each one uses for outcomes",
         method: "GET",
         path: "/kinds",
@@ -469,6 +487,7 @@ export const runsPlugin = definePlugin({
       }),
       defineAction<{ id: string; history?: boolean }>({
         name: "runs.get",
+        pack: { run: "id" },
         title: "One run with its plan, attempts and live state",
         method: "GET",
         path: "/runs/:id",
@@ -480,6 +499,7 @@ export const runsPlugin = definePlugin({
       }),
       defineAction<{ id: string; attemptId: string }>({
         name: "runs.attempt",
+        pack: { run: "id" },
         agent: { tool: "get_attempt", say: "Full result of one attempt: error, flags, log, steps and its files (pass a file's `path` to get_file)." },
         title: "One attempt's result document (schemaVersion 1)",
         method: "GET",
@@ -489,6 +509,7 @@ export const runsPlugin = definePlugin({
       }),
       defineAction<{ id: string }>({
         name: "runs.summary",
+        pack: { run: "id" },
         title: "A run in brief: status, live state, counts and one line per attempt (error, robot problems, findings)",
         agent: { tool: "get_run", say: "`page` is the run's page on the web app; robot counts problems of the test itself, findings problems of the site." },
         method: "GET",
@@ -498,6 +519,7 @@ export const runsPlugin = definePlugin({
       }),
       defineAction<{ id: string; after?: number; timeout?: number }>({
         name: "runs.wait",
+        pack: { run: "id" },
         title: `Wait until a run ends or pauses, at most \`timeout\` seconds (up to ${MAX_EVENT_WAIT_S}); says why it returned and what happened meanwhile`,
         agent: {
           tool: "wait_for_run",
@@ -518,6 +540,7 @@ export const runsPlugin = definePlugin({
       }),
       defineAction<{ id: string; do: keyof typeof CONTROLS }>({
         name: "runs.control",
+        pack: { run: "id" },
         title: "Pause, resume, retry the broken attempt, skip it, stop after this test, or stop now",
         agent: { tool: "control_run", say: "Only control runs you started, unless the person asks. Returns the run in brief." },
         method: "POST",
@@ -530,6 +553,7 @@ export const runsPlugin = definePlugin({
       }),
       defineAction<{ id: string; path: string }>({
         name: "runs.file",
+        pack: { run: "id" },
         title: "One of a run's files by its path from the results: a screenshot as base64 with its size, a text as text",
         agent: { tool: "get_file", say: "Screenshots come back as images you can look at." },
         method: "GET",
@@ -542,6 +566,7 @@ export const runsPlugin = definePlugin({
       }),
       defineAction<{ id: string; pauseOnBroken?: boolean; pauseLimitMinutes?: number; testTimeoutMinutes?: number; trace?: "problems" | "always" | "never"; video?: VideoSetting; runVideo?: boolean }>({
         name: "runs.settings",
+        pack: { run: "id" },
         title: "Change a going or queued run's settings: they're kept with the run and apply from the next attempt; a new pause limit applies at once to a broken pause, and the run video starts or stops at once",
         method: "POST",
         path: "/runs/:id/settings",
@@ -563,22 +588,31 @@ export const runsPlugin = definePlugin({
       }),
       defineAction<Record<string, never>>({
         name: "runs.storage",
+        pack: "list",
         title: "What runs take on the drive: free space, the space runs take, the largest runs, and the warning limits",
         method: "GET",
         path: "/storage",
         input: { type: "object", properties: {} },
-        handler: () => engine.storage(),
+        handler: async (_input, { sees }) => {
+          const report = await engine.storage();
+          return { ...report, largest: report.largest.filter((r) => sees?.(r.packId) ?? true) };
+        },
       }),
       defineAction<Record<string, never>>({
         name: "runs.cleanup-preview",
+        pack: "list",
         title: "What cleanup would delete now under the keep rules in Settings > Storage: the runs, oldest first, and the room they take",
         method: "GET",
         path: "/storage/cleanup",
         input: { type: "object", properties: {} },
-        handler: () => engine.cleanupPlan(),
+        handler: (_input, { sees }) => {
+          const plan = engine.cleanupPlan();
+          return { ...plan, runs: plan.runs.filter((r) => sees?.(r.packId) ?? true) };
+        },
       }),
       defineAction<Record<string, never>>({
         name: "runs.cleanup",
+        pack: "none",
         access: "admin",
         destructive: true,
         explain: () => {
@@ -593,6 +627,7 @@ export const runsPlugin = definePlugin({
       }),
       defineAction<Record<string, never>>({
         name: "runs.videos",
+        pack: "none",
         title: "The videos ended runs kept: how many, the room they take, how many Compress kept videos would make smaller at the Video quality setting, and the compress job going or last",
         method: "GET",
         path: "/storage/videos",
@@ -601,6 +636,7 @@ export const runsPlugin = definePlugin({
       }),
       defineAction<Record<string, never>>({
         name: "runs.compress-videos",
+        pack: "none",
         access: "admin",
         destructive: true,
         explain: () => `Encode the videos ended runs kept again at the ${settings.get<string>("runs.videoQuality")} quality, replacing the old files`,
@@ -612,6 +648,7 @@ export const runsPlugin = definePlugin({
       }),
       defineAction<Record<string, never>>({
         name: "runs.compress-videos-stop",
+        pack: "none",
         access: "admin",
         title: "Stop compressing kept videos; the video being encoded stays as it was",
         method: "POST",
@@ -626,6 +663,7 @@ export const runsPlugin = definePlugin({
       control("runs.redo-broken", "redo-broken", "Run only the broken attempts of a finished run again (with what they need)", (id) => engine.redoBroken(id)),
       defineAction<{ id: string; testId: string; number?: number; undo?: boolean }>({
         name: "runs.queue-skip",
+        pack: { run: "id" },
         title: "Skip an attempt that hasn't started yet (undo: true takes the skip back)",
         method: "POST",
         path: "/runs/:id/queue/skip",
@@ -638,6 +676,7 @@ export const runsPlugin = definePlugin({
       }),
       defineAction<{ id: string; testId: string; direction: "up" | "down" }>({
         name: "runs.queue-move",
+        pack: { run: "id" },
         title: "Move a test that hasn't started one place up or down in the queue (it still runs after what it needs)",
         method: "POST",
         path: "/runs/:id/queue/move",
@@ -650,6 +689,7 @@ export const runsPlugin = definePlugin({
       }),
       defineAction<{ id: string; tests: string[] }>({
         name: "runs.queue-add",
+        pack: { run: "id" },
         title: "Add tests to a run that is going; they and what they need go at the end of the queue",
         method: "POST",
         path: "/runs/:id/queue/add",
@@ -662,6 +702,7 @@ export const runsPlugin = definePlugin({
       }),
       defineAction<{ id: string; note?: string; pageId?: string; at?: number }>({
         name: "runs.mark",
+        pack: { run: "id" },
         title: "Save what the live view shows now (or showed at `at`, from the rewind buffer), with a note, on the attempt that is running",
         method: "POST",
         path: "/runs/:id/mark",
@@ -680,6 +721,7 @@ export const runsPlugin = definePlugin({
       }),
       defineAction<{ id: string; when?: "after" | "now" }>({
         name: "runs.stop",
+        pack: { run: "id" },
         title: "Stop after the current test, or now",
         method: "POST",
         path: "/runs/:id/stop",
@@ -692,10 +734,15 @@ export const runsPlugin = definePlugin({
     const dataDir = services.get(FILES_ROOT);
     const root = path.resolve(dataDir, "runs");
     // Artifact files, from the data folder's runs/ only. Ranges are served so videos can seek.
-    app.get("/files/*", { config: { access: "viewer" } }, async (req, reply) => {
+    const packAccess = services.get(PACK_ACCESS);
+    app.get("/files/*", { config: { access: "viewer", pack: "checked" } }, async (req, reply) => {
       // Fastify has already decoded the path once; decoding again would turn "%25" into "%".
       const rel = (req.params as { "*": string })["*"] ?? "";
       if (!rel.startsWith("runs/")) return reply.code(404).send(errorBody("not_found", "No such file."));
+      // A run's files follow its pack's access.
+      const runId = rel.split("/")[1] ?? "";
+      const packId = /^[0-9a-f]{8}$/.test(runId) ? packAccess.packOf("run", runId) : null;
+      if (packId !== null && !packAccess.sees(req.watchwrightUser, packId)) return reply.code(404).send(errorBody("not_found", "No such file."));
       const abs = path.resolve(dataDir, ...rel.split("/"));
       if (!abs.startsWith(root + path.sep) || !existsSync(abs) || !statSync(abs).isFile()) return reply.code(404).send(errorBody("not_found", "No such file."));
       // A link inside the runs folder must not lead out of it.
@@ -714,6 +761,6 @@ export const runsPlugin = definePlugin({
     });
     // Playwright's trace viewer, from our own origin: open /api/v1/trace-viewer/index.html?trace=<file url>.
     const viewer = traceViewerDir();
-    if (viewer) await withAccess(app, "viewer", (scope) => scope.register(fastifyStatic, { root: viewer, prefix: "/trace-viewer/", decorateReply: false, cacheControl: false }));
+    if (viewer) await withAccess(app, "viewer", (scope) => scope.register(fastifyStatic, { root: viewer, prefix: "/trace-viewer/", decorateReply: false, cacheControl: false }), "none");
   },
 });

@@ -64,6 +64,10 @@ These work with [login](../guide/safety#login) on. With it off, the user routes 
 | `GET /packs/:id/download` | The pack's folder as a `.zip`, inside a folder of the same name. `node_modules`, `.git` and links are left out. 413 `too_big` over 200 MB or 5000 files. |
 | `POST /packs/upload?name=&folder=` | Admins only. The body is a `.zip` (content type `application/zip`, at most 50 MB, at most 200 MB unpacked) with a pack file at its top or inside one folder at its top, as `download` makes it. It is unpacked into the new folder `folder/name` (`folder` defaults to where the folder browser starts) and added. 201 with the pack. 400 `bad_zip` for a file that isn't a zip or has paths outside its folder, 400 `no_pack_file`, 403 when `folder` is outside the folders the server shows, 409 `exists` when the folder is already there, 413 `too_big`. |
 | `DELETE /packs/:id` | Forgets the pack (its files and past runs stay). |
+| `GET /packs/:id/access` | Who sees the pack (admins only): `{ mode: "everyone" }`, or `{ mode: "chosen", people, groups, updatedBy, updatedAt }`. See [Pack access](../guide/safety#pack-access). |
+| `POST /packs/:id/access` `{ mode, people?, groups? }` | Opens the pack to everyone signed in (`mode: "everyone"`), or keeps it to chosen people (user ids) and groups (`"chosen"`); admins always see it. Admins only. Emits `pack.access_changed`. |
+
+With login on, a pack an admin kept to chosen people is left out of every list for everyone else, and every call that names it, or something in it (a run, a file, a schedule, a proposal…), answers 404 `not_found` as if it didn't exist. `GET /events` and the live WebSocket leave out its events.
 
 ## Editing files
 

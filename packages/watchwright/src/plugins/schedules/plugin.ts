@@ -3,6 +3,7 @@ import { definePlugin } from "../../core/plugin.js";
 import { ACTIONS, SERVER_PORT } from "../../core/keys.js";
 import { serviceKey } from "../../core/services.js";
 import { ENGINE, FILES_ROOT } from "../runs/plugin.js";
+import { PACK_ACCESS } from "../packs/access.js";
 import { ScheduleError, Scheduler, type MissedPolicy, type RunInput, type Schedule, type ScheduleInput } from "./scheduler.js";
 import { hostPlace, refreshStartup, setStartup, startupInfo, type StartupPlace } from "./startup.js";
 import type { When } from "./when.js";
@@ -84,7 +85,15 @@ export const schedulesPlugin = definePlugin({
   ],
   pages: [{ name: "schedules", title: "Schedules", path: "/schedules", icon: "CalendarClock", menu: "main", order: 35, words: "cron every timer nightly" }],
   setup({ store, events, services }) {
-    services.provide(SCHEDULER, new Scheduler(store.db, events));
+    const scheduler = new Scheduler(store.db, events);
+    services.provide(SCHEDULER, scheduler);
+    services.get(PACK_ACCESS).resolve("schedule", (id) => {
+      try {
+        return scheduler.get(id).packId;
+      } catch {
+        return null;
+      }
+    });
   },
   ready({ services }) {
     const engine = services.get(ENGINE);
@@ -132,13 +141,15 @@ export const schedulesPlugin = definePlugin({
     return [
       defineAction({
         name: "schedules.list",
+        pack: "list",
         title: "The schedules: name, pack, when (in words too), next time, and the last run with its outcome",
         method: "GET",
         path: "/schedules",
-        handler: () => scheduler.list().map(withLast),
+        handler: (_input, { sees }) => scheduler.list().filter((s) => sees?.(s.packId) ?? true).map(withLast),
       }),
       defineAction<{ id: string }>({
         name: "schedules.get",
+        pack: { schedule: "id" },
         title: "One schedule with its runs, newest first",
         method: "GET",
         path: "/schedules/:id",
@@ -151,6 +162,7 @@ export const schedulesPlugin = definePlugin({
       }),
       defineAction<Body>({
         name: "schedules.create",
+        pack: { pack: "packId" },
         destructive: true,
         explain: ({ name, when }) => `Create the schedule "${name}" (${when.every ? `every ${when.every}` : when.cron}), which starts runs by itself`,
         title: "Create a schedule: a pack's run that starts by itself every so often or on a cron expression",
@@ -170,6 +182,7 @@ export const schedulesPlugin = definePlugin({
       }),
       defineAction<Partial<Body> & { id: string }>({
         name: "schedules.update",
+        pack: { schedule: "id", pack: "packId" },
         destructive: true,
         explain: ({ id }) => `Change the schedule ${id}`,
         title: "Change a schedule: any of its name, pack, when, run, missed-time policy or on/off",
@@ -190,6 +203,7 @@ export const schedulesPlugin = definePlugin({
       }),
       defineAction<{ id: string }>({
         name: "schedules.delete",
+        pack: { schedule: "id" },
         destructive: true,
         explain: ({ id }) => `Delete the schedule ${id}`,
         title: "Delete a schedule (its runs stay)",
@@ -204,6 +218,7 @@ export const schedulesPlugin = definePlugin({
       }),
       defineAction<{ id: string }>({
         name: "schedules.run-now",
+        pack: { schedule: "id" },
         title: "Start a schedule's run now, outside its times",
         method: "POST",
         path: "/schedules/:id/run",
@@ -213,6 +228,7 @@ export const schedulesPlugin = definePlugin({
       }),
       defineAction<{ id: string }>({
         name: "schedules.pause",
+        pack: { schedule: "id" },
         title: "Pause a schedule: it starts nothing until resumed",
         method: "POST",
         path: "/schedules/:id/pause",
@@ -221,6 +237,7 @@ export const schedulesPlugin = definePlugin({
       }),
       defineAction<{ id: string }>({
         name: "schedules.resume",
+        pack: { schedule: "id" },
         destructive: true,
         explain: ({ id }) => `Resume the schedule ${id}, which starts runs by itself again`,
         title: "Resume a paused schedule from its next time",
@@ -231,6 +248,7 @@ export const schedulesPlugin = definePlugin({
       }),
       defineAction({
         name: "schedules.startup",
+        pack: "none",
         access: "admin",
         title: "Start at sign-in: whether this server starts when you sign in to the computer (Windows), and the command that starts it",
         method: "GET",
@@ -239,6 +257,7 @@ export const schedulesPlugin = definePlugin({
       }),
       defineAction<{ enabled: boolean }>({
         name: "schedules.set-startup",
+        pack: "none",
         access: "admin",
         destructive: true,
         explain: ({ enabled }) => (enabled ? "Start this Watchwright server when you sign in to the computer" : "Stop starting this Watchwright server when you sign in"),

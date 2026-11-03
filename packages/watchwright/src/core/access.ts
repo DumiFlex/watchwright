@@ -19,6 +19,8 @@ export interface CallUser {
   via: "session" | "token";
   /** With `via: "token"`: which token, so a client can remove its own. */
   tokenId?: string;
+  /** Groups the person is in (from the sign-in provider, or set by an admin), for pack access. */
+  groups?: readonly string[];
 }
 
 /** Headers that can carry who someone is. */

@@ -8,6 +8,8 @@ import { definePlugin } from "../../core/plugin.js";
 import { FOLDERS, FolderError, isInside } from "../folders/folders.js";
 import { PACK_FILES, PackLoadError } from "./loader.js";
 import { discoverPacks, PACKS, PACKS_MIGRATION_SQL, PackRegistry } from "./registry.js";
+import { PACK_ACCESS, PACK_ACCESS_SQL, PackAccessStore } from "./access.js";
+import { PACK_GUARD } from "../../core/keys.js";
 import { convertToCode } from "./convert.js";
 import { StarterError, writeStarter } from "./starter.js";
 import { packSchema, testFileSchema } from "./yaml/schema.js";
@@ -38,20 +40,27 @@ async function packCall<T>(fn: () => Promise<T> | T): Promise<T> {
 export const packsPlugin = definePlugin({
   name: "packs",
   pages: [{ name: "packs", title: "Packs", path: "/packs", icon: "FolderOpen", menu: "main", order: 20, words: "tests suites" }],
-  migrations: [{ id: 1, name: "init", sql: PACKS_MIGRATION_SQL }],
+  migrations: [
+    { id: 1, name: "init", sql: PACKS_MIGRATION_SQL },
+    { id: 2, name: "access", sql: PACK_ACCESS_SQL },
+  ],
   setup({ store, events, services }) {
     const cache = store.dataDir === ":memory:" ? path.join(tmpdir(), `watchwright-cache-${process.pid}`) : path.join(store.dataDir, "cache", "packs");
     const registry = new PackRegistry(store.db, events, cache);
     services.provide(PACKS, registry);
+    const access = new PackAccessStore(store.db);
+    services.provide(PACK_ACCESS, access);
+    services.provide(PACK_GUARD, access);
     const folders = services.get(FOLDERS);
     folders.addMarker({ kind: "pack", files: PACK_FILES });
     folders.allowOpen((dir) => registry.list().some((p) => isInside(dir, p.dir)));
     // Bring stored packs up to date in the background: their files may have changed while the server was down.
     for (const p of registry.list()) void registry.reload(p.id).catch(() => undefined);
   },
-  actions: ({ services }) => {
+  actions: ({ services, events }) => {
     const registry = services.get(PACKS);
     const folders = services.get(FOLDERS);
+    const access = services.get(PACK_ACCESS);
     return [
       defineAction({
         name: "packs.list",
@@ -59,10 +68,12 @@ export const packsPlugin = definePlugin({
         title: "List the packs added to this server",
         method: "GET",
         path: "/packs",
-        handler: () => registry.list(),
+        pack: "list",
+        handler: (_input, { sees }) => registry.list().filter((p) => sees?.(p.id) ?? true),
       }),
       defineAction<{ path: string }>({
         name: "packs.add",
+        pack: "none",
         access: "admin",
         agent: { tool: "add_pack" },
         title: "Add a pack by its folder or pack file path, and load it",
@@ -83,6 +94,7 @@ export const packsPlugin = definePlugin({
       }),
       defineAction<{ path: string; name: string; baseURL: string; format?: "code" | "yaml" }>({
         name: "packs.create",
+        pack: "none",
         access: "admin",
         agent: { tool: "create_pack", say: "Use when the person wants tests for a site that has no pack yet. Prefer format yaml." },
         title: "Write a starter pack (pack file, a first test, a README) into a folder and add it",
@@ -110,6 +122,7 @@ export const packsPlugin = definePlugin({
       }),
       defineAction<{ path: string; depth?: number }>({
         name: "packs.discover",
+        pack: "list",
         access: "admin",
         title: "Find pack files in a folder and the folders below it",
         method: "POST",
@@ -130,6 +143,7 @@ export const packsPlugin = definePlugin({
       }),
       defineAction<{ id: string }>({
         name: "packs.get",
+        pack: { pack: "id" },
         agent: { tool: "get_pack", say: "Read this before writing or running tests: the tests' ids, sections, needs and parameters." },
         title: "One pack with its tests, parameters, flag kinds and load errors",
         method: "GET",
@@ -139,6 +153,7 @@ export const packsPlugin = definePlugin({
       }),
       defineAction<{ id: string }>({
         name: "packs.reload",
+        pack: { pack: "id" },
         title: "Rebuild a pack now",
         method: "POST",
         path: "/packs/:id/reload",
@@ -151,6 +166,7 @@ export const packsPlugin = definePlugin({
       }),
       defineAction<{ id: string; path: string }>({
         name: "packs.move",
+        pack: { pack: "id" },
         access: "admin",
         title: "Point a pack at its new folder, keeping its id and runs",
         method: "POST",
@@ -167,6 +183,7 @@ export const packsPlugin = definePlugin({
       }),
       defineAction<{ kind?: "test" | "pack" }>({
         name: "packs.yaml-schema",
+        pack: "none",
         agent: { tool: "test_format", say: "The full YAML test format, when the skill's step list isn't enough." },
         title: "The JSON Schema of YAML test files or of pack.yaml",
         method: "GET",
@@ -176,6 +193,7 @@ export const packsPlugin = definePlugin({
       }),
       defineAction<{ text: string; kind?: "test" | "pack" }>({
         name: "packs.check-yaml",
+        pack: "none",
         agent: { tool: "check_test", say: "Check a YAML test before writing it to the pack." },
         title: "Check the text of a YAML test file or of pack.yaml, without saving it",
         method: "POST",
@@ -196,6 +214,7 @@ export const packsPlugin = definePlugin({
       }),
       defineAction<{ id: string; file: string }>({
         name: "packs.convert-test",
+        pack: { pack: "id" },
         access: "admin",
         title: "Turn a YAML test file into a TypeScript test file that does the same",
         method: "POST",
@@ -218,6 +237,7 @@ export const packsPlugin = definePlugin({
       }),
       defineAction<{ id: string }>({
         name: "packs.remove",
+        pack: { pack: "id" },
         destructive: true,
         explain: ({ id }: { id: string }) => `Remove the pack "${registry.get(id)?.name ?? id}" from Watchwright (its files and past runs stay)`,
         title: "Remove a pack from this server (its files and past runs stay)",
@@ -226,7 +246,46 @@ export const packsPlugin = definePlugin({
         input: { type: "object", properties: { id: ID }, required: ["id"] },
         handler: ({ id }) => {
           if (!registry.remove(id)) notFound(id);
+          access.forget(id);
           return { removed: id };
+        },
+      }),
+      defineAction<{ id: string }>({
+        name: "packs.access",
+        pack: { pack: "id" },
+        access: "admin",
+        title: "Who may see a pack: everyone signed in, or only chosen people and groups (and the admins)",
+        method: "GET",
+        path: "/packs/:id/access",
+        input: { type: "object", properties: { id: ID }, required: ["id"] },
+        handler: ({ id }) => {
+          if (!registry.get(id)) notFound(id);
+          return access.get(id);
+        },
+      }),
+      defineAction<{ id: string; mode: "everyone" | "chosen"; people?: string[]; groups?: string[] }>({
+        name: "packs.set-access",
+        pack: { pack: "id" },
+        access: "admin",
+        title: "Open a pack to everyone signed in, or keep it to chosen people and groups (admins always see it)",
+        method: "POST",
+        path: "/packs/:id/access",
+        input: {
+          type: "object",
+          properties: {
+            id: ID,
+            mode: { type: "string", enum: ["everyone", "chosen"] },
+            people: { type: "array", items: { type: "string", minLength: 1, maxLength: 64 }, maxItems: 500, description: "User ids." },
+            groups: { type: "array", items: { type: "string", minLength: 1, maxLength: 200 }, maxItems: 100, description: "Group names, as the sign-in provider or Admin › Users names them." },
+          },
+          required: ["id", "mode"],
+        },
+        handler: ({ id, mode, people = [], groups = [] }, call) => {
+          const pack = registry.get(id) ?? notFound(id);
+          const by = call.user?.name ?? call.client;
+          const out = access.set(id, mode === "everyone" ? null : { people, groups }, by);
+          events.append("pack.access_changed", { packId: id, packName: pack.name, mode, by });
+          return out;
         },
       }),
     ];
@@ -236,6 +295,7 @@ export const packsPlugin = definePlugin({
     // onto (docs/plans/self-hosting.md). Plain routes, since their bodies are files, not JSON.
     const registry = services.get(PACKS);
     const folders = services.get(FOLDERS);
+    const access = services.get(PACK_ACCESS);
     const fail = (reply: FastifyReply, err: unknown) => {
       if (err instanceof ArchiveError) return reply.code(ARCHIVE_STATUS[err.code]).send(errorBody(err.code, err.message));
       if (err instanceof ActionError) return reply.code(err.status).send(errorBody(err.code, err.message));
@@ -243,8 +303,8 @@ export const packsPlugin = definePlugin({
       throw err;
     };
 
-    app.get<{ Params: { id: string } }>("/packs/:id/download", { config: { access: "viewer" } }, async (req, reply) => {
-      const pack = /^[0-9a-f]{8}$/.test(req.params.id) ? registry.get(req.params.id) : null;
+    app.get<{ Params: { id: string } }>("/packs/:id/download", { config: { access: "viewer", pack: "checked" } }, async (req, reply) => {
+      const pack = /^[0-9a-f]{8}$/.test(req.params.id) && access.sees(req.watchwrightUser, req.params.id) ? registry.get(req.params.id) : null;
       if (!pack) return reply.code(404).send(errorBody("not_found", `No pack with id ${req.params.id}.`));
       if (pack.missing) return reply.code(404).send(errorBody("not_found", "The pack's folder is gone."));
       try {
@@ -261,7 +321,7 @@ export const packsPlugin = definePlugin({
 
     // Pack code runs on the server, so only admins may bring in a pack from a file.
     app.addContentTypeParser(["application/zip", "application/x-zip-compressed", "application/octet-stream"], { parseAs: "buffer", bodyLimit: UPLOAD_MAX_BYTES }, (_req, body, done) => done(null, body));
-    app.post<{ Querystring: { name?: string; folder?: string } }>("/packs/upload", { config: { access: "admin" }, bodyLimit: UPLOAD_MAX_BYTES }, async (req, reply) => {
+    app.post<{ Querystring: { name?: string; folder?: string } }>("/packs/upload", { config: { access: "admin", pack: "none" }, bodyLimit: UPLOAD_MAX_BYTES }, async (req, reply) => {
       if (!Buffer.isBuffer(req.body)) return reply.code(415).send(errorBody("bad_zip", "Send the zip file as the body, with content type application/zip."));
       try {
         const parent = folders.list(req.query.folder?.trim() || folders.start).path; // a readable folder this server may show

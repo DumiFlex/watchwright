@@ -129,6 +129,7 @@ export const dashboardsPlugin = definePlugin({
     return [
       defineAction<{ id: string; runs?: number; days?: number; filter?: string }>({
         name: "dashboards.get",
+        pack: { pack: "id" },
         title: "A pack's dashboard: its tiles (the pack's, or as changed on its page) with each tile's numbers over the latest runs",
         method: "GET",
         path: "/packs/:id/dashboard",
@@ -150,6 +151,7 @@ export const dashboardsPlugin = definePlugin({
       }),
       defineAction<{ id: string }>({
         name: "dashboards.names",
+        pack: { pack: "id" },
         title: "Names a pack's dashboard can use, found in its latest 50 runs: params, facts, metrics, texts, files, screenshots, flags, criteria, sections, tags and tests",
         method: "GET",
         path: "/packs/:id/dashboard/names",
@@ -162,6 +164,7 @@ export const dashboardsPlugin = definePlugin({
       }),
       defineAction<{ id: string; tiles?: unknown[]; groups?: unknown[]; runs?: number; days?: number; filters?: string[] }>({
         name: "dashboards.save",
+        pack: { pack: "id" },
         title: "Change what a pack's dashboard shows (kept on the server until reset to the pack's)",
         method: "POST",
         path: "/packs/:id/dashboard",
@@ -190,6 +193,7 @@ export const dashboardsPlugin = definePlugin({
       }),
       defineAction<{ id: string }>({
         name: "dashboards.reset",
+        pack: { pack: "id" },
         title: "Drop the changes made to a pack's dashboard on its page: it shows the pack's own again",
         method: "DELETE",
         path: "/packs/:id/dashboard",

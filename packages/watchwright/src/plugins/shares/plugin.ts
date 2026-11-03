@@ -9,6 +9,7 @@ import { errorBody } from "../../server/errors.js";
 import { DASHBOARDS } from "../dashboards/plugin.js";
 import type { ShareOptions } from "../packs/dashboard.js";
 import { PACKS } from "../packs/registry.js";
+import { PACK_ACCESS } from "../packs/access.js";
 import { REVIEWS } from "../reviews/plugin.js";
 import type { RunDetail } from "../runs/engine.js";
 import { byteRange, ENGINE, FILES_ROOT } from "../runs/plugin.js";
@@ -51,7 +52,13 @@ export const sharesPlugin = definePlugin({
     { id: 3, name: "names", sql: SHARES_NAMES_SQL },
   ],
   setup({ store, services }) {
-    services.provide(SHARES, new SharesStore(store.db));
+    const shares = new SharesStore(store.db);
+    services.provide(SHARES, shares);
+    const access = services.get(PACK_ACCESS);
+    access.resolve("share", (id) => {
+      const s = shares.get(id);
+      return s ? access.packOf("run", s.runId) : null;
+    });
   },
   ready({ services }) {
     const engine = services.get(ENGINE);
@@ -63,23 +70,26 @@ export const sharesPlugin = definePlugin({
     return [
       defineAction<{ run?: string }>({
         name: "shares.list",
+        pack: "list",
         title: "Share links that still work, of one run or all",
         method: "GET",
         path: "/shares",
         access: "user",
         input: { type: "object", properties: { run: RUN_ID } },
-        handler: ({ run }) => {
+        handler: ({ run }, { sees }) => {
           const engine = services.get(ENGINE);
           return shares()
             .list(run)
-            .map((s) => {
+            .flatMap((s) => {
               const r = engine.get(s.runId);
-              return { ...s, run: r ? { packName: r.packName, label: r.label, status: r.status, createdAt: r.createdAt } : null };
+              if (r && !(sees?.(r.packId) ?? true)) return [];
+              return [{ ...s, run: r ? { packName: r.packName, label: r.label, status: r.status, createdAt: r.createdAt } : null }];
             });
         },
       }),
       defineAction<{ run: string; days?: number; traces?: boolean; names?: boolean }>({
         name: "shares.add",
+        pack: { run: "run" },
         title: "Make a link that lets anyone who has it see a run's results, screenshots, video and files, read-only",
         method: "POST",
         path: "/shares",
@@ -103,6 +113,7 @@ export const sharesPlugin = definePlugin({
       }),
       defineAction<{ id: string }>({
         name: "shares.remove",
+        pack: { share: "id" },
         title: "Take back a share link: it stops working at once",
         method: "DELETE",
         path: "/shares/:id",
@@ -115,6 +126,7 @@ export const sharesPlugin = definePlugin({
       }),
       defineAction({
         name: "shares.dashboard",
+        pack: "none",
         title: "The public dashboard's settings: whether it is on, its packs, whether its runs open",
         method: "GET",
         path: "/shares/dashboard",
@@ -123,6 +135,7 @@ export const sharesPlugin = definePlugin({
       }),
       defineAction<Partial<DashboardSettings>>({
         name: "shares.set-dashboard",
+        pack: "none",
         title: "Change the public dashboard: on or off, which packs, whether its runs open read-only, whether packs show their tiles",
         method: "POST",
         path: "/shares/dashboard",
@@ -242,14 +255,14 @@ export const sharesPlugin = definePlugin({
     };
 
     const routesFor = (prefix: string, open: (key: string, view: boolean) => Opened | null) => {
-      app.get<{ Params: { key: string } }>(`${prefix}`, { config: { access: "public" } }, async (req, reply) => {
+      app.get<{ Params: { key: string } }>(`${prefix}`, { config: { access: "public", pack: "none" } }, async (req, reply) => {
         if (limited(req, reply)) return reply;
         const o = open(req.params.key, true);
         const r = o ? engine.get(o.runId) : null;
         if (!o || !r) return gone(reply);
         return { data: runOut(o, r) };
       });
-      app.get<{ Params: { key: string; attemptId: string } }>(`${prefix}/attempts/:attemptId`, { config: { access: "public" } }, async (req, reply) => {
+      app.get<{ Params: { key: string; attemptId: string } }>(`${prefix}/attempts/:attemptId`, { config: { access: "public", pack: "none" } }, async (req, reply) => {
         if (limited(req, reply)) return reply;
         const o = open(req.params.key, false);
         const r = o ? engine.get(o.runId) : null;
@@ -257,7 +270,7 @@ export const sharesPlugin = definePlugin({
         if (!o || !r || !d) return gone(reply);
         return { data: attemptOut(o, r, d) };
       });
-      app.get<{ Params: { key: string; "*": string } }>(`${prefix}/files/*`, { config: { access: "public" } }, async (req, reply) => {
+      app.get<{ Params: { key: string; "*": string } }>(`${prefix}/files/*`, { config: { access: "public", pack: "none" } }, async (req, reply) => {
         if (limited(req, reply)) return reply;
         const o = open(req.params.key, false);
         const r = o ? engine.get(o.runId) : null;
@@ -282,7 +295,7 @@ export const sharesPlugin = definePlugin({
     routesFor("/public/runs/:key", (runId) => byDashboard(runId));
 
     // The public dashboard: each chosen pack's latest run and the trend of its last 20.
-    app.get("/public/status", { config: { access: "public" } }, async (req, reply) => {
+    app.get("/public/status", { config: { access: "public", pack: "none" } }, async (req, reply) => {
       if (limited(req, reply)) return reply;
       const d = dashboard();
       if (!d.on) return reply.code(404).send(errorBody("dashboard_off", "This server has no public dashboard."));

@@ -301,10 +301,10 @@ export class Engine {
   }
 
   /** Runs and outcomes per day for the `days` days ending today, in a time zone `offset` minutes behind UTC. */
-  stats(o: { days: number; offset: number; packId?: string | undefined; until?: string | undefined }): RunStats {
+  stats(o: { days: number; offset: number; packId?: string | undefined; until?: string | undefined; hidePacks?: readonly string[] }): RunStats {
     const until = o.until ?? dayOf(new Date().toISOString(), o.offset);
     const from = dayStart(dayList(until, o.days * 2)[0]!, o.offset);
-    return runStats(this.o.repo.statsRows(from, o.packId), { until, days: o.days, offset: o.offset });
+    return runStats(this.o.repo.statsRows(from, o.packId, o.hidePacks), { until, days: o.days, offset: o.offset });
   }
 
   testHistory(packId: string, limit: number): Record<string, HistoryEntry[]> {

@@ -6,6 +6,7 @@ import { definePlugin } from "../../core/plugin.js";
 import { serviceKey, type Services } from "../../core/services.js";
 import { errorBody } from "../../server/errors.js";
 import { PACKS } from "../packs/registry.js";
+import { PACK_ACCESS } from "../packs/access.js";
 import { rubricFor, scoreProblem, type Criterion, type Score } from "../packs/rubric.js";
 import { ENGINE, FILES_ROOT } from "../runs/plugin.js";
 import type { ResultDocument } from "../runs/results.js";
@@ -35,14 +36,14 @@ function criteriaFor(services: Services, runId: string, packId: string, testId: 
 }
 
 /** Lines up runs of one pack (a run export is a comparison of one run). */
-export function comparisonOf(services: Services, list: string): Comparison {
+export function comparisonOf(services: Services, list: string, sees?: (packId: string) => boolean): Comparison {
   const engine = services.get(ENGINE);
   const repo = services.get(REVIEWS);
   const ids = [...new Set(list.split(",").filter(Boolean))];
   if (ids.length === 0 || ids.length > MAX_COMPARE) throw new ActionError("bad_input", `Give one to ${MAX_COMPARE} run ids.`);
   const runs = ids.map((id) => {
     const run = engine.get(id);
-    if (!run) throw new ActionError("not_found", `No run with id ${id}.`, 404);
+    if (!run || !(sees?.(run.packId) ?? true)) throw new ActionError("not_found", `No run with id ${id}.`, 404);
     return run;
   });
   const packs = new Set(runs.map((r) => r.packId));
@@ -129,6 +130,7 @@ export const reviewsPlugin = definePlugin({
     return [
       defineAction<{ id: string; attemptId: string }, AttemptReviews>({
         name: "reviews.get",
+        pack: { run: "id" },
         title: "Get an attempt's rubric and reviews",
         method: "GET",
         path: "/runs/:id/attempts/:attemptId/review",
@@ -140,6 +142,7 @@ export const reviewsPlugin = definePlugin({
       }),
       defineAction<{ id: string; attemptId: string; scores?: Record<string, Score | null>; note?: string }, Review>({
         name: "reviews.save",
+        pack: { run: "id" },
         agent: { tool: "save_review", say: "Score only attempts you looked at (screenshots, texts). The review is filed under your name." },
         title: "Score an attempt and leave a note",
         method: "POST",
@@ -176,6 +179,7 @@ export const reviewsPlugin = definePlugin({
       }),
       defineAction<{ id: string }, Record<string, Criterion[]>>({
         name: "reviews.rubric",
+        pack: { run: "id" },
         agent: { tool: "get_rubric" },
         title: "Get the criteria each test of a run is scored on",
         method: "GET",
@@ -190,6 +194,7 @@ export const reviewsPlugin = definePlugin({
       }),
       defineAction<{ run?: string; pack?: string; test?: string; reviewer?: string }, Review[]>({
         name: "reviews.list",
+        pack: "list",
         title: "List reviews by run, pack, test or reviewer",
         method: "GET",
         path: "/reviews",
@@ -202,18 +207,20 @@ export const reviewsPlugin = definePlugin({
             reviewer: { type: "string", maxLength: 60 },
           },
         },
-        handler: ({ run, pack, test, reviewer }) => repo.list({ runId: run, packId: pack, testId: test, reviewer }),
+        handler: ({ run, pack, test, reviewer }, { sees }) => repo.list({ runId: run, packId: pack, testId: test, reviewer }).filter((r) => sees?.(r.packId) ?? true),
       }),
       defineAction<{ runs: string }, Comparison>({
         name: "runs.compare",
+        pack: "list",
         title: "Line up the same tests across runs of one pack",
         method: "GET",
         path: "/compare",
         input: { type: "object", properties: { runs: RUN_LIST }, required: ["runs"] },
-        handler: ({ runs }) => comparisonOf(services, runs),
+        handler: ({ runs }, { sees }) => comparisonOf(services, runs, sees),
       }),
       defineAction<{ id: string; against?: string }, RunChanges>({
         name: "runs.changes",
+        pack: { run: ["id", "against"] },
         title: "What changed in a run since the last run of the same pack and params (or since `against`): status, flags, score and time per attempt",
         method: "GET",
         path: "/runs/:id/changes",
@@ -222,12 +229,13 @@ export const reviewsPlugin = definePlugin({
       }),
       defineAction<{ runs: string }, { name: string; markdown: string }>({
         name: "reviews.export",
+        pack: "list",
         title: "Export runs with their reviews as Markdown",
         method: "GET",
         path: "/export",
         input: { type: "object", properties: { runs: RUN_LIST }, required: ["runs"] },
-        handler: ({ runs }) => {
-          const c = comparisonOf(services, runs);
+        handler: ({ runs }, { sees }) => {
+          const c = comparisonOf(services, runs, sees);
           return { name: exportName(c, "md"), markdown: toMarkdown(c, { link: (s) => s.url, now: new Date().toISOString() }) };
         },
       }),
@@ -237,11 +245,13 @@ export const reviewsPlugin = definePlugin({
     // Downloads of the export: the Markdown with links to this server, or a zip with the
     // Markdown and its screenshots and files next to it.
     const dataDir = services.get(FILES_ROOT);
+    const access = services.get(PACK_ACCESS);
     const load = (req: FastifyRequest, reply: FastifyReply): Comparison | null => {
       const runs = (req.query as { runs?: unknown }).runs;
       try {
         if (typeof runs !== "string" || !new RegExp(RUN_LIST.pattern).test(runs)) throw new ActionError("invalid_input", RUN_LIST.description);
-        return comparisonOf(services, runs);
+        const user = req.watchwrightUser;
+        return comparisonOf(services, runs, (packId) => access.sees(user, packId));
       } catch (err) {
         const e = err instanceof ActionError ? err : new ActionError("internal", String(err), 500);
         void reply.code(e.status).send(errorBody(e.code, e.message));
@@ -249,14 +259,14 @@ export const reviewsPlugin = definePlugin({
       }
     };
     const attachment = (name: string) => `attachment; filename="${name}"`;
-    app.get("/export.md", { config: { access: "viewer" } }, async (req, reply) => {
+    app.get("/export.md", { config: { access: "viewer", pack: "checked" } }, async (req, reply) => {
       const c = load(req, reply);
       if (!c) return reply;
       const origin = `http://${req.headers.host ?? "127.0.0.1"}`;
       const md = toMarkdown(c, { link: (s) => origin + s.url, now: new Date().toISOString() });
       return reply.type("text/markdown; charset=utf-8").header("content-disposition", attachment(exportName(c, "md"))).send(md);
     });
-    app.get("/export.zip", { config: { access: "viewer" } }, async (req, reply) => {
+    app.get("/export.zip", { config: { access: "viewer", pack: "checked" } }, async (req, reply) => {
       const c = load(req, reply);
       if (!c) return reply;
       const entries: ZipEntry[] = [];

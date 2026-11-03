@@ -26,6 +26,7 @@ export const foldersPlugin = definePlugin({
     return [
       defineAction<{ path: string; hidden?: boolean }>({
         name: "folders.list",
+        pack: "none",
         title: "List the folders inside a folder, marking the ones plugins care about (pack folders)",
         method: "GET",
         path: "/folders",
@@ -41,6 +42,7 @@ export const foldersPlugin = definePlugin({
       }),
       defineAction({
         name: "folders.places",
+        pack: "none",
         title: "Where to start browsing: the home folder, drives or root (or the folders the server allows), recent folders, and whether folders can be shown in a file manager",
         method: "GET",
         path: "/folders/places",
@@ -48,6 +50,7 @@ export const foldersPlugin = definePlugin({
       }),
       defineAction<{ path?: string }>({
         name: "folders.forget",
+        pack: "none",
         title: "Remove one folder, or all of them, from the recent folders",
         method: "DELETE",
         path: "/folders/recent",
@@ -59,6 +62,7 @@ export const foldersPlugin = definePlugin({
       }),
       defineAction<{ path: string }>({
         name: "folders.open",
+        pack: "none",
         title: "Show a pack folder or a run folder in the system's file manager",
         method: "POST",
         path: "/folders/open",

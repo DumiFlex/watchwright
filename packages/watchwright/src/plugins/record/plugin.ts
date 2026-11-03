@@ -5,6 +5,7 @@ import { serviceKey } from "../../core/services.js";
 import { FRAMES } from "../live/hub.js";
 import { resolveParams } from "../packs/order.js";
 import { PACKS } from "../packs/registry.js";
+import { PACK_ACCESS } from "../packs/access.js";
 import { STEP_BY_NAME, type StepArgs } from "../packs/yaml/steps.js";
 import type { Target } from "../packs/yaml/targets.js";
 import { ENGINE, FILES_ROOT } from "../runs/plugin.js";
@@ -37,6 +38,11 @@ export class Recordings {
 
   list(): RecordSession[] {
     return [...this.all.values()];
+  }
+
+  /** The pack a recording is for, or null when there's no such recording. */
+  packOf(id: string): string | null {
+    return this.all.get(id)?.opts.packId ?? null;
   }
 
   async stop(id: string, message: string | null = null): Promise<RecordSession> {
@@ -80,7 +86,9 @@ function checkStep(name: string): void {
 export const recordPlugin = definePlugin({
   name: "record",
   setup({ services }) {
-    services.provide(RECORDINGS, new Recordings());
+    const recordings = new Recordings();
+    services.provide(RECORDINGS, recordings);
+    services.get(PACK_ACCESS).resolve("recording", (id) => recordings.packOf(id));
   },
   async close({ services }) {
     await services.get(RECORDINGS).close();
@@ -94,13 +102,15 @@ export const recordPlugin = definePlugin({
     return [
       defineAction({
         name: "record.list",
+        pack: "list",
         title: "Recordings going or recently ended, and whether Record in a window can open a browser on this machine",
         method: "GET",
         path: "/record",
-        handler: () => ({ canWindow: canOpenWindow(), recordings: recordings.list().map((r) => r.state()) }),
+        handler: (_input, { sees }) => ({ canWindow: canOpenWindow(), recordings: recordings.list().filter((r) => sees?.(r.opts.packId) ?? true).map((r) => r.state()) }),
       }),
       defineAction<{ packId: string; testId?: string; replay?: number; line?: number; url?: string; params?: Record<string, unknown>; window?: boolean; signIn?: boolean }>({
         name: "record.start",
+        pack: { pack: "packId" },
         title: "Start recording: a browser with the pack's options, shown on the live view (or in a window), whose clicks and typing become steps",
         agent: {
           tool: "explore_start",
@@ -162,6 +172,7 @@ export const recordPlugin = definePlugin({
       }),
       defineAction<{ id: string }>({
         name: "record.get",
+        pack: { recording: "id" },
         title: "One recording: its status, pages and the steps so far",
         method: "GET",
         path: "/record/:id",
@@ -170,6 +181,7 @@ export const recordPlugin = definePlugin({
       }),
       defineAction<{ id: string } & Record<string, unknown>>({
         name: "record.input",
+        pack: { recording: "id" },
         title: "Send a click, key, text or navigation from the live view to the recording's active page (x and y in page pixels); a move, up or wheel answers with the element now under the pointer (`hover`: its box, tag and best target)",
         method: "POST",
         path: "/record/:id/input",
@@ -206,6 +218,7 @@ export const recordPlugin = definePlugin({
       }),
       defineAction<{ id: string; x: number; y: number }>({
         name: "record.pick",
+        pack: { recording: "id" },
         title: "The element under a point on the recording's page: its targets (best first), text, value and checked state, for Check and Wait for",
         method: "POST",
         path: "/record/:id/pick",
@@ -218,6 +231,7 @@ export const recordPlugin = definePlugin({
       }),
       defineAction<{ id: string; steps: unknown[]; shot?: boolean }>({
         name: "record.do",
+        pack: { recording: "id" },
         title: "Run steps on the recording's active page, one at a time until one fails; each step that ran joins the recording's steps",
         agent: {
           tool: "explore_do",
@@ -238,6 +252,7 @@ export const recordPlugin = definePlugin({
       }),
       defineAction<{ id: string }>({
         name: "record.save-sign-in",
+        pack: { recording: "id" },
         access: "admin",
         destructive: true,
         explain: ({ id }) => `Save the sign-in of recording ${id} for its site, replacing the one saved before`,
@@ -249,6 +264,7 @@ export const recordPlugin = definePlugin({
       }),
       defineAction<{ id: string; shot?: boolean }>({
         name: "record.look",
+        pack: { recording: "id" },
         title: "The recording's active page: its address, title and aria snapshot, whose elements carry refs (e4) steps can name; a screenshot when asked",
         agent: { tool: "explore_look", say: "Ask for shot: true when how the page looks matters, not just what is on it." },
         method: "GET",
@@ -258,6 +274,7 @@ export const recordPlugin = definePlugin({
       }),
       defineAction<{ id: string; pageId: string }>({
         name: "record.page",
+        pack: { recording: "id" },
         title: "Make one of the recording's tabs the one the live view shows and input goes to",
         method: "POST",
         path: "/record/:id/page",
@@ -269,6 +286,7 @@ export const recordPlugin = definePlugin({
       }),
       defineAction<{ id: string; name: string; args?: StepArgs; targets?: Target[]; index?: number }>({
         name: "record.add-step",
+        pack: { recording: "id" },
         title: "Add a step to the recording (Check, Shot, Note, Wait for, or any step)",
         method: "POST",
         path: "/record/:id/steps",
@@ -286,6 +304,7 @@ export const recordPlugin = definePlugin({
       }),
       defineAction<{ id: string; step: string; name?: string; args?: StepArgs }>({
         name: "record.update-step",
+        pack: { recording: "id" },
         title: "Change a recorded step: its fields, or which of its targets it uses",
         method: "POST",
         path: "/record/:id/steps/:step",
@@ -299,6 +318,7 @@ export const recordPlugin = definePlugin({
       }),
       defineAction<{ id: string; step: string }>({
         name: "record.remove-step",
+        pack: { recording: "id" },
         title: "Remove a recorded step",
         method: "DELETE",
         path: "/record/:id/steps/:step",
@@ -310,6 +330,7 @@ export const recordPlugin = definePlugin({
       }),
       defineAction<{ id: string }>({
         name: "record.stop",
+        pack: { recording: "id" },
         title: "End a recording and close its browser; returns its steps, and as `yaml` the list a test's `steps:` takes (Done puts them in the file, Cancel drops them)",
         agent: { tool: "explore_stop", say: "Only stop sessions you started. Put the yaml under a test's steps: and save it with write_pack_file, then check and run it." },
         method: "POST",
