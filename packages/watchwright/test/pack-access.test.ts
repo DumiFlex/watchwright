@@ -151,3 +151,21 @@ describe("pack access", () => {
     expect(access.hiddenFrom(person)).toEqual([secret.id]);
   });
 });
+
+describe("groups", () => {
+  it("lets people in by the groups an admin sets and the ones their sign-in brings", async () => {
+    const { as, ids, secret } = await make();
+    await as("ada", "POST", `/packs/${secret.id}/access`, { mode: "chosen", groups: ["QA"] });
+    expect((await as("ulf", "GET", `/packs/${secret.id}`)).status).toBe(404);
+    // Only admins set groups.
+    expect((await as("ulf", "POST", `/auth/users/${ids.ulf}`, { groups: ["qa"] })).status).toBe(403);
+    const changed = await as("ada", "POST", `/auth/users/${ids.ulf}`, { groups: [" qa ", "QA", "night shift"] });
+    expect(changed.body.data).toMatchObject({ groups: ["night shift", "qa"], ssoGroups: [] });
+    expect((await as("ulf", "GET", `/packs/${secret.id}`)).status).toBe(200);
+    // The admin's overview lists kept packs only.
+    const all = (await as("ada", "GET", "/packs/access")).body.data as Record<string, { mode: string; groups: string[] }>;
+    expect(Object.keys(all)).toEqual([secret.id]);
+    expect(all[secret.id]).toMatchObject({ mode: "chosen", groups: ["QA"] });
+    expect((await as("uma", "GET", "/packs/access")).status).toBe(403);
+  });
+});

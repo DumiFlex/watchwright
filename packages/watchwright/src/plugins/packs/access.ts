@@ -59,6 +59,11 @@ export class PackAccessStore implements PackGuard {
     return r ? { mode: "chosen", ...r, people: [...r.people], groups: [...r.groups] } : { mode: "everyone" };
   }
 
+  /** Every pack kept to chosen people, by pack id. */
+  all(): Record<string, PackAccess> {
+    return Object.fromEntries([...this.rules.keys()].map((id) => [id, this.get(id)]));
+  }
+
   /** Keeps a pack to these people and groups (admins always see it), or opens it to everyone with null. */
   set(packId: string, rule: { people: string[]; groups: string[] } | null, by: string): PackAccess {
     if (!rule) {

@@ -64,6 +64,24 @@ export const SSO_SQL = `
   CREATE UNIQUE INDEX users_subject ON users (source, subject) WHERE subject IS NOT NULL;
 `;
 
+/** Migration 4: groups for pack access, set by an admin (`groups`) or sent by the sign-in provider at each sign-in (`sso_groups`). */
+export const GROUPS_SQL = `
+  ALTER TABLE users ADD COLUMN groups TEXT NOT NULL DEFAULT '[]';
+  ALTER TABLE users ADD COLUMN sso_groups TEXT NOT NULL DEFAULT '[]';
+`;
+
+/** A group name as kept: trimmed, at most 200 characters; empty ones and repeats (ignoring case) go. */
+export function cleanGroups(list: readonly string[]): string[] {
+  const out = new Map<string, string>();
+  for (const g of list) {
+    const t = g.trim().slice(0, 200);
+    if (t && !out.has(t.toLowerCase())) out.set(t.toLowerCase(), t);
+  }
+  return [...out.values()].sort((a, b) => a.localeCompare(b));
+}
+
+const groupsOfRow = (r: { groups?: string; sso_groups?: string }): string[] => cleanGroups([...(JSON.parse(r.groups ?? "[]") as string[]), ...(JSON.parse(r.sso_groups ?? "[]") as string[])]);
+
 export interface InviteInfo {
   id: string;
   role: Role;
@@ -92,6 +110,10 @@ export interface UserInfo {
   role: Role;
   source: "local" | "oidc" | "header";
   disabled: boolean;
+  /** Groups an admin put the user in, for pack access. */
+  groups: string[];
+  /** Groups the sign-in provider (or proxy) said the user is in, at their last sign-in. */
+  ssoGroups: string[];
   /** Has a password (local sign-in works). */
   hasPassword: boolean;
   createdAt: string;
@@ -117,6 +139,8 @@ interface UserRow {
   password: string | null;
   source: string;
   disabled: number;
+  groups: string;
+  sso_groups: string;
   created_at: string;
   seen_at: string | null;
 }
@@ -128,6 +152,8 @@ const toUser = (r: UserRow): UserInfo => ({
   role: r.role as Role,
   source: r.source as UserInfo["source"],
   disabled: r.disabled === 1,
+  groups: cleanGroups(JSON.parse(r.groups ?? "[]") as string[]),
+  ssoGroups: cleanGroups(JSON.parse(r.sso_groups ?? "[]") as string[]),
   hasPassword: r.password !== null,
   createdAt: r.created_at,
   seenAt: r.seen_at,
@@ -196,7 +222,7 @@ export class AuthStore {
     return this.user(id)!;
   }
 
-  async update(id: string, change: { role?: Role | undefined; password?: string | undefined; disabled?: boolean | undefined; displayName?: string | null | undefined }): Promise<UserInfo> {
+  async update(id: string, change: { role?: Role | undefined; password?: string | undefined; disabled?: boolean | undefined; displayName?: string | null | undefined; groups?: string[] | undefined }): Promise<UserInfo> {
     const user = this.user(id);
     if (!user) throw new ActionError("not_found", `No user with id ${id}.`, 404);
     const demotes = (change.role !== undefined && change.role !== "admin") || change.disabled === true;
@@ -206,6 +232,7 @@ export class AuthStore {
       this.db.prepare("UPDATE users SET role = ? WHERE id = ?").run(change.role, id);
     }
     if (change.displayName !== undefined) this.db.prepare("UPDATE users SET display_name = ? WHERE id = ?").run(change.displayName?.trim() || null, id);
+    if (change.groups !== undefined) this.db.prepare("UPDATE users SET groups = ? WHERE id = ?").run(JSON.stringify(cleanGroups(change.groups)), id);
     if (change.password !== undefined) {
       checkNewPassword(change.password);
       this.db.prepare("UPDATE users SET password = ? WHERE id = ?").run(await hashPassword(change.password), id);
@@ -246,11 +273,13 @@ export class AuthStore {
    * (except that the last admin stays one), and a new account needs one. Null: no account and no
    * role, or the account is disabled.
    */
-  external(source: "oidc" | "header", subject: string, wanted: { name: string; displayName?: string | null | undefined }, role: Role | null): UserInfo | null {
+  external(source: "oidc" | "header", subject: string, wanted: { name: string; displayName?: string | null | undefined; groups?: readonly string[] | undefined }, role: Role | null): UserInfo | null {
     const r = this.db.prepare("SELECT * FROM users WHERE source = ? AND subject = ?").get(source, subject) as UserRow | undefined;
     const now = new Date().toISOString();
+    const ssoGroups = JSON.stringify(cleanGroups(wanted.groups ?? []));
     if (r) {
       if (r.disabled === 1) return null;
+      if (ssoGroups !== r.sso_groups) this.db.prepare("UPDATE users SET sso_groups = ? WHERE id = ?").run(ssoGroups, r.id);
       const lastAdmin = r.role === "admin" && this.admins() <= 1;
       if (role && role !== r.role && !(lastAdmin && role !== "admin")) this.db.prepare("UPDATE users SET role = ? WHERE id = ?").run(role, r.id);
       if (wanted.displayName && wanted.displayName !== r.display_name) this.db.prepare("UPDATE users SET display_name = ? WHERE id = ?").run(wanted.displayName.slice(0, 120), r.id);
@@ -264,8 +293,8 @@ export class AuthStore {
     for (let i = 2; this.byName(name); i++) name = `${base}-${i}`;
     const id = randomBytes(6).toString("hex");
     this.db
-      .prepare("INSERT INTO users (id, name, display_name, role, password, source, subject, created_at, seen_at) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?)")
-      .run(id, name, wanted.displayName?.slice(0, 120) || null, role, source, subject, now, now);
+      .prepare("INSERT INTO users (id, name, display_name, role, password, source, subject, sso_groups, created_at, seen_at) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)")
+      .run(id, name, wanted.displayName?.slice(0, 120) || null, role, source, subject, ssoGroups, now, now);
     return this.user(id);
   }
 
@@ -306,8 +335,8 @@ export class AuthStore {
   session(raw: string): CallUser | null {
     const id = sha256(raw);
     const row = this.db
-      .prepare("SELECT s.used_at, s.expires_at, u.id, u.name, u.role, u.disabled FROM auth_sessions s JOIN users u ON u.id = s.user_id WHERE s.id = ?")
-      .get(id) as { used_at: string; expires_at: string; id: string; name: string; role: string; disabled: number } | undefined;
+      .prepare("SELECT s.used_at, s.expires_at, u.id, u.name, u.role, u.disabled, u.groups, u.sso_groups FROM auth_sessions s JOIN users u ON u.id = s.user_id WHERE s.id = ?")
+      .get(id) as { used_at: string; expires_at: string; id: string; name: string; role: string; disabled: number; groups: string; sso_groups: string } | undefined;
     if (!row || row.disabled === 1) return null;
     const now = Date.now();
     if (Date.parse(row.expires_at) <= now) {
@@ -319,7 +348,8 @@ export class AuthStore {
       this.db.prepare("UPDATE auth_sessions SET used_at = ?, expires_at = ? WHERE id = ?").run(iso, new Date(now + SESSION_DAYS * DAY_MS).toISOString(), id);
       this.db.prepare("UPDATE users SET seen_at = ? WHERE id = ?").run(iso, row.id);
     }
-    return { id: row.id, name: row.name, role: row.role as Role, via: "session" };
+    const groups = groupsOfRow(row);
+    return { id: row.id, name: row.name, role: row.role as Role, via: "session", ...(groups.length > 0 ? { groups } : {}) };
   }
 
   tokens(userId?: string): TokenInfo[] {
@@ -355,8 +385,8 @@ export class AuthStore {
   byToken(raw: string): CallUser | null {
     if (!raw.startsWith(TOKEN_PREFIX)) return null;
     const row = this.db
-      .prepare("SELECT t.id AS token_id, t.kind, t.used_at, t.expires_at, u.id, u.name, u.role, u.disabled FROM auth_tokens t JOIN users u ON u.id = t.user_id WHERE t.hash = ?")
-      .get(sha256(raw)) as { token_id: string; kind: string; used_at: string | null; expires_at: string | null; id: string; name: string; role: string; disabled: number } | undefined;
+      .prepare("SELECT t.id AS token_id, t.kind, t.used_at, t.expires_at, u.id, u.name, u.role, u.disabled, u.groups, u.sso_groups FROM auth_tokens t JOIN users u ON u.id = t.user_id WHERE t.hash = ?")
+      .get(sha256(raw)) as { token_id: string; kind: string; used_at: string | null; expires_at: string | null; id: string; name: string; role: string; disabled: number; groups: string; sso_groups: string } | undefined;
     if (!row || row.disabled === 1 || row.kind !== "api") return null;
     const now = Date.now();
     if (row.expires_at && Date.parse(row.expires_at) <= now) return null;
@@ -365,7 +395,8 @@ export class AuthStore {
       this.db.prepare("UPDATE auth_tokens SET used_at = ? WHERE id = ?").run(iso, row.token_id);
       this.db.prepare("UPDATE users SET seen_at = ? WHERE id = ?").run(iso, row.id);
     }
-    return { id: row.id, name: row.name, role: row.role as Role, via: "token", tokenId: row.token_id };
+    const groups = groupsOfRow(row);
+    return { id: row.id, name: row.name, role: row.role as Role, via: "token", tokenId: row.token_id, ...(groups.length > 0 ? { groups } : {}) };
   }
 
   invites(): InviteInfo[] {

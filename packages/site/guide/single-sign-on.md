@@ -29,6 +29,8 @@ With groups listed, the role is set again at every sign-in, so changes in the pr
 
 The groups come from the claim named under **Groups claim** (`groups` by default), in the ID token or from the provider's userinfo.
 
+The groups are also kept on the account at each sign-in, so a pack kept to a group (see [Pack access](./safety#pack-access)) follows the provider too.
+
 ### Provider notes
 
 | Provider | Issuer | Groups |
@@ -53,7 +55,7 @@ When your reverse proxy already signs people in, such as Authelia or Authentik's
 Anyone who can reach Watchwright without going through the proxy could send the header themselves. That's why the header counts only from the proxy address. From anywhere else the request is refused, and an `auth.header-refused` event is logged. Make sure Watchwright's port is reachable only through the proxy.
 :::
 
-The groups map to roles the same way as with OpenID Connect.
+The groups map to roles the same way as with OpenID Connect, and count for pack access too.
 
 ## Passwords
 

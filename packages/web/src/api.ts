@@ -373,6 +373,24 @@ export interface SharedAttempt extends ResultDocument {
 }
 
 /** A share link (`GET /shares`); the token itself is shown only once, when it is made. */
+/** Who sees a pack besides the admins (docs/plans/pack-access.md): everyone, or chosen people (user ids) and groups. */
+export type PackAccess = { mode: "everyone" } | { mode: "chosen"; people: string[]; groups: string[]; updatedBy: string; updatedAt: string };
+
+/** A user as Admin › Users lists them. */
+export interface UserInfo {
+  id: string;
+  name: string;
+  displayName: string | null;
+  role: "viewer" | "user" | "admin";
+  source: "local" | "oidc" | "header";
+  disabled: boolean;
+  hasPassword: boolean;
+  groups: string[];
+  ssoGroups: string[];
+  createdAt: string;
+  seenAt: string | null;
+}
+
 export interface ShareLink {
   id: string;
   /** The page to open (`#/s/<token>`), to copy again; null for links made before links were kept. */

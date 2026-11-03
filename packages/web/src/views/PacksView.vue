@@ -3,8 +3,8 @@
 // that completes folders as you type, a folder browser, and a search for packs in a folder.
 // The server lists the folders (a page can't learn a folder's path; docs/plans/step-qol.md).
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { Ellipsis, FolderOpen, Package, TriangleAlert, Upload } from "../icons";
-import { getJson, sendJson, type FolderPlaces, type Pack } from "../api";
+import { Ellipsis, FolderOpen, Lock, Package, TriangleAlert, Upload } from "../icons";
+import { getJson, sendJson, type FolderPlaces, type Pack, type PackAccess } from "../api";
 import { ago, when } from "../format";
 import { LiveConnection } from "../live";
 import { toast } from "../toasts";
@@ -19,7 +19,7 @@ import SkeletonBlock from "../components/SkeletonBlock.vue";
 import StatusChip from "../components/StatusChip.vue";
 import { vTip } from "../tooltip";
 import { replaceRoute } from "../router";
-import { can } from "../session";
+import { can, session } from "../session";
 
 const props = defineProps<{ query: Record<string, string> }>();
 
@@ -42,7 +42,16 @@ const moving = ref<Pack | null>(null);
 const removing = ref<Pack | null>(null);
 const removeOpen = computed({ get: () => removing.value !== null, set: (v) => (v ? undefined : (removing.value = null)) });
 
+// Admins see which packs are kept to chosen people (with login on; everyone else sees only theirs).
+const kept = ref<Record<string, PackAccess>>({});
+async function loadKept() {
+  if (!session.on || !can("admin")) return;
+  const res = await getJson<Record<string, PackAccess>>("/api/v1/packs/access");
+  if (res.ok) kept.value = res.data;
+}
+
 async function load() {
+  void loadKept();
   const res = await getJson<Pack[]>("/api/v1/packs");
   loading.value = false;
   if (!res.ok) return void (loadError.value = res.error.message);
@@ -166,6 +175,7 @@ onBeforeUnmount(() => live?.close());
       <li v-for="p in packs" :key="p.id" class="card pk" :class="{ gone: p.missing }">
         <div class="top">
           <a class="pname display" :href="`#/packs/${p.id}`">{{ p.name }}</a>
+          <span v-if="kept[p.id]" v-tip="'Only chosen people and the admins see this pack'" class="kept muted small"><Lock :size="12" /> Chosen people</span>
           <StatusChip v-if="p.status === 'error' && !p.missing" status="failed" />
         </div>
         <p v-if="p.description" class="desc">{{ p.description }}</p>
@@ -269,6 +279,12 @@ onBeforeUnmount(() => live?.close());
 }
 .pname:hover {
   color: var(--accent-text);
+}
+.kept {
+  margin-right: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
 }
 .gone .pname {
   color: var(--muted);

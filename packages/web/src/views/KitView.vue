@@ -31,6 +31,7 @@ import type { LogLine } from "../logview";
 import MenuButton from "../components/MenuButton.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import MultiSelect from "../components/MultiSelect.vue";
+import GroupsField from "../components/GroupsField.vue";
 import NumberInput from "../components/NumberInput.vue";
 import ProgressBar from "../components/ProgressBar.vue";
 import RadioGroup from "../components/RadioGroup.vue";
@@ -253,6 +254,7 @@ function demoToast(tone: "info" | "ok" | "bad" | "warn") {
   else toast("Pack reloaded", { action: { label: "Undo", run: () => toast("Reload undone") } });
 }
 const tests = ref<string[]>(["S1", "C1"]);
+const kitGroups = ref<string[]>(["qa"]);
 const testOptions = [
   ["H1", "Home page loads", "Home"],
   ["H2", "Banner rotates", "Home"],
@@ -486,6 +488,10 @@ const traces = [
         <div class="item wide">
           <label for="k-tests">Multi-select, grouped</label>
           <MultiSelect id="k-tests" v-model="tests" :options="testOptions" placeholder="Search tests" empty-label="All tests" />
+        </div>
+        <div class="item wide">
+          <label for="k-groups">Groups</label>
+          <GroupsField id="k-groups" v-model="kitGroups" :known="['qa', 'night shift', 'support']" />
         </div>
       </div>
     </section>

@@ -7,7 +7,7 @@ import { definePlugin } from "../../core/plugin.js";
 import { serviceKey } from "../../core/services.js";
 import { errorBody } from "../../server/errors.js";
 import { DEFAULT_SSO, groupsOf, mergeSso, OidcClient, peerTest, publicSso, roleFromGroups, type SsoSettings } from "./sso.js";
-import { AuthStore, INVITES_SQL, SESSION_DAYS, SQL, SSO_SQL, type UserInfo } from "./store.js";
+import { AuthStore, cleanGroups, GROUPS_SQL, INVITES_SQL, SESSION_DAYS, SQL, SSO_SQL, type UserInfo } from "./store.js";
 import { Throttle } from "./throttle.js";
 
 // Login (docs/plans/self-hosting.md, section 2): accounts with three roles, the web page's sign-in
@@ -86,6 +86,7 @@ export const authPlugin = definePlugin({
     { id: 1, name: "init", sql: SQL },
     { id: 2, name: "invites", sql: INVITES_SQL },
     { id: 3, name: "sso", sql: SSO_SQL },
+    { id: 4, name: "groups", sql: GROUPS_SQL },
   ],
   setup(ctx) {
     const store = new AuthStore(ctx.store.db);
@@ -116,8 +117,9 @@ export const authPlugin = definePlugin({
       if (cached && Date.now() - cached.at < HEADER_CACHE_MS) return cached.user;
       const subject = name.toLowerCase();
       const { role, refused } = roleFromGroups(state.sso, groups, store.bySubject("header", subject) !== null);
-      const user = refused ? null : store.external("header", subject, { name }, role);
-      const who: CallUser | null = user ? { id: user.id, name: user.name, role: user.role, via: "session", ...(groups.length > 0 ? { groups } : {}) } : null;
+      const user = refused ? null : store.external("header", subject, { name, groups }, role);
+      const all = user ? cleanGroups([...user.groups, ...user.ssoGroups]) : [];
+      const who: CallUser | null = user ? { id: user.id, name: user.name, role: user.role, via: "session", ...(all.length > 0 ? { groups: all } : {}) } : null;
       if (state.byHeader.size > 1000) state.byHeader.clear();
       state.byHeader.set(key, { user: who, at: Date.now() });
       return who;
@@ -191,17 +193,24 @@ export const authPlugin = definePlugin({
         },
         handler: (input) => store.add(input),
       }),
-      defineAction<{ id: string; role?: Role; password?: string; disabled?: boolean; displayName?: string }>({
+      defineAction<{ id: string; role?: Role; password?: string; disabled?: boolean; displayName?: string; groups?: string[] }>({
         name: "auth.change-user",
         pack: "none",
-        title: "Change a user's role, password, name shown or whether they can sign in",
+        title: "Change a user's role, password, name shown, groups (for pack access) or whether they can sign in",
         method: "POST",
         path: "/auth/users/:id",
         access: "admin",
         secret: ["password"],
         input: {
           type: "object",
-          properties: { id: ID, role: ROLE, password: { type: "string" }, disabled: { type: "boolean" }, displayName: { type: "string", description: "Empty to show the user name" } },
+          properties: {
+            id: ID,
+            role: ROLE,
+            password: { type: "string" },
+            disabled: { type: "boolean" },
+            displayName: { type: "string", description: "Empty to show the user name" },
+            groups: { type: "array", items: { type: "string", minLength: 1, maxLength: 200 }, maxItems: 50, description: "Groups an admin puts the user in, for pack access (the sign-in provider's groups are added to them)." },
+          },
           required: ["id"],
         },
         handler: async ({ id, ...change }) => {
@@ -505,7 +514,7 @@ export const authPlugin = definePlugin({
         return failed(reply, `Signing in with ${oidc.name} didn't work: ${err instanceof Error ? err.message : String(err)}`);
       }
       const { role, refused } = roleFromGroups(state.sso, person.groups, store.bySubject("oidc", person.subject) !== null);
-      const user = refused ? null : store.external("oidc", person.subject, { name: person.name, displayName: person.displayName }, role);
+      const user = refused ? null : store.external("oidc", person.subject, { name: person.name, displayName: person.displayName, groups: person.groups }, role);
       if (!user) {
         ctx.events.append("auth.signin-failed", { name: person.name.slice(0, 64), ip: req.ip, via: "oidc" });
         return failed(reply, refused ? `Your ${oidc.name} account has no access to this Watchwright. Ask an admin to add one of your groups.` : "Your account here is turned off. Ask an admin.");
