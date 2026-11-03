@@ -4,7 +4,7 @@
 // the last whose heading has passed the top bar (the last one at the bottom of the page, which may
 // never get that far). `?section=` opens on a section; one that lives on another page now (an old
 // `#/settings?section=` link) opens there.
-import { nextTick, onBeforeUnmount, onMounted, ref, toRef, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRef, watch } from "vue";
 import { movedTo, type SectionDef, type SettingsPage } from "../settingspages";
 import { session } from "../session";
 import { sectionAt } from "../toc";
@@ -17,6 +17,17 @@ const props = defineProps<{
 }>();
 
 const TOP_BAR = 56;
+// The list in blocks: a section that starts a group starts a block, under its heading. Each block
+// draws its own rail, so a heading sits apart from the links and the rail breaks between groups.
+const blocks = computed(() => {
+  const out: { group: string | undefined; sections: SectionDef[] }[] = [];
+  for (const sec of props.sections) {
+    const last = out[out.length - 1];
+    if (!last || sec.group) out.push({ group: sec.group, sections: [sec] });
+    else last.sections.push(sec);
+  }
+  return out;
+});
 const current = ref(props.sections[0]?.id ?? "");
 const cardOf = (id: string) => document.getElementById(`s-${id}`)?.closest("section") ?? null;
 
@@ -85,18 +96,16 @@ onBeforeUnmount(() => {
 
     <div class="layout">
       <nav class="toc" :aria-label="`${heading} sections`">
-        <ul>
-          <template v-for="sec in sections" :key="sec.id">
-            <li v-if="sec.group" class="group label" aria-hidden="true">
-              {{ sec.group }}
-            </li>
-            <li>
+        <div v-for="(b, bi) in blocks" :key="b.sections[0]!.id" class="block">
+          <p v-if="b.group" :id="`toc-g-${bi}`" class="group label">{{ b.group }}</p>
+          <ul :aria-labelledby="b.group ? `toc-g-${bi}` : undefined">
+            <li v-for="sec in b.sections" :key="sec.id">
               <button type="button" :class="{ on: current === sec.id }" :aria-current="current === sec.id ? 'true' : undefined" @click="goTo(sec.id)">
                 {{ sec.label }}
               </button>
             </li>
-          </template>
-        </ul>
+          </ul>
+        </div>
       </nav>
       <div class="sections">
         <slot />
@@ -126,6 +135,8 @@ onBeforeUnmount(() => {
 .toc {
   position: sticky;
   top: calc(56px + var(--space-4));
+  display: grid;
+  gap: var(--space-4);
 }
 .toc ul {
   display: grid;
@@ -134,12 +145,11 @@ onBeforeUnmount(() => {
   padding: 0;
   list-style: none;
 }
+/* The group's heading stands off the rail, flush with its left edge, and in the text color so it
+   doesn't read as one more link. */
 .toc .group {
-  padding: var(--space-4) var(--space-3) var(--space-1);
-  border-left: 2px solid var(--line);
-}
-.toc li:first-child.group {
-  padding-top: var(--space-1);
+  margin-bottom: var(--space-2);
+  color: var(--text);
 }
 .toc button {
   display: block;
@@ -171,13 +181,16 @@ onBeforeUnmount(() => {
   .toc {
     position: static;
   }
+  .toc {
+    gap: var(--space-3);
+  }
   .toc ul {
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-2);
   }
   .toc .group {
-    display: none;
+    margin-bottom: var(--space-1);
   }
   .toc button {
     width: auto;
