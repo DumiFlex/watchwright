@@ -33,7 +33,7 @@ The groups come from the claim named under **Groups claim** (`groups` by default
 
 | Provider | Issuer | Groups |
 |---|---|---|
-| **VoidAuth** | VoidAuth's own address, such as `https://auth.example.com` | Ask for the `groups` scope. |
+| **VoidAuth** | VoidAuth's address followed by `/oidc`, such as `https://auth.example.com/oidc` (shown as OIDC Issuer Endpoint in VoidAuth's OIDC info) | Ask for the `groups` scope. |
 | **Authentik** | `https://authentik.example.com/application/o/<application slug>/` | In the `groups` claim of the default `profile` scope. |
 | **Authelia** | Authelia's address. Add the client under `identity_providers.oidc.clients`, with the redirect address in `redirect_uris`. | Ask for the `groups` scope. |
 | **Pocket ID** | Pocket ID's address | Ask for the `groups` scope. |

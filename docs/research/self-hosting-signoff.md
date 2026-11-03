@@ -35,12 +35,14 @@ Found and fixed on the way:
 
 These need the real setup: Proxmox with Portainer, NPMplus in front, VoidAuth for sign-in, and the PC with the app.
 
-- [ ] **Stack.** In Portainer, deploy [`docker/compose.yml`](../../docker/compose.yml) from the repository with `WATCHWRIGHT_PUBLIC_URL=https://watchwright.<your domain>`. Open the setup link from the container's log and make the admin.
-- [ ] **Proxy.** In NPMplus, add the proxy host with WebSockets on (the live view and the runner both need them), and set `WATCHWRIGHT_TRUST_PROXY` to NPMplus's address. The page should open over HTTPS, sign in, and play the live view of a run.
-- [ ] **VoidAuth.** Add an OIDC client with the redirect URL `https://watchwright.<your domain>/api/v1/auth/oidc/callback`. Fill Settings › Single sign-on and map a group to admin, then sign in with it in a private window.
-- [ ] **Runner on the PC.** Add a runner in Settings › Runners and run its command in a terminal on the PC (Node 22 or later). It should show as connected.
-- [ ] **A real run through it.** Set `network:` to the runner's name in a pack whose site runs on the PC (or pick it under Reach the site from), run one test, and check the video.
-- [ ] **Stop the runner** (Ctrl+C) and start a run: it should fail to start with "the runner … is offline". Start the runner again with `npx watchwright runner` alone; it should reconnect without a new code.
+- [x] **Stack.** In Portainer, deploy [`docker/compose.yml`](../../docker/compose.yml) from the repository with `WATCHWRIGHT_PUBLIC_URL=https://watchwright.<your domain>`. Open the setup link from the container's log and make the admin.
+- [x] **Proxy.** In NPMplus, add the proxy host with WebSockets on (the live view and the runner both need them), and set `WATCHWRIGHT_TRUST_PROXY` to NPMplus's address. The page should open over HTTPS, sign in, and play the live view of a run.
+- [x] **VoidAuth.** Add an OIDC client with the redirect URL `https://watchwright.<your domain>/api/v1/auth/oidc/callback`. Fill Settings › Single sign-on and map a group to admin, then sign in with it in a private window.
+- [x] **Runner on the PC.** Add a runner in Settings › Runners and run its command in a terminal on the PC (Node 22 or later). It should show as connected.
+- [x] **A real run through it.** Set `network:` to the runner's name in a pack whose site runs on the PC (or pick it under Reach the site from), run one test, and check the video.
+- [x] **Stop the runner** (Ctrl+C) and start a run: it should fail to start with "the runner … is offline". Start the runner again with `npx watchwright runner` alone; it should reconnect without a new code.
 - [ ] **Update.** Pull a newer image and redeploy: data, users, runners and sign-on settings stay, and the runner reconnects by itself.
+
+Lines 1 to 6 passed on 2026-11-02 with 0.12.0 (Dumi). One thing to know for VoidAuth: the issuer in Settings › Single sign-on is VoidAuth's address followed by `/oidc`, not the address alone (the guide's provider table now says so).
 
 Anything that fails there comes back as a fix before the next release.
