@@ -24,7 +24,7 @@ import { RUNNERS } from "../runners/plugin.js";
 import { SIGNINS } from "../signins/plugin.js";
 import { digest, readRunFile, waitForRun } from "./digest.js";
 import { DEFAULT_STORAGE_LIMITS, Engine, EngineError } from "./engine.js";
-import { RUNS_ARTIFACT_SET_SQL, RUNS_INFO_SQL, RUNS_LABELS_PRESETS_SQL, RUNS_MIGRATION_SQL, RUNS_SIZE_SQL, RUNS_STEPS_SQL, RUNS_STOPPED_BY_SERVER_SQL, RunsRepo, type RunChoices, type RunOptions, type RunStatus } from "./repo.js";
+import { ACTIVE_STATUSES, RUNS_ARTIFACT_SET_SQL, RUNS_INFO_SQL, RUNS_LABELS_PRESETS_SQL, RUNS_MIGRATION_SQL, RUNS_SIZE_SQL, RUNS_STEPS_SQL, RUNS_STOPPED_BY_SERVER_SQL, RunsRepo, type RunChoices, type RunOptions, type RunStatus } from "./repo.js";
 import type { VideoSetting } from "../packs/api.js";
 import { VideoCompressor } from "./videos.js";
 
@@ -219,6 +219,13 @@ export const runsPlugin = definePlugin({
     const packAccess = services.get(PACK_ACCESS);
     packAccess.resolve("run", (id) => repo.run(id)?.pack_id ?? null);
     packAccess.resolve("preset", (id) => repo.preset(id)?.packId ?? null);
+    services.get(PACKS).link({
+      pastId: (packFile) => repo.packIdAt(packFile),
+      busy: (packId) => {
+        const run = repo.runs({ packId, statuses: ACTIVE_STATUSES, limit: 1 })[0];
+        return run ? `A run of this pack is ${run.status} (${run.id}). Stop it, or wait until it ends.` : null;
+      },
+    });
     const kinds = new JobKinds();
     services.provide(JOB_KINDS, kinds);
     const engine = new Engine({
