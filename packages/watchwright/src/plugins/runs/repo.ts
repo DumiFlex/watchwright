@@ -15,6 +15,8 @@ export type AttemptStatus = Outcome | "running" | "interrupted";
 export interface RunFilter {
   limit?: number | undefined;
   packId?: string | undefined;
+  /** Leave out runs of these packs (the ones pack access hides from the caller). */
+  hidePacks?: readonly string[] | undefined;
   statuses?: readonly RunStatus[] | undefined;
   before?: string | undefined;
   /** Words that must each appear in the run's id, label, pack name, values, facts or status. */
@@ -316,6 +318,10 @@ export class RunsRepo {
       where.push("pack_id = ?");
       args.push(filter.packId);
     }
+    if (filter.hidePacks && filter.hidePacks.length > 0) {
+      where.push(`pack_id NOT IN (${filter.hidePacks.map(() => "?").join(", ")})`);
+      args.push(...filter.hidePacks);
+    }
     if (filter.statuses && filter.statuses.length > 0) {
       where.push(`status IN (${filter.statuses.map(() => "?").join(", ")})`);
       args.push(...filter.statuses);
@@ -527,9 +533,9 @@ export class RunsRepo {
   }
 
   /** Runs made and top-level attempts started from `from` on, for the runs page's numbers. */
-  statsRows(from: string, packId?: string): StatsRows {
-    const pack = packId ? " AND r.pack_id = ?" : "";
-    const args = packId ? [from, packId] : [from];
+  statsRows(from: string, packId?: string, hidePacks: readonly string[] = []): StatsRows {
+    const pack = (packId ? " AND r.pack_id = ?" : "") + (hidePacks.length > 0 ? ` AND r.pack_id NOT IN (${hidePacks.map(() => "?").join(", ")})` : "");
+    const args = [from, ...(packId ? [packId] : []), ...hidePacks];
     return {
       runs: this.db.prepare(`SELECT r.created_at FROM runs r WHERE r.created_at >= ?${pack}`).all(...args) as StatsRows["runs"],
       attempts: this.db

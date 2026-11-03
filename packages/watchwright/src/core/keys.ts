@@ -1,4 +1,4 @@
-import type { Action, ActionGate } from "../actions/registry.js";
+import type { Action, ActionGate, PackGuard } from "../actions/registry.js";
 import type { Login, LoginOptions } from "./access.js";
 import type { PluginPage } from "./plugin.js";
 import { serviceKey } from "./services.js";
@@ -11,6 +11,9 @@ export const ACTIONS = serviceKey<readonly Action[]>("actions");
 
 /** Asked before a destructive action runs; the approvals plugin provides it. */
 export const ACTION_GATE = serviceKey<ActionGate>("action-gate");
+
+/** Who may see which pack (pack access); the packs plugin provides it. */
+export const PACK_GUARD = serviceKey<PackGuard>("pack-guard");
 
 /** The port the server listens on (a plugin that writes a command to start this server again needs it). */
 export const SERVER_PORT = serviceKey<number>("server-port");

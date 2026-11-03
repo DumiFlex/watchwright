@@ -114,6 +114,7 @@ export const secretsPlugin = definePlugin({
     return [
       defineAction({
         name: "secrets.list",
+        pack: "none",
         access: "user",
         title: "The secrets' names, lengths and when each was set (never their values)",
         method: "GET",
@@ -122,6 +123,7 @@ export const secretsPlugin = definePlugin({
       }),
       defineAction<{ name: string; value: string }>({
         name: "secrets.set",
+        pack: "none",
         access: "admin",
         destructive: true,
         secret: ["value"],
@@ -135,6 +137,7 @@ export const secretsPlugin = definePlugin({
       }),
       defineAction<{ name: string }>({
         name: "secrets.delete",
+        pack: "none",
         access: "admin",
         destructive: true,
         explain: ({ name }) => `Delete the secret ${name}`,

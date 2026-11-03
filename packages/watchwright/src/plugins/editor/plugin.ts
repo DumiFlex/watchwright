@@ -3,6 +3,7 @@ import { ActionError, defineAction, type ActionCall } from "../../actions/regist
 import { allows, whoCalls } from "../../core/access.js";
 import { definePlugin } from "../../core/plugin.js";
 import { PACKS, type PackRegistry, type PackSummary } from "../packs/registry.js";
+import { PACK_ACCESS } from "../packs/access.js";
 import { errorBody } from "../../server/errors.js";
 import { createPackFile, deletePackFile, FileError, isCodeFile, listFiles, packImage, readPackFile, renamePackFile, resolveIn, savePackFile, stampOf } from "./files.js";
 import { baseStamp, PROPOSALS_SQL, ProposalStore, type Proposal, type ProposalFile, type ProposalStatus } from "./proposals.js";
@@ -102,6 +103,7 @@ export const editorPlugin = definePlugin({
   pages: [{ name: "changes", title: "Proposed changes", path: "/changes", icon: "GitPullRequest", menu: "more", order: 45, words: "proposals review code diff apply", loginOnly: true }],
   actions: ({ services, events, store }) => {
     const proposals = new ProposalStore(store.db);
+    services.get(PACK_ACCESS).resolve("proposal", (id) => proposals.get(id)?.packId ?? null);
     const registry = services.get(PACKS);
     const rebuilt = async (id: string): Promise<PackState> => {
       await registry.reload(id).catch(() => undefined);
@@ -112,6 +114,7 @@ export const editorPlugin = definePlugin({
     return [
       defineAction<{ id: string }>({
         name: "packs.files",
+        pack: { pack: "id" },
         agent: { tool: "list_pack_files" },
         title: "List a pack's text files (leaving out node_modules, .git and build output)",
         method: "GET",
@@ -121,6 +124,7 @@ export const editorPlugin = definePlugin({
       }),
       defineAction<{ id: string; path: string }>({
         name: "packs.file",
+        pack: { pack: "id" },
         agent: { tool: "read_pack_file" },
         title: "Read one of a pack's text files, with the stamp to save it back",
         method: "GET",
@@ -130,6 +134,7 @@ export const editorPlugin = definePlugin({
       }),
       defineAction<{ id: string; path: string; text: string; stamp?: string }>({
         name: "packs.file-save",
+        pack: { pack: "id" },
         agent: { tool: "write_pack_file", say: "Creates the file when it is missing. Leave out `stamp` to overwrite. The answer says whether the pack still loads and lists its problems; fix them before running. With login on, only an admin's token writes code files (.ts, .js, package.json); a user's gets code_admin_only, so write YAML tests instead." },
         title: "Save one of a pack's text files and rebuild the pack",
         method: "POST",
@@ -153,6 +158,7 @@ export const editorPlugin = definePlugin({
       }),
       defineAction<{ id: string; path: string; text?: string }>({
         name: "packs.file-create",
+        pack: { pack: "id" },
         title: "Make a new text file in a pack (folders are made when missing)",
         method: "POST",
         path: "/packs/:id/files",
@@ -167,6 +173,7 @@ export const editorPlugin = definePlugin({
       }),
       defineAction<{ id: string; from: string; to: string }>({
         name: "packs.file-rename",
+        pack: { pack: "id" },
         title: "Rename or move a file within a pack",
         method: "POST",
         path: "/packs/:id/file/rename",
@@ -180,6 +187,7 @@ export const editorPlugin = definePlugin({
       }),
       defineAction<{ id: string; path: string }>({
         name: "packs.file-delete",
+        pack: { pack: "id" },
         agent: { tool: "delete_pack_file" },
         destructive: true,
         explain: ({ id, path }: { id: string; path: string }) => `Delete ${path} from the pack "${registry.get(id)?.name ?? id}"`,
@@ -223,6 +231,7 @@ export const editorPlugin = definePlugin({
       return [
         defineAction<{ pack?: string; status?: ProposalStatus }>({
           name: "proposals.list",
+          pack: "list",
           title: "Proposed changes to packs' code, newest first, with who proposed them and what became of them",
           method: "GET",
           path: "/proposals",
@@ -233,10 +242,14 @@ export const editorPlugin = definePlugin({
               status: { type: "string", enum: ["waiting", "applied", "declined", "withdrawn"] },
             },
           },
-          handler: ({ pack, status }) => ({ proposals: proposals.list({ packId: pack, status }).map(summary), waiting: proposals.waiting() }),
+          handler: ({ pack, status }, { sees }) => {
+            const mine = (p: Proposal) => sees?.(p.packId) ?? true;
+            return { proposals: proposals.list({ packId: pack, status }).filter(mine).map(summary), waiting: proposals.list({ status: "waiting", limit: 1000 }).filter(mine).length };
+          },
         }),
         defineAction<{ id: string }>({
           name: "proposals.get",
+          pack: { proposal: "id" },
           agent: { tool: "get_proposal", say: "What became of a change you proposed: waiting, applied or declined, with the admin's reply." },
           title: "One proposed change with its files: the text it was based on, the proposed text and the file as it is now",
           method: "GET",
@@ -254,6 +267,7 @@ export const editorPlugin = definePlugin({
         }),
         defineAction<{ id: string; note?: string; files: FileInput[] }>({
           name: "proposals.create",
+          pack: { pack: "id" },
           agent: {
             tool: "propose_change",
             say: "With login on, only admins change a pack's code (.ts, .js, package.json). Anyone else proposes the change here, with a note saying why; an admin reviews the diff and applies or declines it. Check on it with get_proposal.",
@@ -273,6 +287,7 @@ export const editorPlugin = definePlugin({
         }),
         defineAction<{ id: string; note?: string; files?: FileInput[] }>({
           name: "proposals.update",
+          pack: { proposal: "id" },
           title: "Change a proposed change that still waits: its note, or its files (they replace the ones it had)",
           method: "POST",
           path: "/proposals/:id",
@@ -289,6 +304,7 @@ export const editorPlugin = definePlugin({
         }),
         defineAction<{ id: string }>({
           name: "proposals.withdraw",
+          pack: { proposal: "id" },
           title: "Withdraw a proposed change that still waits",
           method: "DELETE",
           path: "/proposals/:id",
@@ -304,6 +320,7 @@ export const editorPlugin = definePlugin({
         }),
         defineAction<{ id: string; force?: boolean; reply?: string }>({
           name: "proposals.apply",
+          pack: { proposal: "id" },
           access: "admin",
           title: "Apply a proposed change: write its files and rebuild the pack",
           method: "POST",
@@ -339,6 +356,7 @@ export const editorPlugin = definePlugin({
         }),
         defineAction<{ id: string; reply?: string }>({
           name: "proposals.decline",
+          pack: { proposal: "id" },
           access: "admin",
           title: "Decline a proposed change, with a reply for the person who proposed it",
           method: "POST",
@@ -359,11 +377,12 @@ export const editorPlugin = definePlugin({
     const registry = services.get(PACKS);
     // An image from the pack folder, for Markdown previews. The same path rules as the text files
     // apply. The headers keep an SVG opened on its own from running scripts on this origin.
-    app.get("/packs/:id/image", { config: { access: "viewer" } }, async (req, reply) => {
+    const access = services.get(PACK_ACCESS);
+    app.get("/packs/:id/image", { config: { access: "viewer", pack: "checked" } }, async (req, reply) => {
       const { id } = req.params as { id: string };
       const rel = (req.query as { path?: unknown }).path;
       try {
-        if (!/^[0-9a-f]{8}$/.test(id)) throw new ActionError("not_found", `No pack with id ${id}.`, 404);
+        if (!/^[0-9a-f]{8}$/.test(id) || !access.sees(req.watchwrightUser, id)) throw new ActionError("not_found", `No pack with id ${id}.`, 404);
         if (typeof rel !== "string") throw new FileError("bad_path", "Give the image's path inside the pack folder.");
         const img = wrap(() => packImage(packDir(registry, id), rel));
         return reply

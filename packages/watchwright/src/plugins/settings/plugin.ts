@@ -135,6 +135,7 @@ export const settingsPlugin = definePlugin({
     return [
       defineAction({
         name: "settings.get",
+        pack: "none",
         title: "Every setting with its value as it applies to you, the server-wide values, and what each one is",
         method: "GET",
         path: "/settings",
@@ -142,6 +143,7 @@ export const settingsPlugin = definePlugin({
       }),
       defineAction<{ values: Record<string, unknown> }>({
         name: "settings.set",
+        pack: "none",
         access: "admin",
         title: "Change settings (null puts one back to its default)",
         method: "POST",
@@ -154,6 +156,7 @@ export const settingsPlugin = definePlugin({
       }),
       defineAction<{ values: Record<string, unknown> }>({
         name: "settings.set-mine",
+        pack: "none",
         access: "viewer",
         title: "Change your own value of per-user settings (null goes back to the server's)",
         method: "POST",

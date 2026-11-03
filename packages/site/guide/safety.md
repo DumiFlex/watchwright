@@ -44,8 +44,21 @@ watchwright serve --auth --host 0.0.0.0 --public-url http://192.168.1.20:7420
 A code pack (`pack.ts` and its tests) runs on the server and can read every secret, so with login on only admins add packs or change code files. Users change what Watchwright reads without running it: YAML tests, `pack.yaml` and data files. A YAML test or a recording opens only `http` and `https` addresses and uploads only files from its pack's folder. Code an admin added still runs when a user starts a run, so add only code you trust.
 :::
 
+- **Pack access.** An admin can keep a pack to chosen people and groups; see [Pack access](#pack-access).
 - **Who did it.** Runs, approvals and controls name the person: `Dumi`, or `Dumi via Claude Code` for an agent with Dumi's token. An approval is answered by the person whose agent asked, or by an admin.
 - **Behind a reverse proxy** (NPMplus, Caddy, Traefik), pass the address people use with `--public-url https://watchwright.home.lan`, and the proxy's address with `--trust-proxy` so the server knows a request came in over https. The proxy must pass WebSockets (the live view uses them).
+
+## Pack access
+
+With login on, every pack is open to everyone signed in until an admin keeps it to chosen people and groups. Admins always see every pack. Role and pack access are separate: a viewer let into a pack reads its runs, a user let in also runs and edits its tests.
+
+For everyone else a kept pack isn't there: it is left out of the packs, runs, schedules, reviews, compare and the live view, and a link to it, its runs or its files answers as if they didn't exist. Share links of its runs keep working for whoever has them, and the public status page shows what an admin put on it. Secrets, saved sign-ins, runners and alerts are server-wide, not per pack.
+
+An admin sets it with `POST /api/v1/packs/<id>/access` (see [Packs](../reference/http-api#packs) in the API), for example `{ "mode": "chosen", "people": ["<user id>"], "groups": ["qa"] }`, and opens it again with `{ "mode": "everyone" }`.
+
+::: info Planned
+An **Access…** item in the pack's menu, the packs each person sees in Admin › Users, and groups: the ones your sign-in provider sends, kept on the account at each sign-in, and groups an admin sets on a user. Until then a group in a pack's access matches people who sign in through a header your proxy sets with groups.
+:::
 
 ## Approvals
 

@@ -76,6 +76,7 @@ export const runnersPlugin = definePlugin({
     return [
       defineAction({
         name: "runners.list",
+        pack: "none",
         title: "The runners (machines runs can reach sites from), with whether each is connected now",
         method: "GET",
         path: "/runners",
@@ -83,6 +84,7 @@ export const runnersPlugin = definePlugin({
       }),
       defineAction<{ name: string; allow?: string; server?: string }>({
         name: "runners.add",
+        pack: "none",
         title: "Add a runner: answers a pair code and the command to run on that machine (the code works once, for 15 minutes)",
         method: "POST",
         path: "/runners",
@@ -113,6 +115,7 @@ export const runnersPlugin = definePlugin({
       }),
       defineAction<{ id: string; server?: string }>({
         name: "runners.pair-code",
+        pack: "none",
         title: "A new pair code for a runner, to set it up on another machine or again (its current token keeps working until the code is used)",
         method: "POST",
         path: "/runners/:id/pair-code",
@@ -126,6 +129,7 @@ export const runnersPlugin = definePlugin({
       }),
       defineAction<{ id: string }>({
         name: "runners.remove",
+        pack: "none",
         title: "Remove a runner: it disconnects and its token stops working",
         method: "DELETE",
         path: "/runners/:id",

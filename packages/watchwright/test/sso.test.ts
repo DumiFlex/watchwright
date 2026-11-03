@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { BUILTIN_PLUGINS } from "../src/core/builtin.js";
 import { migrationsOf } from "../src/core/plugin.js";
 import { AUTH_STORE } from "../src/plugins/auth/plugin.js";
+import { PACK_ACCESS } from "../src/plugins/packs/access.js";
 import { groupsOf, mergeSso, peerTest, roleFromGroups, DEFAULT_SSO } from "../src/plugins/auth/sso.js";
 import { buildServer } from "../src/server/app.js";
 import { openStore, type Store } from "../src/store/db.js";
@@ -181,6 +182,11 @@ describe("single sign-on with a trusted header", () => {
     expect((await me({ "remote-user": "lee", "remote-groups": "staff,admins" })).json().data.user).toMatchObject({ name: "lee", role: "admin" });
     const runs = await app.inject({ method: "GET", url: "/api/v1/runs", headers: { host: HOST, "remote-user": "kim" } });
     expect(runs.statusCode).toBe(200);
+    // The header's groups count for pack access.
+    app.watchwright.services.get(PACK_ACCESS).set("abcd1234", { people: [], groups: ["QA"] }, "test");
+    const history = (headers: Record<string, string>) => app.inject({ method: "GET", url: "/api/v1/packs/abcd1234/history", headers: { host: HOST, "remote-user": "kim", ...headers } });
+    expect((await history({})).statusCode).toBe(404);
+    expect((await history({ "remote-groups": "staff,qa" })).statusCode).toBe(200);
 
     await asAdmin("POST", "/auth/sso", { header: { from: ["10.9.9.9"] } });
     const elsewhere = await app.inject({ method: "GET", url: "/api/v1/runs", headers: { host: HOST, "remote-user": "kim" } });

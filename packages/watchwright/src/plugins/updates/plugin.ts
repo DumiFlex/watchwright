@@ -120,6 +120,7 @@ export const updatesPlugin = definePlugin({
     return [
       defineAction<{ refresh?: boolean }>({
         name: "updates.status",
+        pack: "none",
         title: "This server's version, the newest on npm, and how to update",
         method: "GET",
         path: "/updates",
@@ -131,6 +132,7 @@ export const updatesPlugin = definePlugin({
       }),
       defineAction<{ version?: string; now?: boolean }>({
         name: "updates.start",
+        pack: "none",
         access: "admin",
         destructive: true,
         explain: ({ version }) => `Update Watchwright from ${VERSION} to ${version ?? state.latest ?? "the newest version"}: it stops, installs the new version and starts again`,

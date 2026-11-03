@@ -73,6 +73,7 @@ export const signinsPlugin = definePlugin({
     return [
       defineAction({
         name: "signins.list",
+        pack: "none",
         access: "user",
         title: "Saved sign-ins: each site key, when it was saved, from where, and how many cookies and sites it holds",
         method: "GET",
@@ -81,6 +82,7 @@ export const signinsPlugin = definePlugin({
       }),
       defineAction<{ siteKey: string }>({
         name: "signins.delete",
+        pack: "none",
         access: "admin",
         destructive: true,
         explain: ({ siteKey }) => `Delete the saved sign-in for ${siteKey}`,

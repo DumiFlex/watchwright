@@ -4,7 +4,7 @@ import { NodeStreamableHTTPServerTransport, toNodeHandler, toWebRequest, type No
 import type { FastifyReply } from "fastify";
 import { ActionError, defineAction, describeAction, invokeAction, type Action } from "../../actions/registry.js";
 import type { CallUser } from "../../core/access.js";
-import { ACTION_GATE, ACTIONS, LOGIN } from "../../core/keys.js";
+import { ACTION_GATE, ACTIONS, LOGIN, PACK_GUARD } from "../../core/keys.js";
 import { definePlugin, type PluginContext } from "../../core/plugin.js";
 import { DEFAULT_PORT } from "../../config.js";
 import { VERSION } from "../../version.js";
@@ -60,6 +60,7 @@ export const agentsPlugin = definePlugin({
   actions: ({ store, services }) => [
     defineAction<{ days?: number }>({
       name: "agents.seen",
+      pack: "none",
       title: "Agents that called the MCP server lately: when, their last tool, how many calls and how many runs and explore sessions they started",
       method: "GET",
       path: "/agents/seen",
@@ -68,6 +69,7 @@ export const agentsPlugin = definePlugin({
     }),
     defineAction<{ folder: string; agents?: AgentKind[]; mcp?: boolean; server?: string }>({
       name: "agents.install",
+      pack: "none",
       title: "Put the Watchwright skill into a project for Claude Code, Codex or Cursor, and the MCP server into its settings (merged, never trimmed)",
       method: "POST",
       path: "/agents/install",
@@ -107,7 +109,8 @@ export const agentsPlugin = definePlugin({
         if (!action) throw new ToolError("unknown_action", `There is no action ${info.name}.`);
         const gate = services.has(ACTION_GATE) ? services.get(ACTION_GATE) : null;
         try {
-          return await invokeAction(action, input, { client, signal, fromPage: false, ...(user === undefined ? {} : { user }) }, gate);
+          const guard = services.has(PACK_GUARD) ? services.get(PACK_GUARD) : null;
+          return await invokeAction(action, input, { client, signal, fromPage: false, ...(user === undefined ? {} : { user }) }, gate, false, guard);
         } catch (err) {
           if (err instanceof ActionError) throw new ToolError(err.code, err.message, err.detail);
           throw err;
@@ -118,7 +121,7 @@ export const agentsPlugin = definePlugin({
     const build = (req: Request | undefined) => buildMcpServer({ version: VERSION, actions: actions().map(describeAction), door: doorFor(userOf(req)), caller: (info) => callerOf(req, info), onCall: note, ...(req ? { page: new URL("/", req.url).href } : {}) });
 
     // `watchwright mcp` (the stdio bridge) calls actions over HTTP and says here which tool it ran.
-    app.post<{ Body: { client?: unknown; tool?: unknown } }>("/agents/seen", { config: { access: "viewer" } }, (req, reply) => {
+    app.post<{ Body: { client?: unknown; tool?: unknown } }>("/agents/seen", { config: { access: "viewer", pack: "none" } }, (req, reply) => {
       const { client, tool } = req.body ?? {};
       if (typeof client !== "string" || typeof tool !== "string" || !client.trim() || !/^[a-z_]{1,60}$/.test(tool)) return reply.code(400).send({ error: { code: "bad_input", message: "Send { client, tool }." } });
       note(client.trim().slice(0, 60), tool);
@@ -139,8 +142,8 @@ export const agentsPlugin = definePlugin({
     app.route({
       method: ["GET", "POST", "DELETE"],
       url: "/mcp",
-      // Each tool call is checked against the caller's role on its own (invokeAction).
-      config: { access: "viewer" },
+      // Each tool call is checked against the caller's role and pack access on its own (invokeAction).
+      config: { access: "viewer", pack: "none" },
       handler: async (req, reply) => {
         // An IncomingMessage is one; only exactOptionalPropertyTypes tells them apart.
         const raw = req.raw as NodeIncomingMessageLike;
