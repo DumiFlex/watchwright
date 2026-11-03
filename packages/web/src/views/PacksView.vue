@@ -101,6 +101,10 @@ function onMoved(p: Pack) {
   toast(`"${p.name}" now loads from its new folder`, { tone: "ok" });
 }
 
+function onFolderDeleted(dir: string) {
+  toast(`Deleted ${dir} from the server`, { tone: "ok" });
+}
+
 async function onRemoved(p: Pack, deleted: boolean) {
   toast(deleted ? `Removed "${p.name}" and deleted its files` : `Removed "${p.name}"`, { tone: "ok" });
   await load();
@@ -230,7 +234,7 @@ onBeforeUnmount(() => live?.close());
     </section>
 
     <PackUploadDialog v-model="uploadOpen" :start="start" :sep="sep" @added="onUploaded" />
-    <PackFolderDialog v-model="dialogOpen" :mode="dialogMode" :packs="packs" :moving="moving" :home="home" @added="onAdded" @moved="onMoved" />
+    <PackFolderDialog v-model="dialogOpen" :mode="dialogMode" :packs="packs" :moving="moving" :home="home" @added="onAdded" @moved="onMoved" @deleted="onFolderDeleted" />
 
     <PackRemoveDialog v-model="removeOpen" :pack="removing" @removed="onRemoved" />
   </main>
