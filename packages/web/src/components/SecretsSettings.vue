@@ -1,11 +1,12 @@
 <script setup lang="ts">
-// Settings > Secrets: passwords and tokens tests read as ${secret.NAME} or h.secret("NAME"). The
+// Admin > Secrets (users see the names on Settings): passwords and tokens tests read as ${secret.NAME} or h.secret("NAME"). The
 // server never sends a value back, so this lists names and lets a person set, replace or delete.
 import { computed, onMounted, ref } from "vue";
 import { getJson, sendJson } from "../api";
 import { when } from "../format";
 import { Lock, Trash2 } from "../icons";
 import { toast } from "../toasts";
+import { can } from "../session";
 import { vTip } from "../tooltip";
 import ModalDialog from "./ModalDialog.vue";
 import TextField from "./TextField.vue";
@@ -78,6 +79,7 @@ async function remove() {
       Passwords and tokens for tests, kept out of packs. Tests read them as <code>${secret.NAME}</code> in YAML or <code>h.secret("NAME")</code> in code, and every value shows as ••• in logs,
       results and the live page's events. They are kept unencrypted in Watchwright's data folder.
     </p>
+    <p v-if="!can('admin')" class="muted small">An admin adds and changes them.</p>
     <ul v-if="list && list.length" class="secrets">
       <li v-for="s in list" :key="s.name">
         <Lock :size="15" class="muted" />
@@ -86,11 +88,11 @@ async function remove() {
           <span v-tip="when(s.setAt)" class="muted small">{{ s.length }} characters · set {{ new Date(s.setAt).toLocaleDateString() }}</span>
         </div>
         <button type="button" class="btn" @click="replace(s)">Replace</button>
-        <button v-tip="'Delete this secret'" type="button" class="ib" :aria-label="`Delete ${s.name}`" @click="doomed = s"><Trash2 :size="14" /></button>
+        <button v-if="can('admin')" v-tip="'Delete this secret'" type="button" class="ib" :aria-label="`Delete ${s.name}`" @click="doomed = s"><Trash2 :size="14" /></button>
       </li>
     </ul>
     <p v-else-if="list" class="muted">No secrets yet.</p>
-    <form class="add" @submit.prevent="save">
+    <form v-if="can('admin')" class="add" @submit.prevent="save">
       <div class="fld">
         <label for="s-secret-name" class="lbl small">Name</label>
         <TextField id="s-secret-name" ref="nameField" v-model="name" placeholder="SHOP_PASSWORD" :invalid="nameBad" />

@@ -1,8 +1,9 @@
 <script setup lang="ts">
-// One pack: whether it loads, its recent runs, then tabs for its README (the way a code host shows one), its
-// tests with their metadata (searchable and filtered, for packs with hundreds of them),
-// parameters, flag kinds and rubric.
-import { ArrowLeft, ChevronDown, ChevronRight, CircleDot, Ellipsis, FilePlus, FileText, Pencil, Play, SearchX, TriangleAlert } from "../icons";
+// One pack: whether it loads, then tabs for its dashboard, its recent runs, its README (the way a
+// code host shows one), its tests with their metadata (searchable and filtered, for packs with
+// hundreds of them), parameters, flag kinds and rubric. The tab is in the address, so nothing
+// sits under anything else: a big dashboard never pushes the tests down the page.
+import { ArrowLeft, ChevronDown, ChevronRight, CircleDot, Ellipsis, FilePlus, FileText, Lock, Pencil, Play, SearchX, Trash2, TriangleAlert } from "../icons";
 import { nextTestId, recordingTestTemplate, slug, type PackFile } from "../editfiles";
 import { findReadme, packImageUrl, resolveRelative } from "../markdown";
 import MarkdownView from "../components/MarkdownView.vue";
@@ -10,9 +11,10 @@ import TextField from "../components/TextField.vue";
 import SelectMenu from "../components/SelectMenu.vue";
 import ToggleSwitch from "../components/ToggleSwitch.vue";
 import { NO_FILTER, filterTests, groupTests, isFiltered, sectionsOf, tagsOf, type TestFilter } from "../packtests";
-import { href } from "../router";
+import { href, replaceRoute } from "../router";
+import { useOutline, type OutlineItem } from "../outline";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { getJson, sendJson, type Criterion, type FolderPlaces, type HistoryEntry, type Pack, type PackTest, type RunSummary } from "../api";
+import { getJson, sendJson, type Criterion, type FolderPlaces, type HistoryEntry, type Pack, type PackAccess, type PackStateEntry, type PackTask, type PackTest, type RunSummary } from "../api";
 import { HISTORY_LIMIT, flakyReason, medianMs, passRate } from "../history";
 import { ago, countsText, duration, when } from "../format";
 import { LiveConnection } from "../live";
@@ -22,6 +24,7 @@ import HistoryStrip from "../components/HistoryStrip.vue";
 import MenuButton from "../components/MenuButton.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import PackDashboard from "../components/PackDashboard.vue";
+import PackAccessDialog from "../components/PackAccessDialog.vue";
 import PackFolderDialog from "../components/PackFolderDialog.vue";
 import PageSkeleton from "../components/PageSkeleton.vue";
 import PathLine from "../components/PathLine.vue";
@@ -31,10 +34,11 @@ import { join } from "../paths";
 import { toast } from "../toasts";
 import TabBar from "../components/TabBar.vue";
 import { vTip } from "../tooltip";
+import { can, session } from "../session";
 
-const props = defineProps<{ id: string }>();
-/** Runs shown above the tabs; the runs list has the rest. */
-const RECENT = 5;
+const props = defineProps<{ id: string; tab?: string | null }>();
+/** Runs shown on the Runs tab; the runs list has the rest. */
+const RECENT = 10;
 
 const pack = ref<Pack | null>(null);
 const runs = ref<RunSummary[]>([]);
@@ -78,13 +82,31 @@ async function createRecording() {
   recOpen.value = false;
   window.location.hash = href({ name: "edit", id: props.id, file: res.data.file.path, line: t.line, record: true });
 }
-const menu = [
+// Who sees the pack: only admins pick it, and only with login on (without it everyone sees everything).
+const manageAccess = computed(() => session.on && can("admin"));
+const access = ref<PackAccess | null>(null);
+const accessOpen = ref(false);
+async function loadAccess() {
+  if (!manageAccess.value) return;
+  const res = await getJson<PackAccess>(`/api/v1/packs/${props.id}/access`);
+  if (res.ok) access.value = res.data;
+}
+const accessTip = computed(() => {
+  const a = access.value;
+  if (a?.mode !== "chosen") return "";
+  const n = a.people.length;
+  const parts = [n ? `${n} ${n === 1 ? "person" : "people"}` : "", a.groups.length ? `${a.groups.length === 1 ? "group" : "groups"} ${a.groups.join(", ")}` : ""].filter(Boolean);
+  return `Only ${parts.length ? `${parts.join(" and ")} and ` : ""}the admins see this pack`;
+});
+const menu = computed(() => [
   { value: "download", label: "Download .zip" },
-  { value: "move", label: "Move to another folder…" },
+  ...(manageAccess.value ? [{ value: "access", label: "Who sees this pack…" }] : []),
+  ...(can("admin") ? [{ value: "move", label: "Move to another folder…" }] : []),
   { value: "remove", label: "Remove…", danger: true },
-];
+]);
 function onMenu(v: string) {
   if (v === "download") window.location.href = `/api/v1/packs/${props.id}/download`;
+  else if (v === "access") accessOpen.value = true;
   else if (v === "move") moveOpen.value = true;
   else if (v === "remove") removeOpen.value = true;
 }
@@ -96,19 +118,67 @@ async function confirmRemove() {
   toast(`Removed "${name}"`, { tone: "ok" });
   window.location.hash = "#/packs";
 }
-type Tab = "readme" | "tests" | "params" | "flags" | "rubric";
-const tab = ref<Tab>("tests");
-// The README tab opens first when the pack has one, until the person picks a tab themselves.
-let tabPicked = false;
-watch(tab, () => (tabPicked = true));
-
+type Tab = "dashboard" | "runs" | "readme" | "tests" | "tasks" | "params" | "flags" | "rubric";
 const tabs = computed(() => [
+  ...(runs.value.length ? [{ value: "dashboard" as const, label: "Dashboard" }] : []),
+  { value: "runs" as const, label: "Runs" },
   ...(readme.value ? [{ value: "readme" as const, label: "README" }] : []),
   { value: "tests" as const, label: "Tests", count: pack.value?.tests.length ?? 0 },
+  ...(pack.value?.tasks.length || packState.value.length ? [{ value: "tasks" as const, label: "Tasks", count: pack.value?.tasks.length ?? 0 }] : []),
   { value: "params" as const, label: "Parameters", count: Object.keys(pack.value?.params ?? {}).length },
   { value: "flags" as const, label: "Flags", count: Object.keys(pack.value?.flags ?? {}).length },
   { value: "rubric" as const, label: "Rubric", count: pack.value?.rubric.length ?? 0 },
 ]);
+// The tab picked here, else the one in the address, else the dashboard once the pack has run,
+// else its README, else its tests. Picking one writes it to the address (without a history
+// entry, as filters do), so a reload or a copied link opens on it.
+const picked = ref<string | null>(null);
+watch(
+  () => props.tab,
+  () => (picked.value = null),
+);
+const has = (t: string | null | undefined): t is Tab => !!t && tabs.value.some((x) => x.value === t);
+const tab = computed<Tab>({
+  get: () => (has(picked.value) ? picked.value : has(props.tab) ? props.tab : runs.value.length ? "dashboard" : readme.value ? "readme" : "tests"),
+  set: (t) => {
+    picked.value = t;
+    replaceRoute({ name: "pack", id: props.id, tab: t });
+  },
+});
+
+// Tasks: steps of the pack that run on their own, and the values the pack keeps between runs.
+const packState = ref<PackStateEntry[]>([]);
+const starting = ref<string | null>(null);
+/** The pack's run that is going or paused, which decides when a task starts. */
+const openRun = computed(() => runs.value.find((r) => r.kind !== "task" && ["running", "pausing", "paused"].includes(r.status)) ?? null);
+async function runTask(t: PackTask) {
+  starting.value = t.id;
+  const res = await sendJson<RunSummary>("/api/v1/runs", { packId: props.id, kind: "task", tests: [t.id] });
+  starting.value = null;
+  if (!res.ok) return void toast(res.error.message, { tone: "bad" });
+  window.location.hash = `#/runs/${res.data.id}`;
+}
+async function loadState() {
+  const res = await getJson<PackStateEntry[]>(`/api/v1/packs/${props.id}/state`);
+  packState.value = res.ok ? res.data : [];
+}
+const forgetting = ref<PackStateEntry | null>(null);
+const forgetOpen = computed({ get: () => forgetting.value !== null, set: (v) => void (v || (forgetting.value = null)) });
+async function forget() {
+  const key = forgetting.value?.key;
+  forgetting.value = null;
+  if (!key) return;
+  const res = await sendJson(`/api/v1/packs/${props.id}/state/${encodeURIComponent(key)}`, {}, "DELETE");
+  if (!res.ok) return void toast(res.error.message, { tone: "bad" });
+  toast(`Deleted "${key}"`, { tone: "ok" });
+  await loadState();
+}
+/** A value as one short line of JSON. */
+function valueText(v: unknown): string {
+  const text = typeof v === "string" ? v : JSON.stringify(v);
+  return text.length > 160 ? `${text.slice(0, 157)}…` : text;
+}
+
 // Finding tests: a search and filters, and descriptions that can be folded away (kept per browser).
 const filter = ref<TestFilter>({ ...NO_FILTER });
 const shown = computed(() => filterTests(pack.value?.tests ?? [], filter.value, history.value));
@@ -195,16 +265,32 @@ async function loadReadme() {
   if (!path) return void (readme.value = null);
   const res = await getJson<{ text: string }>(`/api/v1/packs/${props.id}/file?path=${encodeURIComponent(path)}`);
   readme.value = res.ok ? { path, text: res.data.text } : null;
-  if (readme.value && !tabPicked) {
-    tab.value = "readme";
-    tabPicked = false;
-  }
 }
+const readmeHeadings = ref<{ level: number; text: string; id: string }[]>([]);
 const readmeImage = (src: string) => (readme.value ? packImageUrl(props.id, readme.value.path, src) : null);
 function readmeLink(target: string): string | null {
   const to = readme.value ? resolveRelative(readme.value.path, target) : null;
   return to && files.value.includes(to) ? href({ name: "edit", id: props.id, file: to, line: null }) : null;
 }
+
+// "On this page": the tabs, and under the one on show its parts: the README's headings, or the
+// sections of the tests (landing under the search and filters, which stay stuck at the top).
+const finderHeight = () => document.querySelector<HTMLElement>("#pack-panel-tests .finder")?.offsetHeight ?? 0;
+useOutline("Parts of this pack", () => {
+  if (!pack.value) return [];
+  const out: OutlineItem[] = [];
+  for (const t of tabs.value) {
+    out.push({ id: "pack-tabs", label: t.label, open: () => (tab.value = t.value), on: () => tab.value === t.value });
+    if (t.value !== tab.value) continue;
+    if (t.value === "readme") {
+      const top = Math.min(...readmeHeadings.value.map((h) => h.level));
+      for (const h of readmeHeadings.value) if (h.level <= top + 1) out.push({ id: h.id, label: h.text, level: 2 });
+    } else if (t.value === "tests" && grouped.value) {
+      groups.value.forEach((g, gi) => out.push({ id: `pt-sec-${gi}`, label: g.section || "No section", level: 2, open: () => folded.value.has(g.section) && toggleFold(g.section), land: finderHeight }));
+    }
+  }
+  return out;
+});
 
 async function load() {
   const [p, r, h] = await Promise.all([
@@ -222,8 +308,10 @@ async function load() {
   if (r.ok) runs.value = r.data;
   dashStamp.value++;
   if (h.ok) history.value = h.data;
+  void loadState();
   if (!p.data.missing) void loadReadme();
   else readme.value = null;
+  void loadAccess();
 }
 
 async function reload() {
@@ -238,8 +326,9 @@ watch(
   () => {
     filter.value = { ...NO_FILTER };
     readme.value = null;
-    tab.value = "tests";
-    tabPicked = false;
+    runs.value = [];
+    packState.value = [];
+    picked.value = null;
     void load();
   },
 );
@@ -263,7 +352,10 @@ onBeforeUnmount(() => live?.close());
     <template v-if="pack">
       <div class="page-head">
         <div class="title">
-          <h1 class="display">{{ pack.name }} <StatusChip v-if="pack.status === 'error'" status="failed" /></h1>
+          <h1 class="display">
+            {{ pack.name }} <StatusChip v-if="pack.status === 'error'" status="failed" />
+            <button v-if="access?.mode === 'chosen'" v-tip="accessTip" type="button" class="kept" @click="accessOpen = true"><Lock :size="12" /> Chosen people</button>
+          </h1>
           <p v-if="pack.description">{{ pack.description }}</p>
           <p class="muted small">
             {{ pack.browser }}<template v-if="pack.baseURL"> · {{ pack.baseURL }}</template><template v-if="pack.siteKey"> · site key <code>{{ pack.siteKey }}</code></template>
@@ -272,7 +364,7 @@ onBeforeUnmount(() => live?.close());
           <PathLine class="path" :path="pack.dir" :home="home" :openable="canOpen && !pack.missing" />
         </div>
         <div class="acts">
-          <button v-if="pack.missing" class="btn primary" @click="moveOpen = true">Locate…</button>
+          <button v-if="pack.missing && can('admin')" class="btn primary" @click="moveOpen = true">Locate…</button>
           <template v-else>
             <button class="btn" :disabled="reloading" @click="reload">{{ reloading ? "Reloading…" : "Reload" }}</button>
             <a class="btn" :href="href({ name: 'edit', id: pack.id, file: null, line: null })"><Pencil :size="15" /> Edit</a>
@@ -299,12 +391,17 @@ onBeforeUnmount(() => live?.close());
             <template v-else>{{ x }}</template>
           </li>
         </ul>
-        <p class="muted small">Fix the files and save: the server builds the pack again by itself.</p>
+        <p v-if="pack.error?.includes('outside its folder')" class="muted small">A pack can share files with the folder above it, but that folder has to be on the server too. Copy it there and press Reload, or upload a zip of it: Download .zip on a Watchwright where this pack loads makes one with those files in it.</p>
+        <p v-else class="muted small">Fix the files and save: the server builds the pack again by itself.</p>
       </section>
 
-      <PackDashboard v-if="runs.length" :pack-id="pack.id" :latest-runs="runs.map((r) => r.id)" :stamp="dashStamp" />
+      <TabBar id="pack-tabs" v-model="tab" class="pack-tabs" :tabs="tabs" id-prefix="pack" label="Pack" />
 
-      <section class="card" aria-labelledby="pk-runs">
+      <div v-if="runs.length && tab === 'dashboard'" id="pack-panel-dashboard" role="tabpanel" aria-labelledby="pack-tab-dashboard" class="tab-page">
+        <PackDashboard :pack-id="pack.id" :latest-runs="runs.map((r) => r.id)" :stamp="dashStamp" />
+      </div>
+
+      <section v-if="tab === 'runs'" id="pack-panel-runs" role="tabpanel" aria-labelledby="pack-tab-runs" class="card">
         <div class="runs-head">
           <h2 id="pk-runs" class="display">Recent runs</h2>
           <a v-if="runs.length" class="small" :href="`#/?pack=${pack.id}`">All runs of this pack</a>
@@ -326,15 +423,13 @@ onBeforeUnmount(() => live?.close());
         </p>
       </section>
 
-      <section class="card">
-        <TabBar v-model="tab" :tabs="tabs" id-prefix="pack" label="Pack details" />
-
+      <section v-show="tab !== 'dashboard' && tab !== 'runs'" class="card">
         <div v-if="readme" v-show="tab === 'readme'" id="pack-panel-readme" role="tabpanel" aria-labelledby="pack-tab-readme" class="panel readme">
           <header class="readme-head">
             <h2 class="readme-name"><FileText :size="16" /><span class="mono">{{ readme.path }}</span></h2>
             <a v-tip="'Edit'" class="edit" :href="href({ name: 'edit', id: pack.id, file: readme.path, line: null })" :aria-label="`Edit ${readme.path}`"><Pencil :size="15" /></a>
           </header>
-          <MarkdownView :source="readme.text" :resolve-link="readmeLink" :resolve-image="readmeImage" id-prefix="readme-" :label="readme.path" />
+          <MarkdownView :source="readme.text" :resolve-link="readmeLink" :resolve-image="readmeImage" id-prefix="readme-" :label="readme.path" @headings="(h) => (readmeHeadings = h)" />
         </div>
 
         <div v-show="tab === 'tests'" id="pack-panel-tests" role="tabpanel" aria-labelledby="pack-tab-tests" class="panel tests">
@@ -358,8 +453,8 @@ onBeforeUnmount(() => live?.close());
               <thead>
                 <tr><th>Test</th><th v-if="!grouped">Section</th><th>Needs</th><th>Attempts</th><th v-if="hasHistory" class="c-hist">Last {{ HISTORY_LIMIT }} attempts, newest on the right</th><th>File</th></tr>
               </thead>
-              <tbody v-for="g in groups" :key="g.section">
-                <tr v-if="grouped" class="group">
+              <tbody v-for="(g, gi) in groups" :key="g.section">
+                <tr v-if="grouped" :id="`pt-sec-${gi}`" class="group">
                   <th :colspan="columns" scope="colgroup">
                     <button v-if="foldable" type="button" class="fold" :aria-expanded="!folded.has(g.section)" @click="toggleFold(g.section)">
                       <component :is="folded.has(g.section) ? ChevronRight : ChevronDown" :size="16" />
@@ -419,6 +514,46 @@ onBeforeUnmount(() => live?.close());
           </EmptyState>
         </div>
 
+        <div v-show="tab === 'tasks'" id="pack-panel-tasks" role="tabpanel" aria-labelledby="pack-tab-tasks" class="panel tasks">
+          <p class="muted small intro">
+            Steps of the pack that run on their own, as a run you can watch. A task waits for the site like any run, but starts at once while the site's run is paused.
+            <template v-if="pack.hooks.teardown"> Runs of this pack end with its teardown.</template>
+          </p>
+          <p v-if="openRun && pack.tasks.length" class="note small" role="status">
+            <template v-if="openRun.status === 'paused'">
+              <a :href="`#/runs/${openRun.id}`">Run {{ openRun.label || openRun.id }}</a> is paused, so a task starts now. The run can go on once it's done<template v-if="pack.hooks.afterTask">, after the pack's afterTask</template>.
+            </template>
+            <template v-else>
+              <a :href="`#/runs/${openRun.id}`">Run {{ openRun.label || openRun.id }}</a> is going. A task waits until it pauses or ends.
+            </template>
+          </p>
+          <ul v-if="pack.tasks.length" class="task-list">
+            <li v-for="t in pack.tasks" :key="t.id" class="task">
+              <div class="task-text">
+                <div class="tline">
+                  <strong>{{ t.title }}</strong>
+                  <code v-if="t.title !== t.id" class="tid muted">{{ t.id }}</code>
+                  <span v-if="t.readOnly" v-tip="'Leaves the site as it found it: a paused run goes on where it was'" class="tag small" tabindex="0">read-only</span>
+                </div>
+                <p v-if="t.description" class="desc muted small">{{ t.description }}</p>
+              </div>
+              <button v-if="can('user')" type="button" class="btn" :disabled="pack.status !== 'ok' || starting !== null" @click="runTask(t)"><Play :size="15" /> {{ starting === t.id ? "Starting…" : "Run" }}</button>
+            </li>
+          </ul>
+          <p v-else class="muted">This pack has no tasks.</p>
+          <h3 class="sub">Saved values</h3>
+          <p class="muted small">What the pack keeps between runs and tasks, such as the name of a backup its setup took.</p>
+          <ul v-if="packState.length" class="state-list">
+            <li v-for="e in packState" :key="e.key">
+              <code class="skey">{{ e.key }}</code>
+              <code class="sval">{{ valueText(e.value) }}</code>
+              <span v-tip="when(e.updatedAt)" class="muted small">{{ ago(e.updatedAt) }}</span>
+              <button v-if="can('user')" v-tip="'Delete'" type="button" class="ib" :aria-label="`Delete ${e.key}`" @click="forgetting = e"><Trash2 :size="15" /></button>
+            </li>
+          </ul>
+          <p v-else class="muted small">Nothing saved yet.</p>
+        </div>
+
         <div v-show="tab === 'params'" id="pack-panel-params" role="tabpanel" aria-labelledby="pack-tab-params" class="panel">
           <dl v-if="Object.keys(pack.params).length" class="defs">
             <template v-for="(d, k) in pack.params" :key="k">
@@ -466,6 +601,7 @@ onBeforeUnmount(() => live?.close());
       </section>
     </template>
     <PageSkeleton v-else-if="!error" label="Loading the pack" :cards="3" />
+    <PackAccessDialog v-if="pack && manageAccess" v-model="accessOpen" :pack-id="pack.id" :pack-name="pack.name" @saved="(a: PackAccess) => (access = a)" />
     <PackFolderDialog v-if="pack" v-model="moveOpen" mode="move" :packs="[]" :moving="pack" :home="home" @moved="load(), toast('The pack now loads from its new folder', { tone: 'ok' })" />
     <ModalDialog v-model="recOpen" heading="New recording" width="480px">
       <form class="form" @submit.prevent="createRecording">
@@ -480,6 +616,13 @@ onBeforeUnmount(() => live?.close());
       <template #actions>
         <button type="button" class="btn" @click="recOpen = false">Cancel</button>
         <button type="button" class="btn primary" :disabled="!recPath.trim() || !recId.trim()" @click="createRecording">Start recording</button>
+      </template>
+    </ModalDialog>
+    <ModalDialog v-model="forgetOpen" heading="Delete this saved value?">
+      <p v-if="forgetting">The pack's setup, teardown or tasks may need <code>{{ forgetting.key }}</code>, such as the name of a backup to restore. Delete it only if you know it's no longer needed.</p>
+      <template #actions>
+        <button class="btn" @click="forgetting = null">Cancel</button>
+        <button class="btn danger" @click="forget">Delete value</button>
       </template>
     </ModalDialog>
     <ModalDialog v-model="removeOpen" heading="Remove this pack?">
@@ -507,8 +650,28 @@ onBeforeUnmount(() => live?.close());
 }
 .title h1 {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
+}
+.kept {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  border: var(--border-width) solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.kept:hover {
+  border-color: var(--line-strong);
+  color: var(--text);
 }
 .title {
   min-width: 0;
@@ -532,7 +695,6 @@ onBeforeUnmount(() => live?.close());
   padding-left: 18px;
 }
 .panel {
-  padding-top: var(--space-3);
   overflow-x: auto;
 }
 .tbl {
@@ -726,7 +888,6 @@ button.fold > svg {
 }
 .panel.readme {
   overflow-x: visible;
-  padding-top: var(--space-5);
 }
 .readme .edit {
   margin-right: 0;
@@ -826,6 +987,75 @@ button.fold > svg {
   font-weight: 600;
   color: var(--text);
 }
+.tasks .intro {
+  margin: 0 0 var(--space-3);
+}
+.note {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+}
+.task-list,
+.state-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.task {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-top: var(--border-width) solid var(--line);
+}
+.task:first-child {
+  border-top: 0;
+  padding-top: var(--space-1);
+}
+.task-text {
+  flex: 1;
+  min-width: 0;
+}
+.task .btn {
+  flex: none;
+}
+.state-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  padding: 6px 0;
+  border-top: var(--border-width) solid var(--line);
+}
+.state-list li:first-child {
+  border-top: 0;
+}
+.skey {
+  font-weight: 600;
+}
+.sval {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+.ib {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.ib:hover {
+  color: var(--bad);
+  background: var(--raised);
+}
 .rparams {
   display: inline-flex;
   flex-wrap: wrap;
@@ -833,6 +1063,13 @@ button.fold > svg {
   color: var(--muted);
 }
 @media (max-width: 720px) {
+  .task {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  .task-text {
+    flex-basis: 100%;
+  }
   .finder > .search {
     flex-basis: 100%;
   }

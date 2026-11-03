@@ -130,6 +130,11 @@ export class FolderService {
     return this.opts.desktop ?? true;
   }
 
+  /** Whether the folder browser may show `file` (it is inside the folders the server shows). */
+  shows(file: string): boolean {
+    return this.allowed(path.resolve(file));
+  }
+
   private allowed(dir: string): boolean {
     const roots = this.opts.roots;
     return !roots || roots.some((r) => isInside(dir, r));
@@ -224,17 +229,31 @@ export class FolderService {
   }
 
   /** Shows a folder in Explorer, Finder or the desktop's file manager. Only folders a plugin allowed. */
-  open(input: string, launch: (cmd: string, args: string[]) => void = launchDetached): string {
+  open(input: string, launch: Launch = launchDetached): string {
     if (!this.canOpen) throw new FolderError("no_desktop", "This server has no screen, so there is no file manager to show the folder in.");
     const dir = this.clean(input);
     if (!isDir(dir)) throw new FolderError("not_found", `There is no folder at ${dir}.`);
     if (!this.openable.some((ok) => ok(dir))) throw new FolderError("not_allowed", "Watchwright only opens pack folders and its own run folders.");
     // Always a folder, so the file manager shows it; it never runs a file.
-    if (this.platform === "win32") launch("explorer.exe", [dir]);
-    else if (this.platform === "darwin") launch("open", [dir]);
-    else launch("xdg-open", [dir]);
+    const [cmd, args, opts] = fileManagerCommand(this.platform, dir);
+    launch(cmd, args, opts);
     return dir;
   }
+}
+
+/** Starts a program and doesn't wait for it. */
+export type Launch = (cmd: string, args: string[], opts: { windowsHide: boolean }) => void;
+
+/**
+ * The command that shows a folder in the system's file manager. Explorer must start with
+ * `windowsHide: false`: it opens its window in the show state it was started with, so a hidden
+ * start (the server's default for every child process on Windows) opens the folder unseen.
+ * Explorer has no console window to hide, so nothing pops up.
+ */
+export function fileManagerCommand(platform: NodeJS.Platform, dir: string): [string, string[], { windowsHide: boolean }] {
+  if (platform === "win32") return ["explorer.exe", [dir], { windowsHide: false }];
+  if (platform === "darwin") return ["open", [dir], { windowsHide: true }];
+  return ["xdg-open", [dir], { windowsHide: true }];
 }
 
 export function isInside(child: string, parent: string): boolean {
@@ -258,9 +277,9 @@ function isFile(p: string): boolean {
   }
 }
 
-function launchDetached(cmd: string, args: string[]): void {
+function launchDetached(cmd: string, args: string[], opts: { windowsHide: boolean }): void {
   try {
-    const child = spawn(cmd, args, { detached: true, stdio: "ignore", windowsHide: true });
+    const child = spawn(cmd, args, { detached: true, stdio: "ignore", windowsHide: opts.windowsHide });
     child.on("error", () => undefined);
     child.unref();
   } catch {

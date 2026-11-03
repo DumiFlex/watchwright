@@ -53,7 +53,7 @@ export const STEPS: readonly StepDef[] = [
   {
     name: "goto",
     group: "go",
-    doc: "Opens a URL. A relative URL is joined to the pack's site.baseURL.",
+    doc: "Opens a URL. A relative URL is joined to the pack's site.baseURL. Only http and https addresses open (not file:).",
     short: "url",
     fields: { url: req(str("The URL.")), waitUntil: str("When the page counts as loaded (default load).", { enum: ["load", "domcontentloaded", "networkidle", "commit"] }) },
     summary: (a) => `Go to ${s(a.url)}`,
@@ -120,7 +120,7 @@ export const STEPS: readonly StepDef[] = [
   {
     name: "upload",
     group: "act",
-    doc: "Sets the files of a file input. Paths are relative to the pack folder.",
+    doc: "Sets the files of a file input. Paths are relative to the pack folder, and the files must be inside it.",
     fields: { target: req(target("The file input.")), files: req(oneOrMore(str(), "A file, or a list of files.")) },
     summary: (a) => `Upload ${Array.isArray(a.files) ? a.files.join(", ") : s(a.files)} to ${t(a.target)}`,
   },

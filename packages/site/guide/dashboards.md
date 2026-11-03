@@ -2,7 +2,7 @@
 
 A pack's dashboard shows how its runs went over time, at a glance: outcomes and run times for a plain test pack, and for a pack whose runs are judged by numbers, scores or setups, those numbers, scores and setups. The pack says what its dashboard shows with a `dashboard` block; without one it shows outcomes, run times and the latest failures.
 
-A pack's page shows its dashboard at the top, once the pack has run, and so does the runs list when its pack filter picks that pack. Pick a value of each filter, or another range (the last 10, 50 or 200 runs, the last 7 or 30 days), and every tile reads only those runs. Agents get the same numbers with the `pack_dashboard` tool.
+A pack's page shows its dashboard on its **Dashboard** tab, the one it opens on once the pack has run, and so does the runs list when its pack filter picks that pack. Pick a value of each filter, or another range (the last 10, 50 or 200 runs, the last 7 or 30 days), and every tile reads only those runs. Agents get the same numbers with the `pack_dashboard` tool.
 
 The [public status page](./sharing#public-status-page) shows each pack's public tiles, and a [shared run](./sharing#share-links) starts with them for that one run.
 
@@ -130,6 +130,8 @@ A tile is its kind with a name (`metric: Load ms`) or `true` (`matrix: true`), p
 **Customize**, beside the range at the top of the dashboard, changes it without editing the pack: the runs the tiles read, the filters, the groups and their titles, and the tiles. Drag a tile by its grip to move it (or focus the grip and use the arrow keys), pick its width, and open it for its fields: its name, from the names the pack's tests and latest runs offer (or one typed, for a name no run has recorded yet), its title, its kind's own fields, which tests and runs it reads, and whether shares show it. **Add a tile** picks a kind first.
 
 **Save** keeps the change on the server, for everyone who opens the pack; the dashboard says it was changed on the page. The pack's own `dashboard` block stays as it is, and **Use the pack's** drops the change so the dashboard shows the pack's block again (or the default, for a pack without one). People with the viewer role see the dashboard but not Customize.
+
+With [login](./safety) on, only admins change what strangers see: the tiles marked public and the runs they read. A user's change can add, edit and move private tiles; a tile a user adds starts private, and saving a change that adds, edits or removes a public tile, or changes the range, is refused (`public_tiles_admin_only`). **Use the pack's** is refused the same way when it would change the public tiles.
 
 A change is kept as a `dashboard` block too, so the API takes the same thing: `POST /api/v1/packs/:id/dashboard` with `{ tiles }` or `{ groups }` saves one, and `DELETE` drops it. To keep a change for good, copy it into the pack.
 

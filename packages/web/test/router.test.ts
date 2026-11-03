@@ -14,12 +14,16 @@ describe("router", () => {
     expect(parseRoute("#/runs/0a1b2c3d/attempts/0a1b2c3d4e5f?line=x")).toEqual({ name: "attempt", runId: "0a1b2c3d", attemptId: "0a1b2c3d4e5f" });
     expect(parseRoute("#/packs")).toEqual({ name: "packs", query: {} });
     expect(parseRoute("#/packs/0a1b2c3d")).toEqual({ name: "pack", id: "0a1b2c3d" });
+    expect(parseRoute("#/packs/0a1b2c3d?tab=tests")).toEqual({ name: "pack", id: "0a1b2c3d", tab: "tests" });
+    expect(parseRoute("#/packs/0a1b2c3d?tab=../x")).toEqual({ name: "pack", id: "0a1b2c3d" });
     expect(parseRoute("#/packs/0a1b2c3d/edit")).toEqual({ name: "edit", id: "0a1b2c3d", file: null, line: null });
     expect(parseRoute("#/packs/0a1b2c3d/edit/tests/my%20file.yaml?line=12")).toEqual({ name: "edit", id: "0a1b2c3d", file: "tests/my file.yaml", line: 12 });
     expect(parseRoute("#/kit")).toEqual({ name: "kit" });
     expect(parseRoute("#/settings")).toEqual({ name: "settings" });
     expect(parseRoute("#/settings?section=storage")).toEqual({ name: "settings", section: "storage" });
     expect(parseRoute("#/settings?section=Bad!")).toEqual({ name: "settings" });
+    expect(parseRoute("#/account")).toEqual({ name: "account" });
+    expect(parseRoute("#/admin?section=server")).toEqual({ name: "admin", section: "server" });
     expect(parseRoute("#/schedules")).toEqual({ name: "schedules" });
     expect(parseRoute("#/compare?runs=0a1b2c3d,1a1b2c3d")).toEqual({ name: "compare", query: { runs: "0a1b2c3d,1a1b2c3d" } });
     expect(parseRoute("#/s/AbCdEfGhIjKlMnOpQr_-12")).toEqual({ name: "shared", token: "AbCdEfGhIjKlMnOpQr_-12" });
@@ -45,6 +49,7 @@ describe("router", () => {
       { name: "packs", query: {} },
       { name: "packs", query: { browse: "find" } },
       { name: "pack", id: "0a1b2c3d" },
+      { name: "pack", id: "0a1b2c3d", tab: "readme" },
       { name: "edit", id: "0a1b2c3d", file: null, line: null },
       { name: "edit", id: "0a1b2c3d", file: "tests/a b#.yaml", line: 4 },
       { name: "edit", id: "0a1b2c3d", file: "tests/new.yaml", line: 4, record: true },
@@ -53,6 +58,8 @@ describe("router", () => {
       { name: "kit" },
       { name: "settings" },
       { name: "settings", section: "storage" },
+      { name: "account", section: "tokens" },
+      { name: "admin" },
       { name: "schedules" },
       { name: "shared", token: "AbCdEfGhIjKlMnOpQr_-12" },
       { name: "status" },

@@ -161,7 +161,7 @@ export class Scheduler {
       )
       .run(id, input.name, input.packId, JSON.stringify(input.when), JSON.stringify(input.run ?? {}), input.missed ?? "once", enabled ? 1 : 0, next?.toISOString() ?? null, at, at);
     const s = this.get(id);
-    this.events.append("schedule.created", { id, name: s.name, nextAt: s.nextAt });
+    this.events.append("schedule.created", { id, name: s.name, packId: s.packId, nextAt: s.nextAt });
     this.arm();
     return s;
   }
@@ -176,7 +176,7 @@ export class Scheduler {
       .prepare("UPDATE schedules SET name = ?, pack_id = ?, when_json = ?, run_json = ?, missed = ?, enabled = ?, next_at = ?, updated_at = ? WHERE id = ?")
       .run(s.name, s.packId, JSON.stringify(s.when), JSON.stringify(s.run), s.missed, s.enabled ? 1 : 0, next?.toISOString() ?? null, this.now().toISOString(), id);
     const out = this.get(id);
-    this.events.append("schedule.updated", { id, name: out.name, enabled: out.enabled, nextAt: out.nextAt });
+    this.events.append("schedule.updated", { id, name: out.name, packId: out.packId, enabled: out.enabled, nextAt: out.nextAt });
     this.arm();
     return out;
   }
@@ -185,7 +185,7 @@ export class Scheduler {
     const s = this.get(id);
     this.db.prepare("DELETE FROM schedules_runs WHERE schedule_id = ?").run(id);
     this.db.prepare("DELETE FROM schedules WHERE id = ?").run(id);
-    this.events.append("schedule.deleted", { id, name: s.name });
+    this.events.append("schedule.deleted", { id, name: s.name, packId: s.packId });
     this.arm();
   }
 
@@ -204,7 +204,7 @@ export class Scheduler {
       if (!s.enabled || !s.nextAt) continue;
       const due = new Date(s.nextAt);
       if (now.getTime() - due.getTime() < MISSED_AFTER_MS) continue;
-      this.events.append("schedule.missed", { id: s.id, name: s.name, missedAt: s.nextAt, policy: s.missed });
+      this.events.append("schedule.missed", { id: s.id, name: s.name, packId: s.packId, missedAt: s.nextAt, policy: s.missed });
       this.setNext(s, nextDue(s.when, now, s.lastDueAt ? new Date(s.lastDueAt) : new Date(s.createdAt)));
       if (s.missed === "once") void this.fire(this.get(s.id), due, "missed").catch(() => undefined);
     }
@@ -229,7 +229,7 @@ export class Scheduler {
         this.setNext(s, nextDue(s.when, now, at));
         if (s.lastRunId && this.starter.going(s.lastRunId)) {
           this.db.prepare("UPDATE schedules SET last_due_at = ? WHERE id = ?").run(at.toISOString(), s.id);
-          this.events.append("schedule.skipped", { id: s.id, name: s.name, dueAt: at.toISOString(), runId: s.lastRunId, reason: "The last run of this schedule is still going." });
+          this.events.append("schedule.skipped", { id: s.id, name: s.name, packId: s.packId, dueAt: at.toISOString(), runId: s.lastRunId, reason: "The last run of this schedule is still going." });
           continue;
         }
         await this.fire(s, at, "due").catch(() => undefined);
@@ -250,12 +250,12 @@ export class Scheduler {
       const runId = await this.starter!.start(s);
       this.db.prepare("INSERT INTO schedules_runs (schedule_id, run_id, due_at, started_at) VALUES (?, ?, ?, ?)").run(s.id, runId, dueAt.toISOString(), startedAt);
       this.db.prepare(`UPDATE schedules SET last_run_id = ?${why === "now" ? "" : ", last_due_at = ?"} WHERE id = ?`).run(...(why === "now" ? [runId, s.id] : [runId, dueAt.toISOString(), s.id]));
-      this.events.append("schedule.fired", { id: s.id, name: s.name, dueAt: dueAt.toISOString(), why }, { runId });
+      this.events.append("schedule.fired", { id: s.id, name: s.name, packId: s.packId, dueAt: dueAt.toISOString(), why }, { runId });
       return runId;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (why !== "now") this.db.prepare("UPDATE schedules SET last_due_at = ? WHERE id = ?").run(dueAt.toISOString(), s.id);
-      this.events.append("schedule.failed", { id: s.id, name: s.name, dueAt: dueAt.toISOString(), message });
+      this.events.append("schedule.failed", { id: s.id, name: s.name, packId: s.packId, dueAt: dueAt.toISOString(), message });
       throw err;
     }
   }

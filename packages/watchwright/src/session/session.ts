@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { chromium, firefox, webkit, type Browser, type BrowserContext, type BrowserContextOptions, type LaunchOptions, type Page } from "playwright";
-import { findFfmpeg, RunVideo, videoEncoder } from "../jobs/run-video.js";
+import { findFfmpeg, qualityFps, RunVideo, videoEncoder, type VideoQuality } from "../jobs/run-video.js";
 import { FlashFilter } from "./flash-filter.js";
 
 // A browser session: one browser, one context, every page in it, and their screencasts and trace.
@@ -26,6 +26,11 @@ export interface SessionOptions {
    * from the kept frames, with Playwright's ffmpeg, instead of by Playwright.
    */
   filterFlashes?: boolean;
+  /**
+   * How much room attempt videos take (default `full`, Playwright's own). Below `full`, Watchwright
+   * writes every page's video itself from the screencast frames, at that quality.
+   */
+  videoQuality?: VideoQuality;
 }
 
 export interface SessionFrame {
@@ -193,16 +198,19 @@ export class BrowserSession {
     const filtering = this.opts.filterFlashes ?? this.opts.browser === "firefox";
     entry.filter = filtering ? new FlashFilter<SessionFrame>(deliver) : null;
     entry.latest = null;
-    // With the filter on, the video is written from the kept frames; without ffmpeg, Playwright writes it as it is.
-    const ffmpeg = filtering && videoPath ? findFfmpeg() : null;
+    // With the filter on, or a quality below Playwright's, the video is written from the (kept)
+    // frames; without ffmpeg, Playwright writes it as it is.
+    const quality = this.opts.videoQuality ?? "full";
+    const ffmpeg = (filtering || quality !== "full") && videoPath ? findFfmpeg() : null;
     const ownVideo = !!(ffmpeg && videoPath && videoEncoder(ffmpeg));
     entry.video =
       ownVideo && videoPath && ffmpeg
         ? new RunVideo({
             file: videoPath,
             ffmpeg,
-            fps: VIDEO_FPS,
+            fps: qualityFps(quality, VIDEO_FPS),
             bitRate: VIDEO_BIT_RATE,
+            quality,
             frame: () => entry.latest ?? null,
             onError: (message) => {
               if (this.videoBroken) return;

@@ -8,7 +8,7 @@ import { BUILTIN_PLUGINS } from "../core/builtin.js";
 import { checkPlugins, pagesOf, type PluginContext, type WatchwrightPlugin } from "../core/plugin.js";
 import { randomBytes } from "node:crypto";
 import { ACCESS_LEVELS, allows, refusal, type Access, type CallUser } from "../core/access.js";
-import { ACTION_GATE, ACTIONS, LOGIN, LOGIN_OPTIONS, PAGES, SERVER_PORT } from "../core/keys.js";
+import { ACTION_GATE, ACTIONS, LOGIN, LOGIN_OPTIONS, PACK_GUARD, PAGES, SERVER_PORT } from "../core/keys.js";
 import { withAccess } from "../core/route-access.js";
 import { Services } from "../core/services.js";
 import { EventLog } from "../events/log.js";
@@ -51,7 +51,7 @@ declare module "fastify" {
      */
     internalHeaders: Record<string, string>;
     /** Every route with the access level it declares (for the route inventory test and docs). */
-    watchwrightRoutes: { method: string; url: string; access: Access | undefined }[];
+    watchwrightRoutes: { method: string; url: string; access: Access | undefined; pack: RoutePack | undefined }[];
   }
   interface FastifyRequest {
     /** Who is signed in: undefined when login is off (or the server calls itself), null when nobody is. */
@@ -60,8 +60,13 @@ declare module "fastify" {
   interface FastifyContextConfig {
     /** Who may call this route when login is on (docs/plans/self-hosting.md, section 2.5). */
     access?: Access;
+    /** `checked`: the route answers only for packs the caller may see (pack access); `none`: it reads no pack's data. */
+    pack?: RoutePack;
   }
 }
+
+/** What a plain route says about pack access (an action's route says it with the action's `pack`). */
+export type RoutePack = "checked" | "none";
 
 const INTERNAL_HEADER = "x-watchwright-internal";
 
@@ -81,6 +86,9 @@ export async function buildServer({ store, port, webRoot, plugins = BUILTIN_PLUG
         url: r.url,
         get access() {
           return (r.config as { access?: Access } | undefined)?.access;
+        },
+        get pack() {
+          return (r.config as { pack?: RoutePack } | undefined)?.pack;
         },
       });
   });
@@ -163,7 +171,12 @@ export async function buildServer({ store, port, webRoot, plugins = BUILTIN_PLUG
   const actions: Action[] = plugins.flatMap((p) => p.actions?.(ctx) ?? []);
   checkActions(actions);
   ctx.services.provide(ACTIONS, actions);
-  await app.register(async (scope) => mountActions(scope, actions, () => (ctx.services.has(ACTION_GATE) ? ctx.services.get(ACTION_GATE) : null)), { prefix: API_PREFIX });
+  await app.register(async (scope) => mountActions(
+        scope,
+        actions,
+        () => (ctx.services.has(ACTION_GATE) ? ctx.services.get(ACTION_GATE) : null),
+        () => (ctx.services.has(PACK_GUARD) ? ctx.services.get(PACK_GUARD) : null),
+      ), { prefix: API_PREFIX });
   for (const plugin of plugins) {
     const { routes } = plugin;
     if (routes) await app.register(async (scope) => routes(scope, ctx), { prefix: API_PREFIX });

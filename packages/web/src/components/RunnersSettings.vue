@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Settings > Runners: machines that let runs reach sites only they can reach (a site on someone's
+// Admin > Runners (others see it on Settings): machines that let runs reach sites only they can reach (a site on someone's
 // PC, for a server in Docker or elsewhere). Adding one shows the command to run on that machine,
 // with a one-time pair code; the list shows which runners are connected now
 // (docs/plans/self-hosting.md, section 6).
@@ -13,6 +13,7 @@ import { toast } from "../toasts";
 import { vTip } from "../tooltip";
 import CodeView from "./CodeView.vue";
 import ModalDialog from "./ModalDialog.vue";
+import RadioGroup from "./RadioGroup.vue";
 import TextField from "./TextField.vue";
 
 export interface RunnerInfo {
@@ -25,6 +26,8 @@ export interface RunnerInfo {
   lastSeen: string | null;
   version: string | null;
   platform: string | null;
+  /** How it was started: windows, systemd or launchd (starts by itself), background, none (a terminal). */
+  service: string | null;
   online: boolean;
   connectedAt: string | null;
   streams: number;
@@ -35,7 +38,18 @@ interface Paired {
   code: string;
   expiresAt: string;
   command: string;
+  installCommand: string;
 }
+
+interface Removed {
+  removed: string;
+  online: boolean;
+  cleaned: boolean;
+  uninstallCommand: string;
+}
+
+/** What to run on the machine to remove a runner there by hand (the server answers the same). */
+const UNINSTALL = "npx watchwright runner uninstall --forget";
 
 const list = ref<RunnerInfo[] | null>(null);
 const name = ref("");
@@ -44,6 +58,12 @@ const busy = ref(false);
 const error = ref<string | null>(null);
 /** The command to run, after adding a runner or asking for a new code, until that runner connects. */
 const pairing = ref<Paired | null>(null);
+/** Which command the pairing box shows. */
+const how = ref<"service" | "terminal">("service");
+const HOW = [
+  { value: "service", label: "Start by itself", note: "No window; at sign-in on Windows and macOS, with systemd on Linux" },
+  { value: "terminal", label: "Only while a terminal is open", note: "Stops when you close it" },
+] as const;
 
 async function load() {
   const res = await getJson<RunnerInfo[]>("/api/v1/runners");
@@ -97,10 +117,12 @@ async function remove() {
   const r = doomed.value;
   doomed.value = null;
   if (!r) return;
-  const res = await sendJson(`/api/v1/runners/${r.id}`, {}, "DELETE");
+  const res = await sendJson<Removed>(`/api/v1/runners/${r.id}`, {}, "DELETE");
   if (!res.ok) return void toast(res.error.message, { tone: "bad" });
   if (pairing.value?.runner.id === r.id) pairing.value = null;
-  toast(`Removed ${r.name}.`);
+  if (res.data.cleaned) toast(`Removed ${r.name}, and it removed itself from its machine.`, { tone: "ok" });
+  else if (res.data.online) toast(`Removed ${r.name}. It didn't answer, so run ${res.data.uninstallCommand} on its machine to clean up there.`);
+  else toast(`Removed ${r.name}. It removes itself from its machine the next time it starts there.`);
   await load();
 }
 
@@ -108,6 +130,22 @@ function state(r: RunnerInfo): string {
   if (r.online && r.connectedAt) return `Connected ${ago(r.connectedAt)}${r.streams ? ` · ${r.streams} open ${r.streams === 1 ? "connection" : "connections"}` : ""}`;
   if (r.lastSeen) return `Offline · last connected ${ago(r.lastSeen)}`;
   return "Not paired yet";
+}
+/** How it runs on its machine, from what it said when it last connected. */
+function runsAs(r: RunnerInfo): string | null {
+  switch (r.service) {
+    case "windows":
+    case "launchd":
+      return "starts by itself at sign-in";
+    case "systemd":
+      return "starts by itself (systemd)";
+    case "background":
+      return "runs in the background";
+    case "none":
+      return "runs in a terminal";
+    default:
+      return null;
+  }
 }
 const until = computed(() => (pairing.value ? new Date(pairing.value.expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""));
 </script>
@@ -126,7 +164,7 @@ const until = computed(() => (pairing.value ? new Date(pairing.value.expiresAt).
         <div class="who">
           <span class="name"><Laptop :size="14" class="muted" /> {{ r.name }}</span>
           <span v-tip="when(r.online ? r.connectedAt : r.lastSeen)" class="muted small">{{ state(r) }}</span>
-          <span class="muted small">May open {{ r.allow.join(", ") }}<template v-if="r.platform && r.version"> · {{ r.platform }}, Watchwright {{ r.version }}</template></span>
+          <span class="muted small">May open {{ r.allow.join(", ") }}<template v-if="r.platform && r.version"> · {{ r.platform }}, Watchwright {{ r.version }}</template><template v-if="runsAs(r)"> · {{ runsAs(r) }}</template></span>
         </div>
         <span v-if="can('user')" class="acts">
           <button v-tip="'A new pair code, to set it up again or on another machine'" type="button" class="ib" :aria-label="`New pair code for ${r.name}`" @click="newCode(r)"><Link :size="14" /></button>
@@ -138,10 +176,15 @@ const until = computed(() => (pairing.value ? new Date(pairing.value.expiresAt).
 
     <div v-if="pairing" class="pair" role="status">
       <p class="small">
-        Run this on <strong>{{ pairing.runner.name }}</strong> (it needs <a href="https://nodejs.org/" target="_blank" rel="noopener">Node.js</a> 22 or later). The code works once, until {{ until }}. Leave it
-        running; the runner shows here as connected.
+        Run this on <strong>{{ pairing.runner.name }}</strong> (it needs <a href="https://nodejs.org/" target="_blank" rel="noopener">Node.js</a> 22 or later). The code works once, until {{ until }}. The runner
+        shows here as connected.
       </p>
-      <CodeView :code="pairing.command" label="Runner command" wrap />
+      <RadioGroup v-model="how" :options="HOW" label="How the runner runs" inline />
+      <CodeView :code="how === 'service' ? pairing.installCommand : pairing.command" label="Runner command" wrap />
+      <p v-if="how === 'service'" class="muted small">
+        It runs with no window from now on and comes back after a restart. <code>npx watchwright runner status</code> shows it there; removing the runner here removes it from that machine too.
+      </p>
+      <p v-else class="muted small">Leave the terminal open. Ctrl+C stops it; <code>npx watchwright runner</code> alone starts it again.</p>
     </div>
 
     <form v-if="can('user')" class="add" @submit.prevent="add">
@@ -164,9 +207,14 @@ const until = computed(() => (pairing.value ? new Date(pairing.value.expiresAt).
     </form>
 
     <ModalDialog v-model="removeOpen" heading="Remove this runner?">
-      <p>
-        <strong>{{ doomed?.name }}</strong> disconnects and its token stops working. Runs and schedules that reach their site from it won't start until it is added and paired again.
-      </p>
+      <div class="rm">
+        <p>
+          <strong>{{ doomed?.name }}</strong> disconnects and its token stops working. Runs and schedules that reach their site from it won't start until it is added and paired again.
+        </p>
+        <p v-if="doomed?.online">It's connected, so it also removes itself from its machine: it forgets its token there and stops starting by itself.</p>
+        <p v-else>It's offline. It removes itself from its machine the next time it starts there. To clean up that machine yourself, run this on it:</p>
+        <CodeView v-if="!doomed?.online" :code="UNINSTALL" label="Remove the runner on its machine" wrap />
+      </div>
       <template #actions>
         <button class="btn" @click="doomed = null">Cancel</button>
         <button class="btn danger" @click="remove">Remove</button>
@@ -275,6 +323,13 @@ const until = computed(() => (pairing.value ? new Date(pairing.value.expiresAt).
 }
 .error {
   color: var(--bad);
+}
+.rm {
+  display: grid;
+  gap: var(--space-2);
+}
+.rm p {
+  margin: 0;
 }
 @media (max-width: 640px) {
   .add {

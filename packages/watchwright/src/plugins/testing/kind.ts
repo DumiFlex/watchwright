@@ -1,6 +1,6 @@
 import { expect } from "playwright/test";
-import type { AttemptEnv, JobKind } from "../../jobs/kind.js";
-import type { AttemptHookContext, Helpers, TestDefinition, TestMeta } from "../packs/api.js";
+import type { AttemptEnv, JobKind, SetupEnv } from "../../jobs/kind.js";
+import type { AttemptHookContext, Helpers, SetupContext, TestDefinition, TestMeta } from "../packs/api.js";
 import { attemptsFor, planTests } from "../packs/order.js";
 import { createHelpers } from "./helpers.js";
 import { classify } from "./outcome.js";
@@ -47,9 +47,19 @@ export const testKind: JobKind<Helpers> = {
     return { title: t?.meta.title ?? itemId, timeout: t?.meta.timeout ?? null };
   },
 
-  async setup({ pack, params, page, session, helpers, info }) {
-    const fn = pack.options.setup;
-    if (fn) await fn({ page, context: session.context, browser: session.browser, h: helpers(), params, packDir: pack.dir, info });
+  async setup(env) {
+    const fn = env.pack.options.setup;
+    if (fn) await fn({ ...runHookContext(env), start: env.start });
+  },
+
+  async teardown(env, status) {
+    const fn = env.pack.options.teardown;
+    if (fn) await fn({ ...runHookContext(env), status });
+  },
+
+  async afterTask(env, tasks) {
+    const fn = env.pack.options.afterTask;
+    if (fn) await fn({ ...runHookContext(env), tasks });
   },
 
   async execute(env) {
@@ -77,12 +87,28 @@ export const testKind: JobKind<Helpers> = {
   },
 };
 
+/** What setup, teardown and afterTask share. */
+function runHookContext(env: SetupEnv<Helpers>): Omit<SetupContext, "start"> {
+  return {
+    page: env.page,
+    context: env.session.context,
+    browser: env.session.browser,
+    h: env.helpers(),
+    params: env.params,
+    packDir: env.pack.dir,
+    info: env.info,
+    run: env.run,
+    state: env.state,
+  };
+}
+
 function hookContext(env: AttemptEnv<Helpers>, t: TestDefinition): AttemptHookContext {
   return {
     page: env.page,
     h: env.helpers(),
     params: env.params,
     packDir: env.pack.dir,
+    state: env.state,
     test: { id: t.id, title: t.meta.title ?? t.id, section: t.meta.section ?? null, tags: [...(t.meta.tags ?? [])] },
     attempt: env.number,
     attempts: env.of,

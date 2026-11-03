@@ -2,7 +2,7 @@
 
 Watchwright can run on a server or in a homelab instead of your own computer, so runs go on while your computer is off and several people share one server. The Docker image is the easiest way: it holds the server, its web app and the browsers.
 
-Self-hosted, Watchwright always has [login](./safety#login) on. The first start prints a link that creates the first admin; after that, admins add people in Settings › Users or through [single sign-on](./single-sign-on).
+Self-hosted, Watchwright always has [login](./safety#login) on. The first start prints a link that creates the first admin; after that, admins add people in Admin › Users or through [single sign-on](./single-sign-on).
 
 ::: tip Sites that run only on your computer
 A site at `localhost:3000` on your own computer can't be reached from a server. Run a [runner](#runners) on your computer and the server's runs reach it through there.
@@ -30,8 +30,8 @@ The image is `ghcr.io/dumiflex/watchwright`, for `linux/amd64` and `linux/arm64`
 
 ### Getting packs onto the server
 
-- **Upload .zip** on the Packs page (admins) unpacks a zip into a new folder under `/packs` and adds it. Zip a pack folder on your PC, or use **Download .zip** from a pack's menu on another Watchwright.
-- **Download .zip** in a pack's menu gives you the pack's folder back, to edit it locally or move it to another server.
+- **Upload .zip** on the Packs page (admins) unpacks a zip into a new folder under `/packs` and adds every pack in it. Zip a pack folder on your PC, or use **Download .zip** from a pack's menu on another Watchwright. A pack that imports files from the folder above it needs that folder too: zip the folder above instead (see [packs that share files](./test-packs#packs-that-share-files)).
+- **Download .zip** in a pack's menu gives you the pack's folder back, with any shared files it imports from outside it, to edit it locally or move it to another server.
 - Or put pack folders into the packs folder on the host (`/opt/watchwright/packs`), for example with `git clone`, and add them with **Browse…**.
 - **New pack here** in the folder browser writes a starter pack, and the editor on a pack's page changes its files.
 
@@ -120,16 +120,16 @@ To reach Watchwright only from your own devices, with HTTPS and no open ports, [
 
 A server in Docker or on another machine can't open `localhost` on your PC, and often not your home network either. A **runner** fixes that: `watchwright runner` runs on the machine that can reach the site, connects out to the server (so nothing on that machine is opened to the network), and the browser connections of runs that pick it go through it. The browser still runs on the server; only its connections come from your machine, so the site sees an ordinary visitor from `localhost`.
 
-1. In **Settings › Runners**, give the runner a name (such as `Office PC`) and say what it may open: `loopback` (any port on that machine, the default), `host:port` or `host:*`, separated by commas.
-2. The page shows a command with a one-time pair code. Run it on that machine; it needs [Node.js](https://nodejs.org/) 22 or later and works the same on Windows, macOS and Linux:
+1. In **Admin › Runners** (users find Runners on their Settings page), give the runner a name (such as `Office PC`) and say what it may open: `loopback` (any port on that machine, the default), `host:port` or `host:*`, separated by commas.
+2. The page shows a command with a one-time pair code. Run it on that machine; it needs [Node.js](https://nodejs.org/) 22 or later and works the same on Windows, macOS and Linux. **Start by itself** (the default) sets the runner up to run with no window and come back after a restart:
 
    ```bash
-   npx watchwright@0.12.0 runner --server https://watchwright.example.com --pair 7KQ-M2X-PLD
+   npx watchwright@0.12.0 runner install --server https://watchwright.example.com --pair 7KQ-M2X-PLD
    ```
 
-   (The page's command names the server's own version, so the runner matches it.)
+   **Only while a terminal is open** gives the same command without `install`; it runs in that terminal until you close it or press Ctrl+C. (The page's command names the server's own version, so the runner matches it.)
 
-   The code works once, within 15 minutes. The runner trades it for a token it keeps in your config folder (`runner.json`), so afterwards `npx watchwright runner` alone connects again. Leave it running; the page shows it as connected. It reconnects by itself when the server restarts or the network drops.
+   The code works once, within 15 minutes. The runner trades it for a token it keeps in your config folder (`runner.json`), so afterwards `npx watchwright runner` alone connects again. The page shows it as connected, and whether it starts by itself. It reconnects by itself when the server restarts or the network drops.
 3. Pick the runner under **Reach the site from** on New run, or make it the pack's default with `site.network`:
 
    ```yaml
@@ -142,11 +142,44 @@ A server in Docker or on another machine can't open `localhost` on your PC, and 
 
 **When the runner is offline** a run that needs it doesn't start, and says so. If it drops during a run, the connections fail until it is back (it reconnects by itself), so the attempts in between break; with **Pause and wait for Retry or Skip** on, the run pauses on the first one and goes on when you retry.
 
-Chromium, Firefox and WebKit all send `localhost` through the runner. Remove a runner in Settings › Runners to disconnect it and stop its token working; a new pair code (the link icon) sets it up again or on another machine.
+Chromium, Firefox and WebKit all send `localhost` through the runner. A new pair code (the link icon) sets it up again or on another machine.
+
+### Starting by itself
+
+`watchwright runner install` writes a start-up entry for the runner and starts it now. It needs no admin rights, except where noted:
+
+| System | What it writes | When it starts |
+|---|---|---|
+| Windows | `Watchwright runner.cmd` in your Startup folder | When you sign in. It runs with no window; its log is `logs\runner.log` in the config folder. |
+| Linux, as your user | A systemd user unit, `~/.config/systemd/user/watchwright-runner.service` | When you sign in, and at boot once lingering is on (`install` turns it on when it may, or prints the `sudo loginctl enable-linger` line). Log: `journalctl --user -u watchwright-runner`. |
+| Linux, as root | A system unit, `/etc/systemd/system/watchwright-runner.service` | At boot, once the network is up. Log: `journalctl -u watchwright-runner`. |
+| macOS | A LaunchAgent, `~/Library/LaunchAgents/dev.watchwright.runner.plist` | When you sign in. Log: `logs/runner.log` in the config folder. |
+
+A runner that crashes is started again; one the server removed stays stopped. There is one entry per machine; installing for another server replaces it. Run from `npx`, the entry starts the same version through npx, so it still works if npx's cache is cleared.
+
+On that machine, `watchwright runner status` shows the servers it's paired with, the start-up entry and whether it runs; `watchwright runner stop` and `start` stop and start it now; `watchwright runner uninstall` stops it and removes the entry.
+
+Where there is no systemd (Alpine, containers), `install` says so; start it with `watchwright runner start` (in the background, no window) from whatever starts programs there. To start a Windows runner at boot before anyone signs in, make a Task Scheduler task that runs `npx watchwright runner start` at startup as your own user, with "Run whether user is logged on or not".
+
+### Removing a runner
+
+Remove it under Runners: it disconnects and its token stops working.
+
+- **When it's connected**, it also removes itself from its machine: it forgets its token there and removes its start-up entry. The page says when it has.
+- **When it's offline**, it does that the next time it starts there: the server refuses its token, and it cleans up and stops.
+- **By hand**, on that machine (for one that will never connect again):
+
+  ```bash
+  npx watchwright runner uninstall --forget
+  ```
+
+  The remove dialog shows this command too.
+
+A runner whose token stops working for any reason (removed, or paired again from another machine) removes itself the same way. If the server's data folder is lost, its runners do too; add them again and run the new command on each machine.
 
 ## Updating
 
-Settings › Server says when a newer version is out. Pull the new image and start the container again; the data folder upgrades itself on start. In Portainer, open the stack and press **Update the stack** with **Re-pull image and redeploy** on. With Compose:
+Admin › Server says when a newer version is out. Pull the new image and start the container again; the data folder upgrades itself on start. In Portainer, open the stack and press **Update the stack** with **Re-pull image and redeploy** on. With Compose:
 
 ```bash
 docker compose pull && docker compose up -d

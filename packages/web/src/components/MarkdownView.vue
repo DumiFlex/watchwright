@@ -17,6 +17,7 @@ const loadReader = () => (loading ??= import("../markdown-parse").then((m) => (r
 // there is no address or the image doesn't load.
 // `activeLine` marks the block that line of the source is in and scrolls it into view (the
 // editor's cursor, side by side); a click on a block emits `line` with its first line.
+// `headings` gives its headings (with their ids on the page, prefix included), for an outline.
 import { computed, h, nextTick, reactive, ref, shallowRef, watch, type VNode, type VNodeChild } from "vue";
 import type { AlertKind, Element, ElementContent, RootContent } from "../markdown-parse";
 import { safeHref } from "../markdown";
@@ -35,12 +36,19 @@ const props = withDefaults(
   }>(),
   { label: "Preview", idPrefix: "md-", resolveLink: undefined, resolveImage: undefined, activeLine: undefined },
 );
-const emit = defineEmits<{ line: [line: number] }>();
+const emit = defineEmits<{ line: [line: number]; headings: [headings: { level: number; text: string; id: string }[]] }>();
 
 const md = shallowRef<Reader | null>(reader);
 if (!md.value) void loadReader().then((m) => (md.value = m));
 
 const tree = computed(() => md.value?.parseMarkdown(props.source) ?? null);
+watch(
+  tree,
+  (t) => {
+    if (t && md.value) emit("headings", md.value.outline(t).filter((x) => x.id && x.text).map((x) => ({ level: x.level, text: x.text, id: props.idPrefix + x.id })));
+  },
+  { immediate: true },
+);
 const root = ref<HTMLElement | null>(null);
 const broken = reactive(new Set<string>());
 

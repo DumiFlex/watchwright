@@ -1,8 +1,8 @@
 <script setup lang="ts">
-// Settings > Storage: how full the drive with the data folder is, what runs take, the largest
+// Admin > Storage (users see it on Settings): how full the drive with the data folder is, what runs take, the largest
 // runs, and the free space below which runs warn and then stop recording videos.
-import { computed, onMounted, ref } from "vue";
-import { getJson, runName, sendJson, type CleanupPlan, type StorageReport } from "../api";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { getJson, runName, sendJson, type CleanupPlan, type CompressJob, type StorageReport, type VideoQuality, type VideoReport } from "../api";
 import { countsText, fileSize, when } from "../format";
 import { tildify } from "../paths";
 import { saveSettings, settings } from "../settings";
@@ -11,6 +11,7 @@ import { vTip } from "../tooltip";
 import ModalDialog from "./ModalDialog.vue";
 import NumberInput from "./NumberInput.vue";
 import ProgressBar from "./ProgressBar.vue";
+import RadioGroup from "./RadioGroup.vue";
 import StatusChip from "./StatusChip.vue";
 
 const report = ref<StorageReport | null>(null);
@@ -25,7 +26,68 @@ async function load() {
   } else error.value = res.error.message;
   if (p.ok) plan.value = p.data;
 }
-onMounted(load);
+onMounted(() => {
+  void load();
+  void loadVideos();
+});
+
+// Videos: the quality runs record at, and Compress kept videos.
+const videos = ref<VideoReport | null>(null);
+let poll: ReturnType<typeof setTimeout> | null = null;
+async function loadVideos() {
+  const res = await getJson<VideoReport>("/api/v1/storage/videos");
+  if (res.ok) videos.value = res.data;
+  if (poll) clearTimeout(poll);
+  poll = null;
+  // While a job goes, its progress every 2 seconds; at the end the run sizes changed too.
+  if (res.ok && res.data.job?.state === "running")
+    poll = setTimeout(() => {
+      void loadVideos().then(() => {
+        if (videos.value?.job?.state !== "running") void load();
+      });
+    }, 2000);
+}
+onBeforeUnmount(() => poll && clearTimeout(poll));
+
+const qualityOptions: { value: VideoQuality; label: string; note: string }[] = [
+  { value: "full", label: "Full", note: "What Playwright records: the sharpest picture, the most room." },
+  { value: "compact", label: "Compact", note: "Same size and smoothness, about 80% smaller. Text stays sharp." },
+  { value: "small", label: "Small", note: "3/4 of the size and 10 frames a second, about 94% smaller. Text stays readable." },
+];
+const quality = computed<VideoQuality>({
+  get: () => (settings.values["runs.videoQuality"] as VideoQuality | undefined) ?? "full",
+  set: (v) =>
+    void saveSettings({ "runs.videoQuality": v }).then((err) => {
+      if (err) toast(err, { tone: "bad" });
+      void loadVideos();
+    }),
+});
+const job = computed<CompressJob | null>(() => videos.value?.job ?? null);
+const going = computed(() => job.value?.state === "running");
+const videosText = (n: number) => `${n} ${n === 1 ? "video" : "videos"}`;
+const saved = (j: CompressJob) => fileSize(Math.max(0, j.beforeBytes - j.afterBytes));
+const jobText = computed(() => {
+  const j = job.value;
+  if (!j || j.state === "running") return "";
+  const head = j.state === "done" ? "Last compress" : j.state === "stopped" ? "Compress stopped" : "Compress failed";
+  return `${head}, ${new Date(j.finishedAt ?? j.startedAt).toLocaleString()}: ${videosText(j.done - j.kept - j.failed)} smaller, ${saved(j)} freed.`;
+});
+const compressOpen = ref(false);
+const starting = ref(false);
+async function compress() {
+  starting.value = true;
+  const res = await sendJson<CompressJob>("/api/v1/storage/videos/compress", {});
+  starting.value = false;
+  compressOpen.value = false;
+  if (!res.ok) toast(res.error.message, { tone: "bad" });
+  void loadVideos();
+}
+async function stopCompress() {
+  const res = await sendJson<CompressJob | null>("/api/v1/storage/videos/compress/stop", {});
+  if (!res.ok) toast(res.error.message, { tone: "bad" });
+  await loadVideos();
+  void load();
+}
 
 const used = computed(() => {
   const r = report.value;
@@ -114,6 +176,30 @@ async function save(values: Record<string, unknown>) {
       <p v-else class="muted small">No run is measured yet.</p>
       <p class="muted small">Delete a run from its page or the runs list to free its room.</p>
 
+      <h3 class="label">Videos</h3>
+      <RadioGroup v-model="quality" :options="qualityOptions" label="Video quality" />
+      <p class="muted small">For runs that start from now on, attempt videos and run videos alike. Choosing which attempts keep a video (all, or only failed and broken ones) is a run option in New run.</p>
+      <p v-if="videos && !videos.ffmpeg" class="small warn-text" role="status">Playwright's ffmpeg isn't installed, so runs record no video. <code>npx playwright install ffmpeg</code> adds it.</p>
+      <template v-if="videos">
+        <div v-if="going && job" class="drive">
+          <ProgressBar :value="job.done" :max="Math.max(1, job.total)" label="Videos compressed" />
+          <div class="inline">
+            <span class="small grow">Compressing {{ job.done }} of {{ videosText(job.total) }}, {{ saved(job) }} freed so far. It stops by itself when a run starts.</span>
+            <button class="btn" @click="stopCompress">Stop</button>
+          </div>
+        </div>
+        <div v-else class="inline">
+          <span class="small grow">
+            Runs keep <strong>{{ videosText(videos.videos) }}</strong> ({{ fileSize(videos.bytes) }}).
+            <template v-if="quality === 'full'">Choose Compact or Small to compress them.</template>
+            <template v-else-if="videos.toCompress">{{ videosText(videos.toCompress) }} ({{ fileSize(videos.toCompressBytes) }}) can get smaller.</template>
+            <template v-else>All of them are {{ quality }} or smaller already.</template>
+          </span>
+          <button class="btn" :disabled="quality === 'full' || !videos.toCompress || !videos.ffmpeg" @click="compressOpen = true">Compress kept videos</button>
+        </div>
+        <p v-if="jobText" class="muted small">{{ jobText }}<template v-if="job?.reason"> {{ job.reason }}</template></p>
+      </template>
+
       <h3 class="label">When the drive runs low</h3>
       <div class="limits">
         <div class="inline">
@@ -174,6 +260,16 @@ async function save(values: Record<string, unknown>) {
       <template #actions>
         <button class="btn" :disabled="cleaning" @click="confirmOpen = false">Cancel</button>
         <button class="btn danger" :disabled="cleaning" @click="cleanUp">{{ cleaning ? "Deleting…" : "Delete runs" }}</button>
+      </template>
+    </ModalDialog>
+    <ModalDialog v-model="compressOpen" heading="Compress kept videos?">
+      <p v-if="videos">
+        This encodes <strong>{{ videosText(videos.toCompress) }}</strong> ({{ fileSize(videos.toCompressBytes) }}) again at the {{ quality }} quality and replaces the old files, which can't be brought back.
+      </p>
+      <p class="muted small dialog-note">It goes one video at a time on one core, oldest run first, and stops by itself when a run starts. A video that doesn't get smaller stays as it is.</p>
+      <template #actions>
+        <button class="btn" :disabled="starting" @click="compressOpen = false">Cancel</button>
+        <button class="btn primary" :disabled="starting" @click="compress">{{ starting ? "Starting…" : "Compress videos" }}</button>
       </template>
     </ModalDialog>
   </section>
@@ -248,5 +344,11 @@ async function save(values: Record<string, unknown>) {
 }
 .preview {
   margin: var(--space-3) 0;
+}
+.card p.dialog-note {
+  margin-top: var(--space-2);
+}
+.warn-text {
+  color: var(--warn);
 }
 </style>

@@ -10,7 +10,7 @@ Text values can use `${params.name}`, `${saved.key}`, `${secret.NAME}`, `${env.N
 
 ### goto
 
-Opens a URL. A relative URL is joined to the pack's site.baseURL.
+Opens a URL. A relative URL is joined to the pack's site.baseURL. Only http and https addresses open (not file:).
 
 Also written as `- goto: <url>`.
 
@@ -141,7 +141,7 @@ Also written as `- hover: <target>`.
 
 ### upload
 
-Sets the files of a file input. Paths are relative to the pack folder.
+Sets the files of a file input. Paths are relative to the pack folder, and the files must be inside it.
 
 | Field | Type | |
 |---|---|---|

@@ -7,7 +7,7 @@ import { definePlugin } from "../../core/plugin.js";
 import { serviceKey } from "../../core/services.js";
 import { errorBody } from "../../server/errors.js";
 import { DEFAULT_SSO, groupsOf, mergeSso, OidcClient, peerTest, publicSso, roleFromGroups, type SsoSettings } from "./sso.js";
-import { AuthStore, INVITES_SQL, SESSION_DAYS, SQL, SSO_SQL, type UserInfo } from "./store.js";
+import { AuthStore, cleanGroups, GROUPS_SQL, INVITES_SQL, SESSION_DAYS, SQL, SSO_SQL, type UserInfo } from "./store.js";
 import { Throttle } from "./throttle.js";
 
 // Login (docs/plans/self-hosting.md, section 2): accounts with three roles, the web page's sign-in
@@ -81,10 +81,12 @@ const states = new WeakMap<object, State>();
 
 export const authPlugin = definePlugin({
   name: "auth",
+  pages: [{ name: "account", title: "Your account", path: "/account", icon: "UserRound", menu: "more", order: 88, loginOnly: true, words: "password tokens sign out profile" }],
   migrations: [
     { id: 1, name: "init", sql: SQL },
     { id: 2, name: "invites", sql: INVITES_SQL },
     { id: 3, name: "sso", sql: SSO_SQL },
+    { id: 4, name: "groups", sql: GROUPS_SQL },
   ],
   setup(ctx) {
     const store = new AuthStore(ctx.store.db);
@@ -115,8 +117,9 @@ export const authPlugin = definePlugin({
       if (cached && Date.now() - cached.at < HEADER_CACHE_MS) return cached.user;
       const subject = name.toLowerCase();
       const { role, refused } = roleFromGroups(state.sso, groups, store.bySubject("header", subject) !== null);
-      const user = refused ? null : store.external("header", subject, { name }, role);
-      const who: CallUser | null = user ? { id: user.id, name: user.name, role: user.role, via: "session" } : null;
+      const user = refused ? null : store.external("header", subject, { name, groups }, role);
+      const all = user ? cleanGroups([...user.groups, ...user.ssoGroups]) : [];
+      const who: CallUser | null = user ? { id: user.id, name: user.name, role: user.role, via: "session", ...(all.length > 0 ? { groups: all } : {}) } : null;
       if (state.byHeader.size > 1000) state.byHeader.clear();
       state.byHeader.set(key, { user: who, at: Date.now() });
       return who;
@@ -148,6 +151,7 @@ export const authPlugin = definePlugin({
     return [
       defineAction({
         name: "auth.me",
+        pack: "none",
         title: "Who is signed in, and whether login is on",
         method: "GET",
         path: "/auth/me",
@@ -166,6 +170,7 @@ export const authPlugin = definePlugin({
       }),
       defineAction({
         name: "auth.users",
+        pack: "none",
         title: "Every user with their role, how they sign in and when they were last seen",
         method: "GET",
         path: "/auth/users",
@@ -174,6 +179,7 @@ export const authPlugin = definePlugin({
       }),
       defineAction<{ name: string; password?: string; role: Role; displayName?: string }>({
         name: "auth.add-user",
+        pack: "none",
         title: "Add a user with a role (admin, user or viewer) and a password",
         method: "POST",
         path: "/auth/users",
@@ -187,16 +193,24 @@ export const authPlugin = definePlugin({
         },
         handler: (input) => store.add(input),
       }),
-      defineAction<{ id: string; role?: Role; password?: string; disabled?: boolean; displayName?: string }>({
+      defineAction<{ id: string; role?: Role; password?: string; disabled?: boolean; displayName?: string; groups?: string[] }>({
         name: "auth.change-user",
-        title: "Change a user's role, password, name shown or whether they can sign in",
+        pack: "none",
+        title: "Change a user's role, password, name shown, groups (for pack access) or whether they can sign in",
         method: "POST",
         path: "/auth/users/:id",
         access: "admin",
         secret: ["password"],
         input: {
           type: "object",
-          properties: { id: ID, role: ROLE, password: { type: "string" }, disabled: { type: "boolean" }, displayName: { type: "string", description: "Empty to show the user name" } },
+          properties: {
+            id: ID,
+            role: ROLE,
+            password: { type: "string" },
+            disabled: { type: "boolean" },
+            displayName: { type: "string", description: "Empty to show the user name" },
+            groups: { type: "array", items: { type: "string", minLength: 1, maxLength: 200 }, maxItems: 50, description: "Groups an admin puts the user in, for pack access (the sign-in provider's groups are added to them)." },
+          },
           required: ["id"],
         },
         handler: async ({ id, ...change }) => {
@@ -207,6 +221,7 @@ export const authPlugin = definePlugin({
       }),
       defineAction<{ id: string }>({
         name: "auth.remove-user",
+        pack: "none",
         title: "Remove a user with their sign-ins and tokens",
         method: "DELETE",
         path: "/auth/users/:id",
@@ -222,6 +237,7 @@ export const authPlugin = definePlugin({
       }),
       defineAction({
         name: "auth.invites",
+        pack: "none",
         title: "Invitations nobody has used yet",
         method: "GET",
         path: "/auth/invites",
@@ -230,6 +246,7 @@ export const authPlugin = definePlugin({
       }),
       defineAction<{ role: Role; days?: number; note?: string }>({
         name: "auth.add-invite",
+        pack: "none",
         title: "Make a one-time link that lets someone make their own account with this role",
         method: "POST",
         path: "/auth/invites",
@@ -247,6 +264,7 @@ export const authPlugin = definePlugin({
       }),
       defineAction<{ id: string }>({
         name: "auth.remove-invite",
+        pack: "none",
         title: "Take back an invitation",
         method: "DELETE",
         path: "/auth/invites/:id",
@@ -259,6 +277,7 @@ export const authPlugin = definePlugin({
       }),
       defineAction<{ all?: boolean }>({
         name: "auth.tokens",
+        pack: "none",
         title: "Your API tokens (an admin can list everyone's with all)",
         method: "GET",
         path: "/auth/tokens",
@@ -272,6 +291,7 @@ export const authPlugin = definePlugin({
       }),
       defineAction<{ name: string; days?: number }>({
         name: "auth.add-token",
+        pack: "none",
         title: "Make an API token for the CLI, a script or an agent; it is shown this once",
         method: "POST",
         path: "/auth/tokens",
@@ -286,6 +306,7 @@ export const authPlugin = definePlugin({
       }),
       defineAction<{ id: string }>({
         name: "auth.remove-token",
+        pack: "none",
         title: "Remove an API token: whatever uses it can't call any more",
         method: "DELETE",
         path: "/auth/tokens/:id",
@@ -301,6 +322,7 @@ export const authPlugin = definePlugin({
       }),
       defineAction({
         name: "auth.sso",
+        pack: "none",
         title: "Single sign-on settings: OpenID Connect, the trusted header, group roles (the client secret only as whether there is one)",
         method: "GET",
         path: "/auth/sso",
@@ -309,6 +331,7 @@ export const authPlugin = definePlugin({
       }),
       defineAction<Record<string, unknown>>({
         name: "auth.set-sso",
+        pack: "none",
         title: "Change single sign-on settings; with OpenID Connect on, the provider must answer first",
         method: "POST",
         path: "/auth/sso",
@@ -396,7 +419,7 @@ export const authPlugin = definePlugin({
     });
 
     // A route rather than an action: it keeps the session that makes the change and ends the others.
-    app.post<{ Body: { current?: unknown; password?: unknown } }>("/auth/password", { config: { access: "viewer" } }, async (req, reply) => {
+    app.post<{ Body: { current?: unknown; password?: unknown } }>("/auth/password", { config: { access: "viewer", pack: "none" } }, async (req, reply) => {
       const u = req.watchwrightUser;
       if (!u) return reply.code(400).send(errorBody("sign_in_needed", "This changes the signed-in person's password, and nobody is signed in (login is off on this server)."));
       const { current, password } = req.body ?? {};
@@ -491,7 +514,7 @@ export const authPlugin = definePlugin({
         return failed(reply, `Signing in with ${oidc.name} didn't work: ${err instanceof Error ? err.message : String(err)}`);
       }
       const { role, refused } = roleFromGroups(state.sso, person.groups, store.bySubject("oidc", person.subject) !== null);
-      const user = refused ? null : store.external("oidc", person.subject, { name: person.name, displayName: person.displayName }, role);
+      const user = refused ? null : store.external("oidc", person.subject, { name: person.name, displayName: person.displayName, groups: person.groups }, role);
       if (!user) {
         ctx.events.append("auth.signin-failed", { name: person.name.slice(0, 64), ip: req.ip, via: "oidc" });
         return failed(reply, refused ? `Your ${oidc.name} account has no access to this Watchwright. Ask an admin to add one of your groups.` : "Your account here is turned off. Ask an admin.");

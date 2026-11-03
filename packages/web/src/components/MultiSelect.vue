@@ -5,7 +5,7 @@
 // closes (a second Escape clears the search), Backspace in an empty box drops the last chip.
 import { Check, X } from "../icons";
 import { computed, nextTick, ref, useId, watch } from "vue";
-import { useOutside, usePopup, usePopupHost } from "../popup";
+import { revealInList, useOutside, usePopup, usePopupHost } from "../popup";
 
 type MultiOption<V> = { value: V; label: string; group?: string | undefined; note?: string | undefined };
 
@@ -89,7 +89,7 @@ function toggleMany(values: T[]) {
 const allShownChosen = computed(() => shown.value.length > 0 && shown.value.every((o) => chosen.value.has(o.value)));
 
 function scrollActive() {
-  void nextTick(() => list.value?.querySelector(`#${CSS.escape(optionId(active.value))}`)?.scrollIntoView({ block: "nearest" }));
+  void nextTick(() => revealInList(list.value, list.value?.querySelector(`#${CSS.escape(optionId(active.value))}`)));
 }
 function move(to: number) {
   if (!open.value) open.value = true;

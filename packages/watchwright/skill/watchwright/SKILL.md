@@ -31,7 +31,7 @@ Watchwright runs browser test packs on a local server (by default `http://127.0.
 - When a run is paused by a person (`pausedBy` in its `live` state), stop and ask them before doing anything to it.
 - Keep every wait bounded and keep the person told: what you ran, its address, and what you found.
 - Don't run a whole pack to check one test; packs can take hours.
-- Keep secrets out of test files: use `${secret.NAME}` (or `h.secret("NAME")`) for passwords and tokens, and `${params.name}` for values a run chooses. The person sets secrets on Settings > Secrets; ask them for the name rather than for the value. `${env.NAME}` reads the machine's environment.
+- Keep secrets out of test files: use `${secret.NAME}` (or `h.secret("NAME")`) for passwords and tokens, and `${params.name}` for values a run chooses. The person sets secrets on Admin › Secrets; ask them for the name rather than for the value. `${env.NAME}` reads the machine's environment.
 - For a site that needs signing in, prefer one login test that ends with `saveSignIn` and runs that start signed in (`signIn: true`, or `site.signIn: saved` in the pack) over logging in at the start of every test.
 - Schedules and alerts act while nobody watches. Create or change them only when the person asks; like deleting, they wait for the person's approval.
 
@@ -40,5 +40,6 @@ Watchwright runs browser test packs on a local server (by default `http://127.0.
 - [yaml-tests.md](references/yaml-tests.md): YAML test files, targets, variables, hooks.
 - [yaml-steps.md](references/yaml-steps.md): every step and its fields.
 - [test-packs.md](references/test-packs.md): packs in code, `test()`, `h` helpers, options, parameters, flags.
+- [tasks.md](references/tasks.md): setup, teardown, pack tasks (run with `kind: "task"`) and pack state.
 - [mcp.md](references/mcp.md): every MCP tool and exploring.
 - [cli.md](references/cli.md): every command and exit code.

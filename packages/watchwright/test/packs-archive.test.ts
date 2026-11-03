@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, symlinkSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { unzip, zip, ZipLimitError } from "../src/jobs/zip.js";
-import { ArchiveError, folderName, packEntries, packFiles, unpackPack } from "../src/plugins/packs/archive.js";
+import { ArchiveError, folderName, packEntries, packFiles, packFolders, unpackPack } from "../src/plugins/packs/archive.js";
 import { cleanTempDirs, tempDir, writeFiles } from "./helpers/fixtures.js";
 import { startHarness, type Harness } from "./helpers/harness.js";
 
@@ -33,6 +33,26 @@ describe("pack zips", () => {
     expect(() => packFiles(Buffer.from("not a zip"))).toThrow(ArchiveError);
   });
 
+  it("brings files the pack imports from outside its folder, at their place beside it", () => {
+    const root = tempDir("ww-arch-");
+    writeFiles(root, { "bench/shared.ts": "s", "bench/lib/util.ts": "u", "bench/other.ts": "not imported", "bench/smoke/pack.ts": "p", "bench/smoke/tests/a.ts": "a" });
+    const smoke = path.join(root, "bench", "smoke");
+    const outside = [path.join(root, "bench", "shared.ts"), path.join(root, "bench", "lib", "util.ts")];
+    expect(packEntries(smoke, outside).map((e) => e.name)).toEqual(["bench/lib/util.ts", "bench/shared.ts", "bench/smoke/pack.ts", "bench/smoke/tests/a.ts"]);
+    expect(packEntries(smoke).map((e) => e.name)).toEqual(["smoke/pack.ts", "smoke/tests/a.ts"]);
+  });
+
+  it("finds the packs in a zip: at the top, beside shared files, and a pack's direct subfolders", () => {
+    const names = (files: string[]) => packFolders(files.map((name) => ({ name, data: Buffer.from("") })));
+    expect(names(["pack.ts", "tests/a.ts"])).toEqual([""]);
+    expect(names(["shared.ts", "smoke/pack.ts", "smoke/tests/a.ts"])).toEqual(["smoke"]);
+    expect(names(["pack.ts", "smoke/pack.ts", "tests/fixtures/pack.ts", "node_modules/x/pack.js"])).toEqual(["", "smoke"]);
+    expect(names(["a/pack.yaml", "b/pack.ts", "b/c/pack.ts", "b/c/d/pack.ts"])).toEqual(["a", "b", "b/c"]);
+    // A zip of bench/ as Download .zip makes it for bench/smoke: the top folder is dropped.
+    const files = packFiles(z({ "bench/shared.ts": "s", "bench/smoke/pack.yaml": "p" })).map((f) => f.name);
+    expect(files.sort()).toEqual(["shared.ts", "smoke/pack.yaml"]);
+  });
+
   it("refuses paths that leave the folder", () => {
     for (const bad of ["../evil.js", "a/../../evil.js", "/etc/evil", "C:/evil.js", "a\\..\\..\\evil.js"]) {
       expect(() => packFiles(z({ ...PACK, [bad]: "x" })), bad).toThrow(/outside its folder/);
@@ -48,8 +68,9 @@ describe("pack zips", () => {
 
   it("unpacks into a new folder only, with a cleaned name", () => {
     const parent = tempDir("ww-arch-");
-    const dir = unpackPack(z(PACK), parent, "../My Shop!.zip");
+    const { dir, packs } = unpackPack(z(PACK), parent, "../My Shop!.zip");
     expect(dir).toBe(path.join(parent, "My Shop"));
+    expect(packs).toEqual([dir]);
     expect(readFileSync(path.join(dir, "tests", "a.yaml"), "utf8")).toBe(PACK["tests/a.yaml"]);
     expect(() => unpackPack(z(PACK), parent, "My Shop")).toThrow(/already exists/);
     expect(() => folderName("...")).toThrow(/name/);
@@ -87,6 +108,43 @@ describe("pack zips through the API", () => {
     const json = await h.app.inject({ method: "POST", url: "/api/v1/packs/upload", headers: { host: h.host, "content-type": "application/json" }, payload: {} });
     expect(json.statusCode).toBe(415);
     expect((await h.app.inject({ method: "GET", url: "/api/v1/packs/abcdef12/download", headers: { host: h.host } })).statusCode).toBe(404);
+  });
+
+  it("downloads a pack with the shared files it imports, and the upload adds every pack in it", async () => {
+    const h = await startHarness(tempDir("ww-data-"));
+    harnesses.push(h);
+    const root = tempDir("ww-src-");
+    const pk = (name: string) => `import { pack } from "watchwright"; import { site } from "../shared.js"; export default pack({ name: "${name}", site });`;
+    writeFiles(root, {
+      "bench/shared.ts": `export const site = { key: "bench", baseURL: "http://127.0.0.1:9/" };`,
+      "bench/unused.ts": "export {};",
+      "bench/smoke/pack.ts": pk("Smoke"),
+      "bench/smoke/tests/a.ts": `import { test } from "watchwright"; test("S1", async () => {});`,
+    });
+    const added = await h.api<{ id: string; status: string }>("POST", "/packs", { path: path.join(root, "bench", "smoke") });
+    expect(added.data.status).toBe("ok");
+    const down = await h.app.inject({ method: "GET", url: `/api/v1/packs/${added.data.id}/download`, headers: { host: h.host } });
+    expect(down.statusCode).toBe(200);
+    expect(down.headers["content-disposition"]).toContain('filename="bench-smoke.zip"');
+    expect(unzip(down.rawPayload).map((e) => e.name).sort()).toEqual(["bench/shared.ts", "bench/smoke/pack.ts", "bench/smoke/tests/a.ts"]);
+
+    const parent = tempDir("ww-dest-");
+    const upload = (body: Buffer, name: string) =>
+      h.app.inject({ method: "POST", url: `/api/v1/packs/upload?name=${name}&folder=${encodeURIComponent(parent)}`, headers: { host: h.host, "content-type": "application/zip" }, payload: body });
+    const up = await upload(down.rawPayload, "bench-smoke");
+    expect(up.statusCode).toBe(201);
+    const pack = (up.json() as { data: { dir: string; name: string; status: string; tests: unknown[] } }).data;
+    expect(pack).toMatchObject({ dir: path.join(parent, "bench-smoke", "smoke"), name: "Smoke", status: "ok" });
+    expect(pack.tests).toHaveLength(1);
+
+    // A zip of a pack folder that holds another pack adds both.
+    const both = await upload(z({ "pack.ts": pk("Bench").replace("../shared.js", "./shared.js"), "shared.ts": `export const site = { key: "bench" };`, "smoke/pack.ts": pk("Smoke 2") }), "bench2");
+    expect(both.statusCode).toBe(201);
+    const list = await h.api<{ name: string; dir: string; status: string }[]>("GET", "/packs");
+    expect(list.data.filter((p) => p.dir.startsWith(path.join(parent, "bench2"))).map((p) => [p.name, p.status])).toEqual([
+      ["Bench", "ok"],
+      ["Smoke 2", "ok"],
+    ]);
   });
 
   it("keeps uploads inside the folders a server allows", async () => {

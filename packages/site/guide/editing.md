@@ -10,6 +10,16 @@ The file list on the left shows the pack's folder. On a phone it opens from the 
 
 The editor can't reach a file outside the pack's folder, and it doesn't follow a link that points out of it.
 
+With [login](./safety#login) on, viewers read the files, users change YAML tests, `pack.yaml` and data files, and only admins change code (`.ts`, `.js` and the like, `package.json`, `tsconfig.json`) or convert a YAML test to TypeScript, since code runs on the server. A user [proposes a code change](#proposing-a-code-change) instead.
+
+## Proposing a code change
+
+With login on, a user can still edit a code file, but instead of **Save** the editor offers **Propose change**. It sends the changed code files, with a note on what and why, to the **Proposed changes** page (in the menu). The files on disk stay as they are until an admin applies it.
+
+An admin opens the change there and reads each file's diff against the version it was based on, then presses **Apply** (which writes the files and rebuilds the pack) or **Decline**, with an optional reply. When a file changed on disk since the change was proposed, the page says so, and applying writes the proposed text over the file as it is now. The person who proposed it sees what became of it on the same page, and can withdraw it while it waits. An [alert rule](./alerts) with **A code change waits for review** tells admins when one comes in.
+
+Agents do the same with the `propose_change` and `get_proposal` [MCP tools](../reference/mcp).
+
 ## Source
 
 Source is a code editor with search (Ctrl+F) and save (Ctrl+S, Cmd+S on a Mac). Problems the pack has when it loads are underlined where they are and listed under the editor, and a click on one jumps to it. Problems in other files are listed too, with a link to open them.

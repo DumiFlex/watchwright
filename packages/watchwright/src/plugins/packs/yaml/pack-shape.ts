@@ -24,9 +24,20 @@ export interface PackYaml {
   dashboard?: unknown;
   share?: unknown;
   setup?: unknown[];
+  teardown?: unknown[];
+  afterTask?: unknown[];
   beforeEach?: unknown[];
   afterEach?: unknown[];
+  tasks?: Record<string, { title?: string; description?: string; readOnly?: boolean; timeout?: number; steps: unknown[] }>;
 }
+
+const TASK = obj({
+  title: str("What the task is called on the pack page."),
+  description: str(),
+  readOnly: bool("True when the task leaves the site as it found it: a paused run then goes on where it was."),
+  timeout: int("Time limit in ms.", { min: 1 }),
+  steps: req({ t: "steps", doc: "What the task does, step by step." }),
+});
 
 const size = obj({ width: req(int(undefined, { min: 1 })), height: req(int(undefined, { min: 1 })) });
 
@@ -105,7 +116,16 @@ export const PACK_SHAPE: Shape = obj({
   collectors: list(COLLECTOR),
   dashboard: { t: "any", doc: "What the pack's dashboard shows: `tiles` (or `groups` of them), `runs`, `days` and `filters`. See the Dashboards guide." },
   share: { t: "any", doc: "What shares and the status page leave out: `texts: false`, `metrics: false`, `reviews: false`, `outputs: [names]`." },
-  setup: { t: "steps", doc: "Steps run once per run, before the first test." },
+  setup: { t: "steps", doc: "Steps run at each start of a run (new, resume, redo), before the first test." },
+  teardown: { t: "steps", doc: "Steps run once when a run ends (finished, stopped, or setup failed)." },
+  afterTask: { t: "steps", doc: "Steps run when a paused run goes on after a task used the site." },
+  tasks: obj({}, "Named steps that run on their own, from the pack page, the CLI, agents or schedules.", {
+    extra: TASK,
+    check: (v) => {
+      const bad = Object.keys(v).find((k) => !/^[a-z][a-z0-9-]{0,39}$/.test(k));
+      return bad === undefined ? null : `Task "${bad}": names are lowercase letters, digits and dashes, starting with a letter.`;
+    },
+  }),
   beforeEach: { t: "steps", doc: "Steps run before each attempt." },
   afterEach: { t: "steps", doc: "Steps run after each attempt, also when it failed." },
 });

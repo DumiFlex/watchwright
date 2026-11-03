@@ -55,18 +55,19 @@ describe("server", () => {
         login: { on: false, user: null, setupNeeded: false },
         plugins: [
           { name: "core", schemaVersion: 2 },
-          { name: "settings", schemaVersion: 1 },
-          { name: "auth", schemaVersion: 3 },
+          { name: "settings", schemaVersion: 2 },
+          { name: "auth", schemaVersion: 4 },
           { name: "secrets", schemaVersion: 1 },
           { name: "signins", schemaVersion: 1 },
-          { name: "runners", schemaVersion: 1 },
+          { name: "runners", schemaVersion: 2 },
           { name: "approvals", schemaVersion: 2 },
           { name: "live", schemaVersion: 0 },
           { name: "folders", schemaVersion: 1 },
-          { name: "packs", schemaVersion: 1 },
-          { name: "editor", schemaVersion: 0 },
+          { name: "packs", schemaVersion: 3 },
+          { name: "editor", schemaVersion: 1 },
           { name: "runs", schemaVersion: 7 },
           { name: "testing", schemaVersion: 0 },
+          { name: "tasks", schemaVersion: 0 },
           { name: "schedules", schemaVersion: 1 },
           { name: "alerts", schemaVersion: 1 },
           { name: "record", schemaVersion: 0 },
@@ -82,7 +83,8 @@ describe("server", () => {
           { plugin: "reviews", name: "compare", title: "Compare", path: "/compare", icon: "Columns2", menu: "main", order: 30, words: "side by side matrix export" },
           { plugin: "schedules", name: "schedules", title: "Schedules", path: "/schedules", icon: "CalendarClock", menu: "main", order: 35, words: "cron every timer nightly" },
           { plugin: "runs", name: "new-run", title: "New run", path: "/new", icon: "Plus", menu: "more", order: 40, words: "start" },
-          { plugin: "settings", name: "settings", title: "Settings", path: "/settings", icon: "Settings", menu: "more", order: 90, words: "preferences editor folders" },
+          { plugin: "settings", name: "settings", title: "Settings", path: "/settings", icon: "Settings", menu: "more", order: 90, words: "preferences look theme editor notifications agents" },
+          { plugin: "settings", name: "admin", title: "Admin", path: "/admin", icon: "ShieldCheck", menu: "more", order: 95, access: "admin", words: "server users secrets runners alerts storage update stop" },
         ],
       },
     });
@@ -135,7 +137,7 @@ describe("server", () => {
     const app = await make({ plugins: [...BUILTIN_PLUGINS, notes] });
     const health = await app.inject({ url: "/api/v1/health", headers: { host: HOST } });
     const pages = (health.json().data.pages as { name: string; plugin: string }[]).map((p) => `${p.plugin}:${p.name}`);
-    expect(pages).toEqual(["runs:runs", "packs:packs", "notes:notes", "reviews:compare", "schedules:schedules", "runs:new-run", "settings:settings"]);
+    expect(pages).toEqual(["runs:runs", "packs:packs", "notes:notes", "reviews:compare", "schedules:schedules", "runs:new-run", "settings:settings", "settings:admin"]);
   });
 
   it("refuses badly named, duplicate or pathless pages", async () => {

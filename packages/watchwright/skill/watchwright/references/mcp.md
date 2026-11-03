@@ -64,6 +64,8 @@ The tools are the [actions](https://dumiflex.github.io/watchwright/reference/htt
 | `read_pack_file` | `packs.file` | Reads one, with the stamp to save it back. |
 | `write_pack_file` | `packs.file-save` | Saves or creates one and reloads the pack; the answer lists load problems. |
 | `delete_pack_file` | `packs.file-delete` | Deletes one, after the person approves. |
+| `propose_change` | `proposals.create` | With login on, only admins change code files; anyone else proposes the change, with a note, for an admin to review and apply. |
+| `get_proposal` | `proposals.get` | What became of a proposed change: waiting, applied or declined, with the admin's reply. |
 | `check_test` | `packs.check-yaml` | Checks a YAML test without saving it. |
 | `test_format` | `packs.yaml-schema` | The JSON Schema of YAML tests. |
 | `start_run` | `runs.start` | Starts a run. The pack can be named by its id, its name or its folder. The answer ends with the run's page on this server ("Watch it live: …"), and the server's instructions give its web page address, so agents point people to the right port. |

@@ -4,7 +4,7 @@
 // jumps to the next option starting with that letter.
 import { Check, ChevronDown } from "../icons";
 import { computed, nextTick, ref, useId } from "vue";
-import { useOutside, usePopup, usePopupHost } from "../popup";
+import { focusStill, revealInList, useOutside, usePopup, usePopupHost } from "../popup";
 
 const props = defineProps<{ options: readonly { value: T; label: string }[]; id?: string; disabled?: boolean }>();
 const model = defineModel<T>({ required: true });
@@ -28,12 +28,12 @@ async function show() {
   open.value = true;
   active.value = Math.max(0, selectedIndex.value);
   await nextTick();
-  list.value?.focus();
+  focusStill(list.value);
   scrollActive();
 }
 function hide(focusButton = true) {
   open.value = false;
-  if (focusButton) button.value?.focus();
+  if (focusButton) focusStill(button.value);
 }
 function choose(i: number) {
   const o = props.options[i];
@@ -41,7 +41,7 @@ function choose(i: number) {
   hide();
 }
 function scrollActive() {
-  list.value?.querySelector(`#${CSS.escape(optionId(active.value))}`)?.scrollIntoView({ block: "nearest" });
+  revealInList(list.value, list.value?.querySelector(`#${CSS.escape(optionId(active.value))}`));
 }
 function move(to: number) {
   active.value = Math.min(props.options.length - 1, Math.max(0, to));

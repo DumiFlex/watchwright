@@ -48,6 +48,11 @@ describe("the run to compare with", () => {
     expect(pickPrevious(r("now"), [r("quick", ["A1", "B2"]), r("full"), r("older")])).toBe("full");
     expect(pickPrevious(r("now", ["B2", "A1"]), [r("full"), r("quick", ["A1", "B2"])])).toBe("quick");
   });
+  it("compares a task run only with runs of the same kind", () => {
+    const task = { ...r("now", ["restore"]), kind: "task" };
+    expect(pickPrevious(task, [{ ...r("tests"), kind: "test" }, { ...r("before", ["restore"]), kind: "task" }])).toBe("before");
+    expect(pickPrevious(task, [{ ...r("tests"), kind: "test" }])).toBeUndefined();
+  });
   it("falls back to the newest run with the same params", () => {
     expect(pickPrevious(r("now"), [r("quick", ["A1"]), r("other", [], { model: "b" })])).toBe("quick");
   });

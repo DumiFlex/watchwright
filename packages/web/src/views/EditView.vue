@@ -23,7 +23,12 @@ import type { EditorProblem } from "../codemirror";
 import { dirtyPaths, dropDraft, getDraft, putDraft } from "../drafts";
 import { codeTestTemplate, defaultFile, fileTree, nextTestId, otherProblems, problemsIn, slug, testsInFile, yamlRole, yamlTestTemplate, type PackFile } from "../editfiles";
 import { buildErrorSpot, type SourceSpot } from "../editor";
-import { ArrowLeft, ChevronDown, CircleAlert, CircleDot, Ellipsis, FileCode, FilePlus, FileText, Folder, PanelLeft, Play, Save } from "../icons";
+import { ArrowLeft, ChevronDown, CircleAlert, CircleDot, Ellipsis, FileCode, FilePlus, FileText, Folder, GitPullRequest, Lock, PanelLeft, Play, Save } from "../icons";
+import { propose, type ProposalInput } from "../proposals";
+import CheckBox from "../components/CheckBox.vue";
+import TextArea from "../components/TextArea.vue";
+import { isCodeFile } from "../codefiles";
+import { can } from "../session";
 import { LiveConnection } from "../live";
 import { join, relativeTo } from "../paths";
 import { href } from "../router";
@@ -165,9 +170,17 @@ function go(file: string | null, line: number | null = null) {
   treeOpen.value = false;
 }
 
+// With login on, viewers only read pack files, and only admins change code: it runs on the server.
+const locked = computed<"viewer" | "code" | null>(() => {
+  if (!open.value) return null;
+  if (!can("user")) return "viewer";
+  return isCodeFile(open.value.path) && !can("admin") ? "code" : null;
+});
+
 async function save(force = false) {
   const o = open.value;
-  if (!o || saving.value) return;
+  if (locked.value === "code") return void openPropose();
+  if (!o || saving.value || locked.value) return;
   if (!force && o.text === o.saved && !conflict.value) return;
   saving.value = true;
   const res = await sendJson<{ file: { path: string; stamp: string }; pack: Pick<Pack, "status" | "error" | "problems"> }>(`/api/v1/packs/${props.id}/file`, {
@@ -275,7 +288,7 @@ const starting = ref(false);
 async function runTest(testId: string) {
   if (isDirty.value) await save();
   starting.value = true;
-  const last = await getJson<RunSummary[]>(`/api/v1/runs?pack=${props.id}&limit=1`);
+  const last = await getJson<RunSummary[]>(`/api/v1/runs?pack=${props.id}&kind=test&limit=1`);
   const params = last.ok && last.data[0] ? last.data[0].params : {};
   const res = await sendJson<{ id: string }>("/api/v1/runs", { packId: props.id, tests: [testId], params, label: `Edit: ${testId}` });
   starting.value = false;
@@ -286,7 +299,7 @@ async function runTest(testId: string) {
 // Record: steps from clicking on a recording browser go in at the cursor. The test runs up to the
 // cursor first: a YAML test's steps above it, a code test's code down to its line.
 const canWindow = ref(false);
-const canRecord = computed(() => !!open.value && (role.value === "test" || (open.value.kind === "code" && fileTests.value.length > 0)) && pack.value?.status !== "error");
+const canRecord = computed(() => !!open.value && !locked.value && (role.value === "test" || (open.value.kind === "code" && fileTests.value.length > 0)) && pack.value?.status !== "error");
 const recordMenu = computed(() => [
   { value: "here", label: "Record from here" },
   ...(canWindow.value ? [{ value: "window", label: "Record in a window" }] : []),
@@ -311,7 +324,7 @@ async function startRecording(how: string) {
   if (role.value === "test" && !yaml) return void toast("Fix the YAML first: Record needs to know which test the cursor is in.", { tone: "bad" });
   const codeTest = role.value === "test" ? null : (cursorTest.value?.id ?? null);
   if (((yaml && yaml.index > 0) || codeTest) && isDirty.value) await save();
-  const last = await getJson<RunSummary[]>(`/api/v1/runs?pack=${props.id}&limit=1`);
+  const last = await getJson<RunSummary[]>(`/api/v1/runs?pack=${props.id}&kind=test&limit=1`);
   recording.value = {
     testId: yaml?.testId ?? cursorTest.value?.id ?? null,
     replay: yaml?.index ?? 0,
@@ -356,9 +369,42 @@ const newPath = ref("");
 const newId = ref("");
 const newMenu = [
   { value: "yaml", label: "New YAML test…" },
-  { value: "code", label: "New TypeScript test…" },
+  ...(can("admin") ? [{ value: "code", label: "New TypeScript test…" }] : []),
   { value: "file", label: "New file…" },
 ];
+
+// Proposing: someone who can't change code edits it here and sends the changed code files to an
+// admin, who applies or declines them on the Proposed changes page.
+const proposeOpen = ref(false);
+const proposeNote = ref("");
+const proposePick = ref<Record<string, boolean>>({});
+const proposing = ref(false);
+const codeDirty = computed(() => dirty.value.filter(isCodeFile));
+function openPropose() {
+  if (!codeDirty.value.length) return void toast("Change the code first; then propose it.", { tone: "info" });
+  proposePick.value = Object.fromEntries(codeDirty.value.map((p) => [p, true]));
+  proposeOpen.value = true;
+}
+async function sendProposal() {
+  const paths = codeDirty.value.filter((p) => proposePick.value[p]);
+  if (!paths.length || proposing.value) return;
+  const files: ProposalInput[] = [];
+  for (const p of paths) {
+    const d = getDraft(props.id, p);
+    if (d) files.push({ path: p, text: d.text, stamp: d.stamp });
+  }
+  proposing.value = true;
+  const res = await propose(props.id, proposeNote.value.trim(), files);
+  proposing.value = false;
+  if (!res.ok) return void toast(res.error.message, { tone: "bad" });
+  for (const p of paths) dropDraft(props.id, p);
+  if (open.value && paths.includes(open.value.path)) open.value.text = open.value.saved;
+  dirty.value = dirtyPaths(props.id);
+  proposeOpen.value = false;
+  proposeNote.value = "";
+  const id = res.data.id;
+  toast("Proposed. An admin reviews it before it's written.", { tone: "ok", action: { label: "See it", run: () => (window.location.hash = `#/changes/${id}`) } });
+}
 function startNew(kind: string) {
   newKind.value = kind as "yaml" | "code" | "file";
   newTitle.value = "";
@@ -417,11 +463,15 @@ async function convert() {
   await loadPack();
   go(res.data.file);
 }
-const fileMenu = computed(() => [
-  { value: "rename", label: "Rename or move…" },
-  ...(role.value === "test" ? [{ value: "convert", label: "Convert to TypeScript…" }] : []),
-  { value: "delete", label: "Delete…", danger: true },
-]);
+const fileMenu = computed(() =>
+  locked.value
+    ? []
+    : [
+        { value: "rename", label: "Rename or move…" },
+        ...(role.value === "test" && can("admin") ? [{ value: "convert", label: "Convert to TypeScript…" }] : []),
+        { value: "delete", label: "Delete…", danger: true },
+      ],
+);
 function newFromDrawer(v: string) {
   treeOpen.value = false;
   startNew(v);
@@ -529,11 +579,18 @@ const problemSpot = (p: string) => buildErrorSpot(p);
               <template #button><ChevronDown :size="15" /></template>
             </MenuButton>
           </div>
-          <button type="button" class="btn primary" :disabled="!open || saving || (!isDirty && !conflict)" aria-keyshortcuts="Control+S" @click="save()"><Save :size="15" /> {{ saving ? "Saving…" : "Save" }}</button>
-          <MenuButton v-if="open" :items="fileMenu" label="More for this file" @select="onFileMenu">
+          <button v-if="locked === 'code'" type="button" class="btn primary" :disabled="!codeDirty.length" @click="openPropose"><GitPullRequest :size="15" /> Propose change<template v-if="codeDirty.length > 1"> ({{ codeDirty.length }} files)</template></button>
+          <button v-if="!locked" type="button" class="btn primary" :disabled="!open || saving || (!isDirty && !conflict)" aria-keyshortcuts="Control+S" @click="save()"><Save :size="15" /> {{ saving ? "Saving…" : "Save" }}</button>
+          <MenuButton v-if="open && fileMenu.length" :items="fileMenu" label="More for this file" @select="onFileMenu">
             <template #button><Ellipsis :size="16" /></template>
           </MenuButton>
         </header>
+
+        <div v-if="locked" class="locked">
+          <Lock :size="16" />
+          <span v-if="locked === 'code'">Only admins change a pack's code, since it runs on the server. Edit it here and propose the change: an admin reviews it on <a href="#/changes">Proposed changes</a> before it's written.</span>
+          <span v-else>You can read this pack's files. Users and admins change them.</span>
+        </div>
 
         <div v-if="conflict" class="conflict" role="alert">
           <CircleAlert :size="16" />
@@ -555,6 +612,7 @@ const problemSpot = (p: string) => buildErrorSpot(p);
               v-model="text"
               :lang="open.kind"
               :steps="role === 'test'"
+              :read-only="locked === 'viewer'"
               :problems="editorProblems"
               :label="`Contents of ${open.path}`"
               @save="save()"
@@ -578,7 +636,7 @@ const problemSpot = (p: string) => buildErrorSpot(p);
 
         <footer v-if="open" class="problems" :class="{ none: !problems.length && !elsewhere.length }">
           <p v-if="!problems.length && !elsewhere.length" class="muted small ok">
-            {{ role ? "No problems." : pack.status === "ok" ? "The pack loads." : "" }}<template v-if="!role && isDirty"> Save to check your changes.</template>
+            {{ role ? "No problems." : pack.status === "ok" ? "The pack loads." : "" }}<template v-if="!role && isDirty">{{ locked === "code" ? " Propose the change for an admin to apply." : " Save to check your changes." }}</template>
           </p>
           <ul v-if="problems.length">
             <li v-for="(p, i) in problems" :key="i">
@@ -654,6 +712,18 @@ const problemSpot = (p: string) => buildErrorSpot(p);
       <template #actions>
         <button type="button" class="btn" @click="deleteOpen = false">Cancel</button>
         <button type="button" class="btn danger" @click="remove">Delete</button>
+      </template>
+    </ModalDialog>
+    <ModalDialog v-model="proposeOpen" heading="Propose this change" width="520px">
+      <p class="muted">An admin sees the diff of each file and applies or declines it. Until then the files stay as they are.</p>
+      <div class="pick">
+        <CheckBox v-for="p in codeDirty" :id="`propose-${p}`" :key="p" :model-value="proposePick[p] === true" @update:model-value="(v: boolean) => (proposePick = { ...proposePick, [p]: v })"><span class="mono">{{ p }}</span></CheckBox>
+      </div>
+      <label class="lbl" for="propose-note">What it changes and why</label>
+      <TextArea id="propose-note" v-model="proposeNote" :rows="3" placeholder="Wait for the toast before clicking Save, so the test stops flaking." />
+      <template #actions>
+        <button type="button" class="btn" @click="proposeOpen = false">Cancel</button>
+        <button type="button" class="btn primary" :disabled="proposing || !codeDirty.some((p) => proposePick[p])" @click="sendProposal"><GitPullRequest :size="15" /> {{ proposing ? "Sending…" : "Propose" }}</button>
       </template>
     </ModalDialog>
     <ModalDialog v-model="convertOpen" heading="Convert to TypeScript?">
@@ -801,6 +871,35 @@ const problemSpot = (p: string) => buildErrorSpot(p);
   background: color-mix(in srgb, var(--warn) 12%, var(--surface));
   border-bottom: var(--border-width) solid var(--line);
   color: var(--text);
+}
+.locked {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--raised);
+  border-bottom: var(--border-width) solid var(--line);
+  color: var(--muted);
+}
+.locked a {
+  color: inherit;
+}
+.pick {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+}
+.pick .mono {
+  overflow-wrap: anywhere;
+}
+.lbl {
+  display: block;
+  margin-bottom: var(--space-1);
+  font-size: 0.9rem;
+}
+.locked > svg {
+  flex: none;
+  margin-top: 0.15em;
 }
 .conflict > svg {
   color: var(--warn);

@@ -58,7 +58,7 @@ async function upload() {
 <template>
   <ModalDialog v-model="open" heading="Upload a pack" width="560px">
     <form class="up" @submit.prevent="upload">
-      <p class="muted small">A .zip with a pack file at its top, or in one folder at its top (as Download .zip makes it). It goes into a new folder on the server and is added. Pack code runs on the server, so upload only packs you trust.</p>
+      <p class="muted small">A .zip of a pack's folder, or of a folder holding packs and the files they share (as Download .zip makes it). It goes into a new folder on the server, and each pack in it is added. Pack code runs on the server, so upload only packs you trust.</p>
       <FilePicker id="up-file" v-model="files" accept=".zip,application/zip" />
       <div class="fields">
         <div class="fld">

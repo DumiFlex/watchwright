@@ -9,13 +9,20 @@ export type Route =
   /** An attempt; `line` opens its log at that line. */
   | { name: "attempt"; runId: string; attemptId: string; line?: number }
   | { name: "packs"; query: Record<string, string> }
-  | { name: "pack"; id: string }
+  /** A pack, on one of its tabs (dashboard, runs, readme, tests, params, flags, rubric). */
+  | { name: "pack"; id: string; tab?: string }
   /** The editor: a pack's file (null for the first one), optionally at a line; `record` starts Record there, `watch` shows an agent's explore session. */
   | { name: "edit"; id: string; file: string | null; line: number | null; record?: boolean; watch?: string }
   | { name: "compare"; query: Record<string, string> }
   | { name: "kit" }
   | { name: "settings"; section?: string }
+  /** Your account (login on). */
+  | { name: "account"; section?: string }
+  /** The server's settings, for admins. */
+  | { name: "admin"; section?: string }
   | { name: "schedules" }
+  /** Proposed changes to packs' code; with `id`, one of them. */
+  | { name: "changes"; id: string | null }
   /** The link the server prints when login is on and there is no user: creates the first admin. */
   | { name: "setup"; code: string }
   /** An invitation link: makes an account with the role an admin chose. */
@@ -49,8 +56,13 @@ export function parseRoute(hash: string): Route {
   if (path === "/new") return { name: "new", query };
   if (path === "/packs") return { name: "packs", query };
   if (path === "/kit") return { name: "kit" };
-  if (path === "/settings") return query.section && /^[a-z-]{1,40}$/.test(query.section) ? { name: "settings", section: query.section } : { name: "settings" };
+  if (path === "/settings" || path === "/account" || path === "/admin") {
+    const name = path === "/settings" ? "settings" : path === "/account" ? "account" : "admin";
+    return query.section && /^[a-z-]{1,40}$/.test(query.section) ? { name, section: query.section } : { name };
+  }
   if (path === "/schedules") return { name: "schedules" };
+  if (path === "/changes") return { name: "changes", id: null };
+  if ((m = new RegExp(`^/changes/${ID8}$`).exec(path))) return { name: "changes", id: m[1]! };
   if (path === "/setup") return { name: "setup", code: query.code ?? "" };
   if (path === "/invite") return { name: "invite", code: query.code ?? "" };
   if (path === "/signin") return { name: "signin", error: query.error ?? "" };
@@ -63,7 +75,7 @@ export function parseRoute(hash: string): Route {
     const line = Number(query.line);
     return { name: "attempt", runId: m[1]!, attemptId: m[2]!, ...(Number.isInteger(line) && line > 0 ? { line } : {}) };
   }
-  if ((m = new RegExp(`^/packs/${ID8}$`).exec(path))) return { name: "pack", id: m[1]! };
+  if ((m = new RegExp(`^/packs/${ID8}$`).exec(path))) return { name: "pack", id: m[1]!, ...(query.tab && /^[a-z]{2,12}$/.test(query.tab) ? { tab: query.tab } : {}) };
   if ((m = new RegExp(`^/packs/${ID8}/edit(?:/(.+))?$`).exec(path))) {
     let file: string | null;
     try {
@@ -95,7 +107,7 @@ export function href(route: Route): string {
     case "packs":
       return `#/packs${qs(route.query)}`;
     case "pack":
-      return `#/packs/${route.id}`;
+      return `#/packs/${route.id}${qs(route.tab ? { tab: route.tab } : {})}`;
     case "edit":
       return `#/packs/${route.id}/edit${route.file ? `/${route.file.split("/").map(encodeURIComponent).join("/")}` : ""}${qs({ ...(route.line ? { line: String(route.line) } : {}), ...(route.record ? { record: "1" } : {}), ...(route.watch ? { watch: route.watch } : {}) })}`;
     case "compare":
@@ -103,9 +115,13 @@ export function href(route: Route): string {
     case "kit":
       return "#/kit";
     case "settings":
-      return `#/settings${qs(route.section ? { section: route.section } : {})}`;
+    case "account":
+    case "admin":
+      return `#/${route.name}${qs(route.section ? { section: route.section } : {})}`;
     case "schedules":
       return "#/schedules";
+    case "changes":
+      return route.id ? `#/changes/${route.id}` : "#/changes";
     case "setup":
       return `#/setup${qs({ code: route.code })}`;
     case "invite":

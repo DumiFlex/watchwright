@@ -15,7 +15,13 @@ export type AttemptStatus = Outcome | "running" | "interrupted";
 export interface RunFilter {
   limit?: number | undefined;
   packId?: string | undefined;
+  /** Leave out runs of these packs (the ones pack access hides from the caller). */
+  hidePacks?: readonly string[] | undefined;
   statuses?: readonly RunStatus[] | undefined;
+  /** Only runs of these job kinds. */
+  kinds?: readonly string[] | undefined;
+  /** Leave out runs of these job kinds. */
+  skipKinds?: readonly string[] | undefined;
   before?: string | undefined;
   /** Words that must each appear in the run's id, label, pack name, values, facts or status. */
   q?: string | undefined;
@@ -316,9 +322,21 @@ export class RunsRepo {
       where.push("pack_id = ?");
       args.push(filter.packId);
     }
+    if (filter.hidePacks && filter.hidePacks.length > 0) {
+      where.push(`pack_id NOT IN (${filter.hidePacks.map(() => "?").join(", ")})`);
+      args.push(...filter.hidePacks);
+    }
     if (filter.statuses && filter.statuses.length > 0) {
       where.push(`status IN (${filter.statuses.map(() => "?").join(", ")})`);
       args.push(...filter.statuses);
+    }
+    if (filter.kinds && filter.kinds.length > 0) {
+      where.push(`job_kind IN (${filter.kinds.map(() => "?").join(", ")})`);
+      args.push(...filter.kinds);
+    }
+    if (filter.skipKinds && filter.skipKinds.length > 0) {
+      where.push(`job_kind NOT IN (${filter.skipKinds.map(() => "?").join(", ")})`);
+      args.push(...filter.skipKinds);
     }
     if (filter.before) {
       where.push("created_at < ?");
@@ -378,9 +396,32 @@ export class RunsRepo {
       .all({ before, keepPerPack: o.keepPerPack }) as RunRow[];
   }
 
+  /** Ended runs' ids, oldest first (the order Compress kept videos goes in). */
+  endedRunIds(): string[] {
+    return (this.db.prepare("SELECT id FROM runs WHERE status NOT IN ('queued', 'running', 'pausing', 'paused') ORDER BY created_at, rowid").all() as { id: string }[]).map((r) => r.id);
+  }
+
+  /** A file of a run got a new size (a video encoded again); `relPath` is relative to the data folder, as artifacts keep it. */
+  updateArtifactSize(relPath: string, size: number): void {
+    this.db.prepare("UPDATE runs_artifacts SET size = ? WHERE path = ?").run(size, relPath);
+  }
+
   /** The runs that take the most room, largest first. */
   largest(limit: number): RunRow[] {
     return this.db.prepare("SELECT * FROM runs WHERE size_bytes IS NOT NULL ORDER BY size_bytes DESC LIMIT ?").all(limit) as RunRow[];
+  }
+
+  /**
+   * The pack's latest run that is mid-way: going, paused, stopped, interrupted, or queued to
+   * continue after it started. Leaves out `exceptId` and runs of the kinds named in `skipKinds`.
+   */
+  latestOpenRun(packId: string, exceptId: string, skipKinds: readonly string[]): RunRow | null {
+    const rows = this.db
+      .prepare(
+        "SELECT * FROM runs WHERE pack_id = ? AND id != ? AND (status IN ('running', 'pausing', 'paused', 'stopped', 'interrupted') OR (status = 'queued' AND started_at IS NOT NULL)) ORDER BY COALESCE(started_at, created_at) DESC, rowid DESC",
+      )
+      .all(packId, exceptId) as RunRow[];
+    return rows.find((r) => !skipKinds.includes(r.job_kind)) ?? null;
   }
 
   queued(): RunRow[] {
@@ -517,9 +558,9 @@ export class RunsRepo {
   }
 
   /** Runs made and top-level attempts started from `from` on, for the runs page's numbers. */
-  statsRows(from: string, packId?: string): StatsRows {
-    const pack = packId ? " AND r.pack_id = ?" : "";
-    const args = packId ? [from, packId] : [from];
+  statsRows(from: string, packId?: string, hidePacks: readonly string[] = []): StatsRows {
+    const pack = (packId ? " AND r.pack_id = ?" : "") + (hidePacks.length > 0 ? ` AND r.pack_id NOT IN (${hidePacks.map(() => "?").join(", ")})` : "");
+    const args = [from, ...(packId ? [packId] : []), ...hidePacks];
     return {
       runs: this.db.prepare(`SELECT r.created_at FROM runs r WHERE r.created_at >= ?${pack}`).all(...args) as StatsRows["runs"],
       attempts: this.db

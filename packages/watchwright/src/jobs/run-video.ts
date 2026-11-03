@@ -56,18 +56,62 @@ export function videoEncoder(ffmpeg: string): VideoEncoder | null {
   return found;
 }
 
-/** The ffmpeg arguments for a run video of `width`×`height` (even numbers). Frames of another size are cropped or padded to it. */
-export function ffmpegArgs(file: string, width: number, height: number, encoder: VideoEncoder, bitRate = BIT_RATE): string[] {
-  // Crop a bigger frame and pad a smaller one, both centered (Playwright's ffmpeg has no scale).
-  const fit = `crop=w=min(iw\\,${width}):h=min(ih\\,${height}),pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`;
+/**
+ * How much room videos take (the `runs.videoQuality` setting). `full` is what Playwright records
+ * (a bit rate that keeps the picture whatever happens); `compact` keeps the size and frame rate at
+ * a constant quality, which spends bits only when the page changes (about 80% smaller on real
+ * runs); `small` also takes 3/4 of the size and 10 frames a second (about 94% smaller). See
+ * docs/research/video-size.md.
+ */
+export type VideoQuality = "full" | "compact" | "small";
+export const VIDEO_QUALITIES: readonly VideoQuality[] = ["full", "compact", "small"];
+/** The CRF (lower is sharper) and the share of the size each quality below `full` keeps. */
+const QUALITY: Record<Exclude<VideoQuality, "full">, { crf: number; scale: number; fps: number | null }> = {
+  compact: { crf: 40, scale: 1, fps: null },
+  small: { crf: 42, scale: 0.75, fps: 10 },
+};
+/** Frames a second an attempt video of `quality` is written at (`fallback` keeps the recorder's own). */
+export function qualityFps(quality: VideoQuality, fallback: number): number {
+  return quality === "full" ? fallback : (QUALITY[quality].fps ?? fallback);
+}
+
+/** How much smaller a quality is than another: higher is smaller. */
+const RANK: Record<VideoQuality, number> = { full: 0, compact: 1, small: 2 };
+export function smallerThan(a: VideoQuality, b: VideoQuality): boolean {
+  return RANK[a] > RANK[b];
+}
+
+/** The title every video Watchwright writes carries, so a later pass knows its quality. */
+export const videoTitle = (quality: VideoQuality) => `watchwright-video:${quality}`;
+
+const even = (n: number) => Math.max(2, Math.floor(n / 2) * 2);
+
+/** The encoder arguments for `quality`: a bit rate for `full`, a constant quality otherwise. */
+export function encodeArgs(encoder: VideoEncoder, quality: VideoQuality, bitRate = BIT_RATE): string[] {
   const speed = encoder === "libvpx-vp9" ? ["-cpu-used", "8", "-lag-in-frames", "0", "-row-mt", "1"] : ["-speed", "8"];
+  const rate = quality === "full" ? ["-qmax", "50", "-crf", "10", "-b:v", bitRate] : ["-qmax", "63", "-crf", String(QUALITY[quality].crf), "-b:v", "0"];
+  return ["-c:v", encoder, "-qmin", "0", ...rate, "-deadline", "realtime", ...speed, "-threads", "1", "-metadata", `title=${videoTitle(quality)}`];
+}
+
+/** The scale filter for `quality` on a `width`×`height` picture, or null when it keeps the size. */
+export function scaleFilter(quality: VideoQuality, width: number, height: number): string | null {
+  if (quality === "full" || QUALITY[quality].scale === 1) return null;
+  const s = QUALITY[quality].scale;
+  return `scale=${even(width * s)}:${even(height * s)}`;
+}
+
+/** The ffmpeg arguments for a run video of `width`×`height` (even numbers). Frames of another size are cropped or padded to it. */
+export function ffmpegArgs(file: string, width: number, height: number, encoder: VideoEncoder, bitRate = BIT_RATE, quality: VideoQuality = "full"): string[] {
+  // Crop a bigger frame and pad a smaller one, both centered; then scale for the smaller qualities.
+  const fit = `crop=w=min(iw\\,${width}):h=min(ih\\,${height}),pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`;
+  const scale = scaleFilter(quality, width, height);
   return [
     "-loglevel", "error",
     "-f", "matroska", "-fpsprobesize", "0", "-probesize", "32", "-analyzeduration", "0", "-i", "pipe:0",
     // Each frame keeps its own time: a still page is one frame however long it stays.
     "-y", "-an", "-fps_mode", "vfr",
-    "-c:v", encoder, "-qmin", "0", "-qmax", "50", "-crf", "10", "-b:v", bitRate, "-deadline", "realtime", ...speed, "-threads", "1",
-    "-vf", fit,
+    ...encodeArgs(encoder, quality, bitRate),
+    "-vf", scale ? `${fit},${scale}` : fit,
     file,
   ];
 }
@@ -137,8 +181,10 @@ export interface RunVideoOptions {
   /** Said once, when the video can't be written; the run goes on without it. */
   onError: (message: string) => void;
   fps?: number;
-  /** ffmpeg's target bit rate (default 600k). */
+  /** ffmpeg's target bit rate at `full` quality (default 600k). */
   bitRate?: string;
+  /** How much room the video may take (default `full`). */
+  quality?: VideoQuality;
 }
 
 export class RunVideo {
@@ -187,11 +233,10 @@ export class RunVideo {
   }
 
   private spawn(width: number, height: number): void {
-    const even = (n: number) => Math.max(2, Math.floor(n / 2) * 2);
     try {
       const encoder = videoEncoder(this.o.ffmpeg);
       if (!encoder) return this.fail(`${this.o.ffmpeg} has no VP8 or VP9 encoder`);
-      const proc = spawn(this.o.ffmpeg, ffmpegArgs(this.o.file, even(width), even(height), encoder, this.o.bitRate), { stdio: "pipe", windowsHide: true });
+      const proc = spawn(this.o.ffmpeg, ffmpegArgs(this.o.file, even(width), even(height), encoder, this.o.bitRate, this.o.quality), { stdio: "pipe", windowsHide: true });
       proc.stderr.on("data", (d: Buffer) => (this.stderr = (this.stderr + d.toString()).slice(-2000)));
       proc.stdin.on("error", () => undefined);
       this.exited = new Promise((resolve) => {

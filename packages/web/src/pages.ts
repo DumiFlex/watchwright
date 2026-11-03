@@ -14,7 +14,7 @@ export const DEFAULT_PAGES: HealthPage[] = [
   { plugin: "reviews", name: "compare", title: "Compare", path: "/compare", icon: "Columns2", menu: "main", order: 30, words: "side by side matrix export" },
   { plugin: "schedules", name: "schedules", title: "Schedules", path: "/schedules", icon: "CalendarClock", menu: "main", order: 35, words: "cron every timer nightly" },
   { plugin: "runs", name: "new-run", title: "New run", path: "/new", icon: "Plus", menu: "more", order: 40, words: "start" },
-  { plugin: "settings", name: "settings", title: "Settings", path: "/settings", icon: "Settings", menu: "more", order: 90, words: "preferences editor folders" },
+  { plugin: "settings", name: "settings", title: "Settings", path: "/settings", icon: "Settings", menu: "more", order: 90, words: "preferences look theme editor notifications agents" },
 ];
 
 /** The page a route belongs to, by page name; null for pages every server has (the kit). */
@@ -34,8 +34,14 @@ export function pageOf(route: Route): string | null {
       return "compare";
     case "settings":
       return "settings";
+    case "account":
+      return "account";
+    case "admin":
+      return "admin";
     case "schedules":
       return "schedules";
+    case "changes":
+      return "changes";
     case "kit":
     case "setup":
     case "invite":

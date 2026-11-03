@@ -6,7 +6,7 @@
 import { Calendar, X } from "../icons";
 import { computed, nextTick, ref } from "vue";
 import { addDays, compareDays, parseDay, toIso, today, type Day } from "../calendar";
-import { useOutside, usePopup, usePopupHost } from "../popup";
+import { focusStill, useOutside, usePopup, usePopupHost } from "../popup";
 import CalendarMonth from "./CalendarMonth.vue";
 
 export type DateRange = { from: string; to: string };
@@ -65,7 +65,7 @@ async function show() {
 function hide(toButton = true) {
   open.value = false;
   anchor.value = null;
-  if (toButton) button.value?.focus();
+  if (toButton) focusStill(button.value);
 }
 function set(a: Day, b: Day) {
   const [lo, hi] = order(a, b);

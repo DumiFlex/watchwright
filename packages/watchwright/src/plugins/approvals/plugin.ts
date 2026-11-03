@@ -1,8 +1,8 @@
 import { randomBytes } from "node:crypto";
 import type Database from "better-sqlite3";
-import { ActionError, defineAction, type Action, type ActionGate, type ObjectSchema } from "../../actions/registry.js";
+import { ActionError, defineAction, packOfCall, type Action, type ActionGate, type ObjectSchema } from "../../actions/registry.js";
 import { whoCalls, type CallUser } from "../../core/access.js";
-import { ACTION_GATE, ACTIONS } from "../../core/keys.js";
+import { ACTION_GATE, ACTIONS, PACK_GUARD } from "../../core/keys.js";
 import { definePlugin } from "../../core/plugin.js";
 import { serviceKey } from "../../core/services.js";
 import type { EventLog } from "../../events/log.js";
@@ -95,6 +95,15 @@ export class Approvals {
   private readonly waiters = new Map<string, Set<() => void>>();
   /** How long the gate holds a call before answering with the approval (tests shorten it). */
   holdMs = HOLD_MS;
+  /** The pack an approval's held call reaches (set once every plugin is ready), for pack access. */
+  packOf: (a: Approval) => string | null = () => null;
+
+  /** Whether pack access hides this approval from a caller. */
+  hidden(id: string, sees: ((packId: string) => boolean) | undefined): boolean {
+    const a = this.get(id);
+    const packId = a ? this.packOf(a) : null;
+    return packId !== null && !(sees?.(packId) ?? true);
+  }
 
   constructor(
     private readonly db: Database.Database,
@@ -142,8 +151,10 @@ export class Approvals {
     this.db
       .prepare("INSERT INTO approvals (id, action, input, client, summary, status, created_at, expires_at, user_id) VALUES (?, ?, ?, ?, ?, 'waiting', ?, ?, ?)")
       .run(id, action.name, JSON.stringify(input), client, summary, new Date(t).toISOString(), new Date(t + EXPIRE_MS).toISOString(), userId);
-    this.events.append("approval.requested", { id, action: action.name, client, summary });
-    return this.get(id)!;
+    const asked = this.get(id)!;
+    // The pack the held call reaches, so pack access hides the request with the pack.
+    this.events.append("approval.requested", { id, action: action.name, client, summary, packId: this.packOf(asked) });
+    return asked;
   }
 
   /** The user whose call asked for an approval (login on), else null. */
@@ -218,7 +229,7 @@ export class Approvals {
     const cols = Object.keys(fields);
     this.db.prepare(`UPDATE approvals SET ${cols.map((c) => `${c} = ?`).join(", ")} WHERE id = ?`).run(...cols.map((c) => fields[c]), id);
     const a = this.get(id)!;
-    if (a.status !== "approved" || "result" in fields) this.events.append("approval.answered", { id, status: a.status, by: a.answeredBy, action: a.action });
+    if (a.status !== "approved" || "result" in fields) this.events.append("approval.answered", { id, status: a.status, by: a.answeredBy, action: a.action, packId: this.packOf(a) });
     for (const w of [...(this.waiters.get(id) ?? [])]) w();
     this.waiters.delete(id);
   }
@@ -229,7 +240,8 @@ export class Approvals {
     const due = this.db.prepare("SELECT id FROM approvals WHERE status = 'waiting' AND expires_at <= ?").all(now) as { id: string }[];
     for (const { id } of due) {
       this.db.prepare("UPDATE approvals SET status = 'expired', answered_at = ? WHERE id = ? AND status = 'waiting'").run(now, id);
-      this.events.append("approval.answered", { id, status: "expired", by: null });
+      const a = this.get(id);
+      this.events.append("approval.answered", { id, status: "expired", by: null, packId: a ? this.packOf(a) : null });
       for (const w of [...(this.waiters.get(id) ?? [])]) w();
       this.waiters.delete(id);
     }
@@ -254,11 +266,23 @@ export const approvalsPlugin = definePlugin({
     services.provide(APPROVALS, approvals);
     services.provide(ACTION_GATE, approvals.gate);
   },
+  ready({ services }) {
+    // An approval belongs to the pack its held call reaches, so pack access hides it with the pack.
+    if (!services.has(PACK_GUARD)) return;
+    const guard = services.get(PACK_GUARD);
+    const approvals = services.get(APPROVALS);
+    const packOf = (a: Approval) => {
+      const action = services.get(ACTIONS).find((x) => x.name === a.action);
+      return action ? packOfCall(action, a.input, guard) : null;
+    };
+    approvals.packOf = packOf;
+  },
   actions: ({ services }) => {
     const approvals = services.get(APPROVALS);
     return [
       defineAction<{ status?: ApprovalStatus; limit?: number }>({
         name: "approvals.list",
+        pack: "list",
         title: "Approvals, newest first: actions that wait for the person to approve them on the web page, and how earlier ones were answered",
         method: "GET",
         path: "/approvals",
@@ -269,10 +293,15 @@ export const approvalsPlugin = definePlugin({
             limit: { type: "integer", minimum: 1, maximum: 200, default: 50 },
           },
         },
-        handler: ({ status, limit }) => approvals.list(status, limit),
+        handler: ({ status, limit }, { sees }) =>
+          approvals.list(status, limit).filter((a) => {
+            const packId = approvals.packOf(a);
+            return packId === null || (sees?.(packId) ?? true);
+          }),
       }),
       defineAction<{ id: string; timeout?: number }>({
         name: "approvals.wait",
+        pack: "list",
         title: `Wait until the person answers an approval, at most \`timeout\` seconds (up to ${MAX_WAIT_S})`,
         agent: {
           tool: "wait_for_approval",
@@ -281,15 +310,20 @@ export const approvalsPlugin = definePlugin({
         method: "GET",
         path: "/approvals/:id/wait",
         input: { type: "object", properties: { id: ID, timeout: { type: "number", minimum: 0, maximum: MAX_WAIT_S, default: 60 } }, required: ["id"] },
-        handler: async ({ id, timeout = 60 }, { signal }) => (await approvals.wait(id, timeout * 1000, signal)) ?? notFound(id),
+        handler: async ({ id, timeout = 60 }, { signal, sees }) => {
+          if (approvals.hidden(id, sees)) notFound(id);
+          return (await approvals.wait(id, timeout * 1000, signal)) ?? notFound(id);
+        },
       }),
       defineAction<{ id: string; approve: boolean }>({
         name: "approvals.answer",
+        pack: "list",
         title: "Approve or refuse an approval (only from the web page); approving runs the action",
         method: "POST",
         path: "/approvals/:id/answer",
         input: { type: "object", properties: { id: ID, approve: { type: "boolean" } }, required: ["id", "approve"] },
-        handler: ({ id, approve }, { fromPage, client, user }) => {
+        handler: ({ id, approve }, { fromPage, client, user, sees }) => {
+          if (approvals.hidden(id, sees)) notFound(id);
           if (!fromPage) throw new ActionError("not_allowed", "Only the person on the web page can answer an approval.", 403);
           return approvals.answer(id, approve, whoCalls(client, user), user);
         },

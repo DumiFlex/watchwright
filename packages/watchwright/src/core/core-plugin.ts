@@ -1,6 +1,7 @@
 import { ActionError, describeAction, defineAction } from "../actions/registry.js";
 import { EVENTS_MIGRATION_SQL } from "../events/log.js";
-import { ACTIONS, LOGIN, PAGES } from "./keys.js";
+import { allows } from "./access.js";
+import { ACTIONS, LOGIN, PACK_GUARD, PAGES } from "./keys.js";
 import { VERSION } from "../version.js";
 import { definePlugin, type PluginPage } from "./plugin.js";
 
@@ -41,6 +42,7 @@ export const corePlugin = definePlugin({
   actions: ({ events, services, stop }) => [
     defineAction({
       name: "core.actions",
+      pack: "none",
       agent: { tool: "list_actions", say: "Every action the server has, for call_action." },
       title: "List every action with its input schema",
       method: "GET",
@@ -49,6 +51,7 @@ export const corePlugin = definePlugin({
     }),
     defineAction({
       name: "core.stop",
+      pack: "none",
         access: "admin",
       destructive: true,
       explain: () => "Stop the Watchwright server. Runs going now become interrupted, ready to resume when it starts again.",
@@ -64,6 +67,7 @@ export const corePlugin = definePlugin({
     }),
     defineAction<{ after?: number; wait?: number; runId?: string; types?: string; limit?: number }>({
       name: "core.events",
+      pack: { run: "runId" },
       title: "Read events after a cursor, waiting for new ones when there are none",
       method: "GET",
       path: "/events",
@@ -77,15 +81,18 @@ export const corePlugin = definePlugin({
           limit: { type: "integer", minimum: 1, maximum: 1000, default: 500 },
         },
       },
-      handler: async ({ after = 0, wait = 0, runId, types, limit = 500 }, { signal }) => {
+      handler: async ({ after = 0, wait = 0, runId, types, limit = 500 }, { signal, user }) => {
         const filter = { runId, types: types ? types.split(",").map((t) => t.trim()).filter(Boolean) : undefined };
         const list = await events.wait(after, wait * 1000, filter, limit, signal);
-        return { events: list, next: list.length > 0 ? list[list.length - 1]!.seq : Math.max(after, 0), head: events.head() };
+        // Events of packs the caller can't see stay out; `next` still moves past them.
+        const guard = services.has(PACK_GUARD) ? services.get(PACK_GUARD) : null;
+        const shown = guard ? list.filter((e) => !guard.hidesEvent(user, e)) : list;
+        return { events: shown, next: list.length > 0 ? list[list.length - 1]!.seq : Math.max(after, 0), head: events.head() };
       },
     }),
   ],
   routes(app, { store, plugins, services }) {
-    app.get("/health", { config: { access: "public" } }, async (req) => {
+    app.get("/health", { config: { access: "public", pack: "none" } }, async (req) => {
       const login = services.has(LOGIN) ? services.get(LOGIN) : null;
       const on = login?.on ?? false;
       const user = req.watchwrightUser ?? null;
@@ -99,7 +106,8 @@ export const corePlugin = definePlugin({
         version: VERSION,
         dataDir: store.dataDir,
         plugins: plugins.map((name) => ({ name, schemaVersion: store.schemaVersion(name) })),
-        pages: [...services.get(PAGES)],
+        // Pages for login only, or for a higher role than the caller's, stay out of the menu.
+        pages: services.get(PAGES).filter((p) => (on ? !p.access || allows(p.access, user) : !p.loginOnly)),
         login: loginInfo,
       };
       return { data };

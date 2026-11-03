@@ -40,6 +40,29 @@ export interface ActionCall {
    * server calls by itself (a schedule, an approved action), which every access level allows.
    */
   user?: CallUser | null;
+  /**
+   * Whether the caller may see a pack (pack access, docs/plans/pack-access.md). Every call carries
+   * it; actions that list things across packs (`pack: "list"`) leave out what it refuses.
+   */
+  sees?: (packId: string) => boolean;
+}
+
+/**
+ * Which pack a call reaches, for pack access: `none` for server-wide things, `list` for an action
+ * that lists across packs and filters with `call.sees` itself, or the kind of thing an input field
+ * names (`{ pack: "id" }`, `{ run: "id" }`) for the registered resolvers to find its pack. A call
+ * that names something in a pack the caller can't see answers `not_found`, as if it didn't exist.
+ */
+export type PackScope = "none" | "list" | { [kind: string]: string | readonly string[] };
+
+/** Answers pack access for actions and routes; the packs plugin provides it as `PACK_GUARD`. */
+export interface PackGuard {
+  /** True when this caller may see the pack. `undefined` user: login is off, or the server calls. */
+  sees(user: CallUser | null | undefined, packId: string): boolean;
+  /** The pack a thing of this kind belongs to (`run`, `proposal`, …), or null when there's none. */
+  packOf(kind: string, id: string): string | null;
+  /** Whether an event belongs to a pack this caller can't see. */
+  hidesEvent(user: CallUser | null | undefined, e: { runId?: string | undefined; data: Record<string, unknown> }): boolean;
 }
 
 export interface Action<I = Record<string, unknown>, O = unknown> {
@@ -68,6 +91,8 @@ export interface Action<I = Record<string, unknown>, O = unknown> {
    * Default: `viewer` for GET, `user` for everything else (docs/plans/self-hosting.md, section 2.4).
    */
   access?: Access;
+  /** Which pack the call reaches, for pack access (see `PackScope`); every action states it. */
+  pack?: PackScope;
   handler: (input: I, call: ActionCall) => O | Promise<O>;
 }
 
@@ -139,11 +164,16 @@ function pick(schema: ObjectSchema, keys: readonly string[], keep: boolean): Obj
  * Runs an action's handler, asking the gate first when the action is destructive. Every door (HTTP,
  * MCP) calls actions through here, so none of them skips the approval. Throws what the handler throws.
  */
-export async function invokeAction(action: Action, input: Record<string, unknown>, call: ActionCall, gate: ActionGate | null, confirmed = false): Promise<{ status: number; data: unknown }> {
+export async function invokeAction(action: Action, input: Record<string, unknown>, call: ActionCall, gate: ActionGate | null, confirmed = false, guard: PackGuard | null = null): Promise<{ status: number; data: unknown }> {
   const access = accessOfAction(action);
   if (call.user !== undefined && !allows(access, call.user)) {
     const no = refusal(access, call.user);
     throw new ActionError(no.code, no.message, no.status);
+  }
+  if (guard) {
+    const user = call.user;
+    call = { ...call, sees: (packId) => guard.sees(user, packId) };
+    checkPack(action, input, guard, call);
   }
   if (action.destructive && gate) {
     const held = await gate({ action, input, call, confirmed });
@@ -152,8 +182,34 @@ export async function invokeAction(action: Action, input: Record<string, unknown
   return { status: action.status ?? 200, data: (await action.handler(input, call)) ?? null };
 }
 
+/** The pack a call of this action with this input reaches, by its `pack` scope; null when it names none. */
+export function packOfCall(action: Action, input: Record<string, unknown>, guard: PackGuard): string | null {
+  const scope = action.pack;
+  if (!scope || typeof scope === "string") return null;
+  for (const [kind, fields] of Object.entries(scope))
+    for (const field of [fields].flat()) {
+      const id = input[field];
+      const packId = typeof id === "string" ? guard.packOf(kind, id) : null;
+      if (packId !== null) return packId;
+    }
+  return null;
+}
+
+/** Refuses a call that names something in a pack its caller can't see, the way a missing one is refused. */
+function checkPack(action: Action, input: Record<string, unknown>, guard: PackGuard, call: ActionCall): void {
+  const scope = action.pack;
+  if (!scope || typeof scope === "string" || call.user === undefined) return;
+  for (const [kind, fields] of Object.entries(scope))
+    for (const field of [fields].flat()) {
+      const id = input[field];
+      if (typeof id !== "string") continue;
+      const packId = guard.packOf(kind, id);
+      if (packId !== null && !call.sees!(packId)) throw new ActionError("not_found", `No ${kind} with id ${id}.`, 404);
+    }
+}
+
 /** Mounts every action as a Fastify route: path parameters from the path, the rest from the query (GET) or body. */
-export function mountActions(app: FastifyInstance, actions: readonly Action[], gate: () => ActionGate | null = () => null): void {
+export function mountActions(app: FastifyInstance, actions: readonly Action[], gate: () => ActionGate | null = () => null, guard: () => PackGuard | null = () => null): void {
   for (const action of actions) {
     const params = pathParams(action.path);
     const input = action.input ?? { type: "object", properties: {} };
@@ -166,7 +222,7 @@ export function mountActions(app: FastifyInstance, actions: readonly Action[], g
       method: action.method,
       url: action.path,
       schema,
-      config: { access: accessOfAction(action) },
+      config: { access: accessOfAction(action), ...(action.pack ? { pack: action.pack === "none" ? "none" : "checked" } : {}) },
       // An empty POST (no body, no content type) is the same as `{}`.
       preValidation: async (req) => {
         if (req.body === undefined || req.body === null) req.body = {};
@@ -190,7 +246,7 @@ export function mountActions(app: FastifyInstance, actions: readonly Action[], g
           const user = req.watchwrightUser;
           const fromPage = typeof req.headers.origin === "string" && (user === undefined || user?.via === "session");
           const call: ActionCall = { client, signal: controller.signal, fromPage, ...(user === undefined ? {} : { user }) };
-          const out = await invokeAction(action, merged, call, gate(), req.headers["x-watchwright-confirmed"] === "terminal");
+          const out = await invokeAction(action, merged, call, gate(), req.headers["x-watchwright-confirmed"] === "terminal", guard());
           return reply.code(out.status).send({ data: out.data ?? null });
         } catch (err) {
           if (err instanceof ActionError) return reply.code(err.status).send(errorBody(err.code, err.message, err.detail));

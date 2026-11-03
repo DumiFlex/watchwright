@@ -58,6 +58,18 @@ export interface PackSummary {
   /** The pack's `share:` block; null when it has none. */
   share: ShareOptions | null;
   tests: PackTestSummary[];
+  /** The pack's tasks: steps that run on their own, as runs of the `task` kind. */
+  tasks: PackTaskSummary[];
+  /** Which run hooks the pack has. */
+  hooks: { setup: boolean; teardown: boolean; afterTask: boolean };
+}
+
+export interface PackTaskSummary {
+  /** The task's name: what `runs.start` takes in `tests` with `kind: "task"`. */
+  id: string;
+  title: string;
+  description: string | null;
+  readOnly: boolean;
 }
 
 export interface PackRunDefaults {
@@ -209,6 +221,11 @@ export class PackRegistry {
     return job;
   }
 
+  /** The current good build if there is one, without building. */
+  build(id: string): LoadedPack | undefined {
+    return this.loaded.get(id);
+  }
+
   /** The current good build, loading it first if needed. Throws when the pack has never loaded. */
   async current(id: string): Promise<LoadedPack> {
     return this.loaded.get(id) ?? this.reload(id);
@@ -260,6 +277,8 @@ export class PackRegistry {
       dashboard: readDashboard(o.dashboard, []),
       share: readShare(o.share, []),
       tests: pack.tests.map((t) => testSummary(t, o.rubric)),
+      tasks: Object.entries(o.tasks ?? {}).map(([id, t]) => ({ id, title: t.title ?? id, description: t.description ?? null, readOnly: t.readOnly === true })),
+      hooks: { setup: !!o.setup, teardown: !!o.teardown, afterTask: !!o.afterTask },
     };
     this.db
       .prepare("UPDATE packs SET name = ?, site_key = ?, status = ?, error = ?, problems = ?, summary = ?, loaded_at = ? WHERE id = ?")
@@ -290,6 +309,8 @@ export class PackRegistry {
       dashboard: s.dashboard ?? null,
       share: s.share ?? null,
       tests: (s.tests ?? []).map((t) => ({ ...t, line: t.line ?? null, rubric: t.rubric ?? rubricFor(undefined, undefined) })),
+      tasks: s.tasks ?? [],
+      hooks: s.hooks ?? { setup: false, teardown: false, afterTask: false },
     };
   }
 }
@@ -313,12 +334,15 @@ export function discoverPacks(root: string, depth: number, known: (dir: string) 
   const found: FoundPack[] = [];
   let seen = 0;
   let truncated = false;
-  const walk = (dir: string, level: number) => {
+  // `inPack`: the folder is a pack's direct subfolder. A pack can hold packs that share its files
+  // (bench/ with bench/smoke/), so its direct subfolders are looked at, but nothing deeper: a pack's
+  // tests and fixtures may hold pack files that aren't packs of their own.
+  const walk = (dir: string, level: number, inPack = false) => {
     if (seen >= DISCOVER_MAX_DIRS) return void (truncated = true);
     seen++;
     const packFile = PACK_FILES.find((f) => existsSync(path.join(dir, f)));
-    if (packFile) return void found.push({ dir, packFile, packId: known(dir) });
-    if (level >= depth) return;
+    if (packFile) found.push({ dir, packFile, packId: known(dir) });
+    if (inPack || level >= depth) return;
     let names: string[];
     try {
       names = readdirSync(dir, { withFileTypes: true })
@@ -328,7 +352,7 @@ export function discoverPacks(root: string, depth: number, known: (dir: string) 
     } catch {
       return; // unreadable folders are skipped
     }
-    for (const n of names) walk(path.join(dir, n), level + 1);
+    for (const n of names) walk(path.join(dir, n), level + 1, packFile !== undefined);
   };
   walk(root, 0);
   return { found, truncated };

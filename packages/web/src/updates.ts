@@ -1,4 +1,4 @@
-// Whether a newer Watchwright is out (`GET /updates`), shared by the top bar's note and Settings ›
+// Whether a newer Watchwright is out (`GET /updates`), shared by the top bar's note and Admin ›
 // Server. The server asks npm now and then; this asks the server once per page load.
 import { reactive } from "vue";
 import { getJson } from "./api";

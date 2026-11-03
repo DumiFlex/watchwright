@@ -3,8 +3,8 @@
 // that completes folders as you type, a folder browser, and a search for packs in a folder.
 // The server lists the folders (a page can't learn a folder's path; docs/plans/step-qol.md).
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { Ellipsis, FolderOpen, Package, TriangleAlert, Upload } from "../icons";
-import { getJson, sendJson, type FolderPlaces, type Pack } from "../api";
+import { Ellipsis, FolderOpen, Lock, Package, TriangleAlert, Upload } from "../icons";
+import { getJson, sendJson, type FolderPlaces, type Pack, type PackAccess } from "../api";
 import { ago, when } from "../format";
 import { LiveConnection } from "../live";
 import { toast } from "../toasts";
@@ -19,7 +19,7 @@ import SkeletonBlock from "../components/SkeletonBlock.vue";
 import StatusChip from "../components/StatusChip.vue";
 import { vTip } from "../tooltip";
 import { replaceRoute } from "../router";
-import { can } from "../session";
+import { can, session } from "../session";
 
 const props = defineProps<{ query: Record<string, string> }>();
 
@@ -42,7 +42,16 @@ const moving = ref<Pack | null>(null);
 const removing = ref<Pack | null>(null);
 const removeOpen = computed({ get: () => removing.value !== null, set: (v) => (v ? undefined : (removing.value = null)) });
 
+// Admins see which packs are kept to chosen people (with login on; everyone else sees only theirs).
+const kept = ref<Record<string, PackAccess>>({});
+async function loadKept() {
+  if (!session.on || !can("admin")) return;
+  const res = await getJson<Record<string, PackAccess>>("/api/v1/packs/access");
+  if (res.ok) kept.value = res.data;
+}
+
 async function load() {
+  void loadKept();
   const res = await getJson<Pack[]>("/api/v1/packs");
   loading.value = false;
   if (!res.ok) return void (loadError.value = res.error.message);
@@ -103,7 +112,7 @@ async function confirmRemove() {
 
 const menu = [
   { value: "download", label: "Download .zip" },
-  { value: "move", label: "Move to another folder…" },
+  ...(can("admin") ? [{ value: "move", label: "Move to another folder…" }] : []),
   { value: "remove", label: "Remove…", danger: true },
 ];
 function onMenu(p: Pack, v: string) {
@@ -166,6 +175,7 @@ onBeforeUnmount(() => live?.close());
       <li v-for="p in packs" :key="p.id" class="card pk" :class="{ gone: p.missing }">
         <div class="top">
           <a class="pname display" :href="`#/packs/${p.id}`">{{ p.name }}</a>
+          <span v-if="kept[p.id]" v-tip="'Only chosen people and the admins see this pack'" class="kept muted small"><Lock :size="12" /> Chosen people</span>
           <StatusChip v-if="p.status === 'error' && !p.missing" status="failed" />
         </div>
         <p v-if="p.description" class="desc">{{ p.description }}</p>
@@ -179,8 +189,8 @@ onBeforeUnmount(() => live?.close());
         </p>
         <p v-else-if="p.status === 'error'" class="error small">{{ p.error }}</p>
         <div class="acts">
-          <button v-if="p.missing" class="btn primary" @click="locate(p)">Locate…</button>
-          <a v-else class="btn primary" :href="`#/new?pack=${p.id}`" :aria-disabled="p.status === 'error'" :class="{ off: p.status === 'error' }">New run</a>
+          <button v-if="p.missing && can('admin')" class="btn primary" @click="locate(p)">Locate…</button>
+          <a v-else-if="!p.missing" class="btn primary" :href="`#/new?pack=${p.id}`" :aria-disabled="p.status === 'error'" :class="{ off: p.status === 'error' }">New run</a>
           <button v-if="!p.missing" v-tip="'Build the pack again now'" class="btn" :disabled="reloading === p.id" @click="reload(p.id)">{{ reloading === p.id ? "Reloading…" : "Reload" }}</button>
           <span v-if="p.loadedAt && !p.missing" v-tip="when(p.loadedAt)" class="muted small">built {{ ago(p.loadedAt) }}</span>
           <MenuButton class="more" :items="menu" :label="`More for ${p.name}`" @select="onMenu(p, $event)">
@@ -191,15 +201,16 @@ onBeforeUnmount(() => live?.close());
     </ul>
     <section v-else-if="!loadError" class="card">
       <EmptyState :icon="Package" heading="No packs yet">
-        <p>A pack is a folder with a pack file (<code>pack.ts</code> or <code>pack.yaml</code>) and its tests, usually in the repository of the site it tests. Add one you have (the folder browser can also search a folder and the ones below it), or pick a folder and choose <strong>New pack here</strong> for a small starter pack.</p>
+        <p v-if="!can('admin')">A pack is a folder with a pack file and its tests. Packs run code on this server, so an admin adds them.</p>
+        <p v-else>A pack is a folder with a pack file (<code>pack.ts</code> or <code>pack.yaml</code>) and its tests, usually in the repository of the site it tests. Add one you have (the folder browser can also search a folder and the ones below it), or pick a folder and choose <strong>New pack here</strong> for a small starter pack.</p>
         <template #actions>
-          <button type="button" class="btn primary" @click="browse('add')"><FolderOpen :size="15" /> Add a pack…</button>
+          <button v-if="can('admin')" type="button" class="btn primary" @click="browse('add')"><FolderOpen :size="15" /> Add a pack…</button>
           <button v-if="can('admin')" type="button" class="btn" @click="uploadOpen = true"><Upload :size="15" /> Upload .zip…</button>
         </template>
       </EmptyState>
     </section>
 
-    <section class="card" aria-labelledby="add-title">
+    <section v-if="can('admin')" class="card" aria-labelledby="add-title">
       <h2 id="add-title" class="display">Add a pack</h2>
       <form class="add" @submit.prevent="addPack">
         <label class="sr-only" for="pack-path">Pack folder</label>
@@ -268,6 +279,12 @@ onBeforeUnmount(() => live?.close());
 }
 .pname:hover {
   color: var(--accent-text);
+}
+.kept {
+  margin-right: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
 }
 .gone .pname {
   color: var(--muted);

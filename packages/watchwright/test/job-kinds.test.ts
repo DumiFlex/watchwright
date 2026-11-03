@@ -83,6 +83,7 @@ describe("job kinds through the API", () => {
     const res = await h.api<{ name: string; labels: Record<string, string> }[]>("GET", "/kinds");
     expect(res.data).toEqual([
       { name: "test", labels: {} },
+      { name: "task", labels: { passed: "done" } },
       { name: "echo", labels: { passed: "done" } },
     ]);
   });

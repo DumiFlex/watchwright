@@ -20,6 +20,7 @@ export const REFERENCES: Record<string, string> = {
   "guide/yaml-tests": "yaml-tests.md",
   "reference/yaml-steps": "yaml-steps.md",
   "guide/test-packs": "test-packs.md",
+  "guide/tasks": "tasks.md",
   "reference/mcp": "mcp.md",
   "reference/cli": "cli.md",
 };

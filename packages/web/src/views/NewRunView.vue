@@ -11,6 +11,7 @@ import { getJson, sendJson, type Pack, type ParamValue, type Preset, type RunCho
 import { useShortcut } from "../keys";
 import { replaceRoute } from "../router";
 import { loadSettings, settings } from "../settings";
+import { sectionHref } from "../settingspages";
 import { offerNotify } from "../notify";
 import { toast } from "../toasts";
 import CheckBox from "../components/CheckBox.vue";
@@ -47,11 +48,11 @@ const trace = ref<TraceMode>("problems");
 const video = ref<VideoMode>("always");
 const runVideo = ref(false);
 const signIn = ref(false);
-// Site keys that have a saved sign-in (Settings > Sign-ins).
+// Site keys that have a saved sign-in (Admin > Sign-ins).
 const savedSignIns = ref<Set<string>>(new Set());
 const pauseOnBroken = ref(true);
 const pauseLimit = ref(20);
-// Where the browser reaches the site from: "server" or a runner's name (Settings > Runners).
+// Where the browser reaches the site from: "server" or a runner's name (Admin > Runners).
 const network = ref("server");
 const runners = ref<{ name: string; online: boolean }[]>([]);
 const networkOptions = computed(() => {
@@ -160,7 +161,7 @@ async function loadPresets(id: string) {
 
 /** Copies the pack's latest run's choices, when it has one. */
 async function copyLatest(p: Pack) {
-  const res = await getJson<RunSummary[]>(`/api/v1/runs?pack=${p.id}&limit=1`);
+  const res = await getJson<RunSummary[]>(`/api/v1/runs?pack=${p.id}&kind=test&limit=1`);
   const run = res.ok ? res.data[0] : undefined;
   if (run && packId.value === p.id) copyRun(run, p, true);
 }
@@ -515,7 +516,7 @@ useShortcut("Mod+Enter", () => !namingOpen.value && void start());
                 <div v-if="runners.length || network !== 'server'" class="opt">
                   <span class="name">Reach the site from</span>
                   <SelectMenu id="nr-network" v-model="network" :options="networkOptions" />
-                  <span v-if="network !== 'server' && !networkRunner" class="warn small">No runner is called {{ network }}, so the run won't start. Add it in Settings &gt; Runners.</span>
+                  <span v-if="network !== 'server' && !networkRunner" class="warn small">No runner is called {{ network }}, so the run won't start. <a :href="sectionHref('runners')">Add it under Runners</a>.</span>
                   <span v-else-if="networkRunner && !networkRunner.online" class="warn small">{{ networkRunner.name }} is offline, so the run won't start. Start it on its machine with <code>watchwright runner</code>.</span>
                   <span v-else-if="networkRunner" class="muted small">The browser's connections go through {{ networkRunner.name }}, so the site can be on that machine's localhost.</span>
                   <span v-else class="muted small">The browser connects from this server.</span>

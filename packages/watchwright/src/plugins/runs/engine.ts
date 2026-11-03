@@ -1,20 +1,21 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { hasDesktop } from "../../host.js";
 import { rm } from "node:fs/promises";
 import path from "node:path";
 import type { BrowserContext, Page } from "playwright";
 import type { EventLog } from "../../events/log.js";
-import { AttemptAborted, RunControl, type BrokenDecision } from "../../jobs/control.js";
+import { AttemptAborted, AttemptRedo, RunControl, type BrokenDecision } from "../../jobs/control.js";
+import { maskDeep } from "../secrets/mask.js";
 import type { AttemptEnv, JobKind, KindPlan, PlanItem } from "../../jobs/kind.js";
 import type { JobKinds } from "../../jobs/kinds.js";
 import type { AttemptRuntime } from "../../jobs/runtime.js";
 import { AttemptRecorder, MAX_LOG_LINES, safeRelative, slug, type ArtifactInfo } from "../../jobs/recorder.js";
-import { findFfmpeg, nextRunVideoFile, RunVideo, runVideoFiles } from "../../jobs/run-video.js";
+import { findFfmpeg, nextRunVideoFile, RunVideo, runVideoFiles, type VideoQuality } from "../../jobs/run-video.js";
 import { dirSize, driveSpace, GB, sizeText } from "../../jobs/storage.js";
 import { unzip, zip } from "../../jobs/zip.js";
 import { BrowserSession } from "../../session/session.js";
 import type { FrameHub } from "../live/hub.js";
-import { StepError, type Collector, type CollectorAttempt, type CollectorRecord, type Outcome, type ParamValues, videoMode, type VideoMode, type VideoSetting } from "../packs/api.js";
+import { StepError, type Collector, type CollectorAttempt, type CollectorRecord, type Outcome, type PackState, type ParamValues, type RunRef, videoMode, type VideoMode, type VideoSetting } from "../packs/api.js";
 import type { LoadedPack } from "../packs/loader.js";
 import { parentsOf, resolveParams } from "../packs/order.js";
 import type { PackRegistry } from "../packs/registry.js";
@@ -185,6 +186,14 @@ interface ActiveRun {
   /** Set once the drive ran low during the run: free bytes then, and whether videos stopped. */
   storageLow: { freeBytes: number; videosOff: boolean } | null;
   storageTimer: ReturnType<typeof setInterval> | null;
+  /** A run of a `whilePaused` kind (a pack task): it may run beside the site's paused run. */
+  whilePaused: boolean;
+  /** For a `whilePaused` run once planned: its title, shown to the paused run it waits beside. */
+  title: string | null;
+  /** Tasks that changed the site while this run was paused; `afterTask` gets them before it goes on. */
+  siteChangedBy: string[];
+  /** The top-level attempt ended because a task changed the site during its pause: run it again. */
+  redo: boolean;
 }
 
 interface RunCtx {
@@ -244,17 +253,26 @@ export interface EngineOptions {
   storageLimits?: (() => StorageLimits) | undefined;
   /** How long ended runs are kept (Settings > Storage); both 0, the default, keeps every run. */
   cleanupRules?: (() => CleanupRules) | undefined;
+  /** How much room videos of runs that start take (Admin > Storage; default `full`). */
+  videoQuality?: (() => VideoQuality) | undefined;
   /** How often a going run measures its folder and the drive's free space (default once a minute). */
   storageCheckMs?: number | undefined;
+  /** Pack state, for setup, teardown, tasks and the hooks (an empty store when left out). */
+  packState?: { of(packId: string): PackState } | undefined;
 }
 
-/** A copy of `value` with `mask` applied to every string in it (event data, attempt results). */
-export function maskDeep<T>(value: T, mask: (s: string) => string): T {
-  if (typeof value === "string") return mask(value) as T;
-  if (Array.isArray(value)) return value.map((v: unknown) => maskDeep(v, mask)) as T;
-  if (value !== null && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, maskDeep(v, mask)])) as T;
-  return value;
+/** A pack state that keeps nothing past the run, for engines made without a store (tests). */
+function memoryState(): PackState {
+  const m = new Map<string, unknown>();
+  return {
+    get: <T>(k: string) => m.get(k) as T | undefined,
+    set: (k, v) => void (v === undefined ? m.delete(k) : m.set(k, JSON.parse(JSON.stringify(v)) as unknown)),
+    delete: (k) => void m.delete(k),
+    keys: () => [...m.keys()].sort(),
+  };
 }
+
+export { maskDeep };
 
 /** A browser context's cookies and local storage, as Playwright saves them. */
 export type StorageState = Awaited<ReturnType<BrowserContext["storageState"]>>;
@@ -265,9 +283,17 @@ export class Engine {
 
   constructor(private readonly o: EngineOptions) {}
 
+  /** True while a run is going (Compress kept videos waits for none). */
+  busy(): boolean {
+    return this.active.size > 0;
+  }
+
   /** On boot: runs a crash left running become interrupted, ready for resume. */
   recover(): void {
-    for (const id of this.o.repo.interruptLeftovers()) this.o.events.append("run.interrupted", { reason: "server_stopped" }, { runId: id });
+    for (const id of this.o.repo.interruptLeftovers()) {
+      dropEmptyVideos(path.join(this.o.dataDir, "runs", id));
+      this.o.events.append("run.interrupted", { reason: "server_stopped" }, { runId: id });
+    }
   }
 
   /**
@@ -294,10 +320,10 @@ export class Engine {
   }
 
   /** Runs and outcomes per day for the `days` days ending today, in a time zone `offset` minutes behind UTC. */
-  stats(o: { days: number; offset: number; packId?: string | undefined; until?: string | undefined }): RunStats {
+  stats(o: { days: number; offset: number; packId?: string | undefined; until?: string | undefined; hidePacks?: readonly string[] }): RunStats {
     const until = o.until ?? dayOf(new Date().toISOString(), o.offset);
     const from = dayStart(dayList(until, o.days * 2)[0]!, o.offset);
-    return runStats(this.o.repo.statsRows(from, o.packId), { until, days: o.days, offset: o.offset });
+    return runStats(this.o.repo.statsRows(from, o.packId, o.hidePacks), { until, days: o.days, offset: o.offset });
   }
 
   testHistory(packId: string, limit: number): Record<string, HistoryEntry[]> {
@@ -391,6 +417,10 @@ export class Engine {
 
   private cleanupRules(): CleanupRules {
     return this.o.cleanupRules?.() ?? { keepDays: 0, keepPerPack: 0 };
+  }
+
+  private videoQuality(): VideoQuality {
+    return this.o.videoQuality?.() ?? "full";
   }
 
   private limits(): StorageLimits {
@@ -732,7 +762,7 @@ export class Engine {
   }
 
   async start(input: StartInput): Promise<RunSummary> {
-    const { pack, kind, params } = await this.prepare(input);
+    const { pack, kind, params, plan } = await this.prepare(input);
     const id = newId(4);
     this.o.repo.insertRun({
       id,
@@ -744,7 +774,7 @@ export class Engine {
       tests: JSON.stringify(input.tests ?? []),
       params: JSON.stringify(params),
       options: JSON.stringify(input.options ?? {}),
-      label: (input.label ?? "").trim(),
+      label: (input.label ?? kind.runLabel?.(pack, [...new Set(plan.items.map((i) => i.itemId))]) ?? "").trim().slice(0, 80),
       status: "queued",
       started_by: input.startedBy,
       created_at: new Date().toISOString(),
@@ -800,6 +830,7 @@ export class Engine {
     const r = this.requireRun(id);
     const run = this.active.get(id);
     if (run) {
+      this.refuseWhileTask(run);
       if (!run.control.resume()) throw new EngineError("conflict", run.control.reason === "broken" ? "The run paused on a broken attempt: answer with retry or skip." : "The run isn't paused.", 409);
       return this.get(id)!;
     }
@@ -818,6 +849,7 @@ export class Engine {
 
   private decide(id: string, d: BrokenDecision): RunDetail {
     const run = this.requireActive(id);
+    this.refuseWhileTask(run);
     if (!run.control.decide(d)) throw new EngineError("conflict", "The run isn't paused on a broken attempt.", 409);
     return this.get(id)!;
   }
@@ -877,16 +909,79 @@ export class Engine {
     };
   }
 
-  /** Starts every queued run whose site is free. */
+  /**
+   * Starts every queued run whose site is free. A run of a `whilePaused` kind (a pack task) may
+   * also start while every run of its site is paused, and no other such run is going there.
+   */
   schedule(): void {
     if (this.closing) return;
-    const busy = new Set([...[...this.active.values()].map((r) => r.siteKey), ...this.holds.keys()]);
+    const started = new Set(this.holds.keys());
     for (const row of this.o.repo.queued()) {
-      if (busy.has(row.site_key) || this.active.has(row.id)) continue;
-      busy.add(row.site_key);
+      if (started.has(row.site_key) || this.active.has(row.id)) continue;
+      const onSite = [...this.active.values()].filter((r) => r.siteKey === row.site_key);
+      if (onSite.length > 0) {
+        const kind = this.o.kinds.get(row.job_kind);
+        if (!kind?.whilePaused || onSite.some((r) => r.whilePaused || r.control.state !== "paused")) continue;
+      }
+      started.add(row.site_key);
       this.launch(row);
     }
   }
+
+  /** The task going on this run's site, if any (a paused run can't go on while one is). */
+  private taskOnSite(run: ActiveRun): ActiveRun | null {
+    return [...this.active.values()].find((r) => r !== run && r.whilePaused && r.siteKey === run.siteKey) ?? null;
+  }
+
+  private refuseWhileTask(run: ActiveRun): void {
+    const task = this.taskOnSite(run);
+    if (task) throw new EngineError("site_busy", `The task "${task.title ?? task.id}" is using the site (run ${task.id}). The run can go on once it's done.`, 409);
+  }
+
+  /** Waits for the tasks going on the run's site to end. */
+  private async waitForTasks(run: ActiveRun): Promise<void> {
+    for (;;) {
+      const task = this.taskOnSite(run);
+      if (!task) return;
+      await task.done.catch(() => undefined);
+    }
+  }
+
+  /**
+   * A task run is planned: it takes the site from the runs paused there. When it may change the
+   * site, they get `afterTask` before going on, and one paused in the middle of an attempt runs
+   * that attempt again.
+   */
+  private claimSite(run: ActiveRun, kind: JobKind, pack: LoadedPack, plan: KindPlan): void {
+    const items = [...new Set(plan.items.map((i) => i.itemId))];
+    run.title = items.map((i) => kind.describe(pack, i).title).join(", ");
+    const touches = kind.touchesSite ? kind.touchesSite(pack, items) : true;
+    for (const p of this.active.values()) {
+      if (p === run || p.whilePaused || p.siteKey !== run.siteKey) continue;
+      if (touches) {
+        p.siteChangedBy.push(run.title);
+        if (p.recorder) p.control.abort = new AttemptRedo(`The task "${run.title}" used the site while this attempt was paused, so it runs again.`);
+      }
+      this.emit(
+        "run.log",
+        { level: "info", message: `The task "${run.title}" is using the site (run ${run.id}). This run can go on once it's done${touches ? "; the pack's afterTask runs first" : ""}.` },
+        p.id,
+      );
+    }
+  }
+
+  /** The pack's latest run that is mid-way, other than `exceptId` (what a task sees as `run`). */
+  private packRun(packId: string, exceptId: string): RunRef | null {
+    const r = this.o.repo.latestOpenRun(packId, exceptId, this.o.kinds.list().filter((k) => k.whilePaused).map((k) => k.name));
+    if (!r) return null;
+    return { id: r.id, status: this.active.get(r.id)?.control.state === "pausing" ? "pausing" : r.status };
+  }
+
+  private stateOf(packId: string): PackState {
+    return this.o.packState?.of(packId) ?? (this.memoryStates.get(packId) ?? this.memoryStates.set(packId, memoryState()).get(packId)!);
+  }
+
+  private readonly memoryStates = new Map<string, PackState>();
 
   /** Stops every run for shutdown; they become interrupted so they can resume after restart. */
   async close(): Promise<void> {
@@ -937,6 +1032,8 @@ export class Engine {
       siteKey: row.site_key,
       control: new RunControl({
         onState: (state, info) => {
+          // A task queued for this site may start once the run lands its pause.
+          if (state === "paused") queueMicrotask(() => this.schedule());
           const status = state === "running" ? "running" : state;
           this.o.repo.updateRun(row.id, { status });
           const type = state === "running" ? "run.resumed" : state === "pausing" ? "run.pausing" : "run.paused";
@@ -963,6 +1060,10 @@ export class Engine {
       sizeBytes: null,
       storageLow: null,
       storageTimer: null,
+      whilePaused: this.o.kinds.get(row.job_kind)?.whilePaused ?? false,
+      title: null,
+      siteChangedBy: [],
+      redo: false,
     };
     this.active.set(row.id, run);
     run.done = this.execute(row, run)
@@ -976,6 +1077,9 @@ export class Engine {
         await this.keepSize(row.id);
         this.active.delete(row.id);
         this.o.frames.forget(row.id);
+        if (run.whilePaused && run.title !== null)
+          for (const p of this.active.values())
+            if (p.siteKey === run.siteKey && !p.whilePaused && p.control.state === "paused") this.emit("run.log", { level: "info", message: `The task "${run.title}" is done; the run can go on.` }, p.id);
         this.schedule();
       });
   }
@@ -1012,6 +1116,7 @@ export class Engine {
       failStart(err instanceof Error ? err.message : String(err));
       return;
     }
+    if (run.whilePaused) this.claimSite(run, kind, pack, plan);
     const queue = new RunQueue(plan, options.queue);
     const entries = this.planEntries(kind, pack, plan, queue);
     repo.updateRun(row.id, { plan: JSON.stringify(entries) });
@@ -1059,6 +1164,7 @@ export class Engine {
           size: o.run?.screencastSize,
           quality: o.run?.frameQuality ?? 70,
           showActions: o.run?.showActions ?? true,
+          videoQuality: this.videoQuality(),
         },
         {
           onFrame: (f) => frames.publish({ runId: row.id, ...f }),
@@ -1098,6 +1204,7 @@ export class Engine {
       const setupRecorder = new AttemptRecorder(path.join(this.o.dataDir, "runs", row.id, "setup"), this.o.dataDir, () => undefined, (l) =>
         this.emit("run.log", { ...l }, row.id),
       );
+      const state = this.stateOf(row.pack_id);
       try {
         await kind.setup({
           pack,
@@ -1106,8 +1213,12 @@ export class Engine {
           session,
           helpers: () => this.helpers(run, kind, pack, page, setupRecorder, new Map(), null),
           info: (k, v) => this.setInfo(run, k, v),
+          start: mode === "normal" ? "new" : mode,
+          run: { id: row.id, status: "running" },
+          state,
         });
       } catch (err) {
+        if (!run.shutdown) await this.teardown(run, row.pack_id, kind, pack, params, "failed");
         failStart(`Setup failed: ${err instanceof Error ? err.message : String(err)}`);
         return;
       }
@@ -1136,6 +1247,8 @@ export class Engine {
       for (;;) {
         await run.control.checkpoint("boundary");
         if (run.control.stopMode) break;
+        if (!(await this.afterTasks(ctx))) continue;
+        if (run.control.stopMode) break;
         const item = ctx.queue.next();
         if (!item) break;
         if (!ctx.todo.has(`${item.itemId}#${item.number}`)) {
@@ -1163,6 +1276,11 @@ export class Engine {
         ctx.queue.started(item);
         const { outcome, attemptId } = await this.runAttempt(ctx, item, null);
         if (run.control.stopMode || run.shutdown) break;
+        if (run.redo) {
+          // A task changed the site while this attempt was paused: after afterTask, it runs again.
+          run.redo = false;
+          continue;
+        }
         if (outcome === "broken" && ctx.pauseOnBroken) {
           const d = await this.pauseOnBroken(ctx, item.itemId, attemptId);
           this.emit("run.decision", { decision: d, testId: item.itemId, number: item.number }, row.id);
@@ -1174,6 +1292,7 @@ export class Engine {
       ctx.ended = true;
       this.flushAdded(ctx);
       if (!run.control.stopMode && !run.shutdown && mode === "normal") this.fileUnrunChildren(ctx);
+      if (!run.shutdown) await this.teardown(run, row.pack_id, kind, ctx.pack, params, run.control.stopMode ? "stopped" : "finished");
     } finally {
       await this.stopRunVideo(run);
       await session.stopCapture();
@@ -1210,6 +1329,7 @@ export class Engine {
         return list.find((f) => f.pageId === run.session?.activePage) ?? list.at(-1) ?? null;
       },
       onError: (message) => warn(`The run video stopped: ${message}. The run goes on without it.`),
+      quality: this.videoQuality(),
     });
     run.runVideo.start();
   }
@@ -1280,11 +1400,11 @@ export class Engine {
   }
 
   /** The kind's helper object for one attempt (or the run's setup), built from the runtime every kind gets. */
-  private helpers(run: ActiveRun, kind: JobKind, pack: LoadedPack, page: Page, recorder: AttemptRecorder, saves: Map<string, unknown>, attemptId: string | null): unknown {
+  private helpers(run: ActiveRun, kind: JobKind, pack: LoadedPack, page: Page, recorder: AttemptRecorder, saves: Map<string, unknown>, attemptId: string | null, control: RunControl = run.control): unknown {
     const rt: AttemptRuntime = {
       page,
       context: run.session!.context,
-      control: run.control,
+      control,
       recorder,
       session: run.session!,
       save: (k, v) => saves.set(k, v),
@@ -1375,6 +1495,8 @@ export class Engine {
       session,
       control: run.control,
       recorder,
+      state: this.stateOf(row.pack_id),
+      packRun: () => this.packRun(row.pack_id, row.id),
       helpers: () => this.helpers(run, kind, pack, page, recorder, saves, id),
       runChild: (childId) => this.runChild(ctx, item, id, childId),
       addItem: (itemId, opts) => this.addItem(ctx, itemId, opts?.attempts ?? 1),
@@ -1450,11 +1572,18 @@ export class Engine {
     }
 
     if (top) run.recorder = null;
-    const { status, error: attemptError } = kind.classify({
-      error,
-      flags: recorder.flags,
-      stopped: run.control.stopMode === "now" || run.shutdown,
-    });
+    const redo = error instanceof AttemptRedo && !run.control.stopMode && !run.shutdown;
+    const { status, error: attemptError } = redo
+      ? { status: "stopped" as const, error: { kind: "stopped" as const, message: (error as AttemptRedo).message, stack: null } }
+      : kind.classify({
+          error,
+          flags: recorder.flags,
+          stopped: run.control.stopMode === "now" || run.shutdown,
+        });
+    if (redo && top) {
+      run.redo = true;
+      recorder.addLog("info", (error as AttemptRedo).message);
+    }
     const finalStatus: AttemptStatus = run.shutdown && status === "stopped" ? "interrupted" : status;
 
     if (finalStatus !== "stopped" && finalStatus !== "interrupted") {
@@ -1521,6 +1650,112 @@ export class Engine {
     run.testId = prev.testId;
     run.step = prev.step;
     return { outcome: finalStatus === "interrupted" ? "stopped" : finalStatus, attemptId: id };
+  }
+
+  /**
+   * Before the run goes on: waits for any task on its site, then gives the pack's `afterTask` the
+   * tasks that changed the site during the pause. False when afterTask failed: the run then pauses.
+   */
+  private async afterTasks(ctx: RunCtx): Promise<boolean> {
+    const { run, kind, row } = ctx;
+    if (this.taskOnSite(run)) {
+      this.emit("run.log", { level: "info", message: "Waiting for the task on this site to finish before going on." }, row.id);
+      await this.waitForTasks(run);
+    }
+    if (run.siteChangedBy.length === 0 || run.control.stopMode) return true;
+    const tasks = run.siteChangedBy.splice(0);
+    if (!kind.afterTask || !run.session) return true;
+    const session = run.session;
+    const page = await session.mainPage();
+    const recorder = new AttemptRecorder(path.join(this.o.dataDir, "runs", row.id, "after-task"), this.o.dataDir, () => undefined, (l) => this.emit("run.log", { ...l }, row.id));
+    const started = Date.now();
+    this.emit("run.log", { level: "info", message: `afterTask: putting the site back after ${tasks.map((t) => `"${t}"`).join(", ")}.` }, row.id);
+    try {
+      await this.limited(
+        kind.afterTask({
+          pack: ctx.pack,
+          params: ctx.params,
+          page,
+          session,
+          helpers: () => this.helpers(run, kind, ctx.pack, page, recorder, new Map(), null),
+          info: (k, v) => this.setInfo(run, k, v),
+          start: "resume",
+          run: { id: row.id, status: "running" },
+          state: this.stateOf(row.pack_id),
+        }, tasks),
+        ctx.pack.options.run?.testTimeout ?? DEFAULT_TEST_TIMEOUT,
+        "afterTask",
+      );
+      this.emit("run.log", { level: "info", message: `afterTask done in ${Math.round((Date.now() - started) / 1000)} s.` }, row.id);
+      return true;
+    } catch (err) {
+      if (run.control.stopMode) return true;
+      this.emit(
+        "run.log",
+        { level: "error", message: this.mask(`afterTask failed: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}. The run paused: put the site back by hand, then resume.`) },
+        row.id,
+      );
+      run.pausedBy = "afterTask";
+      run.control.requestPause();
+      return false;
+    }
+  }
+
+  /**
+   * The pack's teardown, once the run ends (not on a server shutdown). Runs after any task on the
+   * site, in a fresh browser context when "stop now" closed the run's. Errors go on the run's log.
+   */
+  private async teardown(run: ActiveRun, packId: string, kind: JobKind, pack: LoadedPack, params: ParamValues, status: "finished" | "stopped" | "failed"): Promise<void> {
+    if (!kind.teardown || !pack.options.teardown || !run.session) return;
+    await this.waitForTasks(run);
+    const session = run.session;
+    if (run.control.stopMode === "now") {
+      try {
+        await session.resetContext();
+      } catch (err) {
+        this.emit("run.log", { level: "error", message: `Teardown didn't run: the browser couldn't open again (${err instanceof Error ? err.message.split("\n")[0] : String(err)}).` }, run.id);
+        return;
+      }
+    }
+    // The run's own control is stopping; teardown's helpers get one that lets them work.
+    const control = new RunControl({ onState: () => undefined });
+    const page = await session.mainPage();
+    const recorder = new AttemptRecorder(path.join(this.o.dataDir, "runs", run.id, "teardown"), this.o.dataDir, () => undefined, (l) => this.emit("run.log", { ...l }, run.id));
+    const started = Date.now();
+    this.emit("run.log", { level: "info", message: `Teardown (the run ${status === "finished" ? "finished" : status === "stopped" ? "was stopped" : "couldn't set up"}).` }, run.id);
+    try {
+      await this.limited(
+        kind.teardown(
+          {
+            pack,
+            params,
+            page,
+            session,
+            helpers: () => this.helpers(run, kind, pack, page, recorder, new Map(), null, control),
+            info: (k, v) => this.setInfo(run, k, v),
+            start: "resume",
+            run: { id: run.id, status: status === "failed" ? "failed_to_start" : status },
+            state: this.stateOf(packId),
+          },
+          status,
+        ),
+        pack.options.run?.testTimeout ?? DEFAULT_TEST_TIMEOUT,
+        "Teardown",
+      );
+      this.emit("run.log", { level: "info", message: `Teardown done in ${Math.round((Date.now() - started) / 1000)} s.` }, run.id);
+    } catch (err) {
+      this.emit("run.log", { level: "error", message: this.mask(`Teardown failed: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`) }, run.id);
+    }
+  }
+
+  /** `work`, failing once it takes longer than `ms`. */
+  private async limited<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([work, new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error(`${what} took longer than ${Math.round(ms / 1000)} s`)), ms)))]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /** Pauses on a broken attempt (shown as the current one) until retry, skip, stop or the time limit. */
@@ -1652,4 +1887,26 @@ export class Engine {
     }
   }
 
+}
+
+/**
+ * A server killed outright (Task Manager, Stop-Process) leaves the videos it was writing empty: a
+ * run's video part and the cut-off attempt's. They can't be played, so they go before the run resumes.
+ */
+export function dropEmptyVideos(runDir: string): void {
+  let names: string[];
+  try {
+    names = readdirSync(runDir, { recursive: true, encoding: "utf8" });
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    if (!name.endsWith(".webm")) continue;
+    const file = path.join(runDir, name);
+    try {
+      if (statSync(file).size === 0) unlinkSync(file);
+    } catch {
+      // Gone or locked: it stays.
+    }
+  }
 }

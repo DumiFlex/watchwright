@@ -158,12 +158,35 @@ export interface WaitOptions {
   what?: string;
 }
 
+/**
+ * Named values a pack keeps between runs, tasks and restarts (the name of a backup it took, say),
+ * stored by the server. Values are JSON, up to 64 KB each. Shown on the pack's Tasks tab.
+ */
+export interface PackState {
+  get<T = unknown>(key: string): T | undefined;
+  /** Saves a value (JSON); `undefined` deletes it. */
+  set(key: string, value: unknown): void;
+  delete(key: string): void;
+  keys(): string[];
+}
+
+/** A run, as setup, teardown, tasks and the hooks see it. */
+export interface RunRef {
+  id: string;
+  /** The run's status: running, pausing, paused, stopped, interrupted, queued (to resume), finished, failed_to_start. */
+  status: string;
+}
+
+/** How a run (re)starts: a new run, a resume (after a stop or restart) or a redo of broken attempts. */
+export type RunStart = "new" | "resume" | "redo";
+
 /** What `beforeAttempt` and `afterAttempt` hooks get. */
 export interface AttemptHookContext {
   page: Page;
   h: Helpers;
   params: ParamValues;
   packDir: string;
+  state: PackState;
   test: { id: string; title: string; section: string | null; tags: readonly string[] };
   attempt: number;
   attempts: number;
@@ -180,6 +203,55 @@ export interface SetupContext {
   packDir: string;
   /** Saves a fact about the whole run (the app's version, the model it uses), shown on the run page. */
   info(key: string, value: string | number | boolean): void;
+  /** How this run starts: "new", or "resume" / "redo" of a run that went before. */
+  start: RunStart;
+  run: RunRef;
+  state: PackState;
+}
+
+/** What `teardown` gets: setup's context and how the run ended. */
+export interface TeardownContext extends Omit<SetupContext, "start"> {
+  /** "finished" (it went through its tests), "stopped" (a person or agent stopped it; it may be resumed) or "failed" (setup failed partway). */
+  status: "finished" | "stopped" | "failed";
+}
+
+/** What `afterTask` gets: setup's context and the tasks that used the site while the run was paused. */
+export interface AfterTaskContext extends Omit<SetupContext, "start"> {
+  /** The names of the tasks that ran during the pause, in order. */
+  tasks: string[];
+}
+
+/** What a task gets. */
+export interface TaskContext {
+  page: Page;
+  context: BrowserContext;
+  browser: Browser;
+  h: Helpers;
+  params: ParamValues;
+  packDir: string;
+  state: PackState;
+  /**
+   * The pack's latest run that is mid-way (running, paused, stopped, interrupted, or queued to
+   * resume), or null when none is. A task that puts the site back can save the run's data first.
+   */
+  run: RunRef | null;
+  /** This task's name. */
+  task: string;
+}
+
+/** A step of the pack that runs on its own: from the pack page, the CLI, an agent or a schedule. */
+export interface TaskDefinition {
+  title?: string;
+  description?: string;
+  /**
+   * True when the task leaves the site as it found it (a backup, a report). A paused run then goes
+   * on where it was. Otherwise (the default) the run gets `afterTask` first, and an attempt the
+   * pause cut short runs again.
+   */
+  readOnly?: boolean;
+  /** Time limit in ms (default: the pack's `run.testTimeout`, else 30 minutes). */
+  timeout?: number;
+  run: (ctx: TaskContext) => void | Promise<void>;
 }
 
 /** Which attempts keep a video. */
@@ -244,8 +316,20 @@ export interface PackOptions {
   flags?: Record<string, FlagKind>;
   /** Globs of test files, relative to the pack file (default "tests/**\/*.{ts,mts,js,mjs}"). */
   tests?: string | readonly string[];
-  /** Runs once per run, before the first test. */
+  /** Runs at each start of a run, before the first test: a new run, a resume and a redo (`start` tells which). */
   setup?: (ctx: SetupContext) => void | Promise<void>;
+  /**
+   * Runs once when a run ends: it finished, was stopped, or setup failed partway. Not when the
+   * server shuts down (that run resumes later). Use it to put the site back. An error is logged.
+   */
+  teardown?: (ctx: TeardownContext) => void | Promise<void>;
+  /**
+   * Runs when a paused run goes on after a task (not `readOnly`) used the site during the pause,
+   * before the next test: put back what the run needs. If it fails, the run pauses again.
+   */
+  afterTask?: (ctx: AfterTaskContext) => void | Promise<void>;
+  /** Steps that run on their own, as runs of the `task` kind (see the Setup, teardown and tasks guide). Keys are the task names. */
+  tasks?: Record<string, TaskDefinition>;
   collectors?: readonly Collector[];
   /**
    * Runs before each attempt's body (children too). Use it for state a test needs set up or kept

@@ -31,6 +31,11 @@ export interface LoadedPack {
   stamp: string;
   buildFile: string;
   builtAt: string;
+  /**
+   * Absolute paths of the build's source files outside `dir` (a pack can import files it shares with
+   * other packs from the folder above it). A pack's zip brings them along.
+   */
+  outside: string[];
 }
 
 export class PackLoadError extends Error {
@@ -81,6 +86,37 @@ const sharedPlugin: EsbuildPlugin = {
   },
 };
 
+const insideDir = (file: string, dir: string) => {
+  const rel = path.relative(dir, file);
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+};
+
+/**
+ * Build errors made readable. An import that leaves the pack's folder and finds nothing usually
+ * means only the pack's folder was copied or uploaded, without the folder above it that holds the
+ * files it shares: say so, with where it looked.
+ */
+function buildProblems(dir: string, errors: { text: string; location?: { file: string; line: number; column: number } | null }[]): PackLoadError {
+  let outside = 0;
+  const problems = errors.map((e) => {
+    if (!e.location) return e.text;
+    const at = `${e.location.file}:${e.location.line}:${e.location.column}`;
+    const spec = /^Could not resolve "(\.{1,2}\/[^"]*)"$/.exec(e.text)?.[1];
+    if (spec) {
+      const target = path.resolve(dir, path.dirname(e.location.file), spec);
+      if (!insideDir(target, dir)) {
+        outside++;
+        return `${at} imports "${spec}" from outside the pack's folder, and it isn't in ${path.dirname(target)}.`;
+      }
+    }
+    return `${at} ${e.text}`;
+  });
+  if (outside > 0) {
+    return new PackLoadError("The pack imports files from outside its folder that aren't on this server. Copy the folder above it too, or upload a zip of that folder.", problems);
+  }
+  return new PackLoadError("The pack doesn't build.", problems);
+}
+
 async function bundle(dir: string, entry: string, outFile: string): Promise<string[]> {
   try {
     const result = await build({
@@ -103,7 +139,7 @@ async function bundle(dir: string, entry: string, outFile: string): Promise<stri
     return Object.keys(result.metafile.inputs).filter((f) => f !== "watchwright-entry.ts");
   } catch (err) {
     const errors = (err as { errors?: { text: string; location?: { file: string; line: number; column: number } | null }[] }).errors;
-    if (errors) throw new PackLoadError("The pack doesn't build.", errors.map((e) => (e.location ? `${e.location.file}:${e.location.line}:${e.location.column} ${e.text}` : e.text)));
+    if (errors) throw buildProblems(dir, errors);
     throw err;
   }
 }
@@ -221,6 +257,7 @@ export async function loadPack(input: string, cacheDir: string): Promise<LoadedP
     stamp: stampOf(dir, stamped, testFiles),
     buildFile,
     builtAt: new Date().toISOString(),
+    outside: [...new Set(inputs.map((f) => path.resolve(dir, f)))].filter((f) => !insideDir(f, dir) && !f.split(/[\\/]/).includes("node_modules")).sort(),
   };
 }
 
@@ -261,6 +298,28 @@ export function windowsUnsafe(id: string): string | null {
 const SITE_KEY = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
 const FLAG_KINDS = ["robot", "finding", "info"];
 
+const TASK_NAME = /^[a-z][a-z0-9-]{0,39}$/;
+
+/** What's wrong with a pack's `tasks` block. */
+export function taskProblems(tasks: PackOptions["tasks"]): string[] {
+  if (tasks === undefined) return [];
+  if (tasks === null || typeof tasks !== "object" || Array.isArray(tasks)) return ["`tasks` must be an object of named tasks."];
+  const out: string[] = [];
+  for (const [name, t] of Object.entries(tasks)) {
+    if (!TASK_NAME.test(name)) out.push(`Task "${name}": names are lowercase letters, digits and dashes, starting with a letter (up to 40).`);
+    if (!t || typeof t !== "object") {
+      out.push(`Task "${name}" must be an object with a \`run\` function.`);
+      continue;
+    }
+    if (typeof t.run !== "function") out.push(`Task "${name}" needs a \`run\` function.`);
+    if (t.title !== undefined && (typeof t.title !== "string" || t.title.trim() === "")) out.push(`Task "${name}": \`title\` must be a non-empty string.`);
+    if (t.description !== undefined && typeof t.description !== "string") out.push(`Task "${name}": \`description\` must be a string.`);
+    if (t.readOnly !== undefined && typeof t.readOnly !== "boolean") out.push(`Task "${name}": \`readOnly\` must be true or false.`);
+    if (t.timeout !== undefined && (typeof t.timeout !== "number" || !(t.timeout > 0))) out.push(`Task "${name}": \`timeout\` must be a positive number of ms.`);
+  }
+  return out;
+}
+
 function checkOptions(o: PackOptions): void {
   const problems: string[] = [];
   if (typeof o.name !== "string" || o.name.trim() === "") problems.push("`name` must be a non-empty string.");
@@ -279,5 +338,8 @@ function checkOptions(o: PackOptions): void {
   problems.push(...rubricProblems(o.rubric, "rubric"));
   readDashboard(o.dashboard, problems);
   readShare(o.share, problems);
+  for (const hook of ["setup", "teardown", "afterTask", "beforeAttempt", "afterAttempt"] as const)
+    if (o[hook] !== undefined && typeof o[hook] !== "function") problems.push(`\`${hook}\` must be a function.`);
+  problems.push(...taskProblems(o.tasks));
   if (problems.length > 0) throw new PackLoadError("The pack's options aren't valid.", problems);
 }

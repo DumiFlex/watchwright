@@ -106,6 +106,24 @@ export interface Pack {
   run: PackRunDefaults;
   rubric: Criterion[];
   tests: PackTest[];
+  /** Steps that run on their own, as runs of the `task` kind. */
+  tasks: PackTask[];
+  /** Which run hooks the pack has. */
+  hooks: { setup: boolean; teardown: boolean; afterTask: boolean };
+}
+
+export interface PackTask {
+  id: string;
+  title: string;
+  description: string | null;
+  readOnly: boolean;
+}
+
+/** One value a pack keeps between runs and tasks. */
+export interface PackStateEntry {
+  key: string;
+  value: unknown;
+  updatedAt: string;
 }
 
 export interface FolderEntry {
@@ -301,6 +319,35 @@ export interface StorageReport {
   limits: { warnBelowGB: number; stopBelowGB: number };
 }
 
+export type VideoQuality = "full" | "compact" | "small";
+
+/** A Compress kept videos job, going or the last one. */
+export interface CompressJob {
+  state: "running" | "done" | "stopped" | "failed";
+  quality: VideoQuality;
+  total: number;
+  done: number;
+  kept: number;
+  failed: number;
+  beforeBytes: number;
+  afterBytes: number;
+  startedAt: string;
+  finishedAt: string | null;
+  reason: string | null;
+  by: string;
+}
+
+/** The videos ended runs kept, and how many Compress kept videos would make smaller. */
+export interface VideoReport {
+  quality: VideoQuality;
+  ffmpeg: boolean;
+  videos: number;
+  bytes: number;
+  toCompress: number;
+  toCompressBytes: number;
+  job: CompressJob | null;
+}
+
 /** What cleanup deletes now under the keep rules (0 turns a rule off): the runs, oldest first, and their room. */
 export interface CleanupPlan {
   rules: { keepDays: number; keepPerPack: number };
@@ -344,6 +391,24 @@ export interface SharedAttempt extends ResultDocument {
 }
 
 /** A share link (`GET /shares`); the token itself is shown only once, when it is made. */
+/** Who sees a pack besides the admins (docs/plans/pack-access.md): everyone, or chosen people (user ids) and groups. */
+export type PackAccess = { mode: "everyone" } | { mode: "chosen"; people: string[]; groups: string[]; updatedBy: string; updatedAt: string };
+
+/** A user as Admin › Users lists them. */
+export interface UserInfo {
+  id: string;
+  name: string;
+  displayName: string | null;
+  role: "viewer" | "user" | "admin";
+  source: "local" | "oidc" | "header";
+  disabled: boolean;
+  hasPassword: boolean;
+  groups: string[];
+  ssoGroups: string[];
+  createdAt: string;
+  seenAt: string | null;
+}
+
 export interface ShareLink {
   id: string;
   /** The page to open (`#/s/<token>`), to copy again; null for links made before links were kept. */

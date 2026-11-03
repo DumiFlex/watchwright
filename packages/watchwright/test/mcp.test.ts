@@ -194,8 +194,8 @@ describe("MCP tools from actions", () => {
       const tools = toolsOf(app.watchwright.services.get(ACTIONS).map(describeAction));
       expect(tools.map((t) => t.name).sort()).toEqual(
         [
-          "add_pack", "call_action", "check_test", "control_run", "create_pack", "delete_pack_file", "delete_run", "explore_do", "explore_look", "explore_start", "explore_stop", "get_attempt", "get_file", "get_pack", "get_rubric", "get_run",
-          "list_actions", "list_pack_files", "list_packs", "list_runs", "pack_dashboard", "read_pack_file", "save_review", "start_run", "test_format", "wait_for_approval", "wait_for_run", "write_pack_file",
+          "add_pack", "call_action", "check_test", "control_run", "create_pack", "delete_pack_file", "delete_run", "explore_do", "explore_look", "explore_start", "explore_stop", "get_attempt", "get_file", "get_pack", "get_proposal", "get_rubric", "get_run",
+          "list_actions", "list_pack_files", "list_packs", "list_runs", "pack_dashboard", "propose_change", "read_pack_file", "save_review", "start_run", "test_format", "wait_for_approval", "wait_for_run", "write_pack_file",
         ].sort(),
       );
       for (const t of tools) expect(t.description.length).toBeGreaterThan(10);

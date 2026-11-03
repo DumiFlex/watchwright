@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Settings > Alerts: channels (a webhook, ntfy, Discord or Slack) and the rules that send to them
+// Admin > Alerts: channels (a webhook, ntfy, Discord or Slack) and the rules that send to them
 // when runs end a certain way, pass again, a test breaks, a schedule misses a time or an agent
 // waits for approval. The server never sends a channel's URL or token back, only its site.
 import { computed, onMounted, ref } from "vue";
@@ -63,7 +63,8 @@ const TRIGGERS: { value: string; label: string; note?: string }[] = [
   { value: "test_broken", label: "A test breaks", note: "While the run is still going" },
   { value: "schedule_missed", label: "A schedule misses a time", note: "Missed while Watchwright was off, or skipped because its last run was still going" },
   { value: "approval", label: "An agent waits for approval" },
-  { value: "storage_low", label: "The drive runs low", note: "Below the free space set in Settings > Storage, during a run" },
+  { value: "proposal", label: "A code change waits for review" },
+  { value: "storage_low", label: "The drive runs low", note: "Below the free space set in Admin > Storage, during a run" },
 ];
 const channels = ref<Channel[] | null>(null);
 const rules = ref<Rule[] | null>(null);

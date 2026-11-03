@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
-import { CircleArrowUp, Moon, Palette, Plus, Search, Settings, Sun, SunMoon } from "./icons";
+import { CircleArrowUp, GitPullRequest, Moon, Palette, Plus, Search, Settings, ShieldCheck, Sun, SunMoon } from "./icons";
 import { getJson, sendJson, type HealthData, type Pack, type RunSummary } from "./api";
 import { finderCommands } from "./finder";
 import ApprovalBar from "./components/ApprovalBar.vue";
@@ -8,6 +8,7 @@ import BrandMark from "./components/BrandMark.vue";
 import CommandPalette, { type PaletteCommand } from "./components/CommandPalette.vue";
 import KeyHint from "./components/KeyHint.vue";
 import MenuButton from "./components/MenuButton.vue";
+import PageOutline from "./components/PageOutline.vue";
 import ThemePicker from "./components/ThemePicker.vue";
 import ToastHost from "./components/ToastHost.vue";
 import { useApprovals } from "./approvals";
@@ -17,6 +18,7 @@ import { PUBLIC_ROUTES, useRoute } from "./router";
 import { DEFAULT_PAGES, hasPage, navFrom, pageIcon } from "./pages";
 import { vTip } from "./tooltip";
 import { loadUpdates, updates } from "./updates";
+import { listProposals } from "./proposals";
 import { useShortcut } from "./keys";
 import { applyTheme, browserStore, loadTheme, LOOKS, saveTheme, type Theme } from "./theme";
 import AttemptView from "./views/AttemptView.vue";
@@ -28,14 +30,17 @@ import PackView from "./views/PackView.vue";
 import RunsView from "./views/RunsView.vue";
 import RunView from "./views/RunView.vue";
 import SettingsView from "./views/SettingsView.vue";
+import AccountView from "./views/AccountView.vue";
+import AdminView from "./views/AdminView.vue";
 import SchedulesView from "./views/SchedulesView.vue";
 import SharedRunView from "./views/SharedRunView.vue";
 import SignInView from "./views/SignInView.vue";
 import StatusView from "./views/StatusView.vue";
-import { can, loadSession, session, signOut } from "./session";
+import { can, loadSession, pageGate, session, signOut } from "./session";
 import { UserRound } from "./icons";
 // The editor (CodeMirror, the YAML checker) loads only when a pack is opened for editing.
 const EditView = defineAsyncComponent(() => import("./views/EditView.vue"));
+const ChangesView = defineAsyncComponent(() => import("./views/ChangesView.vue"));
 
 const theme = ref<Theme>(loadTheme(browserStore()));
 watch(
@@ -56,6 +61,7 @@ const down = ref(false);
 // doesn't show, and its address shows the runs list.
 const pages = computed(() => health.value?.pages ?? DEFAULT_PAGES);
 const nav = computed(() => navFrom(pages.value, route.value));
+const hasAdmin = computed(() => pages.value.some((p) => p.name === "admin") && can("admin"));
 const shown = computed(() => {
   const r = route.value;
   return r.name !== "setup" && r.name !== "invite" && r.name !== "signin" && r.name !== "shared" && r.name !== "status" && r.name !== "status-run" && hasPage(pages.value, r) ? r : ({ name: "runs", query: {} } as const);
@@ -100,15 +106,27 @@ async function loadHealth() {
     health.value = res.data;
     // Only admins can update; the note is for them.
     if (!res.data.login?.on || res.data.login.user?.role === "admin") void loadUpdates();
+    void loadToReview();
   } else down.value = true;
 }
+// Set once the server first answered who is signed in (or didn't answer at all).
+const booted = ref(false);
 onMounted(async () => {
   await Promise.all([loadHealth(), loadSession()]);
+  booted.value = true;
 });
-// Share links and the public dashboard open for anyone, signed in or not, with no menu.
-const isPublic = computed(() => PUBLIC_ROUTES.includes(route.value.name));
-// With login on, nothing but the sign-in page shows until someone is signed in.
-const locked = computed(() => session.loaded && session.on && session.user === null);
+
+// Proposed code changes waiting for an admin: a note in the top bar, checked again on every page change.
+const toReview = ref(0);
+async function loadToReview() {
+  if (!session.on || !can("admin") || !health.value?.pages.some((p) => p.name === "changes")) return void (toReview.value = 0);
+  const res = await listProposals("waiting");
+  toReview.value = res.ok ? res.data.waiting : 0;
+}
+watch(() => route.value.name, () => void loadToReview());
+// Share links and the public dashboard open for anyone, signed in or not, with no menu. With login
+// on, nothing but the sign-in page shows until someone is signed in.
+const gate = computed(() => pageGate(PUBLIC_ROUTES.includes(route.value.name), booted.value, session));
 // After signing in, the full health (pages, data folder) and everything else loads.
 watch(
   () => session.user?.id,
@@ -116,15 +134,17 @@ watch(
     if (id && before === undefined && session.on) void loadHealth();
   },
 );
-const roleWords: Record<string, string> = { viewer: "Viewer: sees runs and results", user: "User: runs, records and edits packs", admin: "Admin: also users and settings" };
+const roleWords: Record<string, string> = { viewer: "Viewer: sees runs and results", user: "User: runs, records, edits YAML tests and proposes code", admin: "Admin: also users and settings" };
 const userItems = computed(() => [
-  { value: "account", label: "Your account and tokens", href: "#/settings?section=account" },
+  { value: "account", label: "Your account and tokens", href: "#/account" },
+  { value: "settings", label: "Settings", href: "#/settings" },
+  ...(hasAdmin.value ? [{ value: "admin", label: "Admin", href: "#/admin" }] : []),
   { value: "signout", label: "Sign out" },
 ]);
 </script>
 
 <template>
-  <template v-if="isPublic">
+  <template v-if="gate === 'public'">
     <header class="top">
       <a class="brand" href="#/" aria-label="Watchwright">
         <BrandMark :size="28" />
@@ -137,20 +157,22 @@ const userItems = computed(() => [
     <SharedRunView v-if="route.name === 'shared'" :api="`/api/v1/shared/${route.token}`" />
     <SharedRunView v-else-if="route.name === 'status-run'" :api="`/api/v1/public/runs/${route.id}`" back="#/status" />
     <StatusView v-else />
+    <PageOutline />
     <ToastHost />
   </template>
-  <template v-else-if="locked">
+  <template v-else-if="gate === 'signin'">
     <SignInView :setup-code="route.name === 'setup' ? route.code : null" :invite-code="route.name === 'invite' ? route.code : null" :error="route.name === 'signin' ? route.error : null" />
     <ToastHost />
   </template>
-  <template v-else>
+  <template v-else-if="gate === 'app'">
     <header class="top">
       <a class="brand" href="#/" aria-label="Watchwright">
         <BrandMark :size="28" />
         <span class="wordmark">Watchwright</span>
       </a>
       <span v-if="health" v-tip="`Data folder: ${health.dataDir}`" class="version num">v{{ health.version }}</span>
-      <a v-if="updates.status?.newer && can('admin')" v-tip="`Watchwright ${updates.status.latest} is out`" class="newer" href="#/settings?section=server"><CircleArrowUp :size="14" /> Update</a>
+      <a v-if="toReview > 0" v-tip="'Proposed code changes wait for an admin'" class="newer" href="#/changes"><GitPullRequest :size="14" /> {{ toReview }} to review</a>
+      <a v-if="updates.status?.newer && can('admin')" v-tip="`Watchwright ${updates.status.latest} is out`" class="newer" href="#/admin?section=server"><CircleArrowUp :size="14" /> Update</a>
       <span v-else-if="down" class="down" role="alert">Server unreachable</span>
       <nav class="nav" aria-label="Main">
         <a v-for="n in nav.filter((x) => x.main)" :key="n.value" :href="n.href" class="link" :aria-current="n.current ? 'page' : undefined">{{ n.label }}</a>
@@ -166,6 +188,7 @@ const userItems = computed(() => [
         </button>
         <ThemePicker v-model="theme" />
         <a v-if="pages.some((p) => p.name === 'settings')" v-tip="'Settings'" class="cmd gear" href="#/settings" aria-label="Settings" :aria-current="route.name === 'settings' ? 'page' : undefined"><Settings :size="16" /></a>
+        <a v-if="hasAdmin" v-tip="'Admin'" class="cmd gear" href="#/admin" aria-label="Admin" :aria-current="route.name === 'admin' ? 'page' : undefined"><ShieldCheck :size="16" /></a>
         <MenuButton v-if="session.on && session.user" v-tip="roleWords[session.user.role]" class="usermenu" :items="userItems" :label="`Signed in as ${session.user.name}`" @select="(v) => v === 'signout' && signOut()">
           <template #button>
             <span class="who"><UserRound :size="16" /> <span class="uname">{{ session.user.displayName ?? session.user.name }}</span></span>
@@ -179,13 +202,17 @@ const userItems = computed(() => [
     <AttemptView v-else-if="shown.name === 'attempt'" :run-id="shown.runId" :attempt-id="shown.attemptId" :line="shown.line ?? null" />
     <NewRunView v-else-if="shown.name === 'new'" :query="shown.query" />
     <PacksView v-else-if="shown.name === 'packs'" :query="shown.query" />
-    <PackView v-else-if="shown.name === 'pack'" :id="shown.id" />
+    <PackView v-else-if="shown.name === 'pack'" :id="shown.id" :tab="shown.tab ?? null" />
     <EditView v-else-if="shown.name === 'edit'" :id="shown.id" :file="shown.file" :line="shown.line" :record="shown.record ?? false" :explore="shown.watch ?? null" />
     <CompareView v-else-if="shown.name === 'compare'" :query="shown.query" />
     <KitView v-else-if="shown.name === 'kit'" />
     <SettingsView v-else-if="shown.name === 'settings'" :section="shown.section" />
+    <AccountView v-else-if="shown.name === 'account'" :section="shown.section" />
+    <AdminView v-else-if="shown.name === 'admin'" :section="shown.section" />
     <SchedulesView v-else-if="shown.name === 'schedules'" />
+    <ChangesView v-else-if="shown.name === 'changes'" :id="shown.id" />
     <RunsView v-else :query="shown.query" />
+    <PageOutline :off="shown.name === 'edit'" />
     <CommandPalette v-model:open="palette" :commands="commands" />
     <ToastHost />
   </template>

@@ -11,7 +11,7 @@ watchwright serve [pack folder…] [--port 7420] [--host 127.0.0.1] [--data <fol
                   [--auth] [--public-url <address>]… [--trust-proxy <address>]…
 watchwright demo [--port 7420] [--data <folder>] [--no-open]
 watchwright status
-watchwright run <pack> [test…] [--param key=value]… [--preset <name>] [--label <text>] [--wait]
+watchwright run <pack> [test…] [--param key=value]… [--preset <name>] [--label <text>] [--kind <kind>] [--wait]
 watchwright wait <run> [--after <cursor>] [--timeout <seconds>]
 watchwright results <run> [--attempt <id>]
 watchwright actions
@@ -27,7 +27,7 @@ watchwright <plugin> <verb> [args] [--options]
 
 ### serve
 
-Starts the server: the web page, the [HTTP API](./http-api) and the store, on `http://127.0.0.1:7420/`. It stays up between runs; stop it with Ctrl+C or **Settings > Server > Stop Watchwright**. Closing its console window (or Ctrl+Break on Windows) stops it the same way: runs going then are marked interrupted, ready to resume. Pack folders named after `serve` are added (or reloaded). When a Watchwright already runs on the port, `serve` adds the packs there and opens its page instead of starting a second one.
+Starts the server: the web page, the [HTTP API](./http-api) and the store, on `http://127.0.0.1:7420/`. It stays up between runs; stop it with Ctrl+C or **Admin › Server › Stop Watchwright**. Closing its console window (or Ctrl+Break on Windows) stops it the same way: runs going then are marked interrupted, ready to resume. Pack folders named after `serve` are added (or reloaded). When a Watchwright already runs on the port, `serve` adds the packs there and opens its page instead of starting a second one.
 
 | Option | |
 |---|---|
@@ -40,7 +40,7 @@ Starts the server: the web page, the [HTTP API](./http-api) and the store, on `h
 
 On a machine without a screen (`WATCHWRIGHT_SERVER_HOST=1`, or Linux without `DISPLAY` or `WAYLAND_DISPLAY`) browsers always run headless and folders aren't shown in a file manager; `WATCHWRIGHT_FOLDERS` keeps the web app's folder browser inside the folders it lists. See [Self-hosting](../guide/self-hosting#what-s-different-in-a-container).
 | `--no-open` | Don't open the web page on start. |
-| `--background` | Run the server as its own process with no window, so no terminal has to stay open. The command returns once the server answers (it waits up to 30 seconds and shows the end of the log when the server doesn't come up). The server's output goes to `logs/server.log` in the data folder (past 5 MB the old one is kept as `server.old.log`). Stop it with **Settings > Server > Stop Watchwright**. |
+| `--background` | Run the server as its own process with no window, so no terminal has to stay open. The command returns once the server answers (it waits up to 30 seconds and shows the end of the log when the server doesn't come up). The server's output goes to `logs/server.log` in the data folder (past 5 MB the old one is kept as `server.old.log`). Stop it with **Admin › Server › Stop Watchwright**. |
 
 ### demo
 
@@ -66,6 +66,7 @@ Starts a run of a pack. Name the pack by its id, its name or its folder; name te
 | `--param key=value` | A parameter value; repeat it for more. `--params '{"key": 1}'` takes JSON. |
 | `--preset <name>` | Start from the pack's preset with this name; other options override it. |
 | `--label <text>` | A name for the run. |
+| `--kind <kind>` | The job kind (default `test`). `--kind task` runs one of the pack's [tasks](../guide/tasks): `watchwright run my-pack restore --kind task --wait`. |
 | `--attempts <n>` | Attempts for every test, instead of each test's own count. |
 | `--trace problems\|always\|never` | Which attempts keep a Playwright trace. |
 | `--video`, `--no-video` | Record a video per attempt, or not. |
@@ -105,7 +106,7 @@ Without `--agent`, it sets up the agents whose folders the project has (`.claude
 
 Signs in to a server that has [login](../guide/safety#login) on, from this machine. It asks for your name and password (or takes `--name` and reads the password from standard input with `--password-stdin`), makes an API token named after the machine (`CLI on <host>`), and saves it for that server. From then on, every command and `watchwright mcp` aimed at that server sends it by themselves. `WATCHWRIGHT_TOKEN` still wins when it is set.
 
-`--token <token>` checks and saves a token you made in **Settings › Your account** instead, which is the way in for accounts that sign in through single sign-on.
+`--token <token>` checks and saves a token you made in **Your account** (the user menu) instead, which is the way in for accounts that sign in through single sign-on.
 
 Saved tokens live in `credentials.json` in your config folder (`%APPDATA%\watchwright` on Windows, `~/.config/watchwright` elsewhere, or `WATCHWRIGHT_CONFIG_DIR`), one per server address, readable only by you.
 
@@ -115,19 +116,34 @@ Removes the saved token for the server, both on the server and on this machine.
 
 ### runner
 
-Lets a server reach sites through this machine (see [Runners](../guide/self-hosting#runners)). Add the runner in the server's **Settings › Runners**, which shows the command with a pair code:
+Lets a server reach sites through this machine (see [Runners](../guide/self-hosting#runners)). Add the runner in the server's **Admin › Runners** (a user finds Runners on Settings), which shows the command with a pair code:
 
 ```bash
-npx watchwright runner --server https://watchwright.example.com --pair 7KQ-M2X-PLD
+npx watchwright runner install --server https://watchwright.example.com --pair 7KQ-M2X-PLD
 ```
+
+```
+watchwright runner [install | uninstall | status | start | stop] [--server <address>] [--pair <code>] [--allow <list>] [--forget]
+```
+
+| Command | |
+|---|---|
+| (none) | Runs in this terminal until you stop it (Ctrl+C). |
+| `install` | Starts by itself from now on, with no window: a Startup folder entry on Windows, a systemd unit on Linux (a system unit as root), a LaunchAgent on macOS (see [Starting by itself](../guide/self-hosting#starting-by-itself)). Also starts it now. Takes `--pair` to pair first. |
+| `uninstall` | Stops it and removes the start-up entry. With `--forget`, also deletes the saved tokens (of `--server` only, when given). |
+| `status` | The servers this machine is paired with, the start-up entry, and whether it runs now. |
+| `start` | Starts it now in the background, through the start-up entry when there is one. |
+| `stop` | Stops the background runner; the start-up entry stays. |
 
 | Option | |
 |---|---|
 | `--server <address>` | The server (default: `WATCHWRIGHT_URL`, else the one paired last). |
-| `--pair <code>` | A pair code from Settings › Runners. Works once, within 15 minutes; the token it gives is saved in `runner.json` in your config folder, readable only by you. |
+| `--pair <code>` | A pair code from the Runners section. Works once, within 15 minutes; the token it gives is saved in `runner.json` in your config folder, readable only by you. |
 | `--allow <list>` | What the server may open here: `loopback` (any port on this machine; the default), `host:port` or `host:*`, comma-separated. Saved for next time; only this machine can change it. |
 
-It runs until you stop it (Ctrl+C), reconnecting by itself when the link drops, and exits with 1 when the server removes the runner.
+| `--forget` | With `uninstall`: also delete the saved tokens. |
+
+It reconnects by itself when the link drops. When the server removes the runner, it removes itself from this machine too (forgets the token, removes the start-up entry) and stops: with 1 in a terminal, with 0 from a start-up entry so it isn't started again. Background runners log to `logs/runner.log` in the config folder, systemd ones to the journal.
 
 ### users
 

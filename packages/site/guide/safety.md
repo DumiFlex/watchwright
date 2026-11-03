@@ -20,7 +20,7 @@ watchwright serve --auth --host 0.0.0.0 --public-url http://192.168.1.20:7420
 ```
 
 - **The first admin.** On the first start with no user, the server prints a link with a one-time code: open it and choose a name and password. Or run `watchwright users add <name> --role admin` on the server's machine (see [users](../reference/cli#users)), which also works with the server stopped and is the way back in if every admin forgets their password.
-- **More people.** There is no default admin or password. An admin adds people in Settings › Users, either by choosing their name and a first password, or by making an invitation link: the person opens it and chooses their own name and password, with the role you picked. A link works once and for up to 30 days; unused ones can be taken back there.
+- **More people.** There is no default admin or password. An admin adds people in Admin › Users, either by choosing their name and a first password, or by making an invitation link: the person opens it and chooses their own name and password, with the role you picked. A link works once and for up to 30 days; unused ones can be taken back there.
 - **On a server.** The [Docker image](./self-hosting) always has login on and runs without a screen. See [Self-hosting](./self-hosting).
 - **Single sign-on.** People can sign in through your sign-in provider (OpenID Connect: VoidAuth, Authentik, Authelia, Pocket ID, Keycloak) or a header your reverse proxy sets, with roles from their groups. See [Single sign-on](./single-sign-on).
 - **Sharing.** A share link opens one run read-only for anyone who has it, and an admin can turn on a public status page for chosen packs. Traces and network files stay private unless a link includes them. See [Sharing](./sharing).
@@ -32,17 +32,36 @@ watchwright serve --auth --host 0.0.0.0 --public-url http://192.168.1.20:7420
 |---|---|---|---|
 | See packs, runs, results, files and the live view | yes | yes | yes |
 | Start, pause and stop runs, record, explore, review | | yes | yes |
-| Add and edit packs, presets, schedules | | yes | yes |
+| Edit YAML tests, `pack.yaml` and data files; presets, schedules | | yes | yes |
+| Add, upload and move packs; change pack code (`.ts`, `.js`, `package.json`, `tsconfig.json`) | | | yes |
+| Change a pack's dashboard (tiles that aren't public) | | yes | yes |
+| Change what the public status page and shares show (public tiles, the runs they read) | | | yes |
 | Use secrets and saved sign-ins by name | | yes | yes |
 | Change secrets, saved sign-ins, settings and alerts | | | yes |
 | Users, start at sign-in, clean up old runs, stop the server | | | yes |
 
-::: warning Users can run code on the server
-A test pack is code that runs on the server, and it can read every secret. Anyone who can add or edit a pack can do anything the server's account can. Give the user role only to people you'd trust with that, and the viewer role to everyone else.
+::: warning Pack code is admin-only
+A code pack (`pack.ts` and its tests) runs on the server and can read every secret, so with login on only admins add packs or change code files. Users change what Watchwright reads without running it: YAML tests, `pack.yaml` and data files. A YAML test or a recording opens only `http` and `https` addresses and uploads only files from its pack's folder. Code an admin added still runs when a user starts a run, so add only code you trust.
 :::
 
+- **Pack access.** An admin can keep a pack to chosen people and groups; see [Pack access](#pack-access).
 - **Who did it.** Runs, approvals and controls name the person: `Dumi`, or `Dumi via Claude Code` for an agent with Dumi's token. An approval is answered by the person whose agent asked, or by an admin.
 - **Behind a reverse proxy** (NPMplus, Caddy, Traefik), pass the address people use with `--public-url https://watchwright.home.lan`, and the proxy's address with `--trust-proxy` so the server knows a request came in over https. The proxy must pass WebSockets (the live view uses them).
+
+## Pack access
+
+With login on, every pack is open to everyone signed in until an admin keeps it to chosen people and groups. Admins always see every pack. Role and pack access are separate: a viewer let into a pack reads its runs, a user let in also runs and edits its tests.
+
+For everyone else a kept pack isn't there: it is left out of the packs, runs, schedules, reviews, compare and the live view, and a link to it, its runs or its files answers as if they didn't exist. Share links of its runs keep working for whoever has them, and the public status page shows what an admin put on it. Secrets, saved sign-ins, runners and alerts are server-wide, not per pack.
+
+To pick who sees a pack, open the pack, choose **Who sees this pack…** in its **⋯** menu, and pick **Only chosen people and groups**. Then pick people from the users on the server, groups the server already knows, or type a new group name. With nobody picked, only the admins see it. Admins see a **Chosen people** chip on a kept pack, on its page and in the packs list.
+
+**Groups** are names you make up, like `qa` or `night shift`; case doesn't matter. A person is in a group when:
+
+- an admin put them in it: in **Admin › Users**, the groups button on a person's line, which also shows which kept packs they see, or
+- their sign-in provider says so: with [single sign-on](./single-sign-on), the groups the provider sends are kept on the account at each sign-in, so a change at the provider carries over the next time they sign in.
+
+Scripts set it with `POST /api/v1/packs/<id>/access` (see [Packs](../reference/http-api#packs) in the API), for example `{ "mode": "chosen", "people": ["<user id>"], "groups": ["qa"] }`, and open it again with `{ "mode": "everyone" }`.
 
 ## Approvals
 

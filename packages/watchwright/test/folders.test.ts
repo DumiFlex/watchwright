@@ -2,7 +2,8 @@ import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { FOLDERS, FolderError, cleanPath } from "../src/plugins/folders/folders.js";
+import { FOLDERS, FolderError, cleanPath, fileManagerCommand } from "../src/plugins/folders/folders.js";
+import { withWindowsHide } from "../src/cli/hide-windows.js";
 import { cleanTempDirs, tempDir, writeFiles } from "./helpers/fixtures.js";
 import { startHarness, type Harness } from "./helpers/harness.js";
 
@@ -108,6 +109,14 @@ describe("folders plugin", () => {
     expect(() => open(path.join(root, "shop", "pack.ts"))).toThrow(/no folder/);
     expect((await h.api("POST", "/folders/open", { path: path.join(root, "elsewhere") })).error?.code).toBe("not_allowed");
   });
+
+  it("starts Explorer shown, since a hidden start opens the folder unseen", () => {
+    expect(fileManagerCommand("win32", "E:\\packs\\shop")).toEqual(["explorer.exe", ["E:\\packs\\shop"], { windowsHide: false }]);
+    expect(fileManagerCommand("darwin", "/packs/shop")).toEqual(["open", ["/packs/shop"], { windowsHide: true }]);
+    expect(fileManagerCommand("linux", "/packs/shop")).toEqual(["xdg-open", ["/packs/shop"], { windowsHide: true }]);
+    // The server makes windowsHide the default on Windows, but an explicit false wins.
+    expect(withWindowsHide("spawn", ["explorer.exe", ["E:\\x"], { windowsHide: false }])[2]).toEqual({ windowsHide: false });
+  });
 });
 
 describe("packs: starter", () => {
@@ -149,7 +158,8 @@ describe("packs: discover and move", () => {
     const root = tempDir("ww-tree-");
     writeFiles(root, {
       "shop/watchwright/pack.ts": PACK,
-      "shop/watchwright/tests/inner/pack.ts": PACK, // inside a pack: not searched
+      "shop/watchwright/tests/inner/pack.ts": PACK, // deeper inside a pack: not searched
+      "shop/watchwright/smoke/pack.ts": PACK, // a pack's direct subfolder: found
       "blog/e2e/pack.mjs": PACK,
       "blog/node_modules/lib/pack.ts": PACK,
       ".hidden/pack.ts": PACK,
@@ -161,6 +171,7 @@ describe("packs: discover and move", () => {
     expect(res.data.found).toEqual([
       { dir: path.join(root, "blog", "e2e"), packFile: "pack.mjs", packId: null },
       { dir: path.join(root, "shop", "watchwright"), packFile: "pack.ts", packId: added.data.id },
+      { dir: path.join(root, "shop", "watchwright", "smoke"), packFile: "pack.ts", packId: null },
     ]);
     const deeper = await h.api<{ found: { dir: string }[] }>("POST", "/packs/discover", { path: root, depth: 6 });
     expect(deeper.data.found.map((f) => f.dir)).toContain(path.join(root, "deep", "a", "b", "c", "d", "e"));

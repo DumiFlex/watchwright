@@ -18,7 +18,7 @@ Usage:
                     [--auth] [--public-url <address>]… [--trust-proxy <address>]…
   watchwright demo [--port ${DEFAULT_PORT}] [--data <folder>] [--no-open]
   watchwright status
-  watchwright run <pack> [test…] [--param key=value]… [--preset <name>] [--label <text>] [--wait]
+  watchwright run <pack> [test…] [--param key=value]… [--preset <name>] [--label <text>] [--kind <kind>] [--wait]
   watchwright wait <run> [--after <cursor>] [--timeout <seconds>]
   watchwright results <run> [--attempt <id>]
   watchwright actions
@@ -26,7 +26,7 @@ Usage:
   watchwright init-agent [folder] [--agent claude,codex,cursor] [--no-mcp] [--auth]
   watchwright login [--name <name>] [--password-stdin] [--token <token>]
   watchwright logout
-  watchwright runner [--server <address>] [--pair <code>] [--allow <list>]
+  watchwright runner [install|uninstall|status|start|stop] [--server <address>] [--pair <code>] [--allow <list>]
   watchwright users list|add|reset-password|role|disable|enable|remove …  (--help for details)
   watchwright update [--check] [--yes] [--now]
   watchwright <plugin> <verb> [args] [--options]     any action, such as: watchwright runs pause 0a1b2c3d
@@ -60,6 +60,7 @@ status     Whether the server is up, and the runs that are going.
 run        Starts a run of a pack (its id, name or folder): every test, or the tests named.
   --param key=value   A parameter value (repeat it); --params '{"key":1}' takes JSON.
   --preset, --label, --attempts <n>, --trace problems|always|never, --[no-]video, --[no-]pause-on-broken
+  --kind     The job kind (default test). --kind task runs one of the pack's tasks: run <pack> <task> --kind task.
   --wait     Wait for the run to end or pause, printing each attempt as it finishes.
   --timeout  With --wait: give up waiting after this many seconds (default: no limit).
 wait       Waits until a run ends or pauses, at most --timeout seconds (default 100), printing what
@@ -79,9 +80,10 @@ login      Signs in to a server that has login on (asks for name and password, o
            the web page instead (for single sign-on accounts).
 logout     Removes the saved token, on the server and here.
 runner     Lets a server reach sites through this machine (a site on this PC's localhost, for a
-           server in Docker or elsewhere). Add the runner in the server's Settings › Runners, which
+           server in Docker or elsewhere). Add the runner in the server's Admin › Runners, which
            shows the command with a one-time pair code; afterwards \`watchwright runner\` connects
-           again by itself. Runs until stopped.
+           again by itself. \`runner install\` makes it start by itself with no window (at sign-in,
+           or with systemd); \`uninstall\`, \`status\`, \`start\` and \`stop\` manage that.
   --pair     The pair code (works once, for 15 minutes). The token it gives is saved in the config folder.
   --allow    What the server may open here: loopback (the default: any port on this machine),
              host:port or host:*, separated by commas. Saved; only this machine can change it.
@@ -187,10 +189,18 @@ async function main(argv: string[]): Promise<number> {
       console.log(HELP);
       return EXIT.ok;
     }
+    // `status` and `actions` take no other options: say so rather than answer for the default server.
+    const noMore = () => {
+      if (args.length === 0) return;
+      const port = args[0] === "--port" ? args[1] : undefined;
+      throw new UsageError(`Unknown ${args[0]!.startsWith("-") ? "option" : "argument"} ${args[0]} for ${command}.${port ? ` For the server on port ${port}, use --server ${port}.` : " Options: --server <address>, --json."}`);
+    };
     switch (command) {
       case "status":
+        noMore();
         return statusCommand(client, io, asJson);
       case "actions":
+        noMore();
         return actionsCommand(client, io, asJson);
       case "wait": {
         const after = number("after", takeValue(args, "after"));
@@ -214,6 +224,7 @@ async function main(argv: string[]): Promise<number> {
             params: { type: "string" },
             preset: { type: "string" },
             label: { type: "string" },
+            kind: { type: "string" },
             attempts: { type: "string" },
             trace: { type: "string" },
             video: { type: "boolean" },
@@ -245,6 +256,7 @@ async function main(argv: string[]): Promise<number> {
         const opts: RunOpts = { params, wait: values.wait ?? false, timeout: number("timeout", values.timeout) ?? Number.POSITIVE_INFINITY, json: asJson };
         if (values.preset !== undefined) opts.preset = values.preset;
         if (values.label !== undefined) opts.label = values.label;
+        if (values.kind !== undefined) opts.kind = values.kind;
         const attempts = number("attempts", values.attempts);
         if (attempts !== undefined) opts.attempts = attempts;
         if (values.trace !== undefined) opts.trace = values.trace;

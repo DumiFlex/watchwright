@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Settings › Server › Updates: this server's version, whether a newer one is on npm, and Update.
+// Admin › Server › Updates: this server's version, whether a newer one is on npm, and Update.
 // Update starts the update on the server: it stops, installs the new version with npm and starts
 // again with the same options, so this page waits for it to come back and then reloads. In Docker
 // (and installs npm doesn't own) there is no button: the page says how to update instead.

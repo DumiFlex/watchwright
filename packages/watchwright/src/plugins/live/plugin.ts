@@ -1,6 +1,9 @@
+import type { FastifyRequest } from "fastify";
 import type { WebSocket } from "ws";
 import { defineAction } from "../../actions/registry.js";
+import type { CallUser } from "../../core/access.js";
 import { definePlugin } from "../../core/plugin.js";
+import { PACK_ACCESS } from "../packs/access.js";
 import { matches, type EventFilter, type WwEvent } from "../../events/log.js";
 import { errorBody } from "../../server/errors.js";
 import { VERSION } from "../../version.js";
@@ -56,6 +59,7 @@ export const livePlugin = definePlugin({
     return [
       defineAction<{ runId: string }>({
         name: "live.rewind",
+        pack: { run: "runId" },
         title: "What the live view showed in the last 30 s of a run that is going: one entry per kept frame (at most 5 a second per page)",
         method: "GET",
         path: "/live/:runId/rewind",
@@ -70,16 +74,25 @@ export const livePlugin = definePlugin({
   routes(app, { events, services }) {
     const hub = services.get(FRAMES);
     const RUN = /^[0-9a-f]{8}$/;
+    // Pack access (when the packs plugin is loaded): frames and events of packs the caller can't see stay out.
+    const access = services.has(PACK_ACCESS) ? services.get(PACK_ACCESS) : null;
+    const seesRun = (user: CallUser | null | undefined, runId: string) => {
+      const packId = access?.packOf("run", runId) ?? null;
+      return packId === null || access!.sees(user, packId);
+    };
     // A frame of the rewind buffer as a JPEG (the index is the `live.rewind` action).
-    app.get<{ Params: { runId: string; pageId: string; timestamp: string } }>("/live/:runId/rewind/:pageId/:timestamp", { config: { access: "viewer" } }, async (req, reply) => {
+    app.get<{ Params: { runId: string; pageId: string; timestamp: string } }>("/live/:runId/rewind/:pageId/:timestamp", { config: { access: "viewer", pack: "checked" } }, async (req, reply) => {
       const { runId, pageId, timestamp } = req.params;
       const at = Number(timestamp.replace(/\.jpg$/, ""));
+      if (RUN.test(runId) && !seesRun(req.watchwrightUser, runId)) return reply.code(404).send(errorBody("not_found", "That moment is no longer in the rewind buffer."));
       if (!RUN.test(runId) || !Number.isFinite(at)) return reply.code(400).send(errorBody("bad_input", "Ask for /live/<run>/rewind/<page>/<timestamp>.jpg."));
       const frame = hub.frameAt(runId, pageId, at);
       if (!frame) return reply.code(404).send(errorBody("not_found", "That moment is no longer in the rewind buffer."));
       return reply.header("content-type", "image/jpeg").header("cache-control", "private, max-age=60").header("x-frame-timestamp", String(frame.timestamp)).send(frame.data);
     });
-    app.get("/live", { websocket: true, config: { access: "viewer" } }, (socket: WebSocket) => {
+    app.get("/live", { websocket: true, config: { access: "viewer", pack: "checked" } }, (socket: WebSocket, req: FastifyRequest) => {
+      const user = req.watchwrightUser;
+      const hidden = (e: WwEvent) => access?.hidesEvent(user, e) ?? false;
       let stopEvents: (() => void) | null = null;
       let stopFrames: (() => void) | null = null;
       let drainTimer: ReturnType<typeof setInterval> | null = null;
@@ -119,6 +132,10 @@ export const livePlugin = definePlugin({
           return;
         }
         stop();
+        if (msg.runId && !seesRun(user, msg.runId)) {
+          socket.send(JSON.stringify({ type: "error", data: { code: "not_found", message: `No run with id ${msg.runId}.` } }));
+          return;
+        }
         const filter: EventFilter = { runId: msg.runId ?? undefined };
         // Backlog and live listener are attached in one synchronous pass, so no event is missed or sent twice.
         let last = msg.after ?? events.head();
@@ -132,7 +149,7 @@ export const livePlugin = definePlugin({
         if (tail && tail.older > 0) socket.send(JSON.stringify({ type: "backlog", data: { skippedLogs: tail.older } }));
         for (;;) {
           const page = events.after(last, filter, 1000);
-          const keep = page.filter((e) => !tail || e.seq > tail.cut || !LOG_TYPES.includes(e.type));
+          const keep = page.filter((e) => (!tail || e.seq > tail.cut || !LOG_TYPES.includes(e.type)) && !hidden(e));
           if (msg.batch) {
             if (keep.length > 0) socket.send(JSON.stringify({ type: "events", data: keep }));
           } else keep.forEach(sendEvent);
@@ -142,7 +159,7 @@ export const livePlugin = definePlugin({
         stopEvents = events.subscribe((e) => {
           if (e.seq <= last || !matches(e, filter)) return;
           last = e.seq;
-          sendEvent(e);
+          if (!hidden(e)) sendEvent(e);
         });
       });
       socket.on("close", stop);

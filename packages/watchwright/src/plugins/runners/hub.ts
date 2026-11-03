@@ -115,9 +115,43 @@ export class RunnerHub {
     });
   }
 
-  /** Closes a runner's connection (it was removed). */
-  drop(id: string): void {
-    this.conns.get(id)?.ws.close(4001, "This runner was removed on the server.");
+  /**
+   * Closes a removed runner's connection. A connected runner is told first and given `waitMs` to
+   * clean up its machine (forget its token, remove its start-up entry); answers whether it was
+   * connected and whether it said it cleaned up (older runners don't answer).
+   */
+  async drop(id: string, waitMs = 3000): Promise<{ online: boolean; cleaned: boolean }> {
+    const c = this.conns.get(id);
+    if (!c) return { online: false, cleaned: false };
+    const message = "This runner was removed on the server.";
+    const cleaned = await new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => done(false), waitMs);
+      const onMessage = (raw: Buffer | ArrayBuffer | Buffer[], isBinary: boolean) => {
+        if (isBinary) return;
+        try {
+          const buf = Array.isArray(raw) ? Buffer.concat(raw) : Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
+          if ((JSON.parse(buf.toString("utf8")) as Control).type === "cleaned") done(true);
+        } catch {
+          // not JSON
+        }
+      };
+      const onClose = () => done(false);
+      const done = (v: boolean) => {
+        clearTimeout(timer);
+        c.ws.off("message", onMessage);
+        c.ws.off("close", onClose);
+        resolve(v);
+      };
+      c.ws.on("message", onMessage);
+      c.ws.on("close", onClose);
+      try {
+        c.ws.send(JSON.stringify({ type: "removed", message } satisfies Control));
+      } catch {
+        done(false);
+      }
+    });
+    c.ws.close(4001, message);
+    return { online: true, cleaned };
   }
 
   /** Opens host:port on the runner's machine for `socket`; true once open, else why not. */
