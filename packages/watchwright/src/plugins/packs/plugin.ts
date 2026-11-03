@@ -82,6 +82,37 @@ export const packsPlugin = definePlugin({
     const access = services.get(PACK_ACCESS);
     const state = services.get(PACK_STATE);
     const secrets = services.has(SECRETS) ? services.get(SECRETS) : null;
+    /** Refuses to delete `dir` when the server may not show it or it holds a place the server needs. */
+    const checkDeletable = (dir: string): void => {
+      const guarded = [...folders.roots(), folders.start, homedir(), ...(store.dataDir === ":memory:" ? [] : [path.resolve(store.dataDir)])];
+      if (!folders.shows(dir)) throw new ActionError("not_allowed", `This server only shows folders inside ${folders.roots().join(", ")}, so it doesn't delete ${dir}.`, 403);
+      const hit = guarded.find((g) => isInside(g, dir));
+      if (hit) throw new ActionError("not_allowed", `${dir} holds ${hit}, so Watchwright won't delete it. Remove the pack and delete the files by hand.`, 403);
+    };
+    /**
+     * The folder an upload left around a pack: the highest folder above the pack's own, below one
+     * of the server's folders (WATCHWRIGHT_FOLDERS), that holds no other added pack (the packs
+     * inside the pack's own folder aside). It holds the files the zip's packs shared, which stay
+     * when each pack's folder is deleted. Null without limited folders, or when there is none.
+     */
+    const leftoverOf = (pack: PackSummary): { dir: string } | null => {
+      if (!folders.limited || pack.missing) return null;
+      const root = folders.roots().find((r) => isInside(pack.dir, r));
+      if (!root) return null;
+      let best: string | null = null;
+      for (let dir = path.dirname(pack.dir); dir !== root && isInside(dir, root) && dir !== path.dirname(dir); dir = path.dirname(dir)) {
+        const others = registry.within(dir).filter((p) => p.id !== pack.id && !isInside(p.dir, pack.dir));
+        if (others.length) break;
+        best = dir;
+      }
+      if (!best) return null;
+      try {
+        checkDeletable(best);
+      } catch {
+        return null;
+      }
+      return { dir: best };
+    };
     return [
       defineAction({
         name: "packs.list",
@@ -256,13 +287,31 @@ export const packsPlugin = definePlugin({
           });
         },
       }),
-      defineAction<{ id: string; deleteFiles?: boolean }>({
+      defineAction<{ id: string }>({
+        name: "packs.remove-plan",
+        pack: { pack: "id" },
+        access: "admin",
+        title: "What deleting a pack's files would take with it: the packs inside its folder, and the folder its upload left around it",
+        method: "GET",
+        path: "/packs/:id/remove-plan",
+        input: { type: "object", properties: { id: ID }, required: ["id"] },
+        handler: ({ id }) => {
+          const pack = registry.get(id) ?? notFound(id);
+          const brief = (p: PackSummary) => ({ id: p.id, name: p.name, dir: p.dir });
+          return { dir: pack.dir, nested: registry.within(pack.dir).filter((p) => p.id !== id).map(brief), leftover: leftoverOf(pack) };
+        },
+      }),
+      defineAction<{ id: string; deleteFiles?: boolean; nested?: boolean; leftover?: boolean }>({
         name: "packs.remove",
         pack: { pack: "id" },
         destructive: true,
-        explain: ({ id, deleteFiles }: { id: string; deleteFiles?: boolean }) => {
+        explain: ({ id, deleteFiles, nested, leftover }: { id: string; deleteFiles?: boolean; nested?: boolean; leftover?: boolean }) => {
           const p = registry.get(id);
-          return deleteFiles ? `Remove the pack "${p?.name ?? id}" and delete its folder ${p?.dir ?? ""} from the server (its past runs stay)` : `Remove the pack "${p?.name ?? id}" from Watchwright (its files and past runs stay)`;
+          if (!deleteFiles) return `Remove the pack "${p?.name ?? id}" from Watchwright (its files and past runs stay)`;
+          const dir = (leftover && p ? leftoverOf(p)?.dir : null) ?? p?.dir ?? "";
+          const inner = p ? registry.within(dir).filter((q) => q.id !== id) : [];
+          const also = nested && inner.length ? `, with the pack${inner.length === 1 ? "" : "s"} ${inner.map((q) => `"${q.name}"`).join(", ")} inside it,` : "";
+          return `Remove the pack "${p?.name ?? id}"${also} and delete the folder ${dir} from the server (past runs stay)`;
         },
         title: "Remove a pack from this server; its past runs stay, and its files too unless deleteFiles",
         method: "DELETE",
@@ -272,10 +321,12 @@ export const packsPlugin = definePlugin({
           properties: {
             id: ID,
             deleteFiles: { type: "boolean", default: false, description: "Also delete the pack's folder and every file in it from the server (admins only). Its past runs stay." },
+            nested: { type: "boolean", default: false, description: "With deleteFiles: also remove the packs whose folders are inside the deleted folder, instead of refusing." },
+            leftover: { type: "boolean", default: false, description: "With deleteFiles: delete the folder an upload left around the pack (`leftover` in the remove plan), with the shared files in it, instead of only the pack's folder." },
           },
           required: ["id"],
         },
-        handler: ({ id, deleteFiles = false }, call) => {
+        handler: ({ id, deleteFiles = false, nested = false, leftover = false }, call) => {
           const pack = registry.get(id) ?? notFound(id);
           const del = deleteFiles && !pack.missing;
           if (deleteFiles) {
@@ -284,27 +335,60 @@ export const packsPlugin = definePlugin({
               throw new ActionError(r.code, `Only admins may delete a pack's files. ${r.message}`, r.status);
             }
           }
+          let dir = pack.dir;
+          let inner: PackSummary[] = [];
           if (del) {
-            const dir = pack.dir;
-            const guarded = [...folders.roots(), folders.start, homedir(), ...(store.dataDir === ":memory:" ? [] : [path.resolve(store.dataDir)])];
-            if (!folders.shows(dir)) throw new ActionError("not_allowed", `This server only shows folders inside ${folders.roots().join(", ")}, so it doesn't delete ${dir}.`, 403);
-            const hit = guarded.find((g) => isInside(g, dir));
-            if (hit) throw new ActionError("not_allowed", `${dir} holds ${hit}, so Watchwright won't delete it. Remove the pack and delete the files by hand.`, 403);
-            const others = registry.within(dir).filter((p) => p.id !== id);
-            if (others.length) throw new ActionError("folder_shared", `${dir} also holds the pack${others.length === 1 ? "" : "s"} ${others.map((p) => `"${p.name}"`).join(", ")}. Remove ${others.length === 1 ? "it" : "them"} first, or remove this pack and keep its files.`, 409);
-            const busy = registry.busy(id);
+            if (leftover) {
+              const around = leftoverOf(pack);
+              if (!around) throw new ActionError("not_allowed", `No folder around ${pack.dir} can go with it: one holds another pack, or the folder isn't inside the server's folders.`, 409);
+              dir = around.dir;
+            }
+            checkDeletable(dir);
+            inner = registry.within(dir).filter((p) => p.id !== id);
+            if (inner.length && !nested) throw new ActionError("folder_shared", `${dir} also holds the pack${inner.length === 1 ? "" : "s"} ${inner.map((p) => `"${p.name}"`).join(", ")}. Remove ${inner.length === 1 ? "it" : "them"} first or with it, or remove this pack and keep its files.`, 409);
+            const busy = busyIn(registry, [pack, ...inner]);
             if (busy) throw new ActionError("pack_busy", busy, 409);
           }
-          registry.remove(id);
-          access.forget(id);
-          state.forget(id);
-          if (del) {
-            rmSync(pack.dir, { recursive: true, force: true });
-            folders.forget(pack.dir);
-            events.append("pack.files_deleted", { packId: id, packName: pack.name, dir: pack.dir, by: call.user?.name ?? call.client });
+          const removed = [pack, ...inner];
+          for (const p of removed) {
+            registry.remove(p.id);
+            access.forget(p.id);
+            state.forget(p.id);
           }
-          return { removed: id, deleted: del ? pack.dir : null };
+          if (del) {
+            rmSync(dir, { recursive: true, force: true });
+            folders.forget(dir);
+            for (const p of removed) folders.forget(p.dir);
+            events.append("pack.files_deleted", { packId: id, packName: pack.name, dir, also: inner.map((p) => p.id), by: call.user?.name ?? call.client });
+          }
+          return { removed: id, deleted: del ? dir : null, ...(inner.length ? { alsoRemoved: inner.map((p) => p.id) } : {}) };
         },
+      }),
+      defineAction<{ path: string }>({
+        name: "packs.delete-folder",
+        pack: "none",
+        access: "admin",
+        destructive: true,
+        explain: ({ path: p }: { path: string }) => `Delete the folder ${p} from the server, with every file in it`,
+        title: "Delete a folder no added pack uses: a pack never added, one a removed pack left, or the shared files an upload left",
+        method: "DELETE",
+        path: "/packs/folder",
+        input: { type: "object", properties: { path: { type: "string", minLength: 1, description: "Absolute folder path." } }, required: ["path"] },
+        handler: ({ path: p }, call) =>
+          packCall(() => {
+            const dir = folders.list(p).path; // a readable folder this server may show
+            checkDeletable(dir);
+            const inside = registry.within(dir);
+            if (inside.length) throw new ActionError("folder_shared", `${dir} holds the pack${inside.length === 1 ? "" : "s"} ${inside.map((q) => `"${q.name}"`).join(", ")}. Remove ${inside.length === 1 ? "it" : "them"} first (with its files, to delete them).`, 409);
+            // Without WATCHWRIGHT_FOLDERS the browser shows the whole machine: only pack folders go.
+            if (!folders.limited && discoverPacks(dir, 4, () => null).found.length === 0) {
+              throw new ActionError("not_allowed", `${dir} has no pack file, and this server only deletes pack folders. Delete it in your file manager.`, 403);
+            }
+            rmSync(dir, { recursive: true, force: true });
+            folders.forget(dir);
+            events.append("pack.folder_deleted", { dir, by: call.user?.name ?? call.client });
+            return { deleted: dir };
+          }),
       }),
       defineAction({
         name: "packs.access-all",

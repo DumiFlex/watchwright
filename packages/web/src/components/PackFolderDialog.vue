@@ -3,10 +3,14 @@
 // - add:  browse to a pack folder and add it (or search the open folder for packs),
 // - find: search a folder and the ones below it for pack files and add the ones you tick,
 // - move: point a pack whose folder moved at its new folder (it keeps its runs).
+// In add mode an admin can also delete a folder no added pack uses: a pack never added, one a
+// removed pack left, or the shared files an upload left (two presses: Delete, then Delete?).
 import { computed, ref, watch } from "vue";
-import { FolderPlus, FolderSearch, Package, Plus } from "../icons";
+import { FolderPlus, FolderSearch, Package, Plus, Trash2 } from "../icons";
 import { sendJson, type FolderListing, type FoundPack, type Pack } from "../api";
 import { join, tildify } from "../paths";
+import { can } from "../session";
+import { vTip } from "../tooltip";
 import CheckBox from "./CheckBox.vue";
 import FolderBrowser from "./FolderBrowser.vue";
 import ModalDialog from "./ModalDialog.vue";
@@ -16,7 +20,7 @@ import TextField from "./TextField.vue";
 
 const props = defineProps<{ mode: "add" | "find" | "move"; packs: readonly Pack[]; moving?: Pack | null; home?: string | null; start?: string | null }>();
 const open = defineModel<boolean>({ default: false });
-const emit = defineEmits<{ added: [packs: Pack[]]; moved: [pack: Pack] }>();
+const emit = defineEmits<{ added: [packs: Pack[]]; moved: [pack: Pack]; deleted: [dir: string] }>();
 
 const path = ref<string | null>(null);
 const listing = ref<FolderListing | null>(null);
@@ -35,6 +39,7 @@ const starter = ref<{ path: string; name: string; baseURL: string; format: "yaml
 
 watch(open, (o) => {
   if (!o) return;
+  confirming.value = null;
   path.value = props.start ?? (props.moving ? parentOf(props.moving.dir) : null);
   found.value = null;
   creating.value = false;
@@ -71,6 +76,27 @@ const addedHere = computed(() => props.packs.find((p) => p.dir === listing.value
 const addedAt = (dir: string) => props.packs.find((p) => p.dir === dir) ?? null;
 /** A pack folder in the list that isn't added: one never added, or one a removed pack left behind. */
 const loosePacks = computed(() => (props.mode === "add" ? (listing.value?.folders ?? []).filter((f) => f.marks.pack && !addedAt(f.path)) : []));
+
+const browser = ref<InstanceType<typeof FolderBrowser> | null>(null);
+// the folder whose Delete was pressed once; a second press deletes it
+const confirming = ref<string | null>(null);
+watch(() => listing.value?.path, () => (confirming.value = null));
+const isInsideDir = (child: string, dir: string) => child === dir || child.startsWith(`${dir}/`) || child.startsWith(`${dir}\\`);
+/** In add mode, an admin may delete the open folder when no added pack lives in it and it isn't a top folder. */
+const canDeleteHere = computed(() => props.mode === "add" && can("admin") && !!listing.value && listing.value.parent !== null && !props.packs.some((p) => isInsideDir(p.dir, listing.value?.path ?? "")));
+
+async function deleteFolder(dir: string) {
+  if (confirming.value !== dir) return void (confirming.value = dir);
+  busy.value = true;
+  error.value = null;
+  const res = await sendJson<{ deleted: string }>(`/api/v1/packs/folder?path=${encodeURIComponent(dir)}`, {}, "DELETE");
+  busy.value = false;
+  confirming.value = null;
+  if (!res.ok) return void (error.value = res.error.message);
+  emit("deleted", dir);
+  if (dir === listing.value?.path) path.value = listing.value.parent;
+  else browser.value?.reload();
+}
 
 async function addHere(dir = listing.value?.path) {
   if (!dir) return;
@@ -160,10 +186,13 @@ function rel(dir: string): string {
         </li>
       </ul>
     </template>
-    <FolderBrowser v-else v-model:path="path" :places="places" :mark-labels="{ pack: 'Pack' }" @listing="listing = $event">
+    <FolderBrowser v-else ref="browser" v-model:path="path" :places="places" :mark-labels="{ pack: 'Pack' }" @listing="listing = $event">
       <template v-if="mode === 'add'" #row="{ entry }">
         <span v-if="entry.marks.pack && addedAt(entry.path)" class="rowtag muted small">Added</span>
-        <button v-else-if="entry.marks.pack" type="button" class="btn rowadd small" :disabled="busy" :aria-label="`Add the pack in ${entry.name}`" @click.stop="addHere(entry.path)"><Plus :size="14" /> Add</button>
+        <template v-else-if="entry.marks.pack">
+          <button v-if="can('admin')" v-tip="confirming === entry.path ? 'Press again to delete the folder and every file in it' : 'Delete this folder from the server'" type="button" class="btn rowadd small" :class="{ danger: confirming === entry.path }" :disabled="busy" :aria-label="confirming === entry.path ? `Press again to delete ${entry.name} from the server` : `Delete the folder ${entry.name}`" @click.stop="deleteFolder(entry.path)"><Trash2 :size="14" /><span v-if="confirming === entry.path" class="rowlabel"> Delete?</span></button>
+          <button type="button" class="btn rowadd small" :disabled="busy" :aria-label="`Add the pack in ${entry.name}`" @click.stop="addHere(entry.path)"><Plus :size="14" /> Add</button>
+        </template>
       </template>
       <template #footer="{ listing: l }">
         <p v-if="l && mode !== 'find'" class="here small" :class="packHere ? 'ok' : 'muted'">
@@ -191,6 +220,7 @@ function rel(dir: string): string {
       </template>
       <template v-else>
         <button class="btn" :class="{ primary: mode === 'find' }" :disabled="busy || !listing" @click="search"><FolderSearch :size="15" /> {{ mode === "find" ? "Search this folder" : "Find packs here" }}</button>
+        <button v-if="canDeleteHere && listing" class="btn" :class="{ danger: confirming === listing.path }" :disabled="busy" @click="deleteFolder(listing.path)"><Trash2 :size="15" /> {{ confirming === listing.path ? "Delete it and its files?" : "Delete folder" }}</button>
         <button v-if="mode === 'add'" class="btn" :disabled="busy || !listing" @click="startNew"><FolderPlus :size="15" /> New pack here…</button>
         <button v-if="mode === 'add'" class="btn primary" :disabled="busy || !packHere || !!addedHere" @click="addHere()">{{ busy ? "Adding…" : "Add this pack" }}</button>
       </template>
@@ -245,6 +275,12 @@ function rel(dir: string): string {
 .rowadd {
   flex: none;
   padding: 0 8px;
+}
+@media (max-width: 600px) {
+  /* the row is short of room on a phone: the red bin says "press again" on its own */
+  .rowlabel {
+    display: none;
+  }
 }
 .rowtag {
   flex: none;

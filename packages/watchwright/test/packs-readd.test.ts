@@ -209,3 +209,98 @@ describe("removing a pack with its files", () => {
     expect(existsSync(dir)).toBe(false);
   });
 });
+
+describe("deleting nested packs, upload leftovers and loose folders", () => {
+  const withRoots = async (fn: (packs: string, h: Harness) => Promise<void>) => {
+    const packs = path.join(tempDir("ww-roots-"), "packs");
+    mkdirSync(packs);
+    process.env.WATCHWRIGHT_FOLDERS = packs;
+    try {
+      const h = await startHarness(tempDir("ww-data-"));
+      harnesses.push(h);
+      await fn(packs, h);
+    } finally {
+      delete process.env.WATCHWRIGHT_FOLDERS;
+    }
+  };
+
+  it("removes the packs inside a folder with it when asked", async () => {
+    const h = await startHarness(tempDir("ww-data-"));
+    harnesses.push(h);
+    const root = path.join(tempDir("ww-src-"), "bench");
+    writeFiles(root, { ...yamlPack("Bench"), "smoke/pack.yaml": "name: Smoke\nsite: { key: shop }\n" });
+    const bench = (await h.api<PackJson>("POST", "/packs", { path: root })).data;
+    const smoke = (await h.api<PackJson>("POST", "/packs", { path: path.join(root, "smoke") })).data;
+
+    const plan = await h.api<{ nested: { id: string }[]; leftover: unknown }>("GET", `/packs/${bench.id}/remove-plan`);
+    expect(plan.data.nested.map((p) => p.id)).toEqual([smoke.id]);
+    expect(plan.data.leftover).toBeNull(); // no WATCHWRIGHT_FOLDERS
+
+    insertRun(h, smoke, "eeee0001", "running");
+    expect((await h.api("DELETE", `/packs/${bench.id}?deleteFiles=true&nested=true`)).error?.code).toBe("pack_busy");
+    h.app.watchwright.services.get(RUNS_REPO).updateRun("eeee0001", { status: "stopped" });
+
+    const res = await h.api<{ deleted: string; alsoRemoved: string[] }>("DELETE", `/packs/${bench.id}?deleteFiles=true&nested=true`);
+    expect(res.data).toMatchObject({ deleted: root, alsoRemoved: [smoke.id] });
+    expect(existsSync(root)).toBe(false);
+    expect((await h.api<PackJson[]>("GET", "/packs")).data).toEqual([]);
+  });
+
+  it("offers the folder an upload left around the last of its packs, shared files and all", async () => {
+    await withRoots(async (packs, h) => {
+      const res = await h.app.inject({
+        method: "POST",
+        url: `/api/v1/packs/upload?name=wp&folder=${encodeURIComponent(packs)}`,
+        headers: { host: h.host, "content-type": "application/zip" },
+        payload: z({ "shared/util.txt": "u", "bench/pack.yaml": "name: Bench\nsite: { key: shop }\n", "smoke/pack.yaml": "name: Smoke\nsite: { key: shop }\n" }),
+      });
+      expect(res.statusCode).toBe(201);
+      const wp = path.join(packs, "wp");
+      const list = (await h.api<PackJson[]>("GET", "/packs")).data;
+      const bench = list.find((p) => p.name === "Bench")!;
+      const smoke = list.find((p) => p.name === "Smoke")!;
+
+      // Smoke is still in wp/, so bench has no leftover yet: only its own folder goes.
+      expect((await h.api<{ leftover: unknown }>("GET", `/packs/${bench.id}/remove-plan`)).data.leftover).toBeNull();
+      expect((await h.api("DELETE", `/packs/${bench.id}?deleteFiles=true&leftover=true`)).status).toBe(409);
+      expect((await h.api("DELETE", `/packs/${bench.id}?deleteFiles=true`)).status).toBe(200);
+      expect(readdirSync(wp).sort()).toEqual(["shared", "smoke"]);
+
+      expect((await h.api<{ leftover: unknown }>("GET", `/packs/${smoke.id}/remove-plan`)).data.leftover).toEqual({ dir: wp });
+      const gone = await h.api<{ deleted: string }>("DELETE", `/packs/${smoke.id}?deleteFiles=true&leftover=true`);
+      expect(gone.data.deleted).toBe(wp);
+      expect(existsSync(wp)).toBe(false);
+      expect(existsSync(packs)).toBe(true);
+    });
+  });
+
+  it("deletes a folder no added pack uses, inside the server's folders", async () => {
+    await withRoots(async (packs, h) => {
+      writeFiles(path.join(packs, "smoke"), yamlPack("Old smoke"));
+      writeFiles(path.join(packs, "wp", "shared"), { "util.txt": "u" });
+      writeFiles(path.join(packs, "bench"), yamlPack("Bench"));
+      await h.api("POST", "/packs", { path: path.join(packs, "bench") });
+
+      expect((await h.api("DELETE", `/packs/folder?path=${encodeURIComponent(path.join(packs, "smoke"))}`)).status).toBe(200);
+      expect(existsSync(path.join(packs, "smoke"))).toBe(false);
+      expect((await h.api("DELETE", `/packs/folder?path=${encodeURIComponent(path.join(packs, "wp"))}`)).status).toBe(200);
+      expect(existsSync(path.join(packs, "wp"))).toBe(false);
+      // An added pack's folder, and the server's own folder, stay.
+      expect((await h.api("DELETE", `/packs/folder?path=${encodeURIComponent(path.join(packs, "bench"))}`)).error?.code).toBe("folder_shared");
+      expect((await h.api("DELETE", `/packs/folder?path=${encodeURIComponent(packs)}`)).status).toBe(403);
+      expect(existsSync(path.join(packs, "bench", "pack.yaml"))).toBe(true);
+    });
+  });
+
+  it("deletes only pack folders when the browser shows the whole machine", async () => {
+    const h = await startHarness(tempDir("ww-data-"));
+    harnesses.push(h);
+    const src = tempDir("ww-src-");
+    writeFiles(path.join(src, "old"), yamlPack("Old"));
+    writeFiles(path.join(src, "notes"), { "a.txt": "a" });
+    expect((await h.api("DELETE", `/packs/folder?path=${encodeURIComponent(path.join(src, "notes"))}`)).status).toBe(403);
+    expect(existsSync(path.join(src, "notes", "a.txt"))).toBe(true);
+    expect((await h.api("DELETE", `/packs/folder?path=${encodeURIComponent(path.join(src, "old"))}`)).status).toBe(200);
+    expect(existsSync(path.join(src, "old"))).toBe(false);
+  });
+});

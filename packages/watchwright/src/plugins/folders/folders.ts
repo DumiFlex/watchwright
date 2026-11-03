@@ -125,6 +125,11 @@ export class FolderService {
     return this.opts.roots?.[0] ?? this.home;
   }
 
+  /** Whether browsing is limited to the folders WATCHWRIGHT_FOLDERS names (a server, often in a container). */
+  get limited(): boolean {
+    return !!this.opts.roots;
+  }
+
   /** Whether `open` can show a folder (there is a desktop with a file manager). */
   get canOpen(): boolean {
     return this.opts.desktop ?? true;
