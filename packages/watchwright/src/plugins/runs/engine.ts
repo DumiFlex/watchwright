@@ -9,7 +9,7 @@ import type { AttemptEnv, JobKind, KindPlan, PlanItem } from "../../jobs/kind.js
 import type { JobKinds } from "../../jobs/kinds.js";
 import type { AttemptRuntime } from "../../jobs/runtime.js";
 import { AttemptRecorder, MAX_LOG_LINES, safeRelative, slug, type ArtifactInfo } from "../../jobs/recorder.js";
-import { findFfmpeg, nextRunVideoFile, RunVideo, runVideoFiles } from "../../jobs/run-video.js";
+import { findFfmpeg, nextRunVideoFile, RunVideo, runVideoFiles, type VideoQuality } from "../../jobs/run-video.js";
 import { dirSize, driveSpace, GB, sizeText } from "../../jobs/storage.js";
 import { unzip, zip } from "../../jobs/zip.js";
 import { BrowserSession } from "../../session/session.js";
@@ -244,6 +244,8 @@ export interface EngineOptions {
   storageLimits?: (() => StorageLimits) | undefined;
   /** How long ended runs are kept (Settings > Storage); both 0, the default, keeps every run. */
   cleanupRules?: (() => CleanupRules) | undefined;
+  /** How much room videos of runs that start take (Admin > Storage; default `full`). */
+  videoQuality?: (() => VideoQuality) | undefined;
   /** How often a going run measures its folder and the drive's free space (default once a minute). */
   storageCheckMs?: number | undefined;
 }
@@ -264,6 +266,11 @@ export class Engine {
   private closing = false;
 
   constructor(private readonly o: EngineOptions) {}
+
+  /** True while a run is going (Compress kept videos waits for none). */
+  busy(): boolean {
+    return this.active.size > 0;
+  }
 
   /** On boot: runs a crash left running become interrupted, ready for resume. */
   recover(): void {
@@ -391,6 +398,10 @@ export class Engine {
 
   private cleanupRules(): CleanupRules {
     return this.o.cleanupRules?.() ?? { keepDays: 0, keepPerPack: 0 };
+  }
+
+  private videoQuality(): VideoQuality {
+    return this.o.videoQuality?.() ?? "full";
   }
 
   private limits(): StorageLimits {
@@ -1059,6 +1070,7 @@ export class Engine {
           size: o.run?.screencastSize,
           quality: o.run?.frameQuality ?? 70,
           showActions: o.run?.showActions ?? true,
+          videoQuality: this.videoQuality(),
         },
         {
           onFrame: (f) => frames.publish({ runId: row.id, ...f }),
@@ -1210,6 +1222,7 @@ export class Engine {
         return list.find((f) => f.pageId === run.session?.activePage) ?? list.at(-1) ?? null;
       },
       onError: (message) => warn(`The run video stopped: ${message}. The run goes on without it.`),
+      quality: this.videoQuality(),
     });
     run.runVideo.start();
   }
