@@ -69,12 +69,26 @@ export async function acceptInvite(code: string, name: string, password: string)
   return null;
 }
 
+/**
+ * Signs out and loads the page afresh, since everything it holds belongs to the person who signed
+ * out. The page stays as it is until the reload: showing the sign-in page first and then reloading
+ * flashed sign-in, blank, the app's frame and sign-in again.
+ */
 export async function signOut(): Promise<void> {
   await sendJson("/api/v1/auth/signout");
-  session.user = null;
-  // Everything the page holds belongs to the person who signed out.
   location.hash = "#/";
   location.reload();
+}
+
+/**
+ * What the page shows: a public page as is; nothing until the first answer from the server
+ * (rendering the app's frame first flashed it, and its views' calls, before the sign-in page);
+ * the sign-in page while login is on and nobody is signed in; otherwise the app.
+ */
+export function pageGate(isPublic: boolean, booted: boolean, s: Pick<typeof session, "loaded" | "on" | "user">): "public" | "wait" | "signin" | "app" {
+  if (isPublic) return "public";
+  if (!booted) return "wait";
+  return s.loaded && s.on && s.user === null ? "signin" : "app";
 }
 
 // Any call the server refuses for want of a sign-in (the session ran out) shows the sign-in page.
