@@ -132,10 +132,22 @@ function testSummary(t: TestDefinition, rubric: readonly RubricCriterion[] | und
   };
 }
 
+/**
+ * What other plugins tell the registry about packs, without the registry reading their tables
+ * (the runs plugin registers one: runs keep the id and pack file of the pack they ran).
+ */
+export interface PackLinks {
+  /** The id a pack with this pack file had before it was removed (what its runs still carry), or null. */
+  pastId?(packFile: string): string | null;
+  /** Why the pack's files must not change now (a run of it is going on), or null. */
+  busy?(packId: string): string | null;
+}
+
 /** Knows every pack added to this server, keeps the newest good build of each, and rebuilds on change. */
 export class PackRegistry {
   private readonly loaded = new Map<string, LoadedPack>();
   private readonly loading = new Map<string, Promise<LoadedPack>>();
+  private readonly links: PackLinks[] = [];
 
   constructor(
     private readonly db: Database.Database,
@@ -152,19 +164,56 @@ export class PackRegistry {
     return row ? this.summary(row) : null;
   }
 
-  /** Adds a pack by folder or pack file path and loads it. Adding a path twice returns the existing pack. */
+  /** Plugins call this in setup to tell the registry what they know about packs (see `PackLinks`). */
+  link(links: PackLinks): void {
+    this.links.push(links);
+  }
+
+  /** Why the pack's files must not change now, or null. */
+  busy(id: string): string | null {
+    for (const l of this.links) {
+      const why = l.busy?.(id);
+      if (why) return why;
+    }
+    return null;
+  }
+
+  /** The packs whose folders are `dir` or inside it. */
+  within(dir: string): PackSummary[] {
+    const rel = (d: string) => path.relative(dir, d);
+    return this.list().filter((p) => rel(p.dir) === "" || (!rel(p.dir).startsWith("..") && !path.isAbsolute(rel(p.dir))));
+  }
+
+  /**
+   * Adds a pack by folder or pack file path and loads it. Adding a path twice returns the existing
+   * pack. A pack added again after it was removed gets its old id back, so its runs, schedules
+   * and dashboard belong to it again.
+   */
   async add(input: string): Promise<PackSummary> {
     const { dir, packFile } = findPackFile(input);
     const full = path.join(dir, packFile);
     const existing = this.db.prepare("SELECT id FROM packs WHERE path = ?").get(full) as { id: string } | undefined;
     if (existing) return this.get(existing.id)!;
-    const id = randomBytes(4).toString("hex");
+    const past = this.pastId(full, dir);
+    const id = past ?? randomBytes(4).toString("hex");
     this.db
       .prepare("INSERT INTO packs (id, path, name, status, added_at) VALUES (?, ?, ?, 'error', ?)")
       .run(id, full, path.basename(dir), new Date().toISOString());
-    this.events.append("pack.added", { packId: id, path: full });
+    this.events.append("pack.added", past ? { packId: id, path: full, again: true } : { packId: id, path: full });
     await this.reload(id).catch(() => undefined); // a pack that doesn't load is still added, with its error shown
     return this.get(id)!;
+  }
+
+  /** The id a removed pack had at this pack file (or another pack file in its folder), when no pack uses it now. */
+  private pastId(full: string, dir: string): string | null {
+    const free = (id: string | null | undefined): id is string => !!id && /^[0-9a-f]{8}$/.test(id) && !this.db.prepare("SELECT 1 FROM packs WHERE id = ?").get(id);
+    for (const file of [full, ...PACK_FILES.map((f) => path.join(dir, f)).filter((f) => f !== full)]) {
+      for (const l of this.links) {
+        const id = l.pastId?.(file);
+        if (free(id)) return id;
+      }
+    }
+    return null;
   }
 
   /** Points a pack at a new folder (it moved), keeping its id and runs, and loads it from there. */
