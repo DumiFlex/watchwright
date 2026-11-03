@@ -131,6 +131,8 @@ A tile is its kind with a name (`metric: Load ms`) or `true` (`matrix: true`), p
 
 **Save** keeps the change on the server, for everyone who opens the pack; the dashboard says it was changed on the page. The pack's own `dashboard` block stays as it is, and **Use the pack's** drops the change so the dashboard shows the pack's block again (or the default, for a pack without one). People with the viewer role see the dashboard but not Customize.
 
+With [login](./safety) on, only admins change what strangers see: the tiles marked public and the runs they read. A user's change can add, edit and move private tiles; a tile a user adds starts private, and saving a change that adds, edits or removes a public tile, or changes the range, is refused (`public_tiles_admin_only`). **Use the pack's** is refused the same way when it would change the public tiles.
+
 A change is kept as a `dashboard` block too, so the API takes the same thing: `POST /api/v1/packs/:id/dashboard` with `{ tiles }` or `{ groups }` saves one, and `DELETE` drops it. To keep a change for good, copy it into the pack.
 
 ## Keeping things out of shares

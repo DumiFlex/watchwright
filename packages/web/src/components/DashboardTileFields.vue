@@ -6,6 +6,7 @@ import { computed, ref, useId } from "vue";
 import type { DashLink, Tile } from "../dashboard";
 import { argOptions, kindOf, measureOptions, type DashboardNames } from "../dashedit";
 import { Plus, Trash2 } from "../icons";
+import { can } from "../session";
 import { vTip } from "../tooltip";
 import MultiSelect from "./MultiSelect.vue";
 import NumberInput from "./NumberInput.vue";
@@ -223,7 +224,7 @@ const addLink = () => (tile.value = { ...tile.value, links: [...links.value, { c
       <MultiSelect :id="`${id}-tests`" :model-value="tile.tests ?? []" :options="testOptions" empty-label="Every test" @update:model-value="(v: string[]) => set('tests', v)" />
     </div>
     <ToggleSwitch :id="`${id}-current`" :model-value="!tile.current" @update:model-value="(v: boolean) => (tile = { ...tile, current: !v })">Also count tries that broke and ran again</ToggleSwitch>
-    <ToggleSwitch :id="`${id}-public`" :model-value="tile.public" @update:model-value="(v: boolean) => (tile = { ...tile, public: v })">Show on the public status page and in shares</ToggleSwitch>
+    <ToggleSwitch :id="`${id}-public`" :model-value="tile.public" :disabled="!can('admin')" @update:model-value="(v: boolean) => (tile = { ...tile, public: v })">Show on the public status page and in shares</ToggleSwitch>
     <div v-if="groups.length > 1" class="fld">
       <label :for="`${id}-group`" class="lbl small">Group</label>
       <SelectMenu :id="`${id}-group`" :model-value="group" :options="groups.map((g, i) => ({ value: i, label: g || `Group ${i + 1}` }))" @update:model-value="(to: number) => emit('move', to)" />

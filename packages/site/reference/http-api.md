@@ -290,8 +290,8 @@ A pack's [dashboard](../guide/dashboards): its tiles with each tile's numbers, w
 |---|---|
 | `GET /packs/:id/dashboard?runs=&days=&filter=` | `{ dashboard, source, packHasOwn, updatedBy, updatedAt, range, filters, groups }`. `source` is `override` (changed on the page), `pack` (the pack's `dashboard` block) or `default`. `range` gives the runs read (`count`, `from`, `to`); `filters` each filter's `values` in recent runs and the `value` picked. `groups` holds each tile as `{ tile, title, data, error }`, `data` shaped by the tile's kind (`series` of `{ group, points: [{ runId, at, value }] }` for `metric`, `score` and `flags`; `rows` and `best` for `leaderboard`; `grids` for `matrix`; `items` for `failures` and `lowest`; …). `runs` or `days` read another range; `filter` picks param values, `model=q9,format=json`. |
 | `GET /packs/:id/dashboard/names` | What a dashboard can name, from the pack and its latest 50 runs: `params`, `info`, `metrics` (with units), `texts`, `files`, `shots`, `flags` (with kinds), `criteria`, `sections`, `tags`, `tests`. |
-| `POST /packs/:id/dashboard` `{ tiles \| groups, runs?, days?, filters? }` | Saves a change to the pack's dashboard, written as in the pack file. 400 `bad_dashboard` with `detail.problems` when it isn't valid. |
-| `DELETE /packs/:id/dashboard` | Drops the change: the dashboard is the pack's own again. |
+| `POST /packs/:id/dashboard` `{ tiles \| groups, runs?, days?, filters? }` | Saves a change to the pack's dashboard, written as in the pack file. 400 `bad_dashboard` with `detail.problems` when it isn't valid. With login on, 403 `public_tiles_admin_only` when someone below admin changes the public tiles or the runs they read. |
+| `DELETE /packs/:id/dashboard` | Drops the change: the dashboard is the pack's own again. 403 `public_tiles_admin_only` as above, when that changes the public tiles. |
 
 ## Compare and export
 
