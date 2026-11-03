@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.13.0](https://github.com/DumiFlex/watchwright/compare/v0.12.0...v0.13.0) (2026-11-03)
+
+
+### Features
+
+* let admins keep a pack to chosen people and groups ([#213](https://github.com/DumiFlex/watchwright/issues/213)) ([582526f](https://github.com/DumiFlex/watchwright/commit/582526f479ef03fbc01cb0829782a809db857d43))
+* let users propose code changes for admins to review ([#208](https://github.com/DumiFlex/watchwright/issues/208)) ([9e30120](https://github.com/DumiFlex/watchwright/commit/9e30120d1d313926915ffacd87e9672c8593c0ad))
+* pack tasks, teardown and pack state for putting a site back around runs ([#216](https://github.com/DumiFlex/watchwright/issues/216)) ([fc92bbf](https://github.com/DumiFlex/watchwright/commit/fc92bbfee14b8d5bf2482da14a2998766b9d1635))
+* pick who sees a pack from its page, and groups for pack access ([#214](https://github.com/DumiFlex/watchwright/issues/214)) ([00478cc](https://github.com/DumiFlex/watchwright/commit/00478cc8f84edcf418517c25be6a89fd7f817948))
+* run runners as background services and remove them from their machine ([#212](https://github.com/DumiFlex/watchwright/issues/212)) ([a54374a](https://github.com/DumiFlex/watchwright/commit/a54374a73c8541dd8f1bd2d81e2aea8cb6880993))
+* split Settings into Account, Settings and Admin pages ([#203](https://github.com/DumiFlex/watchwright/issues/203)) ([3b1ea7e](https://github.com/DumiFlex/watchwright/commit/3b1ea7e2fdaf2de45452102a607ce2db956bfc9e))
+* video quality setting and Compress kept videos ([#207](https://github.com/DumiFlex/watchwright/issues/207)) ([7ff97d9](https://github.com/DumiFlex/watchwright/commit/7ff97d9cad2055f9af092bf18b902b1441ef89ea))
+* **web:** on this page outline, top and bottom jumps, pack page tabs ([#204](https://github.com/DumiFlex/watchwright/issues/204)) ([8395305](https://github.com/DumiFlex/watchwright/commit/8395305ac7f1f46820cd875d6644e66425dc7e4a))
+
+
+### Bug Fixes
+
+* bring a pack's shared files along when it moves, and say when they're missing ([#215](https://github.com/DumiFlex/watchwright/issues/215)) ([5132319](https://github.com/DumiFlex/watchwright/commit/5132319643487ddaabbc1db05c072f6dd9c7bf16))
+* files of a hidden pack's runs could be read through other spellings of their path ([#217](https://github.com/DumiFlex/watchwright/issues/217)) ([477815f](https://github.com/DumiFlex/watchwright/commit/477815ff848d2b318e5876c6de978bedc9aeac73))
+* keep pack task runs off the dashboard and out of what a new run copies ([#219](https://github.com/DumiFlex/watchwright/issues/219)) ([1273bef](https://github.com/DumiFlex/watchwright/commit/1273bef741dfd1c5ff30efd39b52b21a856f0afc))
+* keep schedule, recording and approval events of a hidden pack from people who can't see it ([#218](https://github.com/DumiFlex/watchwright/issues/218)) ([87ef222](https://github.com/DumiFlex/watchwright/commit/87ef22227161e812da5254072296514d2926f47e))
+* make pack code admin-only and keep YAML tests to web addresses and the pack folder ([#205](https://github.com/DumiFlex/watchwright/issues/205)) ([68d915a](https://github.com/DumiFlex/watchwright/commit/68d915a2549bd39701c41fd63f4d44fcec97d2a3))
+* only admins change public dashboard tiles ([#211](https://github.com/DumiFlex/watchwright/issues/211)) ([ee11280](https://github.com/DumiFlex/watchwright/commit/ee112809b3fda11b99d8682acbbe27214431f397))
+* problems found on Windows: the sign-in entry of a second server, status --port, empty videos after a kill ([#220](https://github.com/DumiFlex/watchwright/issues/220)) ([a973176](https://github.com/DumiFlex/watchwright/commit/a9731769b8e83ed5453ff18916fb971f02eb2973))
+* show folders in Explorer again on Windows ([#206](https://github.com/DumiFlex/watchwright/issues/206)) ([4f374e7](https://github.com/DumiFlex/watchwright/commit/4f374e7f827c36d943c11ba2ef1e13192aeb6a5e))
+* **web:** stop the page flickering when signing out ([#210](https://github.com/DumiFlex/watchwright/issues/210)) ([6288636](https://github.com/DumiFlex/watchwright/commit/628863670cf4b5ac34c7a1d486260a2b7cc0b565))
+
 ## [0.12.0](https://github.com/DumiFlex/watchwright/compare/v0.11.1...v0.12.0) (2026-11-02)
 
 
