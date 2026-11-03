@@ -130,6 +130,11 @@ export class FolderService {
     return this.opts.desktop ?? true;
   }
 
+  /** Whether the folder browser may show `file` (it is inside the folders the server shows). */
+  shows(file: string): boolean {
+    return this.allowed(path.resolve(file));
+  }
+
   private allowed(dir: string): boolean {
     const roots = this.opts.roots;
     return !roots || roots.some((r) => isInside(dir, r));

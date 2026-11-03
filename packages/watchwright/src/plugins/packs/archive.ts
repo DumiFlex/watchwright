@@ -24,32 +24,75 @@ export class ArchiveError extends Error {
   }
 }
 
-/** Every file of a pack folder as zip entries under `<folder name>/`, leaving out dependencies, VCS folders and links. */
-export function packEntries(dir: string): ZipEntry[] {
-  const root = path.basename(dir);
+const inside = (file: string, dir: string) => {
+  const rel = path.relative(dir, file);
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+};
+
+/** The deepest folder holding every given folder, or null (two drives on Windows). */
+function commonFolder(dirs: string[]): string | null {
+  let common = dirs[0]!;
+  for (const d of dirs.slice(1)) {
+    while (!inside(d, common)) {
+      const up = path.dirname(common);
+      if (up === common) return null;
+      common = up;
+    }
+  }
+  return common;
+}
+
+/**
+ * Where a pack's zip starts: the pack's folder, or, when the pack imports files from outside it
+ * (`outside`, from its build), the folder that holds them all, so the zip keeps the layout the
+ * imports need. `top` is the folder name the zip's files sit in.
+ */
+export function zipRoot(dir: string, outside: readonly string[] = []): { root: string; top: string; extra: string[] } {
+  const extra = outside.filter((f) => !inside(f, dir));
+  const root = extra.length > 0 ? commonFolder([dir, ...extra.map((f) => path.dirname(f))]) : dir;
+  if (!root || root === path.parse(root).root) return { root: dir, top: path.basename(dir) || "pack", extra: [] };
+  return { root, top: path.basename(root), extra: root === dir ? [] : extra };
+}
+
+/**
+ * Every file of a pack folder as zip entries under `<folder name>/`, leaving out dependencies, VCS
+ * folders and links. Files from `outside` the folder (shared files the pack imports) come along
+ * at their place beside it, under the name of the folder that holds them all.
+ */
+export function packEntries(dir: string, outside: readonly string[] = []): ZipEntry[] {
+  const { root, top, extra } = zipRoot(dir, outside);
   const out: ZipEntry[] = [];
   let total = 0;
-  const walk = (at: string, rel: string) => {
+  const add = (full: string, size: number) => {
+    total += size;
+    if (total > UNPACKED_MAX_BYTES || out.length >= MAX_FILES) throw new ArchiveError("too_big", `The pack folder is over ${UNPACKED_MAX_BYTES / 1024 / 1024} MB or ${MAX_FILES} files; copy it off the server instead.`);
+    out.push({ name: [top, ...path.relative(root, full).split(path.sep)].join("/"), data: readFileSync(full) });
+  };
+  const walk = (at: string) => {
     for (const name of readdirSync(at).sort()) {
       const full = path.join(at, name);
       const st = lstatSync(full);
-      const inZip = rel ? `${rel}/${name}` : name;
       if (st.isDirectory()) {
-        if (!SKIP_DIRS.has(name)) walk(full, inZip);
-      } else if (st.isFile()) {
-        total += st.size;
-        if (total > UNPACKED_MAX_BYTES || out.length >= MAX_FILES) throw new ArchiveError("too_big", `The pack folder is over ${UNPACKED_MAX_BYTES / 1024 / 1024} MB or ${MAX_FILES} files; copy it off the server instead.`);
-        out.push({ name: `${root}/${inZip}`, data: readFileSync(full) });
-      }
+        if (!SKIP_DIRS.has(name)) walk(full);
+      } else if (st.isFile()) add(full, st.size);
       // Links and other special files stay out: a link could point anywhere on the machine.
     }
   };
-  walk(dir, "");
-  return out;
+  walk(dir);
+  for (const f of extra) {
+    let st;
+    try {
+      st = lstatSync(f);
+    } catch {
+      continue; // gone since the build
+    }
+    if (st.isFile()) add(f, st.size);
+  }
+  return out.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 }
 
-export function packZip(dir: string): Buffer {
-  return zip(packEntries(dir));
+export function packZip(dir: string, outside: readonly string[] = []): Buffer {
+  return zip(packEntries(dir, outside));
 }
 
 /** A zip entry's path made safe, or null to skip it (folders, macOS resource forks). Throws on paths that leave the folder. */
@@ -61,7 +104,26 @@ function safeName(raw: string): string | null {
   return parts.join("/");
 }
 
-/** The zip's files with paths relative to the pack folder: a single top folder around everything is dropped. */
+const isPackFile = (name: string) => PACK_FILES.includes(name.split("/").pop()!) && !name.split("/").some((p) => SKIP_DIRS.has(p));
+const parentOf = (name: string) => (name.includes("/") ? name.slice(0, name.lastIndexOf("/")) : "");
+
+/**
+ * The pack folders among a zip's files, shallowest first ("" is the top). A pack's direct
+ * subfolders can be packs that share its files (bench/ and bench/smoke/); deeper pack files inside
+ * a pack are its own fixtures. With no pack at the top, every pack folder counts, so a zip of a
+ * folder of shared files with packs beside them works.
+ */
+export function packFolders(files: readonly ZipEntry[]): string[] {
+  const dirs = [...new Set(files.filter((f) => isPackFile(f.name)).map((f) => parentOf(f.name)))];
+  const depth = (d: string) => (d === "" ? 0 : d.split("/").length);
+  dirs.sort((a, b) => depth(a) - depth(b) || a.localeCompare(b));
+  return dirs.filter((d) => !dirs.some((p) => p !== d && (p === "" ? depth(d) > 1 : d.startsWith(`${p}/`) && depth(d) > depth(p) + 1)));
+}
+
+/**
+ * The zip's files with paths relative to the new folder: a single top folder around everything is
+ * dropped. A pack file must be at the top, or deeper beside files its packs share.
+ */
 export function packFiles(buf: Buffer): ZipEntry[] {
   let entries: ZipEntry[];
   try {
@@ -70,21 +132,21 @@ export function packFiles(buf: Buffer): ZipEntry[] {
     if (err instanceof ZipLimitError) throw new ArchiveError("too_big", err.message);
     throw new ArchiveError("bad_zip", `This isn't a zip file Watchwright can read (${err instanceof Error ? err.message : String(err)}).`);
   }
-  const files: ZipEntry[] = [];
+  let files: ZipEntry[] = [];
   for (const e of entries) {
     const name = safeName(e.name);
     if (name !== null) files.push({ name, data: e.data });
   }
   if (files.length > MAX_FILES) throw new ArchiveError("too_big", `The zip has more than ${MAX_FILES} files.`);
-  const atRoot = (list: ZipEntry[]) => list.some((f) => PACK_FILES.includes(f.name));
-  if (atRoot(files)) return files;
-  const tops = new Set(files.map((f) => f.name.split("/")[0]));
-  if (tops.size === 1 && files.every((f) => f.name.includes("/"))) {
-    const top = [...tops][0]!;
-    const inner = files.map((f) => ({ name: f.name.slice(top.length + 1), data: f.data }));
-    if (atRoot(inner)) return inner;
+  if (!files.some((f) => PACK_FILES.includes(f.name))) {
+    const tops = new Set(files.map((f) => f.name.split("/")[0]));
+    if (tops.size === 1 && files.every((f) => f.name.includes("/"))) {
+      const top = [...tops][0]!;
+      files = files.map((f) => ({ name: f.name.slice(top.length + 1), data: f.data }));
+    }
   }
-  throw new ArchiveError("no_pack_file", `The zip has no pack file (${PACK_FILES.join(", ")}) at its top or in a single folder at its top.`);
+  if (packFolders(files).length === 0) throw new ArchiveError("no_pack_file", `The zip has no pack file (${PACK_FILES.join(", ")}).`);
+  return files;
 }
 
 /** A folder name from a file name or what someone typed: letters, digits, dot, dash, underscore and spaces. */
@@ -98,8 +160,11 @@ export function folderName(input: string): string {
   return name;
 }
 
-/** Unpacks a pack zip into `<parent>/<name>`, a folder that must not exist yet. Returns the new folder. */
-export function unpackPack(buf: Buffer, parent: string, name: string): string {
+/**
+ * Unpacks a pack zip into `<parent>/<name>`, a folder that must not exist yet. Returns the new
+ * folder and the pack folders in it, shallowest first.
+ */
+export function unpackPack(buf: Buffer, parent: string, name: string): { dir: string; packs: string[] } {
   const files = packFiles(buf);
   const dir = path.join(parent, folderName(name));
   if (existsSync(dir)) throw new ArchiveError("exists", `${dir} already exists. Pick another name.`);
@@ -114,5 +179,5 @@ export function unpackPack(buf: Buffer, parent: string, name: string): string {
     rmSync(dir, { recursive: true, force: true });
     throw err;
   }
-  return dir;
+  return { dir, packs: packFolders(files).map((d) => (d === "" ? dir : path.join(dir, ...d.split("/")))) };
 }
