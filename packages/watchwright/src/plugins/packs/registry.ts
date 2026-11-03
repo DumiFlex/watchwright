@@ -58,6 +58,18 @@ export interface PackSummary {
   /** The pack's `share:` block; null when it has none. */
   share: ShareOptions | null;
   tests: PackTestSummary[];
+  /** The pack's tasks: steps that run on their own, as runs of the `task` kind. */
+  tasks: PackTaskSummary[];
+  /** Which run hooks the pack has. */
+  hooks: { setup: boolean; teardown: boolean; afterTask: boolean };
+}
+
+export interface PackTaskSummary {
+  /** The task's name: what `runs.start` takes in `tests` with `kind: "task"`. */
+  id: string;
+  title: string;
+  description: string | null;
+  readOnly: boolean;
 }
 
 export interface PackRunDefaults {
@@ -265,6 +277,8 @@ export class PackRegistry {
       dashboard: readDashboard(o.dashboard, []),
       share: readShare(o.share, []),
       tests: pack.tests.map((t) => testSummary(t, o.rubric)),
+      tasks: Object.entries(o.tasks ?? {}).map(([id, t]) => ({ id, title: t.title ?? id, description: t.description ?? null, readOnly: t.readOnly === true })),
+      hooks: { setup: !!o.setup, teardown: !!o.teardown, afterTask: !!o.afterTask },
     };
     this.db
       .prepare("UPDATE packs SET name = ?, site_key = ?, status = ?, error = ?, problems = ?, summary = ?, loaded_at = ? WHERE id = ?")
@@ -295,6 +309,8 @@ export class PackRegistry {
       dashboard: s.dashboard ?? null,
       share: s.share ?? null,
       tests: (s.tests ?? []).map((t) => ({ ...t, line: t.line ?? null, rubric: t.rubric ?? rubricFor(undefined, undefined) })),
+      tasks: s.tasks ?? [],
+      hooks: s.hooks ?? { setup: false, teardown: false, afterTask: false },
     };
   }
 }

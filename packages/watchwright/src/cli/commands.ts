@@ -296,6 +296,8 @@ export interface RunOpts {
   params: Record<string, string>;
   preset?: string;
   label?: string;
+  /** The job kind (default test); `task` runs one of the pack's tasks. */
+  kind?: string;
   attempts?: number;
   trace?: string;
   video?: boolean;
@@ -311,7 +313,7 @@ export async function runCommand(client: Client, io: Io, pack: string, tests: st
   const body: Record<string, unknown> = { packId: p.id };
   if (tests.length) body.tests = tests;
   if (Object.keys(o.params).length) body.params = o.params;
-  for (const k of ["preset", "label", "attempts", "trace", "video", "pauseOnBroken"] as const) if (o[k] !== undefined) body[k] = o[k];
+  for (const k of ["preset", "label", "kind", "attempts", "trace", "video", "pauseOnBroken"] as const) if (o[k] !== undefined) body[k] = o[k];
   const run = await client.callName<{ id: string; counts: { planned: number } }>("runs.start", body);
   if (o.json && !o.wait) {
     io.out(json(run));

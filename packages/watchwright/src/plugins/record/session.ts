@@ -13,7 +13,7 @@ import type { LoadedPack } from "../packs/loader.js";
 import { runSteps } from "../packs/yaml/run.js";
 import type { StepArgs } from "../packs/yaml/steps.js";
 import type { Target } from "../packs/yaml/targets.js";
-import type { Helpers, ParamValues, TestDefinition } from "../packs/api.js";
+import type { Helpers, PackState, ParamValues, TestDefinition } from "../packs/api.js";
 import { createHelpers } from "../testing/helpers.js";
 import { stepOfAction, type RecorderAction } from "./actions.js";
 import { StopHere, stopBelow } from "./upto.js";
@@ -63,6 +63,8 @@ export interface RecordOptions {
   /** Where to open: the site's base URL by default. */
   url: string | null;
   params: ParamValues;
+  /** The pack's state, for its beforeAttempt hook. */
+  state: PackState;
   /** Open a browser window on the machine instead of recording on the live view. */
   window: boolean;
   dataDir: string;
@@ -290,7 +292,7 @@ export class RecordSession {
     const h = this.helpers(page);
     try {
       const meta = test.meta;
-      await hook?.({ page, h, params: this.opts.params, packDir: this.opts.pack.dir, test: { id: test.id, title: meta.title ?? test.id, section: meta.section ?? null, tags: [...(meta.tags ?? [])] }, attempt: 1, attempts: 1, last: true });
+      await hook?.({ page, h, params: this.opts.params, packDir: this.opts.pack.dir, state: this.opts.state, test: { id: test.id, title: meta.title ?? test.id, section: meta.section ?? null, tags: [...(meta.tags ?? [])] }, attempt: 1, attempts: 1, last: true });
       await runSteps(steps, this.stepEnv(page, h, path.join(this.opts.pack.dir, test.file)));
       if (upTo !== null) await this.runCodeUpTo(test, upTo, page, h);
       this.message = null;

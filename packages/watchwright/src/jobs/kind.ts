@@ -1,5 +1,5 @@
 import type { Page } from "playwright";
-import type { Outcome, ParamValues } from "../plugins/packs/api.js";
+import type { Outcome, PackState, ParamValues, RunRef, RunStart } from "../plugins/packs/api.js";
 import type { LoadedPack } from "../plugins/packs/loader.js";
 import type { BrowserSession } from "../session/session.js";
 import type { RunControl } from "./control.js";
@@ -57,6 +57,10 @@ export interface AttemptEnv<H = unknown> {
   session: BrowserSession;
   control: RunControl;
   recorder: AttemptRecorder;
+  /** The pack's state (values it keeps between runs and tasks). */
+  state: PackState;
+  /** The pack's latest run that is mid-way (running, paused, stopped, interrupted or queued to resume), other than this one. */
+  packRun(): RunRef | null;
   /** This kind's helper object for this attempt (what `JobKind.helpers` builds). */
   helpers(): H;
   /** Runs a child item inside this attempt, as its own attempt record. */
@@ -77,6 +81,10 @@ export interface SetupEnv<H = unknown> {
   helpers(): H;
   /** Saves a fact about the run. */
   info(key: string, value: string | number | boolean): void;
+  /** How the run starts: new, or a resume or redo of one that went before. */
+  start: RunStart;
+  run: RunRef;
+  state: PackState;
 }
 
 /** Choices of a run that change its plan. */
@@ -106,4 +114,17 @@ export interface JobKind<H = unknown> {
   execute(env: AttemptEnv<H>): Promise<void>;
   /** After an attempt that wasn't stopped, with its outcome. Errors are logged, not raised. */
   afterAttempt?(env: AttemptEnv<H>, outcome: Outcome): Promise<void>;
+  /** Once when the run ends (finished, stopped, or setup failed), not on a server shutdown. Errors are logged. */
+  teardown?(env: SetupEnv<H>, status: "finished" | "stopped" | "failed"): Promise<void>;
+  /** When a paused run goes on after runs of a `whilePaused` kind changed its site, before the next item. */
+  afterTask?(env: SetupEnv<H>, tasks: string[]): Promise<void>;
+  /**
+   * Runs of this kind may start while the site's run is paused (pack tasks). That run can't go on
+   * until they end; then it gets `afterTask` (unless `touchesSite` says the run left the site alone).
+   */
+  whilePaused?: boolean;
+  /** A label for a new run of these items when the starter gives none (a task's title). */
+  runLabel?(pack: LoadedPack, items: readonly string[]): string;
+  /** For a `whilePaused` kind: whether a run of these items may change the site (default true). */
+  touchesSite?(pack: LoadedPack, items: readonly string[]): boolean;
 }

@@ -187,14 +187,24 @@ run:
   pauseOnBroken: true
   trace: problems
 
-setup:          # once per run, before the first test
+setup:          # at each start of a run, before the first test
   - info: { key: App, value: TodoMVC }
+teardown: []    # once when a run ends
+afterTask: []   # when a paused run goes on after a task used the site
 beforeEach:     # before each attempt
   - goto: /todomvc/
   - clear: storage
   - reload
 afterEach: []   # after each attempt, also when it failed
+tasks:          # named steps that run on their own
+  clear-data:
+    title: Clear the data
+    steps:
+      - goto: /todomvc/
+      - clear: storage
 ```
+
+See [Setup, teardown and tasks](./tasks) for when each runs.
 
 `browser.context` takes the plain Playwright context options (`locale`, `timezoneId`, `colorScheme`, `userAgent`, `extraHTTPHeaders`, `httpCredentials`, `storageState` relative to the pack, …). Hooks written in code, your own collectors, helpers and an `idle` check need a code pack file; a code pack can still have YAML tests.
 

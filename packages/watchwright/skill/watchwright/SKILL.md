@@ -40,5 +40,6 @@ Watchwright runs browser test packs on a local server (by default `http://127.0.
 - [yaml-tests.md](references/yaml-tests.md): YAML test files, targets, variables, hooks.
 - [yaml-steps.md](references/yaml-steps.md): every step and its fields.
 - [test-packs.md](references/test-packs.md): packs in code, `test()`, `h` helpers, options, parameters, flags.
+- [tasks.md](references/tasks.md): setup, teardown, pack tasks (run with `kind: "task"`) and pack state.
 - [mcp.md](references/mcp.md): every MCP tool and exploring.
 - [cli.md](references/cli.md): every command and exit code.

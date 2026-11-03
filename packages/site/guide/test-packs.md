@@ -90,7 +90,9 @@ export default pack({
 | `dashboard` | What the pack's dashboard shows: tiles of outcomes, metrics, scores, setups compared, tests and outputs (see [Dashboards](./dashboards)). Default: outcomes, run times and the latest failures. |
 | `share` | What share links and the public status page leave out: `texts`, `metrics` or `reviews` set to `false`, and `outputs`, names of texts and files never shared (see [Dashboards](./dashboards#keeping-things-out-of-shares)). |
 | `tests` | Glob(s) of test files relative to the pack file. Default `tests/**/*.{ts,mts,js,mjs}`. |
-| `setup` | Runs once each time a run starts (or resumes), before the first test. Gets `{ page, context, browser, h, params, packDir, info }`; `info(key, value)` saves a fact about the run (see below). |
+| `setup` | Runs each time a run starts (new, resumed or redone), before the first test. Gets `{ page, context, browser, h, params, packDir, info, start, run, state }`; `info(key, value)` saves a fact about the run (see below), `start` says how the run starts. See [Setup, teardown and tasks](./tasks). |
+| `teardown` | Runs once when a run ends (finished, stopped, or setup failed), to put the site back. See [Setup, teardown and tasks](./tasks#teardown). |
+| `tasks`, `afterTask` | Named steps that run on their own (from the pack page, the CLI, agents or schedules), and what a paused run does when it goes on after one. See [Tasks](./tasks#tasks). |
 | `beforeAttempt`, `afterAttempt` | Run around every attempt, children too (see [Attempt hooks](#attempt-hooks)). |
 | `collectors` | Record what the browser does for every attempt (see below). |
 | `helpers` | Adds your own helpers to `h` (see below). |
@@ -216,7 +218,7 @@ When a run ends, a planned child attempt that no parent ran is filed as skipped,
 
 ## Attempt hooks
 
-`beforeAttempt` and `afterAttempt` run around every attempt, children too. They get `{ page, h, params, packDir, test: { id, title, section, tags }, attempt, attempts, last }`, and `afterAttempt` also gets the `outcome`. Use them for state some tests need set up or kept safe, picked by tag:
+`beforeAttempt` and `afterAttempt` run around every attempt, children too. They get `{ page, h, params, packDir, state, test: { id, title, section, tags }, attempt, attempts, last }` (`state` is the pack's [state](./tasks#pack-state)), and `afterAttempt` also gets the `outcome`. Use them for state some tests need set up or kept safe, picked by tag:
 
 ```ts
 export default pack({

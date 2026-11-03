@@ -30,6 +30,7 @@ export default defineConfig({
           { text: "Watchwright or Playwright Test?", link: "/guide/watchwright-or-playwright-test" },
           { text: "Writing a test pack", link: "/guide/test-packs" },
           { text: "YAML tests", link: "/guide/yaml-tests" },
+          { text: "Setup, teardown and tasks", link: "/guide/tasks" },
           { text: "Editing a pack", link: "/guide/editing" },
           { text: "Recording", link: "/guide/recording" },
           { text: "Agents", link: "/guide/agents" },

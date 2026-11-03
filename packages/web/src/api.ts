@@ -106,6 +106,24 @@ export interface Pack {
   run: PackRunDefaults;
   rubric: Criterion[];
   tests: PackTest[];
+  /** Steps that run on their own, as runs of the `task` kind. */
+  tasks: PackTask[];
+  /** Which run hooks the pack has. */
+  hooks: { setup: boolean; teardown: boolean; afterTask: boolean };
+}
+
+export interface PackTask {
+  id: string;
+  title: string;
+  description: string | null;
+  readOnly: boolean;
+}
+
+/** One value a pack keeps between runs and tasks. */
+export interface PackStateEntry {
+  key: string;
+  value: unknown;
+  updatedAt: string;
 }
 
 export interface FolderEntry {

@@ -298,6 +298,28 @@ export function windowsUnsafe(id: string): string | null {
 const SITE_KEY = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
 const FLAG_KINDS = ["robot", "finding", "info"];
 
+const TASK_NAME = /^[a-z][a-z0-9-]{0,39}$/;
+
+/** What's wrong with a pack's `tasks` block. */
+export function taskProblems(tasks: PackOptions["tasks"]): string[] {
+  if (tasks === undefined) return [];
+  if (tasks === null || typeof tasks !== "object" || Array.isArray(tasks)) return ["`tasks` must be an object of named tasks."];
+  const out: string[] = [];
+  for (const [name, t] of Object.entries(tasks)) {
+    if (!TASK_NAME.test(name)) out.push(`Task "${name}": names are lowercase letters, digits and dashes, starting with a letter (up to 40).`);
+    if (!t || typeof t !== "object") {
+      out.push(`Task "${name}" must be an object with a \`run\` function.`);
+      continue;
+    }
+    if (typeof t.run !== "function") out.push(`Task "${name}" needs a \`run\` function.`);
+    if (t.title !== undefined && (typeof t.title !== "string" || t.title.trim() === "")) out.push(`Task "${name}": \`title\` must be a non-empty string.`);
+    if (t.description !== undefined && typeof t.description !== "string") out.push(`Task "${name}": \`description\` must be a string.`);
+    if (t.readOnly !== undefined && typeof t.readOnly !== "boolean") out.push(`Task "${name}": \`readOnly\` must be true or false.`);
+    if (t.timeout !== undefined && (typeof t.timeout !== "number" || !(t.timeout > 0))) out.push(`Task "${name}": \`timeout\` must be a positive number of ms.`);
+  }
+  return out;
+}
+
 function checkOptions(o: PackOptions): void {
   const problems: string[] = [];
   if (typeof o.name !== "string" || o.name.trim() === "") problems.push("`name` must be a non-empty string.");
@@ -316,5 +338,8 @@ function checkOptions(o: PackOptions): void {
   problems.push(...rubricProblems(o.rubric, "rubric"));
   readDashboard(o.dashboard, problems);
   readShare(o.share, problems);
+  for (const hook of ["setup", "teardown", "afterTask", "beforeAttempt", "afterAttempt"] as const)
+    if (o[hook] !== undefined && typeof o[hook] !== "function") problems.push(`\`${hook}\` must be a function.`);
+  problems.push(...taskProblems(o.tasks));
   if (problems.length > 0) throw new PackLoadError("The pack's options aren't valid.", problems);
 }

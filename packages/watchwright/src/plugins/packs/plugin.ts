@@ -9,6 +9,9 @@ import { FOLDERS, FolderError, isInside } from "../folders/folders.js";
 import { PACK_FILES, PackLoadError } from "./loader.js";
 import { discoverPacks, PACKS, PACKS_MIGRATION_SQL, PackRegistry } from "./registry.js";
 import { PACK_ACCESS, PACK_ACCESS_SQL, PackAccessStore } from "./access.js";
+import { PACK_STATE, PACK_STATE_SQL, PackStateStore } from "./state.js";
+import { SECRETS } from "../secrets/plugin.js";
+import { maskDeep } from "../secrets/mask.js";
 import { PACK_GUARD } from "../../core/keys.js";
 import { convertToCode } from "./convert.js";
 import { StarterError, writeStarter } from "./starter.js";
@@ -43,6 +46,7 @@ export const packsPlugin = definePlugin({
   migrations: [
     { id: 1, name: "init", sql: PACKS_MIGRATION_SQL },
     { id: 2, name: "access", sql: PACK_ACCESS_SQL },
+    { id: 3, name: "state", sql: PACK_STATE_SQL },
   ],
   setup({ store, events, services }) {
     const cache = store.dataDir === ":memory:" ? path.join(tmpdir(), `watchwright-cache-${process.pid}`) : path.join(store.dataDir, "cache", "packs");
@@ -51,6 +55,7 @@ export const packsPlugin = definePlugin({
     const access = new PackAccessStore(store.db);
     services.provide(PACK_ACCESS, access);
     services.provide(PACK_GUARD, access);
+    services.provide(PACK_STATE, new PackStateStore(store.db));
     const folders = services.get(FOLDERS);
     folders.addMarker({ kind: "pack", files: PACK_FILES });
     folders.allowOpen((dir) => registry.list().some((p) => isInside(dir, p.dir)));
@@ -61,6 +66,8 @@ export const packsPlugin = definePlugin({
     const registry = services.get(PACKS);
     const folders = services.get(FOLDERS);
     const access = services.get(PACK_ACCESS);
+    const state = services.get(PACK_STATE);
+    const secrets = services.has(SECRETS) ? services.get(SECRETS) : null;
     return [
       defineAction({
         name: "packs.list",
@@ -247,6 +254,7 @@ export const packsPlugin = definePlugin({
         handler: ({ id }) => {
           if (!registry.remove(id)) notFound(id);
           access.forget(id);
+          state.forget(id);
           return { removed: id };
         },
       }),
@@ -258,6 +266,32 @@ export const packsPlugin = definePlugin({
         method: "GET",
         path: "/packs/access",
         handler: () => access.all(),
+      }),
+      defineAction<{ id: string }>({
+        name: "packs.state",
+        pack: { pack: "id" },
+        title: "The values a pack keeps between runs and tasks (its state), with secrets masked",
+        method: "GET",
+        path: "/packs/:id/state",
+        input: { type: "object", properties: { id: ID }, required: ["id"] },
+        handler: ({ id }) => {
+          if (!registry.get(id)) notFound(id);
+          const list = state.list(id);
+          return secrets ? maskDeep(list, (t) => secrets.mask(t)) : list;
+        },
+      }),
+      defineAction<{ id: string; key: string }>({
+        name: "packs.state-delete",
+        pack: { pack: "id" },
+        title: "Delete one value a pack keeps (its setup, teardown or tasks may need it)",
+        method: "DELETE",
+        path: "/packs/:id/state/:key",
+        input: { type: "object", properties: { id: ID, key: { type: "string", minLength: 1, maxLength: 100 } }, required: ["id", "key"] },
+        handler: ({ id, key }) => {
+          if (!registry.get(id)) notFound(id);
+          if (!state.delete(id, key)) throw new ActionError("not_found", `The pack keeps no value "${key}".`, 404);
+          return { deleted: key };
+        },
       }),
       defineAction<{ id: string }>({
         name: "packs.access",

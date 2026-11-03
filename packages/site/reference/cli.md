@@ -11,7 +11,7 @@ watchwright serve [pack folder…] [--port 7420] [--host 127.0.0.1] [--data <fol
                   [--auth] [--public-url <address>]… [--trust-proxy <address>]…
 watchwright demo [--port 7420] [--data <folder>] [--no-open]
 watchwright status
-watchwright run <pack> [test…] [--param key=value]… [--preset <name>] [--label <text>] [--wait]
+watchwright run <pack> [test…] [--param key=value]… [--preset <name>] [--label <text>] [--kind <kind>] [--wait]
 watchwright wait <run> [--after <cursor>] [--timeout <seconds>]
 watchwright results <run> [--attempt <id>]
 watchwright actions
@@ -66,6 +66,7 @@ Starts a run of a pack. Name the pack by its id, its name or its folder; name te
 | `--param key=value` | A parameter value; repeat it for more. `--params '{"key": 1}'` takes JSON. |
 | `--preset <name>` | Start from the pack's preset with this name; other options override it. |
 | `--label <text>` | A name for the run. |
+| `--kind <kind>` | The job kind (default `test`). `--kind task` runs one of the pack's [tasks](../guide/tasks): `watchwright run my-pack restore --kind task --wait`. |
 | `--attempts <n>` | Attempts for every test, instead of each test's own count. |
 | `--trace problems\|always\|never` | Which attempts keep a Playwright trace. |
 | `--video`, `--no-video` | Record a video per attempt, or not. |

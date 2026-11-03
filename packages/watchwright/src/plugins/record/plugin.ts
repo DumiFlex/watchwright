@@ -5,6 +5,7 @@ import { serviceKey } from "../../core/services.js";
 import { FRAMES } from "../live/hub.js";
 import { resolveParams } from "../packs/order.js";
 import { PACKS } from "../packs/registry.js";
+import { PACK_STATE } from "../packs/state.js";
 import { PACK_ACCESS } from "../packs/access.js";
 import { STEP_BY_NAME, type StepArgs } from "../packs/yaml/steps.js";
 import type { Target } from "../packs/yaml/targets.js";
@@ -152,7 +153,7 @@ export const recordPlugin = definePlugin({
             }
           })();
           const session = new RecordSession(
-            { pack, packId, siteKey: pack.options.site.key, testId: testId ?? null, replay, line: line ?? null, url: url ?? null, params: resolved, window, dataDir, startedBy: client, signIn },
+            { pack, packId, siteKey: pack.options.site.key, testId: testId ?? null, replay, line: line ?? null, url: url ?? null, params: resolved, state: services.get(PACK_STATE).of(packId), window, dataDir, startedBy: client, signIn },
             {
               events,
               frames,

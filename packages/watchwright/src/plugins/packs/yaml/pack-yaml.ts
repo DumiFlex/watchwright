@@ -1,6 +1,6 @@
 import path from "node:path";
 import type { BrowserContextOptions } from "playwright";
-import type { Collector, PackOptions } from "../api.js";
+import type { Collector, PackOptions, TaskDefinition } from "../api.js";
 import type { DashboardInput, ShareOptions } from "../dashboard.js";
 import { consoleErrors, failedRequests, responses } from "../../testing/collectors.js";
 import { checkDocument, type Parsed } from "./parse.js";
@@ -56,6 +56,23 @@ function toOptions(y: PackYaml, file: string): PackOptions {
   if (y.share !== undefined) options.share = y.share as ShareOptions;
   const setup = y.setup as Step[] | undefined;
   if (setup?.length) options.setup = ({ page, h, params, packDir }) => runSteps(setup, { page, h, params, packDir, file, attempt: 0, attempts: 0, last: false });
+  const teardown = y.teardown as Step[] | undefined;
+  if (teardown?.length) options.teardown = ({ page, h, params, packDir }) => runSteps(teardown, { page, h, params, packDir, file, attempt: 0, attempts: 0, last: false });
+  const afterTask = y.afterTask as Step[] | undefined;
+  if (afterTask?.length) options.afterTask = ({ page, h, params, packDir }) => runSteps(afterTask, { page, h, params, packDir, file, attempt: 0, attempts: 0, last: false });
+  if (y.tasks) {
+    options.tasks = Object.fromEntries(
+      Object.entries(y.tasks).map(([name, t]) => {
+        const steps = t.steps as Step[];
+        const def: TaskDefinition = { run: ({ page, h, params, packDir }) => runSteps(steps, { page, h, params, packDir, file, attempt: 1, attempts: 1, last: true }) };
+        if (t.title) def.title = t.title;
+        if (t.description) def.description = t.description;
+        if (t.readOnly !== undefined) def.readOnly = t.readOnly;
+        if (t.timeout !== undefined) def.timeout = t.timeout;
+        return [name, def];
+      }),
+    );
+  }
   const before = y.beforeEach as Step[] | undefined;
   if (before?.length) options.beforeAttempt = (c) => runSteps(before, { page: c.page, h: c.h, params: c.params, packDir: c.packDir, file, attempt: c.attempt, attempts: c.attempts, last: c.last });
   const after = y.afterEach as Step[] | undefined;
