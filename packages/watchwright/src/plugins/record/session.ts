@@ -176,7 +176,8 @@ export class RecordSession {
   }
 
   private emit(type: string, data: Record<string, unknown>) {
-    this.host.events.append(type, data, { runId: this.id });
+    // The pack rides along, so pack access hides the event after the recording is forgotten.
+    this.host.events.append(type, { packId: this.opts.packId, ...data }, { runId: this.id });
   }
 
   private setStatus(status: RecordStatus, message: string | null = null) {
