@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.1](https://github.com/DumiFlex/watchwright/compare/v0.14.0...v0.14.1) (2026-11-03)
+
+
+### Bug Fixes
+
+* **packs:** delete nested packs, upload leftovers and folders no pack uses ([#229](https://github.com/DumiFlex/watchwright/issues/229)) ([b91ae6e](https://github.com/DumiFlex/watchwright/commit/b91ae6e6b1e49c741e588e710f6090111283f552))
+
 ## [0.14.0](https://github.com/DumiFlex/watchwright/compare/v0.13.0...v0.14.0) (2026-11-03)
 
 
