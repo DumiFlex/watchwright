@@ -31,6 +31,11 @@ export interface LoadedPack {
   stamp: string;
   buildFile: string;
   builtAt: string;
+  /**
+   * Absolute paths of the build's source files outside `dir` (a pack can import files it shares with
+   * other packs from the folder above it). A pack's zip brings them along.
+   */
+  outside: string[];
 }
 
 export class PackLoadError extends Error {
@@ -81,6 +86,37 @@ const sharedPlugin: EsbuildPlugin = {
   },
 };
 
+const insideDir = (file: string, dir: string) => {
+  const rel = path.relative(dir, file);
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+};
+
+/**
+ * Build errors made readable. An import that leaves the pack's folder and finds nothing usually
+ * means only the pack's folder was copied or uploaded, without the folder above it that holds the
+ * files it shares: say so, with where it looked.
+ */
+function buildProblems(dir: string, errors: { text: string; location?: { file: string; line: number; column: number } | null }[]): PackLoadError {
+  let outside = 0;
+  const problems = errors.map((e) => {
+    if (!e.location) return e.text;
+    const at = `${e.location.file}:${e.location.line}:${e.location.column}`;
+    const spec = /^Could not resolve "(\.{1,2}\/[^"]*)"$/.exec(e.text)?.[1];
+    if (spec) {
+      const target = path.resolve(dir, path.dirname(e.location.file), spec);
+      if (!insideDir(target, dir)) {
+        outside++;
+        return `${at} imports "${spec}" from outside the pack's folder, and it isn't in ${path.dirname(target)}.`;
+      }
+    }
+    return `${at} ${e.text}`;
+  });
+  if (outside > 0) {
+    return new PackLoadError("The pack imports files from outside its folder that aren't on this server. Copy the folder above it too, or upload a zip of that folder.", problems);
+  }
+  return new PackLoadError("The pack doesn't build.", problems);
+}
+
 async function bundle(dir: string, entry: string, outFile: string): Promise<string[]> {
   try {
     const result = await build({
@@ -103,7 +139,7 @@ async function bundle(dir: string, entry: string, outFile: string): Promise<stri
     return Object.keys(result.metafile.inputs).filter((f) => f !== "watchwright-entry.ts");
   } catch (err) {
     const errors = (err as { errors?: { text: string; location?: { file: string; line: number; column: number } | null }[] }).errors;
-    if (errors) throw new PackLoadError("The pack doesn't build.", errors.map((e) => (e.location ? `${e.location.file}:${e.location.line}:${e.location.column} ${e.text}` : e.text)));
+    if (errors) throw buildProblems(dir, errors);
     throw err;
   }
 }
@@ -221,6 +257,7 @@ export async function loadPack(input: string, cacheDir: string): Promise<LoadedP
     stamp: stampOf(dir, stamped, testFiles),
     buildFile,
     builtAt: new Date().toISOString(),
+    outside: [...new Set(inputs.map((f) => path.resolve(dir, f)))].filter((f) => !insideDir(f, dir) && !f.split(/[\\/]/).includes("node_modules")).sort(),
   };
 }
 

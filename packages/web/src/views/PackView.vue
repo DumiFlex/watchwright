@@ -332,7 +332,8 @@ onBeforeUnmount(() => live?.close());
             <template v-else>{{ x }}</template>
           </li>
         </ul>
-        <p class="muted small">Fix the files and save: the server builds the pack again by itself.</p>
+        <p v-if="pack.error?.includes('outside its folder')" class="muted small">A pack can share files with the folder above it, but that folder has to be on the server too. Copy it there and press Reload, or upload a zip of it: Download .zip on a Watchwright where this pack loads makes one with those files in it.</p>
+        <p v-else class="muted small">Fix the files and save: the server builds the pack again by itself.</p>
       </section>
 
       <TabBar id="pack-tabs" v-model="tab" class="pack-tabs" :tabs="tabs" id-prefix="pack" label="Pack" />
