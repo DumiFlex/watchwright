@@ -30,8 +30,9 @@ async function harness(): Promise<Harness> {
 
 /** Adds a runner on the server and connects one to it, paired through the API as the command does. */
 async function runner(h: Harness, name: string, allow: string[]): Promise<{ id: string; handle: RunnerHandle }> {
-  const added = await h.api<{ runner: { id: string }; code: string; command: string }>("POST", "/runners", { name, server: `http://${h.host}` });
+  const added = await h.api<{ runner: { id: string }; code: string; command: string; installCommand: string }>("POST", "/runners", { name, server: `http://${h.host}` });
   expect(added.status).toBe(201);
+  expect(added.data.installCommand).toBe(added.data.command.replace(" runner ", " runner install "));
   expect(added.data.command).toMatch(new RegExp(`^npx watchwright@\\S+ runner --server http://${h.host.replace(/\./g, "\\.")} --pair [2-9A-Z]{3}-[2-9A-Z]{3}-[2-9A-Z]{3}$`));
   const env = { WATCHWRIGHT_CONFIG_DIR: tempDir("ww-cfg-") };
   const base = `http://${h.host}/`;
@@ -153,10 +154,49 @@ describe("runners", () => {
       await proxy.close();
     }
 
-    // Removing it disconnects it and ends `watchwright runner`.
-    expect((await h.api("DELETE", `/runners/${id}`)).status).toBe(200);
+    // Removing it tells it first (it cleans up its machine and says so), disconnects it and ends `watchwright runner`.
+    const removed = await h.api<{ online: boolean; cleaned: boolean; uninstallCommand: string }>("DELETE", `/runners/${id}`);
+    expect(removed.status).toBe(200);
+    expect(removed.data).toMatchObject({ online: true, cleaned: true, uninstallCommand: "npx watchwright runner uninstall --forget" });
     expect(await runners[0]!.ended).toMatch(/removed/);
     await h.waitFor((e) => e.type === "runner.disconnected");
+  });
+
+  it("removes itself from its machine when removed, now or the next time it connects", async () => {
+    const h = await harness();
+    const { store } = h.app.watchwright.services.get(RUNNERS);
+    const cleaned: string[] = [];
+    const connect = (name: string, token: string) => {
+      const handle = connectRunner({
+        base: `http://${h.host}/`,
+        token,
+        allow: ["loopback"],
+        log: quiet,
+        service: "systemd",
+        onRemoved: async () => {
+          cleaned.push(name);
+          return true;
+        },
+      });
+      runners.push(handle);
+      return handle;
+    };
+    const a = store.add("Desk", ["loopback"], null);
+    const desk = connect("Desk", store.pair(store.pairCode(a.id).code)!.token);
+    await desk.ready;
+    expect(store.get("Desk")?.service).toBe("systemd");
+    expect((await h.api<{ service: string }[]>("GET", "/runners")).data[0]).toMatchObject({ service: "systemd" });
+    expect((await h.api<{ cleaned: boolean }>("DELETE", `/runners/${a.id}`)).data).toMatchObject({ online: true, cleaned: true });
+    await desk.ended;
+    expect(cleaned).toEqual(["Desk"]);
+
+    // Removed while offline: its token is refused with a reason the next time, and it cleans up then.
+    const b = store.add("Laptop", ["loopback"], null);
+    const token = store.pair(store.pairCode(b.id).code)!.token;
+    expect((await h.api<{ online: boolean; cleaned: boolean }>("DELETE", `/runners/${b.id}`)).data).toMatchObject({ online: false, cleaned: false });
+    const laptop = connect("Laptop", token);
+    await expect(laptop.ready).rejects.toThrow(/token doesn't work/);
+    expect(cleaned).toEqual(["Desk", "Laptop"]);
   });
 
   it("keeps trying until the server answers", { timeout: 20_000 }, async () => {
