@@ -161,7 +161,7 @@ const userItems = computed(() => [
     <ToastHost />
   </template>
   <template v-else-if="gate === 'signin'">
-    <SignInView :setup-code="route.name === 'setup' ? route.code : null" :invite-code="route.name === 'invite' ? route.code : null" :error="route.name === 'signin' ? route.error : null" />
+    <SignInView :setup-code="route.name === 'setup' ? route.code : null" :invite-code="route.name === 'invite' ? route.code : null" :error="route.name === 'signin' ? route.error : null" :link="route.name === 'signin' && !!route.link" />
     <ToastHost />
   </template>
   <template v-else-if="gate === 'app'">

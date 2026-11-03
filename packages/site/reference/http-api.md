@@ -25,7 +25,7 @@ These work with [login](../guide/safety#login) on. With it off, the user routes 
 
 | Method and path | Does |
 |---|---|
-| `GET /auth/me` | `{ on, user, setupNeeded }`: whether login is on, who is signed in (`{ id, name, displayName, role, via, tokenId? }`, `via` is `session` or `token`, and `tokenId` says which token a client called with), and `signin` (`{ oidc, passwords }`: the single sign-on button's name or null, and whether everyone may sign in with a password), and whether the first admin still has to be made. Anyone may call it. |
+| `GET /auth/me` | `{ on, user, setupNeeded }`: whether login is on, who is signed in (`{ id, name, displayName, role, hasPassword, signins, via, tokenId? }`, `signins` the [single sign-on links](../guide/single-sign-on#linking-to-an-account-you-already-have) as `{ id, source, name, createdAt, usedAt }`, `via` is `session` or `token`, and `tokenId` says which token a client called with), and `signin` (`{ oidc, passwords }`: the single sign-on button's name or null, and whether everyone may sign in with a password), and whether the first admin still has to be made. Anyone may call it. |
 | `POST /auth/signin` `{ name, password }` | Signs in: sets the `ww_session` cookie (HttpOnly, SameSite=Lax, Secure on https, 30 days from the last use). 401 `wrong_sign_in`; 429 `too_many_tries` after five wrong tries for a name or an address within 15 minutes (the wait doubles from one second to a minute); 403 `passwords_off` for anyone but an admin when password sign-in is turned off. |
 | `POST /auth/signout` | Ends this sign-in. |
 | `POST /auth/setup` `{ code, name, password }` | Creates the first admin with the one-time code the server printed at start, and signs in. 409 `set_up` once there is a user. |
@@ -34,6 +34,7 @@ These work with [login](../guide/safety#login) on. With it off, the user routes 
 | `POST /auth/users` `{ name, role, password?, displayName? }` | Adds a user (admin). Roles: `viewer` sees runs and results, `user` also starts runs, records, edits packs and reviews, `admin` also manages users, settings, secrets, sign-ins, alerts and the server. 409 `name_taken`, 400 `weak_password` (under 10 characters). |
 | `POST /auth/users/:id` `{ role?, password?, disabled?, displayName?, groups? }` | Changes a user (admin). A new password or disabling ends their sign-ins. `groups` replaces the groups an admin set (for [pack access](../guide/safety#pack-access)); each user also lists `ssoGroups`, the ones their sign-in provider sent at their last sign-in. 409 `last_admin` for the only admin. |
 | `DELETE /auth/users/:id` | Removes a user with their sign-ins and tokens (admin; waits for [approval](#approvals) from anything but the web page). |
+| `POST /auth/users/:id/merge` `{ into }` | Merges the user into the account `into` (admin; waits for approval from anything but the web page): their single sign-on links and API tokens move over, then the user is removed. Answers `{ moved: { signins, tokens }, into }`. 409 `last_admin` when the only admin would merge into a non-admin. |
 | `GET /auth/invites` | Invitations nobody has used yet (admin): `{ id, role, note, by, createdAt, expiresAt }`. |
 | `POST /auth/invites` `{ role, days?, note? }` | Makes a one-time invitation (admin): `{ code, … }`, the only time the code is shown. The link to send is `<server>/#/invite?code=<code>`. `days` is 1 to 30 (7 by default); `note` says who it is for. |
 | `DELETE /auth/invites/:id` | Takes an invitation back (admin). |
@@ -41,8 +42,14 @@ These work with [login](../guide/safety#login) on. With it off, the user routes 
 | `POST /auth/invite` `{ code, name, password }` | Makes the invited account with the invitation's role and signs in. 404 `bad_invite`, 409 `name_taken`, 400 `weak_password`, 429 `too_many_tries`. |
 | `GET /auth/sso` | [Single sign-on](../guide/single-sign-on) settings (admin): `{ oidc: { on, name, issuer, clientId, hasSecret, scopes, groupsClaim }, header: { on, user, groups, from }, roles: [{ group, role }], otherRole, passwords }`. The client secret is never answered. |
 | `POST /auth/sso` | Changes them (admin); fields left out stay. A `clientSecret` left out keeps the saved one. With OpenID Connect on, the provider must answer first: 400 `provider_unreachable`. |
-| `GET /auth/oidc/start` | Sends the browser to the provider to sign in (the sign-in page's button). |
-| `GET /auth/oidc/callback` | Where the provider sends it back: signs in and goes to `/#/`, or to `/#/signin?error=…`. |
+| `GET /auth/oidc/start` `?link` | Sends the browser to the provider to sign in (the sign-in page's button). With `link`, from a browser signed in with the cookie: links the provider's sign-in to that account instead (Your account › Single sign-on). |
+| `GET /auth/oidc/callback` | Where the provider sends it back: signs in and goes to `/#/`, or to `/#/signin?error=…`. When the provider's user name is an account here with a password, and the sign-in isn't linked yet, it goes to `/#/signin?link=1` with a `ww_link` cookie (10 minutes) instead. Linking from Your account goes back to `/#/account?section=sso-links`. |
+| `GET /auth/link` | The sign-in waiting to be linked: `{ provider, name, account }`. 404 `link_expired`. Anyone may call it (it reads the `ww_link` cookie). |
+| `POST /auth/link` `{ name, password }` | Links the waiting sign-in to the account with this name and password, and signs in. 401 `wrong_sign_in`, 429 `too_many_tries` (the same limits as signing in), 409 `not_linked`. |
+| `POST /auth/link/new` | Makes a separate account for the waiting sign-in instead (named like `name-2`), and signs in. |
+| `POST /auth/link/cancel` | Forgets the waiting sign-in. |
+| `GET /auth/signins` | The single sign-on links of your account. |
+| `DELETE /auth/signins/:id` | Unlinks one (yours; an admin may unlink anyone's). 409 `last_sign_in` when it is the account's only way in. |
 | `GET /auth/tokens` `?all=true` | Your API tokens (`{ id, name, kind, createdAt, usedAt, expiresAt }`); an admin's `all` lists everyone's. |
 | `POST /auth/tokens` `{ name, days? }` | Makes a token for the CLI, a script or an agent: `{ token, … }`, the only time the value is shown. `days` makes it expire. |
 | `DELETE /auth/tokens/:id` | Removes a token. |

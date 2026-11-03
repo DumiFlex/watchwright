@@ -4,8 +4,8 @@
 import { computed, onMounted, ref } from "vue";
 import { getJson, sendJson, type Pack, type PackAccess, type UserInfo } from "../api";
 import { when } from "../format";
-import { Copy, KeyRound, Mail, Trash2, UserRound, UsersRound } from "../icons";
-import { session, type Role } from "../session";
+import { Copy, KeyRound, Mail, Merge, Trash2, UserRound, UsersRound } from "../icons";
+import { session, signInLabel, type Role } from "../session";
 import { toast } from "../toasts";
 import { vTip } from "../tooltip";
 import GroupsField from "./GroupsField.vue";
@@ -191,6 +191,45 @@ async function remove() {
   toast(`Removed ${u.name}.`);
   await load();
 }
+// Merge: an account's linked sign-ins and tokens move to another account, then it goes. For a
+// duplicate made by single sign-on before it was linked (docs/research/sso-account-linking.md).
+const merging = ref<UserInfo | null>(null);
+const mergeInto = ref("");
+const mergeOpen = computed({
+  get: () => merging.value !== null,
+  set: (open: boolean) => {
+    if (!open) merging.value = null;
+  },
+});
+const mergeOptions = computed(() => (users.value ?? []).filter((u) => u.id !== merging.value?.id).map((u) => ({ value: u.id, label: u.displayName && u.displayName !== u.name ? `${u.name} (${u.displayName})` : u.name })));
+/** The account most likely to be kept: the other one with the same name before a -2, else the same name shown. */
+function askMerge(u: UserInfo) {
+  const others = (users.value ?? []).filter((x) => x.id !== u.id);
+  const base = u.name.replace(/-\d+$/, "").toLowerCase();
+  const guess = others.find((x) => x.name.toLowerCase() === base) ?? others.find((x) => (x.displayName ?? x.name).toLowerCase() === (u.displayName ?? u.name).toLowerCase());
+  mergeInto.value = guess?.id ?? others[0]?.id ?? "";
+  merging.value = u;
+}
+const mergeTarget = computed(() => (users.value ?? []).find((u) => u.id === mergeInto.value) ?? null);
+async function merge() {
+  const u = merging.value;
+  const into = mergeTarget.value;
+  if (!u || !into) return;
+  const res = await sendJson<{ moved: { signins: number; tokens: number } }>(`/api/v1/auth/users/${u.id}/merge`, { into: into.id });
+  merging.value = null;
+  if (!res.ok) return void toast(res.error.message, { tone: "bad" });
+  if (u.id === session.user?.id) {
+    // Merging yourself away ends your sign-in: start again in the account kept.
+    location.hash = "#/";
+    location.reload();
+    return;
+  }
+  const { signins, tokens } = res.data.moved;
+  toast(`Merged ${u.name} into ${into.name}: ${signins} sign-in${signins === 1 ? "" : "s"} and ${tokens} token${tokens === 1 ? "" : "s"} moved.`, { tone: "ok", timeout: 6000 });
+  await load();
+}
+const ways = (u: UserInfo) => [...(u.hasPassword ? ["password"] : []), ...u.signins.map((s) => signInLabel(s.source))].join(", ");
+
 const seen = (u: UserInfo) => (u.seenAt ? `seen ${new Date(u.seenAt).toLocaleDateString()}` : "never signed in");
 </script>
 
@@ -205,12 +244,13 @@ const seen = (u: UserInfo) => (u.seenAt ? `seen ${new Date(u.seenAt).toLocaleDat
         <UserRound :size="15" class="muted" />
         <div class="who">
           <span class="uname">{{ u.displayName ?? u.name }}<span v-if="u.displayName" class="muted small login">{{ u.name }}</span><span v-if="u.id === session.user?.id" class="muted small"> (you)</span></span>
-          <span class="muted small"><span v-tip="u.seenAt ? when(u.seenAt) : 'Not signed in yet'">{{ u.disabled ? "can't sign in · " : "" }}{{ seen(u) }}</span><template v-if="groupsOf(u).length"> · {{ groupsOf(u).join(", ") }}</template></span>
+          <span class="muted small"><span v-tip="u.seenAt ? when(u.seenAt) : 'Not signed in yet'">{{ u.disabled ? "can't sign in · " : "" }}{{ seen(u) }}</span><template v-if="ways(u)"> · <span v-tip="'How they sign in'">{{ ways(u) }}</span></template><template v-if="groupsOf(u).length"> · {{ groupsOf(u).join(", ") }}</template></span>
         </div>
         <SelectMenu :id="`s-user-role-${u.id}`" class="role" :model-value="u.role" :options="ROLE_OPTIONS" :disabled="u.id === session.user?.id" @update:model-value="(r: Role) => setRole(u, r)" />
         <ToggleSwitch :id="`s-user-on-${u.id}`" :model-value="!u.disabled" :disabled="u.id === session.user?.id" @update:model-value="(on: boolean) => setEnabled(u, on)"><span class="small">Can sign in</span></ToggleSwitch>
         <button v-tip="'Groups'" type="button" class="ib key grp" :aria-label="`Groups of ${u.name}`" @click="askGroups(u)"><UsersRound :size="15" /></button>
         <button v-tip="'Set a new password'" type="button" class="ib key" :aria-label="`Set a new password for ${u.name}`" @click="askReset(u)"><KeyRound :size="15" /></button>
+        <button v-tip="'Merge into another account'" type="button" class="ib key" :disabled="users.length < 2" :aria-label="`Merge ${u.name} into another account`" @click="askMerge(u)"><Merge :size="15" /></button>
         <button v-tip="'Remove this user'" type="button" class="ib" :disabled="u.id === session.user?.id" :aria-label="`Remove ${u.name}`" @click="doomed = u"><Trash2 :size="14" /></button>
       </li>
     </ul>
@@ -308,6 +348,25 @@ const seen = (u: UserInfo) => (u.seenAt ? `seen ${new Date(u.seenAt).toLocaleDat
       <template #actions>
         <button class="btn" @click="grouping = null">Cancel</button>
         <button class="btn primary" @click="saveGroups">Save</button>
+      </template>
+    </ModalDialog>
+    <ModalDialog v-model="mergeOpen" :heading="`Merge ${merging?.name ?? ''} into another account`" width="520px">
+      <div class="groups">
+        <p>
+          Its single sign-on links and API tokens move to the account you keep, then <strong>{{ merging?.name }}</strong> is removed. Signing in with {{ session.signin.oidc ?? "single sign-on" }} then opens the account kept. Runs and reviews keep the name they were made under; its own preferences don't move.
+        </p>
+        <div class="fld">
+          <label for="s-user-merge" class="lbl small">Keep</label>
+          <SelectMenu id="s-user-merge" v-model="mergeInto" :options="mergeOptions" />
+        </div>
+        <p v-if="merging && mergeTarget" class="muted small">
+          Moves: {{ merging.signins.length ? merging.signins.map((x) => signInLabel(x.source)).join(", ") : "no sign-ins" }}, and its tokens. {{ mergeTarget.name }} stays {{ mergeTarget.role === "admin" ? "an" : "a" }} {{ mergeTarget.role }}<template v-if="merging.hasPassword">; {{ merging.name }}'s password stops working</template>.
+        </p>
+        <p v-if="merging?.id === session.user?.id" class="warn small" role="alert">You're signed in as {{ merging?.name }}, so you'll be signed out. Sign in again as {{ mergeTarget?.name ?? "the account kept" }}.</p>
+      </div>
+      <template #actions>
+        <button class="btn" @click="merging = null">Cancel</button>
+        <button class="btn danger" :disabled="!mergeTarget" @click="merge">Merge and remove {{ merging?.name }}</button>
       </template>
     </ModalDialog>
     <ModalDialog v-model="removeOpen" heading="Remove this user?">
@@ -419,6 +478,9 @@ const seen = (u: UserInfo) => (u.seenAt ? `seen ${new Date(u.seenAt).toLocaleDat
 .error {
   color: var(--bad);
 }
+.warn {
+  color: var(--warn);
+}
 .ib {
   flex: none;
   display: grid;
@@ -447,7 +509,7 @@ const seen = (u: UserInfo) => (u.seenAt ? `seen ${new Date(u.seenAt).toLocaleDat
     gap: var(--space-2);
   }
   .who {
-    flex-basis: calc(100% - 128px);
+    flex-basis: calc(100% - 162px);
   }
   .users li > .ib {
     order: 1;
