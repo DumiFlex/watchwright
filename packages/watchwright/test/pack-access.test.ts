@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { BUILTIN_PLUGINS } from "../src/core/builtin.js";
 import { ACTIONS } from "../src/core/keys.js";
 import { migrationsOf } from "../src/core/plugin.js";
+import { APPROVALS } from "../src/plugins/approvals/plugin.js";
 import { AUTH_STORE } from "../src/plugins/auth/plugin.js";
 import { PACK_ACCESS } from "../src/plugins/packs/access.js";
 import { RunsRepo } from "../src/plugins/runs/repo.js";
@@ -138,6 +139,29 @@ describe("pack access", () => {
     expect((await as("ulf", "POST", "/shares", { run: RUN })).status).toBe(404);
     // Other packs stay open to everyone.
     expect((await as("ada", "GET", `/packs/${shop.id}/access`)).body.data).toEqual({ mode: "everyone" });
+  });
+
+  it("keeps a hidden pack's schedules and approvals out of the event feed", async () => {
+    const { app, as, ids, secret, shop } = await make();
+    await as("ada", "POST", `/packs/${secret.id}/access`, { mode: "chosen", people: [ids.uma] });
+    expect((await as("ada", "POST", "/schedules", { name: "secret-nightly", packId: secret.id, when: { every: "1d" } })).status).toBe(201);
+    expect((await as("ada", "POST", "/schedules", { name: "shop-nightly", packId: shop.id, when: { every: "1d" } })).status).toBe(201);
+    // An agent's delete waits for approval; its summary names the run's pack.
+    const approvals = app.watchwright.services.get(APPROVALS);
+    const action = app.watchwright.services.get(ACTIONS).find((a) => a.name === "runs.delete")!;
+    const secretAsk = await approvals.request(action, { id: RUN }, "agent", null);
+    const shopAsk = await approvals.request(action, { id: OTHER_RUN }, "agent", null);
+    const feed = async (who: string) => JSON.stringify(((await as(who, "GET", "/events")).body.data as { events: unknown[] }).events);
+    for (const who of ["ada", "uma"]) {
+      const seen = await feed(who);
+      expect(seen, who).toContain("secret-nightly");
+      expect(seen, who).toContain(secretAsk.id);
+    }
+    const seen = await feed("ulf");
+    expect(seen).toContain("shop-nightly");
+    expect(seen).toContain(shopAsk.id);
+    expect(seen).not.toContain("secret-nightly");
+    expect(seen).not.toContain(secretAsk.id);
   });
 
   it("lets people in by group", async () => {

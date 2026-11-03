@@ -151,8 +151,10 @@ export class Approvals {
     this.db
       .prepare("INSERT INTO approvals (id, action, input, client, summary, status, created_at, expires_at, user_id) VALUES (?, ?, ?, ?, ?, 'waiting', ?, ?, ?)")
       .run(id, action.name, JSON.stringify(input), client, summary, new Date(t).toISOString(), new Date(t + EXPIRE_MS).toISOString(), userId);
-    this.events.append("approval.requested", { id, action: action.name, client, summary });
-    return this.get(id)!;
+    const asked = this.get(id)!;
+    // The pack the held call reaches, so pack access hides the request with the pack.
+    this.events.append("approval.requested", { id, action: action.name, client, summary, packId: this.packOf(asked) });
+    return asked;
   }
 
   /** The user whose call asked for an approval (login on), else null. */
@@ -227,7 +229,7 @@ export class Approvals {
     const cols = Object.keys(fields);
     this.db.prepare(`UPDATE approvals SET ${cols.map((c) => `${c} = ?`).join(", ")} WHERE id = ?`).run(...cols.map((c) => fields[c]), id);
     const a = this.get(id)!;
-    if (a.status !== "approved" || "result" in fields) this.events.append("approval.answered", { id, status: a.status, by: a.answeredBy, action: a.action });
+    if (a.status !== "approved" || "result" in fields) this.events.append("approval.answered", { id, status: a.status, by: a.answeredBy, action: a.action, packId: this.packOf(a) });
     for (const w of [...(this.waiters.get(id) ?? [])]) w();
     this.waiters.delete(id);
   }
@@ -238,7 +240,8 @@ export class Approvals {
     const due = this.db.prepare("SELECT id FROM approvals WHERE status = 'waiting' AND expires_at <= ?").all(now) as { id: string }[];
     for (const { id } of due) {
       this.db.prepare("UPDATE approvals SET status = 'expired', answered_at = ? WHERE id = ? AND status = 'waiting'").run(now, id);
-      this.events.append("approval.answered", { id, status: "expired", by: null });
+      const a = this.get(id);
+      this.events.append("approval.answered", { id, status: "expired", by: null, packId: a ? this.packOf(a) : null });
       for (const w of [...(this.waiters.get(id) ?? [])]) w();
       this.waiters.delete(id);
     }

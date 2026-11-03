@@ -106,7 +106,9 @@ export class PackAccessStore implements PackGuard {
   hidesEvent(user: CallUser | null | undefined, e: { runId?: string | undefined; data: Record<string, unknown> }): boolean {
     if (user === undefined || this.rules.size === 0) return false;
     const runId = e.runId ?? (typeof e.data.runId === "string" ? e.data.runId : undefined);
-    const packId = typeof e.data.packId === "string" ? e.data.packId : runId && this.resolvers.has("run") ? this.packOf("run", runId) : null;
+    // A recording's events carry the recording's id as their run.
+    const ofRun = (id: string) => (this.resolvers.has("run") ? this.packOf("run", id) : null) ?? (this.resolvers.has("recording") ? this.packOf("recording", id) : null);
+    const packId = typeof e.data.packId === "string" ? e.data.packId : runId ? ofRun(runId) : null;
     return packId !== null && !this.sees(user, packId);
   }
 }
