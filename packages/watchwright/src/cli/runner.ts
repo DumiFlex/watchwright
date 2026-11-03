@@ -482,6 +482,6 @@ function status(h: Host, log: RunnerLog): number {
   if (st.installed) log.info(`Starts by itself ${when}, for ${st.server ?? "the default server"} (${st.file}).`);
   else log.info(st.kind ? "No start-up entry: it runs only when started. `watchwright runner install` sets one up." : "No start-up entry (no systemd here).");
   const bg = backgroundRunner(h.env);
-  log.info(st.running ? `Running now${bg ? ` (process ${bg.pid})` : ""}.` : "Not running now.");
+  log.info(st.running ? `Running now${bg ? ` (process ${bg.pid})` : ""}.` : "No runner runs in the background now (one started in a terminal isn't counted).");
   return 0;
 }

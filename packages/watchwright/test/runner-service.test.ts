@@ -149,7 +149,7 @@ describe("watchwright runner status and uninstall", () => {
     const lines: string[] = [];
     const log = { info: (l: string) => lines.push(l), warn: (l: string) => lines.push(l) };
     await runnerCommand(["status"], h.env, log, h);
-    expect(lines.join("\n")).toMatch(/Paired with https:\/\/ww\.example\.com as Desk[\s\S]*No start-up entry[\s\S]*Not running now/);
+    expect(lines.join("\n")).toMatch(/Paired with https:\/\/ww\.example\.com as Desk[\s\S]*No start-up entry[\s\S]*No runner runs in the background now/);
 
     lines.length = 0;
     const { mkdirSync } = await import("node:fs");

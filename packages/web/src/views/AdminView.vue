@@ -61,6 +61,7 @@ const resumeOnStart = computed<boolean>({
 interface StartupInfo {
   supported: boolean;
   enabled: boolean;
+  other: boolean;
   file: string | null;
   command: string;
 }
@@ -148,6 +149,7 @@ onMounted(() => {
           Puts <code>Watchwright.cmd</code> in your Startup folder. It starts this server in the background, with no window, when you sign in to Windows, on the same port and data folder, without opening the browser. Turning this
           off deletes the file.
         </p>
+        <p v-if="startup.other" class="muted small">The file there now starts another Watchwright server on this computer (another port or data folder). Turning this on points it at this one instead.</p>
       </template>
       <div v-else-if="startup" class="cmd">
         <p class="muted small">To start Watchwright when you sign in to this computer, run this command from a LaunchAgent (macOS) or a systemd user unit (Linux):</p>

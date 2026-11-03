@@ -13,6 +13,8 @@ export interface StartupInfo {
   /** True where Watchwright can write the file itself (Windows). */
   supported: boolean;
   enabled: boolean;
+  /** The file starts another server (another port or data folder): turning this on points it here. */
+  other: boolean;
   /** The file it writes, or null where it can't. */
   file: string | null;
   /** The command that starts this server again. */
@@ -48,9 +50,24 @@ function fileOf(place: StartupPlace): string | null {
   return path.join(place.appData, "Microsoft", "Windows", "Start Menu", "Programs", "Startup", "Watchwright.cmd");
 }
 
+/** Whether a start-at-sign-in file starts this server: the same port and data folder. */
+function startsThis(text: string, port: number, dataDir: string): boolean {
+  return text.includes(` --port ${port} `) && text.includes(` --data ${quote(dataDir).replaceAll("%", "%%")} `);
+}
+
+function readOr(file: string): string | null {
+  try {
+    return existsSync(file) ? readFileSync(file, "utf8") : null;
+  } catch {
+    return null;
+  }
+}
+
 export function startupInfo(place: StartupPlace, port: number, dataDir: string): StartupInfo {
   const file = fileOf(place);
-  return { supported: file !== null, enabled: file !== null && existsSync(file), file, command: startupCommand(place, port, dataDir) };
+  const text = file ? readOr(file) : null;
+  const mine = text !== null && startsThis(text, port, dataDir);
+  return { supported: file !== null, enabled: mine, other: text !== null && !mine, file, command: startupCommand(place, port, dataDir) };
 }
 
 /**
@@ -63,13 +80,18 @@ export function startupScript(place: StartupPlace, port: number, dataDir: string
   return ["@echo off", "rem Starts Watchwright when you sign in. Written by Settings > Server; turn it off there to delete this file.", `start "Watchwright" /min ${command} --background`, ""].join("\r\n");
 }
 
-/** Rewrites a start-at-sign-in file an older version wrote, so it starts the server the current way. Never throws. */
+/**
+ * Rewrites a start-at-sign-in file an older version wrote for this server, so it starts the server
+ * the current way. A file that starts another server (a second one on this computer) is left alone.
+ * Never throws.
+ */
 export async function refreshStartup(place: StartupPlace, port: number, dataDir: string): Promise<boolean> {
   const file = fileOf(place);
-  if (!file || !existsSync(file)) return false;
+  const text = file ? readOr(file) : null;
+  if (!file || text === null || !startsThis(text, port, dataDir)) return false;
   try {
     const want = startupScript(place, port, dataDir);
-    if (readFileSync(file, "utf8") === want) return false;
+    if (text === want) return false;
     await writeFile(file, want);
     return true;
   } catch {
@@ -84,7 +106,9 @@ export async function setStartup(place: StartupPlace, port: number, dataDir: str
     await mkdir(path.dirname(file), { recursive: true });
     await writeFile(file, startupScript(place, port, dataDir));
   } else {
-    await rm(file, { force: true });
+    // Only this server's own file: another server's entry stays.
+    const text = readOr(file);
+    if (text !== null && startsThis(text, port, dataDir)) await rm(file, { force: true });
   }
   return startupInfo(place, port, dataDir);
 }
