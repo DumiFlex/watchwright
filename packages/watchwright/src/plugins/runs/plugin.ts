@@ -323,7 +323,7 @@ export const runsPlugin = definePlugin({
       "stop-now": (id: string) => engine.stop(id, "now"),
     } as const;
     return [
-      defineAction<{ limit?: number; pack?: string; status?: string; before?: string; q?: string }>({
+      defineAction<{ limit?: number; pack?: string; status?: string; kind?: string; before?: string; q?: string }>({
         name: "runs.list",
         pack: "list",
         agent: { tool: "list_runs" },
@@ -336,12 +336,13 @@ export const runsPlugin = definePlugin({
             limit: { type: "integer", minimum: 1, maximum: 500, default: 100 },
             pack: { type: "string", pattern: "^[0-9a-f]{8}$", description: "Only runs of this pack." },
             status: { type: "string", pattern: "^[a-z_]+(,[a-z_]+)*$", description: "Only runs in these statuses, comma separated." },
+            kind: { type: "string", pattern: "^[a-z0-9-]+(,[a-z0-9-]+)*$", description: "Only runs of these job kinds (test, task, …), comma separated." },
             before: { type: "string", description: "Cursor: the createdAt of the last run of the previous page." },
             q: { type: "string", maxLength: 200, description: "Search: words that must each appear in the run's id, label, pack name, values, facts or status." },
           },
         },
-        handler: ({ limit, pack, status, before, q }, { user }) =>
-          engine.list({ limit, packId: pack, hidePacks: access.hiddenFrom(user), statuses: status ? (status.split(",") as RunStatus[]) : undefined, before, q }),
+        handler: ({ limit, pack, status, kind, before, q }, { user }) =>
+          engine.list({ limit, packId: pack, hidePacks: access.hiddenFrom(user), statuses: status ? (status.split(",") as RunStatus[]) : undefined, kinds: kind?.split(","), before, q }),
       }),
       defineAction<{ days?: number; pack?: string; tz?: number; until?: string }>({
         name: "runs.stats",

@@ -58,7 +58,7 @@ tasks: {
 
 Names are lowercase letters, digits and dashes. A task can also have `readOnly: true` (see below) and a `timeout` in ms.
 
-A task runs as a run of the `task` kind with one step, so you watch it in the live view and it keeps a log, like any run. It's named **Task: _title_** in the runs list. It doesn't run the pack's setup or teardown, but it has the pack's helpers in `h`.
+A task runs as a run of the `task` kind with one step, so you watch it in the live view and it keeps a log, like any run. It's named **Task: _title_** in the runs list. The pack's dashboard leaves task runs out, and a new run doesn't copy its choices from one. It doesn't run the pack's setup or teardown, but it has the pack's helpers in `h`.
 
 Start one:
 

@@ -18,6 +18,10 @@ export interface RunFilter {
   /** Leave out runs of these packs (the ones pack access hides from the caller). */
   hidePacks?: readonly string[] | undefined;
   statuses?: readonly RunStatus[] | undefined;
+  /** Only runs of these job kinds. */
+  kinds?: readonly string[] | undefined;
+  /** Leave out runs of these job kinds. */
+  skipKinds?: readonly string[] | undefined;
   before?: string | undefined;
   /** Words that must each appear in the run's id, label, pack name, values, facts or status. */
   q?: string | undefined;
@@ -325,6 +329,14 @@ export class RunsRepo {
     if (filter.statuses && filter.statuses.length > 0) {
       where.push(`status IN (${filter.statuses.map(() => "?").join(", ")})`);
       args.push(...filter.statuses);
+    }
+    if (filter.kinds && filter.kinds.length > 0) {
+      where.push(`job_kind IN (${filter.kinds.map(() => "?").join(", ")})`);
+      args.push(...filter.kinds);
+    }
+    if (filter.skipKinds && filter.skipKinds.length > 0) {
+      where.push(`job_kind NOT IN (${filter.skipKinds.map(() => "?").join(", ")})`);
+      args.push(...filter.skipKinds);
     }
     if (filter.before) {
       where.push("created_at < ?");

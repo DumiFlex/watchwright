@@ -161,7 +161,7 @@ async function loadPresets(id: string) {
 
 /** Copies the pack's latest run's choices, when it has one. */
 async function copyLatest(p: Pack) {
-  const res = await getJson<RunSummary[]>(`/api/v1/runs?pack=${p.id}&limit=1`);
+  const res = await getJson<RunSummary[]>(`/api/v1/runs?pack=${p.id}&kind=test&limit=1`);
   const run = res.ok ? res.data[0] : undefined;
   if (run && packId.value === p.id) copyRun(run, p, true);
 }

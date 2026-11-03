@@ -288,7 +288,7 @@ const starting = ref(false);
 async function runTest(testId: string) {
   if (isDirty.value) await save();
   starting.value = true;
-  const last = await getJson<RunSummary[]>(`/api/v1/runs?pack=${props.id}&limit=1`);
+  const last = await getJson<RunSummary[]>(`/api/v1/runs?pack=${props.id}&kind=test&limit=1`);
   const params = last.ok && last.data[0] ? last.data[0].params : {};
   const res = await sendJson<{ id: string }>("/api/v1/runs", { packId: props.id, tests: [testId], params, label: `Edit: ${testId}` });
   starting.value = false;
@@ -324,7 +324,7 @@ async function startRecording(how: string) {
   if (role.value === "test" && !yaml) return void toast("Fix the YAML first: Record needs to know which test the cursor is in.", { tone: "bad" });
   const codeTest = role.value === "test" ? null : (cursorTest.value?.id ?? null);
   if (((yaml && yaml.index > 0) || codeTest) && isDirty.value) await save();
-  const last = await getJson<RunSummary[]>(`/api/v1/runs?pack=${props.id}&limit=1`);
+  const last = await getJson<RunSummary[]>(`/api/v1/runs?pack=${props.id}&kind=test&limit=1`);
   recording.value = {
     testId: yaml?.testId ?? cursorTest.value?.id ?? null,
     replay: yaml?.index ?? 0,
