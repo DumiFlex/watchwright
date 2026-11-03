@@ -36,7 +36,7 @@ import SchedulesView from "./views/SchedulesView.vue";
 import SharedRunView from "./views/SharedRunView.vue";
 import SignInView from "./views/SignInView.vue";
 import StatusView from "./views/StatusView.vue";
-import { can, loadSession, session, signOut } from "./session";
+import { can, loadSession, pageGate, session, signOut } from "./session";
 import { UserRound } from "./icons";
 // The editor (CodeMirror, the YAML checker) loads only when a pack is opened for editing.
 const EditView = defineAsyncComponent(() => import("./views/EditView.vue"));
@@ -109,8 +109,11 @@ async function loadHealth() {
     void loadToReview();
   } else down.value = true;
 }
+// Set once the server first answered who is signed in (or didn't answer at all).
+const booted = ref(false);
 onMounted(async () => {
   await Promise.all([loadHealth(), loadSession()]);
+  booted.value = true;
 });
 
 // Proposed code changes waiting for an admin: a note in the top bar, checked again on every page change.
@@ -121,10 +124,9 @@ async function loadToReview() {
   toReview.value = res.ok ? res.data.waiting : 0;
 }
 watch(() => route.value.name, () => void loadToReview());
-// Share links and the public dashboard open for anyone, signed in or not, with no menu.
-const isPublic = computed(() => PUBLIC_ROUTES.includes(route.value.name));
-// With login on, nothing but the sign-in page shows until someone is signed in.
-const locked = computed(() => session.loaded && session.on && session.user === null);
+// Share links and the public dashboard open for anyone, signed in or not, with no menu. With login
+// on, nothing but the sign-in page shows until someone is signed in.
+const gate = computed(() => pageGate(PUBLIC_ROUTES.includes(route.value.name), booted.value, session));
 // After signing in, the full health (pages, data folder) and everything else loads.
 watch(
   () => session.user?.id,
@@ -142,7 +144,7 @@ const userItems = computed(() => [
 </script>
 
 <template>
-  <template v-if="isPublic">
+  <template v-if="gate === 'public'">
     <header class="top">
       <a class="brand" href="#/" aria-label="Watchwright">
         <BrandMark :size="28" />
@@ -158,11 +160,11 @@ const userItems = computed(() => [
     <PageOutline />
     <ToastHost />
   </template>
-  <template v-else-if="locked">
+  <template v-else-if="gate === 'signin'">
     <SignInView :setup-code="route.name === 'setup' ? route.code : null" :invite-code="route.name === 'invite' ? route.code : null" :error="route.name === 'signin' ? route.error : null" />
     <ToastHost />
   </template>
-  <template v-else>
+  <template v-else-if="gate === 'app'">
     <header class="top">
       <a class="brand" href="#/" aria-label="Watchwright">
         <BrandMark :size="28" />
