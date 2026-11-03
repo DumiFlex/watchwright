@@ -8,6 +8,7 @@ import { getJson, sendJson } from "../api";
 import type { Dashboard, DashboardReply, Tile, TileType } from "../dashboard";
 import { KINDS, NO_NAMES, argOptions, cloneTile, kindOf, newTile, tileLabel, toSave, type DashboardNames } from "../dashedit";
 import { ChevronDown, ChevronUp, Plus, RotateCcw, Trash2 } from "../icons";
+import { can } from "../session";
 import { toast } from "../toasts";
 import { vTip } from "../tooltip";
 import DashboardTileFields from "./DashboardTileFields.vue";
@@ -93,7 +94,8 @@ function addTile(gi: number) {
   const kind = kindOf(addKind.value);
   const first = argOptions(kind, names.value).find((o) => o.value !== "");
   const arg: string | true = kind.arg === "none" || kind.anyAllowed ? true : kind.arg === "markdown" ? "Write what this pack checks, and who to ask." : (first?.value ?? true);
-  const row = { key: nextKey++, tile: newTile(kind.type, arg) };
+  // Only admins change what the public status page shows, so anyone else's new tiles stay private.
+  const row = { key: nextKey++, tile: { ...newTile(kind.type, arg), ...(can("admin") ? {} : { public: false }) } };
   const g = groups.value[gi]!;
   g.rows = [...g.rows, row];
   adding.value = null;
@@ -147,6 +149,7 @@ async function usePacks() {
         Changes are kept on this server for everyone who opens the pack. The pack's own <code>dashboard:</code> block stays as it is{{ reply.source === "override" ? "; Use the pack's brings it back" : "" }}.
       </p>
 
+      <p v-if="!can('admin')" class="muted small">Only admins change what the public status page and shares show: the tiles marked public and the runs they read. Tiles you add stay private.</p>
       <section class="part" aria-labelledby="de-range">
         <h3 id="de-range" class="label">Runs the tiles read</h3>
         <div class="range">

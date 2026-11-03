@@ -34,6 +34,8 @@ watchwright serve --auth --host 0.0.0.0 --public-url http://192.168.1.20:7420
 | Start, pause and stop runs, record, explore, review | | yes | yes |
 | Edit YAML tests, `pack.yaml` and data files; presets, schedules | | yes | yes |
 | Add, upload and move packs; change pack code (`.ts`, `.js`, `package.json`, `tsconfig.json`) | | | yes |
+| Change a pack's dashboard (tiles that aren't public) | | yes | yes |
+| Change what the public status page and shares show (public tiles, the runs they read) | | | yes |
 | Use secrets and saved sign-ins by name | | yes | yes |
 | Change secrets, saved sign-ins, settings and alerts | | | yes |
 | Users, start at sign-in, clean up old runs, stop the server | | | yes |
