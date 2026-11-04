@@ -105,7 +105,23 @@ export default pack({
 | `collectors` | Record what the browser does for every attempt (see below). |
 | `helpers` | Adds your own helpers to `h` (see below). |
 | `idle` | Your app's busy check for `h.idle()`: resolve `true` when the app is idle. |
-| `run` | `pauseOnBroken` (default `true`), `pauseLimitMinutes` (default 20), `testTimeout` in ms (default 30 minutes), `trace` (`problems` (default), `always`, `never`), `video` (which attempts keep a video: `always` (default, also `true`), `problems` (only attempts that failed or broke) or `never` (also `false`); Playwright's videos take about 450 MB per hour of tests, and the server-wide Video quality setting (Admin › Storage) can make them about 80% (Compact) or 94% (Small) smaller; in Firefox, whose screencast now and then sends a frame with whole tiles not painted yet, Watchwright drops those one-frame flashes from the live view and writes the videos itself from the frames it keeps), `runVideo` (also record one video of the whole run, of what the live view follows, pauses included, as `run-video.webm` in the run's folder; at most about 270 MB an hour (a still page takes far less); default `false`), `showActions` (default `true`), `keepTabs` (keep tabs and popups a test opened for the tests after it; by default they close before the next test), `chapters` (show each `h.step` title, after the titles of the steps it runs in, as a small caption in the bottom-left corner of the live view and video, default `false`), `screencastSize`, `frameQuality`. |
+| `run` | `pauseOnBroken` (default `true`), `pauseLimitMinutes` (default 20), `testTimeout` in ms (default 30 minutes), `trace` (`problems` (default), `always`, `never`), `video` (which attempts keep a video: `always` (default, also `true`), `problems` (only attempts that failed or broke) or `never` (also `false`); Playwright's videos take about 450 MB per hour of tests, and the server-wide Video quality setting (Admin › Storage) can make them about 80% (Compact) or 94% (Small) smaller; in Firefox, whose screencast now and then sends a frame with whole tiles not painted yet, Watchwright drops those one-frame flashes from the live view and writes the videos itself from the frames it keeps), `runVideo` (also record one video of the whole run, of what the live view follows, pauses included, as `run-video.webm` in the run's folder; at most about 270 MB an hour (a still page takes far less); default `false`), `followVideo` (record each attempt's video of the page the live view follows, new tabs and popups included, as one `video.webm`, instead of one video per page; default `false`; see [Videos for people to watch](#videos-for-people-to-watch)), `videoQuality` (this pack's video quality over the server's setting: `high`, `full`, `compact` or `small`), `showActions` (default `true`), `keepTabs` (keep tabs and popups a test opened for the tests after it; by default they close before the next test), `chapters` (show each `h.step` title, after the titles of the steps it runs in, as a small caption in the bottom-left corner of the live view and video, default `false`), `screencastSize`, `frameQuality`. |
+
+### Videos for people to watch
+
+Attempt videos are a record to check what happened. For a demo, a tutorial or a bug report someone will watch, two run settings help:
+
+```yaml
+run:
+  video: always
+  followVideo: true
+  videoQuality: high
+```
+
+- `videoQuality: high` records sharp text at up to 30 frames a second: VP9 at a constant, high quality from screencast frames at JPEG quality 90 or more (`frameQuality`, when higher). On a busy page it takes about the room Full does; on a page that waits it takes far less, since only changes cost anything. It uses more CPU than the other qualities. The run video, when on, is also recorded at 30 frames a second. Compress kept videos (Admin › Storage) never makes High videos smaller.
+- `followVideo: true` records one video per attempt of the page the live view follows: when the test opens a new tab or a popup, the video goes with it, and comes back when it closes or the test acts on another page through `h` (`goto`, `click`, `fill`, `press`). Waiting, steps, checks and screenshots leave the live view and the video where they are. The video keeps the screencast size (`screencastSize`, else the viewport); a page of another size is centered in it, never stretched.
+
+A run's own choice (New run, or `videoQuality` and `followVideo` in `POST /runs`) wins over the pack's, and the pack's over the server's Video quality setting. Both need Playwright's ffmpeg, as every video does. The screencast captures CSS pixels, so a 1080p video needs a 1920×1080 viewport; to make a page's text bigger in the video, zoom the page, not the browser's device scale.
 
 ## Tests
 

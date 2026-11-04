@@ -87,6 +87,8 @@ const CHOICE_PROPS = {
     description: "Which attempts keep a video: always (also true), problems (failed or broken) or never (also false). Default: the pack's setting, else always.",
   },
   runVideo: { type: "boolean", description: "Record one video of the whole run, of what the live view follows (default: the pack's setting, else false)." },
+  followVideo: { type: "boolean", description: "Record each attempt's video of the page the live view follows, one video across tabs and popups, instead of one per page (default: the pack's setting, else false)." },
+  videoQuality: { type: "string", enum: [...VIDEO_QUALITIES], description: "How sharp the run's videos are: high (for videos people watch), full, compact or small (default: the pack's setting, else the server's Video quality setting)." },
   signIn: { type: "boolean", description: "Start with the site's saved sign-in (default: the pack's site.signIn)." },
   network: { type: "string", minLength: 1, maxLength: 60, description: 'Where the browser reaches the site from: "server" or a runner\'s name (default: the pack\'s site.network, else server). GET /runners lists the runners.' },
 } as const;
@@ -123,6 +125,8 @@ function runOptions(input: RunChoices): RunOptions {
   if (input.trace !== undefined) o.trace = input.trace;
   if (input.video !== undefined) o.video = input.video;
   if (input.runVideo !== undefined) o.runVideo = input.runVideo;
+  if (input.followVideo !== undefined) o.followVideo = input.followVideo;
+  if (input.videoQuality !== undefined) o.videoQuality = input.videoQuality;
   if (input.signIn !== undefined) o.signIn = input.signIn;
   if (input.network !== undefined) o.network = input.network;
   return o;
@@ -192,7 +196,7 @@ export const runsPlugin = definePlugin({
     });
     settings.define({
       key: "runs.videoQuality",
-      title: "How much room videos take: full (as Playwright records), compact (about 80% smaller, same size) or small (about 94% smaller, 3/4 size, 10 frames a second)",
+      title: "How sharp videos are and how much room they take: high (sharp text, 30 frames a second, for videos people watch), full (as Playwright records), compact (about 80% smaller, same size) or small (about 94% smaller, 3/4 size, 10 frames a second)",
       schema: { type: "string", enum: [...VIDEO_QUALITIES] },
       default: "full",
     });

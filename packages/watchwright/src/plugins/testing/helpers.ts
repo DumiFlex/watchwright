@@ -34,9 +34,12 @@ function describe(target: Target): string {
 export function createHelpers(rt: HelperRuntime, extend?: (h: Helpers) => Record<string, unknown>): Helpers {
   const { page, control, recorder } = rt;
   const loc = (t: Target): Locator => (typeof t === "string" ? page.locator(t) : t);
-  const enter = async () => {
+  // Every helper waits out a pause first. Only the ones that act on the page (go, click, type,
+  // scroll) make it the page the live view follows; waiting, steps and checks leave the view where
+  // it is, so a popup the test just opened stays in view (and in a followed video) while it waits.
+  const enter = async (acts = true) => {
     await control.checkpoint("attempt");
-    rt.session.setActive(page);
+    if (acts) rt.session.setActive(page);
   };
   const steps: string[] = [];
   const captions = stepCaptions(page);
@@ -104,7 +107,7 @@ export function createHelpers(rt: HelperRuntime, extend?: (h: Helpers) => Record
     },
 
     async has(target, timeout = 0) {
-      await enter();
+      await enter(false);
       if (timeout <= 0) return loc(target).first().isVisible();
       return loc(target)
         .first()
@@ -116,7 +119,7 @@ export function createHelpers(rt: HelperRuntime, extend?: (h: Helpers) => Record
     },
 
     async step(title, fn) {
-      await enter();
+      await enter(false);
       steps.push(title);
       rt.onStep(steps.join(" › "));
       recorder.addLog("info", `Step: ${title}`);
@@ -141,7 +144,7 @@ export function createHelpers(rt: HelperRuntime, extend?: (h: Helpers) => Record
     },
 
     async idle(options = {}) {
-      await enter();
+      await enter(false);
       const timeout = options.timeout ?? 30_000;
       const quietMs = options.quietMs ?? 500;
       const quiet = await until(() => rt.session.network().quietForMs >= quietMs, timeout);
@@ -150,12 +153,12 @@ export function createHelpers(rt: HelperRuntime, extend?: (h: Helpers) => Record
     },
 
     async wait(ms) {
-      await enter();
+      await enter(false);
       await control.sleep(ms);
     },
 
     async shot(name, options = {}) {
-      await enter();
+      await enter(false);
       await captions.hide();
       const file = recorder.numberedName(name, ".png");
       const data = options.target ? await loc(options.target).screenshot() : await page.screenshot({ fullPage: options.fullPage ?? false });
@@ -195,7 +198,7 @@ export function createHelpers(rt: HelperRuntime, extend?: (h: Helpers) => Record
     },
 
     async keepText(name, from) {
-      await enter();
+      await enter(false);
       const text = typeof from === "object" && "text" in from && typeof from.text === "string" ? from.text : await loc(from as Target).innerText({ timeout: DEFAULT_TIMEOUT });
       recorder.texts[name] = text;
       recorder.write("text", name, recorder.numberedName(name, ".txt"), text, "text/plain; charset=utf-8");
@@ -203,7 +206,7 @@ export function createHelpers(rt: HelperRuntime, extend?: (h: Helpers) => Record
     },
 
     async file(name, data, contentType) {
-      await enter();
+      await enter(false);
       const rel = safeRelative(name);
       if (!rel) throw new StepError(`"${name}" isn't a usable file name.`);
       let body: string | Buffer;
@@ -266,7 +269,7 @@ export function createHelpers(rt: HelperRuntime, extend?: (h: Helpers) => Record
     },
 
     async saveSignIn() {
-      await enter();
+      await enter(false);
       const key = await rt.saveSignIn();
       recorder.addLog("info", `Saved the sign-in for ${key}.`);
     },
@@ -276,7 +279,7 @@ export function createHelpers(rt: HelperRuntime, extend?: (h: Helpers) => Record
     },
 
     async waitUntil(check, options = {}) {
-      await enter();
+      await enter(false);
       const timeout = options.timeout ?? 30_000;
       const interval = options.interval ?? 250;
       const stallMs = options.progress ? options.stallMs : undefined;

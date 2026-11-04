@@ -7,7 +7,7 @@
 // start from the pack's defaults instead). Presets are named choices kept per pack.
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { Ellipsis, Package } from "../icons";
-import { getJson, sendJson, type Pack, type ParamValue, type Preset, type RunChoices, type RunPreview, type RunSummary, type TraceMode, type VideoMode, videoMode } from "../api";
+import { getJson, sendJson, type Pack, type ParamValue, type Preset, type RunChoices, type RunPreview, type RunSummary, type TraceMode, type VideoMode, type VideoQuality, videoMode } from "../api";
 import { useShortcut } from "../keys";
 import { replaceRoute } from "../router";
 import { loadSettings, settings } from "../settings";
@@ -47,6 +47,9 @@ const attempts = ref(1);
 const trace = ref<TraceMode>("problems");
 const video = ref<VideoMode>("always");
 const runVideo = ref(false);
+const followVideo = ref(false);
+// "" leaves the quality to the pack, else the server's Video quality setting.
+const videoQuality = ref<VideoQuality | "">("");
 const signIn = ref(false);
 // Site keys that have a saved sign-in (Admin > Sign-ins).
 const savedSignIns = ref<Set<string>>(new Set());
@@ -101,6 +104,22 @@ const videoOptions = computed(() => {
     { value: "never" as const, label: `Never${mark("never")}` },
   ];
 });
+const qualityName: Record<VideoQuality, string> = { high: "High", full: "Full", compact: "Compact", small: "Small" };
+const qualityOptions = computed(() => {
+  const own = pack.value?.run.videoQuality;
+  return [
+    { value: "" as const, label: own ? `As the pack says (${qualityName[own]})` : "As the server's setting" },
+    ...(["high", "full", "compact", "small"] as const).map((q) => ({ value: q, label: qualityName[q] })),
+  ];
+});
+const qualityNote = computed(() => {
+  const q = videoQuality.value || pack.value?.run.videoQuality || null;
+  if (q === "high") return "Sharp text at 30 frames a second, for videos people watch. Compress kept videos leaves these alone.";
+  if (q === "full") return "What Playwright records.";
+  if (q === "compact") return "Same size and smoothness, about 80% smaller.";
+  if (q === "small") return "3/4 of the size and 10 frames a second, about 94% smaller.";
+  return "The server's Video quality setting (Admin > Storage).";
+});
 const attemptOptions = [
   { value: "pack" as const, label: "As each test says" },
   { value: "same" as const, label: "Same for every test" },
@@ -120,6 +139,8 @@ function choices(): RunChoices {
     trace: trace.value,
     video: video.value,
     runVideo: runVideo.value,
+    followVideo: followVideo.value,
+    ...(videoQuality.value ? { videoQuality: videoQuality.value } : {}),
     signIn: signIn.value,
     ...(network.value !== (pack.value?.run.network ?? "server") ? { network: network.value } : {}),
     ...(attemptsMode.value === "same" ? { attempts: attempts.value } : {}),
@@ -135,6 +156,8 @@ function applyPack(p: Pack) {
   trace.value = p.run.trace;
   video.value = videoMode(p.run.video);
   runVideo.value = p.run.runVideo ?? false;
+  followVideo.value = p.run.followVideo ?? false;
+  videoQuality.value = "";
   signIn.value = p.run.signIn ?? false;
   network.value = p.run.network ?? "server";
   pauseOnBroken.value = p.run.pauseOnBroken;
@@ -180,6 +203,8 @@ function applyChoices(c: RunChoices, p: Pack) {
   if (o.trace !== undefined) trace.value = o.trace;
   if (o.video !== undefined) video.value = videoMode(o.video);
   if (o.runVideo !== undefined) runVideo.value = o.runVideo;
+  if (o.followVideo !== undefined) followVideo.value = o.followVideo;
+  if (o.videoQuality !== undefined) videoQuality.value = o.videoQuality;
   if (o.signIn !== undefined) signIn.value = o.signIn;
   if (o.network !== undefined) network.value = o.network;
   if (o.pauseOnBroken !== undefined) pauseOnBroken.value = o.pauseOnBroken;
@@ -506,6 +531,13 @@ useShortcut("Mod+Enter", () => !namingOpen.value && void start());
                   <RadioGroup v-model="video" :options="videoOptions" label="Video" />
                   <ToggleSwitch id="nr-run-video" v-model="runVideo">Also record the whole run</ToggleSwitch>
                   <span v-if="runVideo" class="muted small">One video of what the live view follows, pauses included: at most about 270 MB an hour (a still page takes far less).</span>
+                  <ToggleSwitch id="nr-follow-video" v-model="followVideo" :disabled="video === 'never'">One video per attempt, across tabs</ToggleSwitch>
+                  <span class="muted small">{{ followVideo ? "Each attempt records the page the live view follows, new tabs and popups included." : "Each page an attempt opens gets its own video." }}</span>
+                </div>
+                <div class="opt">
+                  <span class="name">Video quality</span>
+                  <SelectMenu id="nr-video-quality" v-model="videoQuality" :options="qualityOptions" />
+                  <span class="muted small">{{ qualityNote }}</span>
                 </div>
                 <div class="opt">
                   <span class="name">Sign-in</span>

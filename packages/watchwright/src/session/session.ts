@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { chromium, firefox, webkit, type Browser, type BrowserContext, type BrowserContextOptions, type LaunchOptions, type Page } from "playwright";
-import { findFfmpeg, qualityFps, RunVideo, videoEncoder, type VideoQuality } from "../jobs/run-video.js";
+import { findFfmpeg, frameQualityFor, qualityFps, RunVideo, videoEncoder, type VideoQuality } from "../jobs/run-video.js";
 import { FlashFilter } from "./flash-filter.js";
 
 // A browser session: one browser, one context, every page in it, and their screencasts and trace.
@@ -27,11 +27,24 @@ export interface SessionOptions {
    */
   filterFlashes?: boolean;
   /**
-   * How much room attempt videos take (default `full`, Playwright's own). Below `full`, Watchwright
-   * writes every page's video itself from the screencast frames, at that quality.
+   * How much room attempt videos take (default `full`, Playwright's own). At any other quality,
+   * Watchwright writes every page's video itself from the screencast frames, at that quality;
+   * `high` also raises the frames' JPEG quality to at least 90.
    */
   videoQuality?: VideoQuality;
 }
+
+/** How a capture records video: one per page, or one of the page the live view follows. */
+export interface CaptureOptions {
+  /**
+   * Record one video, `video.webm`, of the page the live view follows (a new tab or popup the
+   * moment it opens) instead of one per page. Needs Playwright's ffmpeg.
+   */
+  follow?: boolean;
+}
+
+/** The page id a followed video is saved under. */
+export const FOLLOW_VIDEO = "follow";
 
 export interface SessionFrame {
   pageId: string;
@@ -73,6 +86,8 @@ export class BrowserSession {
   private readonly pages = new Map<Page, PageEntry>();
   private nextPage = 1;
   private videoDir: string | null = null;
+  /** The capture's video of the page the live view follows, when it records one. */
+  private follow: { video: RunVideo; path: string } | null = null;
   private captureOn = false;
   private videoBroken = false;
   private activeId: string | null = null;
@@ -189,7 +204,7 @@ export class BrowserSession {
 
   private async startPage(entry: PageEntry): Promise<void> {
     if (this.closed) return;
-    const videoPath = this.videoDir && !this.videoBroken ? path.join(this.videoDir, `video-${entry.id}.webm`) : null;
+    const videoPath = this.videoDir && !this.videoBroken && !this.follow ? path.join(this.videoDir, `video-${entry.id}.webm`) : null;
     const size = this.opts.size ?? this.opts.viewport;
     const deliver = (f: SessionFrame) => {
       entry.latest = { data: f.data, width: f.width, height: f.height };
@@ -224,7 +239,7 @@ export class BrowserSession {
       if (entry.filter) entry.filter.push(frame);
       else deliver(frame);
     };
-    await entry.page.screencast.start({ onFrame, size, quality: this.opts.quality, ...(videoPath && !ownVideo ? { path: videoPath } : {}) });
+    await entry.page.screencast.start({ onFrame, size, quality: frameQualityFor(quality, this.opts.quality), ...(videoPath && !ownVideo ? { path: videoPath } : {}) });
     entry.video?.start();
     entry.videoPath = videoPath;
     entry.capturing = true;
@@ -256,15 +271,47 @@ export class BrowserSession {
 
   /**
    * (Re)starts the screencast on every page. With `videoDir`, each page also records a video there
-   * until the next restart or `stopCapture`. Frames flow either way.
+   * (or, with `follow`, one video of the page the live view follows) until the next restart or
+   * `stopCapture`. Frames flow either way.
    */
-  async restartCapture(videoDir: string | null): Promise<{ pageId: string; path: string }[]> {
+  async restartCapture(videoDir: string | null, o: CaptureOptions = {}): Promise<{ pageId: string; path: string }[]> {
     const saved = await this.stopCapture();
     if (videoDir) mkdirSync(videoDir, { recursive: true });
     this.videoDir = videoDir;
     this.captureOn = true;
+    if (videoDir && o.follow && !this.videoBroken) this.startFollow(videoDir);
     for (const entry of this.pages.values()) await this.startPage(entry).catch(() => undefined);
     return saved;
+  }
+
+  /** Starts the video of the page the live view follows, written from that page's newest kept frame. */
+  private startFollow(videoDir: string): void {
+    const broken = (message: string) => {
+      if (this.videoBroken) return;
+      this.videoBroken = true;
+      this.hooks.onVideoUnavailable?.(message);
+    };
+    const ffmpeg = findFfmpeg();
+    if (!ffmpeg) return broken("Playwright's ffmpeg isn't installed");
+    if (!videoEncoder(ffmpeg)) return broken(`${ffmpeg} has no VP8 or VP9 encoder`);
+    const quality = this.opts.videoQuality ?? "full";
+    const file = path.join(videoDir, "video.webm");
+    const video = new RunVideo({
+      file,
+      ffmpeg,
+      fps: qualityFps(quality, VIDEO_FPS),
+      bitRate: VIDEO_BIT_RATE,
+      quality,
+      size: this.opts.size ?? this.opts.viewport,
+      // Until a new page's first frame arrives, the frame shown last stays.
+      frame: () => {
+        const active = [...this.pages.values()].find((e) => e.id === this.activeId);
+        return active?.latest ?? null;
+      },
+      onError: broken,
+    });
+    this.follow = { video, path: file };
+    video.start();
   }
 
   /** Stops every screencast; returns the videos that were saved. */
@@ -274,6 +321,9 @@ export class BrowserSession {
       const p = await this.stopPage(entry);
       if (p) saved.push({ pageId: entry.id, path: p });
     }
+    const follow = this.follow;
+    this.follow = null;
+    if (follow && (await follow.video.stop().catch(() => false))) saved.push({ pageId: FOLLOW_VIDEO, path: follow.path });
     return saved;
   }
 

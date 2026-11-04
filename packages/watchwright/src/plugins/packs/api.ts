@@ -280,6 +280,16 @@ export interface PackRunOptions {
   video?: VideoSetting;
   /** Record one video of the whole run, of what the live view follows (default false). */
   runVideo?: boolean;
+  /**
+   * Record each attempt's video of the page the live view follows (a new tab or popup the moment it
+   * opens) as one video, instead of one video per page (default false). Needs Playwright's ffmpeg.
+   */
+  followVideo?: boolean;
+  /**
+   * How sharp this pack's videos are, over the server's Video quality setting: `"high"` (for videos
+   * people watch: sharp text, 30 frames a second), `"full"`, `"compact"` or `"small"`.
+   */
+  videoQuality?: "high" | "full" | "compact" | "small";
   /** Draw click points and action titles into the live view and video (default true). */
   showActions?: boolean;
   /** Show each `h.step` title as a small corner caption in the live view and video (default false). */

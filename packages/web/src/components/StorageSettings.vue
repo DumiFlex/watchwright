@@ -50,7 +50,8 @@ async function loadVideos() {
 onBeforeUnmount(() => poll && clearTimeout(poll));
 
 const qualityOptions: { value: VideoQuality; label: string; note: string }[] = [
-  { value: "full", label: "Full", note: "What Playwright records: the sharpest picture, the most room." },
+  { value: "high", label: "High", note: "Sharp text at 30 frames a second, for videos people watch. About the size of Full on busy pages, far less on still ones; uses more CPU." },
+  { value: "full", label: "Full", note: "What Playwright records." },
   { value: "compact", label: "Compact", note: "Same size and smoothness, about 80% smaller. Text stays sharp." },
   { value: "small", label: "Small", note: "3/4 of the size and 10 frames a second, about 94% smaller. Text stays readable." },
 ];
@@ -178,7 +179,7 @@ async function save(values: Record<string, unknown>) {
 
       <h3 class="label">Videos</h3>
       <RadioGroup v-model="quality" :options="qualityOptions" label="Video quality" />
-      <p class="muted small">For runs that start from now on, attempt videos and run videos alike. Choosing which attempts keep a video (all, or only failed and broken ones) is a run option in New run.</p>
+      <p class="muted small">For runs that start from now on, attempt videos and run videos alike. A pack (<code>run.videoQuality</code>) or a run (in New run) can choose its own. Which attempts keep a video (all, or only failed and broken ones) is a run option in New run.</p>
       <p v-if="videos && !videos.ffmpeg" class="small warn-text" role="status">Playwright's ffmpeg isn't installed, so runs record no video. <code>npx playwright install ffmpeg</code> adds it.</p>
       <template v-if="videos">
         <div v-if="going && job" class="drive">
@@ -191,11 +192,11 @@ async function save(values: Record<string, unknown>) {
         <div v-else class="inline">
           <span class="small grow">
             Runs keep <strong>{{ videosText(videos.videos) }}</strong> ({{ fileSize(videos.bytes) }}).
-            <template v-if="quality === 'full'">Choose Compact or Small to compress them.</template>
+            <template v-if="quality === 'full' || quality === 'high'">Choose Compact or Small to compress them. Videos recorded at High are never compressed.</template>
             <template v-else-if="videos.toCompress">{{ videosText(videos.toCompress) }} ({{ fileSize(videos.toCompressBytes) }}) can get smaller.</template>
             <template v-else>All of them are {{ quality }} or smaller already.</template>
           </span>
-          <button class="btn" :disabled="quality === 'full' || !videos.toCompress || !videos.ffmpeg" @click="compressOpen = true">Compress kept videos</button>
+          <button class="btn" :disabled="quality === 'full' || quality === 'high' || !videos.toCompress || !videos.ffmpeg" @click="compressOpen = true">Compress kept videos</button>
         </div>
         <p v-if="jobText" class="muted small">{{ jobText }}<template v-if="job?.reason"> {{ job.reason }}</template></p>
       </template>

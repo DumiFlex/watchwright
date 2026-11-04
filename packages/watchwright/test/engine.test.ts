@@ -4,6 +4,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import { findFfmpeg } from "../src/jobs/run-video.js";
 import { dirSize } from "../src/jobs/storage.js";
+import { videoQualityOf } from "../src/jobs/video-compress.js";
 import { decodeFrame } from "../src/plugins/live/hub.js";
 import type { RunDetail, StorageReport } from "../src/plugins/runs/engine.js";
 import type { ResultDocument } from "../src/plugins/runs/results.js";
@@ -430,6 +431,37 @@ test("V3", async ({ h }) => { await h.goto("/"); await h.wait(1500); });`,
       const file = await h.app.inject({ url: detail.runVideos[0]!.url, headers: { host: h.host } });
       expect(file.headers["content-type"]).toBe("video/webm");
     } else expect(detail.runVideos).toEqual([]);
+  });
+
+  it("records one attempt video that follows a popup, at the run's quality over the server's", async () => {
+    const { h, packId } = await setup({
+      "tests/f.ts": `import { test } from "watchwright";
+test("F1", async ({ page, h }) => {
+  await h.goto("/");
+  await h.wait(300);
+  const [popup] = await Promise.all([page.waitForEvent("popup"), page.evaluate(() => void window.open("/", "_blank"))]);
+  await popup.waitForLoadState();
+  await h.wait(300);
+  await popup.close();
+  await h.wait(300);
+});`,
+    });
+    expect((await h.api("POST", "/settings", { values: { "runs.videoQuality": "compact" } })).status).toBe(200);
+    const runId = await startRun(h, { packId, followVideo: true, videoQuality: "high", pauseOnBroken: false });
+    const detail = await finished(h, runId);
+    expect(detail.options).toMatchObject({ followVideo: true, videoQuality: "high" });
+    // h.wait doesn't pull the live view back to the main page while the popup is open.
+    const events = (await h.api<{ events: { type: string; data: Record<string, unknown> }[] }>("GET", `/events?runId=${runId}&limit=500`)).data.events;
+    const pages = events.filter((e) => e.type === "page.active" || e.type === "page.closed").map((e) => `${e.type === "page.active" ? "active" : "closed"} ${String(e.data.pageId)}`);
+    expect(pages.slice(0, 4)).toEqual(["active p1", "active p2", "closed p2", "active p1"]);
+    const a = detail.attempts.find((x) => x.testId === "F1")!;
+    expect(a.status).toBe("passed");
+    const videos = (await h.api<ResultDocument>("GET", `/runs/${runId}/attempts/${a.id}`)).data.artifacts.filter((x) => x.kind === "video");
+    if (findFfmpeg()) {
+      expect(videos.map((v) => v.name)).toEqual(["video"]);
+      const file = path.join(h.app.watchwright.store.dataDir, videos[0]!.path);
+      expect(await videoQualityOf(file)).toBe("high");
+    } else expect(videos).toEqual([]);
   });
 
   it("measures each run, reports storage, and stops recording videos when the drive runs low", async () => {

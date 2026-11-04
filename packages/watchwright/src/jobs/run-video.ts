@@ -57,26 +57,36 @@ export function videoEncoder(ffmpeg: string): VideoEncoder | null {
 }
 
 /**
- * How much room videos take (the `runs.videoQuality` setting). `full` is what Playwright records
- * (a bit rate that keeps the picture whatever happens); `compact` keeps the size and frame rate at
- * a constant quality, which spends bits only when the page changes (about 80% smaller on real
- * runs); `small` also takes 3/4 of the size and 10 frames a second (about 94% smaller). See
- * docs/research/video-size.md.
+ * How much room videos take, and how sharp they are (the `runs.videoQuality` setting, a pack's
+ * `run.videoQuality`, a run's `videoQuality`). `high` is for videos people watch: a constant, high
+ * quality from sharper frames, 30 a second (see docs/research/videos-for-people.md). `full` is what
+ * Playwright records (a bit rate that keeps the picture whatever happens); `compact` keeps the size
+ * and frame rate at a constant quality, which spends bits only when the page changes (about 80%
+ * smaller on real runs); `small` also takes 3/4 of the size and 10 frames a second (about 94%
+ * smaller). See docs/research/video-size.md.
  */
-export type VideoQuality = "full" | "compact" | "small";
-export const VIDEO_QUALITIES: readonly VideoQuality[] = ["full", "compact", "small"];
-/** The CRF (lower is sharper) and the share of the size each quality below `full` keeps. */
+export type VideoQuality = "high" | "full" | "compact" | "small";
+export const VIDEO_QUALITIES: readonly VideoQuality[] = ["high", "full", "compact", "small"];
+/** The qualities Compress kept videos encodes to. */
+export type CompressQuality = "compact" | "small";
+/** The CRF (lower is sharper) and the share of the size each constant quality keeps. */
 const QUALITY: Record<Exclude<VideoQuality, "full">, { crf: number; scale: number; fps: number | null }> = {
+  high: { crf: 24, scale: 1, fps: 30 },
   compact: { crf: 40, scale: 1, fps: null },
   small: { crf: 42, scale: 0.75, fps: 10 },
 };
-/** Frames a second an attempt video of `quality` is written at (`fallback` keeps the recorder's own). */
+/** Frames a second a video of `quality` is written at (`fallback` keeps the recorder's own). */
 export function qualityFps(quality: VideoQuality, fallback: number): number {
   return quality === "full" ? fallback : (QUALITY[quality].fps ?? fallback);
 }
 
+/** The lowest JPEG quality the screencast sends frames at for `quality`: `high` needs frames without ringing around text. */
+export function frameQualityFor(quality: VideoQuality, frameQuality: number): number {
+  return quality === "high" ? Math.max(frameQuality, 90) : frameQuality;
+}
+
 /** How much smaller a quality is than another: higher is smaller. */
-const RANK: Record<VideoQuality, number> = { full: 0, compact: 1, small: 2 };
+const RANK: Record<VideoQuality, number> = { high: -1, full: 0, compact: 1, small: 2 };
 export function smallerThan(a: VideoQuality, b: VideoQuality): boolean {
   return RANK[a] > RANK[b];
 }
@@ -86,11 +96,22 @@ export const videoTitle = (quality: VideoQuality) => `watchwright-video:${qualit
 
 const even = (n: number) => Math.max(2, Math.floor(n / 2) * 2);
 
-/** The encoder arguments for `quality`: a bit rate for `full`, a constant quality otherwise. */
+/**
+ * The encoder arguments for `quality`: a bit rate for `full`, a constant quality otherwise. `high`
+ * spends a little more effort (cpu-used 6, which measured smaller and sharper than 8 at the same
+ * speed) and two threads; VP8 can't do a pure constant quality well, so there it gets a cap.
+ */
 export function encodeArgs(encoder: VideoEncoder, quality: VideoQuality, bitRate = BIT_RATE): string[] {
-  const speed = encoder === "libvpx-vp9" ? ["-cpu-used", "8", "-lag-in-frames", "0", "-row-mt", "1"] : ["-speed", "8"];
-  const rate = quality === "full" ? ["-qmax", "50", "-crf", "10", "-b:v", bitRate] : ["-qmax", "63", "-crf", String(QUALITY[quality].crf), "-b:v", "0"];
-  return ["-c:v", encoder, "-qmin", "0", ...rate, "-deadline", "realtime", ...speed, "-threads", "1", "-metadata", `title=${videoTitle(quality)}`];
+  const high = quality === "high";
+  const vp9 = encoder === "libvpx-vp9";
+  const speed = vp9 ? ["-cpu-used", high ? "6" : "8", "-lag-in-frames", "0", "-row-mt", "1"] : ["-speed", "8"];
+  const rate =
+    quality === "full"
+      ? ["-qmax", "50", "-crf", "10", "-b:v", bitRate]
+      : high && !vp9
+        ? ["-qmax", "40", "-crf", "8", "-b:v", "4M"]
+        : ["-qmax", "63", "-crf", String(QUALITY[quality].crf), "-b:v", "0"];
+  return ["-c:v", encoder, "-qmin", "0", ...rate, "-deadline", "realtime", ...speed, "-threads", high ? "2" : "1", "-metadata", `title=${videoTitle(quality)}`];
 }
 
 /** The scale filter for `quality` on a `width`×`height` picture, or null when it keeps the size. */
@@ -185,6 +206,8 @@ export interface RunVideoOptions {
   bitRate?: string;
   /** How much room the video may take (default `full`). */
   quality?: VideoQuality;
+  /** The video's size; frames of another size are centered, cropped or padded (default: the first frame's size). */
+  size?: { width: number; height: number } | undefined;
 }
 
 export class RunVideo {
@@ -212,7 +235,7 @@ export class RunVideo {
     const f = this.o.frame();
     if (!f || f.data === this.last) return;
     if (!this.proc) {
-      this.spawn(f.width, f.height);
+      this.spawn(this.o.size?.width ?? f.width, this.o.size?.height ?? f.height);
       if (!this.proc) return;
       this.startedAt = performance.now();
     }
