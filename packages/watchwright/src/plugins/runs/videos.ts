@@ -89,6 +89,9 @@ export class VideoCompressor {
 
   async report(): Promise<VideoReport> {
     const quality = this.o.quality();
+    // The job as the report starts: one that ends while the files are read is "running" here,
+    // so a "done" job never comes with a count of videos read before it replaced them.
+    const job = this.job && { ...this.job };
     const { all, todo } = await this.candidates(quality);
     return {
       quality,
@@ -97,7 +100,7 @@ export class VideoCompressor {
       bytes: all.reduce((n, c) => n + c.size, 0),
       toCompress: todo.length,
       toCompressBytes: todo.reduce((n, c) => n + c.size, 0),
-      job: this.job && { ...this.job },
+      job,
     };
   }
 
