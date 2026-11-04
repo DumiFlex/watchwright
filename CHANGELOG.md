@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/DumiFlex/watchwright/compare/v0.14.2...v0.15.0) (2026-11-04)
+
+
+### Features
+
+* high video quality and an attempt video that follows tabs ([#237](https://github.com/DumiFlex/watchwright/issues/237)) ([5367064](https://github.com/DumiFlex/watchwright/commit/53670643927e55721c9f715c3d3bf6caf03c360c))
+
 ## [0.14.2](https://github.com/DumiFlex/watchwright/compare/v0.14.1...v0.14.2) (2026-11-03)
 
 
