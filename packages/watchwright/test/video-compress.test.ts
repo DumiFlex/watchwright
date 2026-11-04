@@ -3,7 +3,7 @@ import path from "node:path";
 import { chromium } from "playwright";
 import { afterEach, describe, expect, it } from "vitest";
 import { findFfmpeg, RunVideo, videoEncoder, type VideoQuality } from "../src/jobs/run-video.js";
-import { compressArgs, compressVideo, runVideos, videoQualityOf, wantsCompress } from "../src/jobs/video-compress.js";
+import { compressArgs, compressVideo, replaceFile, runVideos, videoQualityOf, wantsCompress } from "../src/jobs/video-compress.js";
 import { VideoCompressor } from "../src/plugins/runs/videos.js";
 import { BrowserSession, FOLLOW_VIDEO } from "../src/session/session.js";
 import { videoSize } from "./helpers/video.js";
@@ -54,6 +54,19 @@ describe("kept videos", () => {
     ]);
     expect(existsSync(path.join(dir, "T1", "attempt-1", "video-p2.compressing.webm"))).toBe(false);
     expect(await runVideos(path.join(dir, "missing"))).toEqual([]);
+  });
+
+  it("tries the rename again while Windows refuses it, and gives up on other errors", async () => {
+    const err = (code: string) => Object.assign(new Error(code), { code });
+    let calls = 0;
+    await replaceFile("a", "b", { waitMs: 1, rename: async () => { if (++calls < 3) throw err("EPERM"); } });
+    expect(calls).toBe(3);
+    calls = 0;
+    await expect(replaceFile("a", "b", { waitMs: 1, rename: async () => { calls++; throw err("ENOENT"); } })).rejects.toMatchObject({ code: "ENOENT" });
+    expect(calls).toBe(1);
+    calls = 0;
+    await expect(replaceFile("a", "b", { waitMs: 1, tries: 4, rename: async () => { calls++; throw err("EBUSY"); } })).rejects.toMatchObject({ code: "EBUSY" });
+    expect(calls).toBe(4);
   });
 
   it("decodes the WebM and writes a smaller one, scaled for small", () => {

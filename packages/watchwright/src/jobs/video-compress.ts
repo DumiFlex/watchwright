@@ -12,6 +12,25 @@ import { encodeArgs, smallerThan, VIDEO_QUALITIES, type CompressQuality, type Vi
 const PART = ".compressing.webm";
 
 /**
+ * Renames `from` over `to`, trying again for a while when Windows refuses it (EPERM, EBUSY,
+ * EACCES): it does while anything has `to` open, such as a report reading its quality or the
+ * web page playing it. Other systems rename over open files, so they succeed the first time.
+ */
+export async function replaceFile(from: string, to: string, o: { tries?: number; waitMs?: number; rename?: (a: string, b: string) => Promise<void> } = {}): Promise<void> {
+  const tries = o.tries ?? 20;
+  const move = o.rename ?? rename;
+  for (let i = 1; ; i++) {
+    try {
+      return await move(from, to);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (i >= tries || (code !== "EPERM" && code !== "EBUSY" && code !== "EACCES")) throw err;
+      await new Promise((r) => setTimeout(r, (o.waitMs ?? 100) * Math.min(i, 5)));
+    }
+  }
+}
+
+/**
  * The quality a video was written at: Watchwright writes it in the file's title, near the start.
  * A video without one was written by Playwright, which is `full`.
  */
@@ -112,7 +131,7 @@ export async function compressVideo(ffmpeg: string, encoder: VideoEncoder, file:
     });
     const after = (await stat(part)).size;
     if (after > 0 && after < before) {
-      await rename(part, file);
+      await replaceFile(part, file);
       return { before, after, replaced: true };
     }
     await unlink(part);
