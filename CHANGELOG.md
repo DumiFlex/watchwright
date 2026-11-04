@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.15.1](https://github.com/DumiFlex/watchwright/compare/v0.15.0...v0.15.1) (2026-11-04)
+
+
+### Bug Fixes
+
+* compress kept videos retries the rename while Windows holds the file ([#243](https://github.com/DumiFlex/watchwright/issues/243)) ([115efbd](https://github.com/DumiFlex/watchwright/commit/115efbd8637f0e464cf5a8d9f06390b3fa4819fb))
+* compress report takes the job before reading videos ([#241](https://github.com/DumiFlex/watchwright/issues/241)) ([175ec03](https://github.com/DumiFlex/watchwright/commit/175ec0306757a641c9726a6eb947b35500fa95e5))
+
 ## [0.15.0](https://github.com/DumiFlex/watchwright/compare/v0.14.2...v0.15.0) (2026-11-04)
 
 
