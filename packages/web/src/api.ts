@@ -179,6 +179,10 @@ export interface PackRunDefaults {
   /** Older servers say true or false. */
   video: VideoMode | boolean;
   runVideo?: boolean;
+  /** Each attempt records one video of the page the live view follows; older servers leave it out. */
+  followVideo?: boolean;
+  /** The pack's own video quality, or null for the server's setting; older servers leave it out. */
+  videoQuality?: VideoQuality | null;
   /** Runs start with the site's saved sign-in (`site.signIn: saved`); older servers leave it out. */
   signIn?: boolean;
   /** Where runs reach the site from (`site.network`): "server" or a runner's name; older servers leave it out. */
@@ -193,6 +197,10 @@ export interface RunOptions {
   trace?: TraceMode;
   video?: VideoMode | boolean;
   runVideo?: boolean;
+  /** One video per attempt, of the page the live view follows. */
+  followVideo?: boolean;
+  /** Over the pack's quality and the server's. */
+  videoQuality?: VideoQuality;
   signIn?: boolean;
   /** "server" or a runner's name. */
   network?: string;
@@ -320,7 +328,7 @@ export interface StorageReport {
   limits: { warnBelowGB: number; stopBelowGB: number };
 }
 
-export type VideoQuality = "full" | "compact" | "small";
+export type VideoQuality = "high" | "full" | "compact" | "small";
 
 /** A Compress kept videos job, going or the last one. */
 export interface CompressJob {

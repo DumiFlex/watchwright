@@ -78,13 +78,17 @@ export interface PackRunDefaults {
   trace: "problems" | "always" | "never";
   video: VideoMode;
   runVideo: boolean;
+  /** Each attempt records one video of the page the live view follows (`run.followVideo`). */
+  followVideo: boolean;
+  /** The pack's own video quality (`run.videoQuality`), or null for the server's setting. */
+  videoQuality: "high" | "full" | "compact" | "small" | null;
   /** Runs start with the site's saved sign-in (`site.signIn: "saved"`). */
   signIn: boolean;
   /** Where runs reach the site from (`site.network`): "server" or a runner's name. */
   network: string;
 }
 
-const RUN_DEFAULTS: PackRunDefaults = { pauseOnBroken: true, pauseLimitMinutes: 20, trace: "problems", video: "always", runVideo: false, signIn: false, network: "server" };
+const RUN_DEFAULTS: PackRunDefaults = { pauseOnBroken: true, pauseLimitMinutes: 20, trace: "problems", video: "always", runVideo: false, followVideo: false, videoQuality: null, signIn: false, network: "server" };
 
 interface Row {
   id: string;
@@ -319,6 +323,8 @@ export class PackRegistry {
         trace: o.run?.trace ?? RUN_DEFAULTS.trace,
         video: videoMode(o.run?.video ?? RUN_DEFAULTS.video),
         runVideo: o.run?.runVideo ?? RUN_DEFAULTS.runVideo,
+        followVideo: o.run?.followVideo ?? RUN_DEFAULTS.followVideo,
+        videoQuality: o.run?.videoQuality ?? RUN_DEFAULTS.videoQuality,
         signIn: o.site.signIn === "saved",
         network: o.site.network ?? RUN_DEFAULTS.network,
       },

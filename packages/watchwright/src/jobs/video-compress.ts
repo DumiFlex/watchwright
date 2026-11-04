@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { open, readdir, rename, stat, unlink } from "node:fs/promises";
 import path from "node:path";
-import { encodeArgs, smallerThan, VIDEO_QUALITIES, type VideoEncoder, type VideoQuality } from "./run-video.js";
+import { encodeArgs, smallerThan, VIDEO_QUALITIES, type CompressQuality, type VideoEncoder, type VideoQuality } from "./run-video.js";
 
 // Videos runs already kept, encoded again at a smaller quality with Playwright's own ffmpeg (it
 // decodes the WebM it wrote and has the scale filter). A video is replaced only when the new file
@@ -57,13 +57,16 @@ export async function runVideos(runDir: string, o: { clean?: boolean } = {}): Pr
   return out.sort((a, b) => a.file.localeCompare(b.file));
 }
 
-/** Whether a video at `has` would get smaller at `target`. */
+/**
+ * Whether a video at `has` would get smaller at `target`. A `high` video is never compressed: it was
+ * recorded to be watched, and shrinking it later would undo that.
+ */
 export function wantsCompress(has: VideoQuality, target: VideoQuality): boolean {
-  return smallerThan(target, has);
+  return has !== "high" && smallerThan(target, has);
 }
 
 /** The ffmpeg arguments that encode `input` again at `quality` into `output`. */
-export function compressArgs(input: string, output: string, encoder: VideoEncoder, quality: Exclude<VideoQuality, "full">): string[] {
+export function compressArgs(input: string, output: string, encoder: VideoEncoder, quality: CompressQuality): string[] {
   const small = quality === "small";
   return [
     "-loglevel", "error", "-y",
@@ -85,7 +88,7 @@ export interface CompressResult {
 }
 
 /** Encodes `file` again at `quality` and puts it in place when smaller. Rejects on an ffmpeg failure or an abort (the old file stays). */
-export async function compressVideo(ffmpeg: string, encoder: VideoEncoder, file: string, quality: Exclude<VideoQuality, "full">, signal?: AbortSignal): Promise<CompressResult> {
+export async function compressVideo(ffmpeg: string, encoder: VideoEncoder, file: string, quality: CompressQuality, signal?: AbortSignal): Promise<CompressResult> {
   const before = (await stat(file)).size;
   const part = file.slice(0, -".webm".length) + PART;
   try {

@@ -2,8 +2,9 @@ import { chmodSync, existsSync, mkdirSync, statSync, writeFileSync } from "node:
 import path from "node:path";
 import { chromium } from "playwright";
 import { afterEach, describe, expect, it } from "vitest";
-import { browsersPath, encodeArgs, ffmpegArgs, findFfmpeg, qualityFps, scaleFilter, smallerThan, matroskaFrame, matroskaHeader, nextRunVideoFile, RunVideo, runVideoFiles, videoEncoder } from "../src/jobs/run-video.js";
+import { browsersPath, encodeArgs, ffmpegArgs, findFfmpeg, frameQualityFor, qualityFps, scaleFilter, smallerThan, matroskaFrame, matroskaHeader, nextRunVideoFile, RunVideo, runVideoFiles, videoEncoder } from "../src/jobs/run-video.js";
 import { cleanTempDirs, tempDir } from "./helpers/fixtures.js";
+import { videoSize } from "./helpers/video.js";
 
 afterEach(() => cleanTempDirs());
 
@@ -53,6 +54,28 @@ describe("finding Playwright's ffmpeg", () => {
     expect(compact).toContain("-qmax 63 -crf 40 -b:v 0");
     expect(compact).toContain("title=watchwright-video:compact");
     expect(encodeArgs("libvpx", "small").join(" ")).toContain("-crf 42 -b:v 0");
+  });
+
+  it("encodes high at a low constant quality with a little more effort, and caps VP8, which can't do a pure constant quality well", () => {
+    const vp9 = encodeArgs("libvpx-vp9", "high").join(" ");
+    expect(vp9).toContain("-qmax 63 -crf 24 -b:v 0");
+    expect(vp9).toContain("-cpu-used 6");
+    expect(vp9).toContain("-threads 2");
+    expect(vp9).toContain("title=watchwright-video:high");
+    const vp8 = encodeArgs("libvpx", "high").join(" ");
+    expect(vp8).toContain("-qmax 40 -crf 8 -b:v 4M");
+    expect(vp8).toContain("-speed 8");
+    expect(encodeArgs("libvpx-vp9", "compact").join(" ")).toContain("-cpu-used 8");
+    expect(encodeArgs("libvpx-vp9", "compact").join(" ")).toContain("-threads 1");
+    // High keeps the size and takes 30 frames a second, from frames at JPEG 90 or more.
+    expect(scaleFilter("high", 1920, 1080)).toBeNull();
+    expect(qualityFps("high", 25)).toBe(30);
+    expect(qualityFps("high", 10)).toBe(30);
+    expect(frameQualityFor("high", 70)).toBe(90);
+    expect(frameQualityFor("high", 95)).toBe(95);
+    expect(frameQualityFor("full", 70)).toBe(70);
+    expect(smallerThan("full", "high")).toBe(true);
+    expect(smallerThan("high", "full")).toBe(false);
   });
 
   it("scales a small video to 3/4 after fitting it in, at 10 frames a second", () => {
@@ -132,6 +155,20 @@ describe.skipIf(!ffmpeg)("recording", () => {
     await fd.close();
     expect(head.toString("hex")).toBe("1a45dfa3");
     expect(statSync(file).size).toBeGreaterThan(500);
+  });
+
+  it("keeps a size it's given, whatever size the first frame has", { timeout: 30_000 }, async () => {
+    const browser = await chromium.launch();
+    const page = await browser.newPage({ viewport: { width: 200, height: 120 } });
+    await page.setContent("<body style='background:#36c'><h1>small</h1></body>");
+    const shot = await page.screenshot({ type: "jpeg" });
+    await browser.close();
+    const file = path.join(tempDir("ww-run-"), "v.webm");
+    const v = new RunVideo({ file, ffmpeg: ffmpeg!, frame: () => ({ data: shot, width: 200, height: 120 }), onError: () => undefined, fps: 20, size: { width: 320, height: 240 }, quality: "high" });
+    v.start();
+    await new Promise((r) => setTimeout(r, 400));
+    expect(await v.stop()).toBe(true);
+    expect(videoSize(ffmpeg!, file)).toBe("320x240");
   });
 
   it("says once when ffmpeg fails, and keeps quiet after", async () => {
