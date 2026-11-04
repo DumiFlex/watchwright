@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { findFfmpeg, RunVideo, videoEncoder, type VideoQuality } from "../src/jobs/run-video.js";
 import { compressArgs, compressVideo, runVideos, videoQualityOf, wantsCompress } from "../src/jobs/video-compress.js";
 import { VideoCompressor } from "../src/plugins/runs/videos.js";
-import { BrowserSession } from "../src/session/session.js";
+import { BrowserSession, FOLLOW_VIDEO } from "../src/session/session.js";
+import { videoSize } from "./helpers/video.js";
 import { cleanTempDirs, tempDir } from "./helpers/fixtures.js";
 
 afterEach(() => cleanTempDirs());
@@ -16,9 +17,11 @@ describe("kept videos", () => {
     writeFileSync(path.join(dir, "a.webm"), Buffer.concat([Buffer.from([0x1a, 0x45, 0xdf, 0xa3]), Buffer.from("....title watchwright-video:compact ....")]));
     writeFileSync(path.join(dir, "b.webm"), Buffer.alloc(100));
     writeFileSync(path.join(dir, "c.webm"), Buffer.from("watchwright-video:huge"));
+    writeFileSync(path.join(dir, "d.webm"), Buffer.from("....watchwright-video:high...."));
     expect(await videoQualityOf(path.join(dir, "a.webm"))).toBe("compact");
     expect(await videoQualityOf(path.join(dir, "b.webm"))).toBe("full");
     expect(await videoQualityOf(path.join(dir, "c.webm"))).toBe("full");
+    expect(await videoQualityOf(path.join(dir, "d.webm"))).toBe("high");
     expect(await videoQualityOf(path.join(dir, "missing.webm"))).toBe("full");
   });
 
@@ -28,6 +31,10 @@ describe("kept videos", () => {
     expect(wantsCompress("compact", "compact")).toBe(false);
     expect(wantsCompress("small", "compact")).toBe(false);
     expect(wantsCompress("full", "full")).toBe(false);
+    // High videos were recorded to be watched: never compressed.
+    expect(wantsCompress("high", "compact")).toBe(false);
+    expect(wantsCompress("high", "small")).toBe(false);
+    expect(wantsCompress("full", "high")).toBe(false);
   });
 
   it("finds every video of a run and clears files a stopped compress left", async () => {
@@ -82,6 +89,7 @@ describe("Compress kept videos", () => {
   it("doesn't start at full quality, while a run goes, or without ffmpeg", async () => {
     const dataDir = tempDir("ww-data-");
     await expect(compressor({ dataDir, runs: [], quality: "full", ffmpeg: "/x" }).c.start("web")).rejects.toMatchObject({ code: "quality_full" });
+    await expect(compressor({ dataDir, runs: [], quality: "high", ffmpeg: "/x" }).c.start("web")).rejects.toMatchObject({ code: "quality_full", message: expect.stringContaining("High") });
     await expect(compressor({ dataDir, runs: [], quality: "compact", busy: () => true }).c.start("web")).rejects.toMatchObject({ code: "run_going", status: 409 });
     await expect(compressor({ dataDir, runs: [], quality: "compact", ffmpeg: null }).c.start("web")).rejects.toMatchObject({ code: "no_ffmpeg" });
   });
@@ -191,6 +199,65 @@ describe.skipIf(!ffmpeg)("recording at a smaller quality", () => {
       expect(statSync(saved[0]!.path).size).toBeGreaterThan(500);
       expect(await videoQualityOf(saved[0]!.path)).toBe("small");
       expect([...widths]).toEqual([640]);
+    } finally {
+      await s.close();
+    }
+  });
+});
+
+describe.skipIf(!ffmpeg)("recording at high quality", () => {
+  it("writes the videos itself at high quality from sharper frames", { timeout: 60_000 }, async () => {
+    const s = await BrowserSession.launch({ browser: "chromium", headless: true, viewport: { width: 640, height: 400 }, quality: 70, showActions: false, trace: false, videoQuality: "high" });
+    try {
+      const dir = tempDir("ww-vq-");
+      const page = await s.mainPage();
+      await s.restartCapture(dir);
+      for (let i = 0; i < 6; i++) {
+        await page.setContent(`<body><h1>Frame ${i}</h1><p style="font-size:11px">${"small text ".repeat(80)}</p></body>`);
+        await page.waitForTimeout(120);
+      }
+      const saved = await s.stopCapture();
+      expect(saved).toHaveLength(1);
+      expect(await videoQualityOf(saved[0]!.path)).toBe("high");
+    } finally {
+      await s.close();
+    }
+  });
+});
+
+describe.skipIf(!ffmpeg)("an attempt video that follows the live view", () => {
+  it("records one video across a popup and back, at the screencast size, instead of one per page", { timeout: 60_000 }, async () => {
+    const opened: string[] = [];
+    const s = await BrowserSession.launch(
+      { browser: "chromium", headless: true, viewport: { width: 640, height: 400 }, quality: 70, showActions: false, trace: false, videoQuality: "compact" },
+      { onPageOpened: (id) => opened.push(id) },
+    );
+    try {
+      const dir = tempDir("ww-follow-");
+      const page = await s.mainPage();
+      await page.setContent(`<body style="background:#c33"><h1>Main</h1></body>`);
+      await s.restartCapture(dir, { follow: true });
+      await page.waitForTimeout(300);
+      const [popup] = await Promise.all([page.waitForEvent("popup"), page.evaluate("void window.open('about:blank', '_blank', 'width=300,height=200')")]);
+      await popup.setContent(`<body style="background:#3c3"><h1>Popup</h1></body>`);
+      expect(s.activePage).toBe(s.pageId(popup));
+      await popup.waitForTimeout(400);
+      await popup.close();
+      expect(s.activePage).toBe(s.pageId(page));
+      await page.setContent(`<body style="background:#33c"><h1>Back</h1></body>`);
+      await page.waitForTimeout(300);
+      const saved = await s.stopCapture();
+      expect(saved).toEqual([{ pageId: FOLLOW_VIDEO, path: path.join(dir, "video.webm") }]);
+      expect(readdirSync(dir)).toEqual(["video.webm"]);
+      expect(await videoQualityOf(saved[0]!.path)).toBe("compact");
+      expect(videoSize(ffmpeg!, saved[0]!.path)).toBe("640x400");
+      expect(opened).toHaveLength(2);
+
+      // Without follow, the next capture goes back to one video per page.
+      await s.restartCapture(dir);
+      await page.waitForTimeout(300);
+      const perPage = await s.stopCapture();
+      expect(perPage.map((v) => path.basename(v.path))).toEqual([`video-${s.pageId(page)}.webm`]);
     } finally {
       await s.close();
     }

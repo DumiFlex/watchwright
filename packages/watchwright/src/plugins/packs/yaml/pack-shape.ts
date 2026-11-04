@@ -81,6 +81,8 @@ const RUN = obj(
     trace: str("Which attempts keep a trace (default problems).", { enum: ["problems", "always", "never"] }),
     video: { t: "union", of: [bool(), str(undefined, { enum: ["always", "problems", "never"] })], doc: "Which attempts keep a video: always (default, also true), problems (failed or broken) or never (also false)." },
     runVideo: bool("Record one video of the whole run, of what the live view follows (default false)."),
+    followVideo: bool("Record each attempt's video of the page the live view follows, as one video across tabs and popups, instead of one per page (default false)."),
+    videoQuality: str("How sharp this pack's videos are, over the server's Video quality setting: high (for videos people watch), full, compact or small.", { enum: ["high", "full", "compact", "small"] }),
     showActions: bool("Draw click points and action titles into the live view (default true)."),
     chapters: bool("Show each step's title as a small caption in the bottom-left corner of the live view and video (default false)."),
     keepTabs: bool("Keep tabs and popups a test opened for the tests after it (default false: they close between tests)."),

@@ -10,10 +10,10 @@ import type { AttemptEnv, JobKind, KindPlan, PlanItem } from "../../jobs/kind.js
 import type { JobKinds } from "../../jobs/kinds.js";
 import type { AttemptRuntime } from "../../jobs/runtime.js";
 import { AttemptRecorder, MAX_LOG_LINES, safeRelative, slug, type ArtifactInfo } from "../../jobs/recorder.js";
-import { findFfmpeg, nextRunVideoFile, RunVideo, runVideoFiles, type VideoQuality } from "../../jobs/run-video.js";
+import { findFfmpeg, nextRunVideoFile, qualityFps, RUN_VIDEO_FPS, RunVideo, runVideoFiles, type VideoQuality } from "../../jobs/run-video.js";
 import { dirSize, driveSpace, GB, sizeText } from "../../jobs/storage.js";
 import { unzip, zip } from "../../jobs/zip.js";
-import { BrowserSession } from "../../session/session.js";
+import { BrowserSession, FOLLOW_VIDEO } from "../../session/session.js";
 import type { FrameHub } from "../live/hub.js";
 import { StepError, type Collector, type CollectorAttempt, type CollectorRecord, type Outcome, type PackState, type ParamValues, type RunRef, videoMode, type VideoMode, type VideoSetting } from "../packs/api.js";
 import type { LoadedPack } from "../packs/loader.js";
@@ -177,6 +177,8 @@ interface ActiveRun {
   /** The video of the whole run while one is recorded. */
   runVideo: RunVideo | null;
   runVideoWarned: boolean;
+  /** The quality the run's videos are written at: the run's option, else the pack's, else the server's setting. */
+  videoQuality: VideoQuality;
   /** Set once the run is planned and set up. */
   ctx: RunCtx | null;
   /** The recorder of the top-level attempt that is running, for marks. */
@@ -1055,6 +1057,7 @@ export class Engine {
       videoWarned: false,
       runVideo: null,
       runVideoWarned: false,
+      videoQuality: "full",
       ctx: null,
       recorder: null,
       sizeBytes: null,
@@ -1151,6 +1154,7 @@ export class Engine {
       }
       this.emit("run.log", { level: "info", message: `The browser reaches the site from the runner ${network}.` }, row.id);
     }
+    run.videoQuality = options.videoQuality ?? o.run?.videoQuality ?? this.videoQuality();
     let session: BrowserSession;
     try {
       session = await BrowserSession.launch(
@@ -1164,7 +1168,7 @@ export class Engine {
           size: o.run?.screencastSize,
           quality: o.run?.frameQuality ?? 70,
           showActions: o.run?.showActions ?? true,
-          videoQuality: this.videoQuality(),
+          videoQuality: run.videoQuality,
         },
         {
           onFrame: (f) => frames.publish({ runId: row.id, ...f }),
@@ -1329,7 +1333,8 @@ export class Engine {
         return list.find((f) => f.pageId === run.session?.activePage) ?? list.at(-1) ?? null;
       },
       onError: (message) => warn(`The run video stopped: ${message}. The run goes on without it.`),
-      quality: this.videoQuality(),
+      quality: run.videoQuality,
+      fps: qualityFps(run.videoQuality, RUN_VIDEO_FPS),
     });
     run.runVideo.start();
   }
@@ -1477,7 +1482,7 @@ export class Engine {
         const closed = await session.closeExtraPages();
         if (closed > 0) recorder.addLog("info", `Closed ${closed === 1 ? "a tab" : `${closed} tabs`} the last test left open.`);
       }
-      await session.restartCapture(video !== "never" ? dir : null);
+      await session.restartCapture(video !== "never" ? dir : null, { follow: ctx.options.followVideo ?? o.followVideo ?? false });
       if (traceMode !== "never") await session.startTraceChunk();
     }
 
@@ -1601,7 +1606,7 @@ export class Engine {
       // "problems" keeps a video only when the attempt failed or broke, as "problems" does for traces.
       const keepVideo = video === "always" || finalStatus === "broken" || finalStatus === "failed";
       for (const v of await session.restartCapture(null).catch(() => [])) {
-        if (keepVideo) recorder.register("video", `video ${v.pageId}`, v.path, "video/webm");
+        if (keepVideo) recorder.register("video", v.pageId === FOLLOW_VIDEO ? "video" : `video ${v.pageId}`, v.path, "video/webm");
         else rmSync(v.path, { force: true });
       }
       if (traceMode !== "never") {

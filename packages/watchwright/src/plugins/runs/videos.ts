@@ -106,7 +106,7 @@ export class VideoCompressor {
     if (this.job?.state === "running") throw new EngineError("compress_going", "Videos are already being compressed.", 409);
     if (this.o.busy()) throw new EngineError("run_going", "A run is going. Compress kept videos once no run is going, so the run keeps the whole CPU.", 409);
     const quality = this.o.quality();
-    if (quality === "full") throw new EngineError("quality_full", "Video quality is Full. Choose Compact or Small first: kept videos are compressed to that quality.", 400);
+    if (quality === "full" || quality === "high") throw new EngineError("quality_full", `Video quality is ${quality === "high" ? "High" : "Full"}. Choose Compact or Small first: kept videos are compressed to that quality.`, 400);
     const ffmpeg = this.ffmpeg();
     const encoder = ffmpeg ? videoEncoder(ffmpeg) : null;
     if (!ffmpeg || !encoder) throw new EngineError("no_ffmpeg", "Playwright's ffmpeg isn't installed (npx playwright install ffmpeg), so videos can't be compressed.", 400);
@@ -133,7 +133,7 @@ export class VideoCompressor {
       for (const c of todo) {
         if (this.o.busy()) abort.abort("A run started, so compressing stopped. Press Compress again once no run is going.");
         if (abort.signal.aborted) break;
-        if (job.quality === "full") break;
+        if (job.quality === "full" || job.quality === "high") break;
         try {
           const r = await compressVideo(ffmpeg, encoder, c.file, job.quality, abort.signal);
           job.beforeBytes += r.before;
