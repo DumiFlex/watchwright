@@ -1,7 +1,8 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { chromium, firefox, webkit, type Browser, type BrowserContext, type BrowserContextOptions, type LaunchOptions, type Page } from "playwright";
-import { findFfmpeg, frameQualityFor, qualityFps, RunVideo, videoEncoder, type VideoQuality } from "../jobs/run-video.js";
+import { findFfmpeg, frameQualityFor, videoEncoder, type VideoQuality } from "../jobs/run-video.js";
+import { VideoCapture, type CaptureResult } from "../jobs/video-capture.js";
 import { FlashFilter } from "./flash-filter.js";
 
 // A browser session: one browser, one context, every page in it, and their screencasts and trace.
@@ -22,14 +23,15 @@ export interface SessionOptions {
   trace?: boolean;
   /**
    * Drop the one-frame flashes Firefox's screencast sends (tiles not painted yet) from the live
-   * frames and the videos (default: on for Firefox). The videos are then written by Watchwright
-   * from the kept frames, with Playwright's ffmpeg, instead of by Playwright.
+   * frames and the videos (default: on for Firefox). The videos are then recorded by Watchwright
+   * from the kept frames instead of by Playwright.
    */
   filterFlashes?: boolean;
   /**
    * How much room attempt videos take (default `full`, Playwright's own). At any other quality,
-   * Watchwright writes every page's video itself from the screencast frames, at that quality;
-   * `high` also raises the frames' JPEG quality to at least 90.
+   * Watchwright records every page's video itself from the screencast frames, and they're
+   * encoded at that quality after the attempt; `high` also raises the frames' JPEG quality to at
+   * least 90.
    */
   videoQuality?: VideoQuality;
 }
@@ -49,6 +51,8 @@ export const FOLLOW_VIDEO = "follow";
 export interface SessionFrame {
   pageId: string;
   timestamp: number;
+  /** When the session got it (`performance.now()`), before the flash filter held it back a frame. */
+  receivedAt?: number;
   width: number;
   height: number;
   data: Buffer;
@@ -70,15 +74,20 @@ interface PageEntry {
   /** Where this page's video goes for the current capture, if any. */
   videoPath: string | null;
   capturing: boolean;
-  /** With flash filtering: the filter, the newest kept frame, and the video written from those. */
+  /** With flash filtering: the filter, the newest kept frame, and the video recorded from those. */
   filter?: FlashFilter<SessionFrame> | null;
-  latest?: { data: Buffer; width: number; height: number } | null;
-  video?: RunVideo | null;
+  latest?: { data: Buffer; width: number; height: number; receivedAt?: number | undefined } | null;
+  video?: VideoCapture | null;
 }
 
-/** Attempt videos written from filtered frames: the screencast's own rate and a bit rate close to Playwright's. */
-const VIDEO_FPS = 25;
-const VIDEO_BIT_RATE = "1M";
+/** A video a capture saved: written by Playwright (`capture` absent), or recorded by Watchwright and still to be encoded into `path`. */
+export interface SavedVideo {
+  pageId: string;
+  path: string;
+  capture?: CaptureResult;
+}
+
+const captureFile = (videoPath: string) => videoPath.replace(/\.webm$/, ".capture.mkv");
 
 const BROWSERS = { chromium, firefox, webkit };
 
@@ -87,8 +96,10 @@ export class BrowserSession {
   private nextPage = 1;
   private videoDir: string | null = null;
   /** The capture's video of the page the live view follows, when it records one. */
-  private follow: { video: RunVideo; path: string } | null = null;
+  private follow: { video: VideoCapture; path: string } | null = null;
   private captureOn = false;
+  /** Videos of pages that closed during the capture, handed back by the next `stopCapture`. */
+  private readonly closedVideos: Promise<SavedVideo | null>[] = [];
   private videoBroken = false;
   private activeId: string | null = null;
   private inflight = 0;
@@ -144,6 +155,14 @@ export class BrowserSession {
     this.hooks.onPageOpened?.(entry.id, page.url());
     page.on("close", () => {
       this.pages.delete(page);
+      // A popup or tab that closed: what it recorded is still its video.
+      const video = entry.video;
+      const videoPath = entry.videoPath;
+      entry.video = null;
+      entry.videoPath = null;
+      if (video && videoPath) {
+        this.closedVideos.push(video.stop().then((capture) => (capture ? { pageId: entry.id, path: videoPath, capture } : null), () => null));
+      }
       this.hooks.onPageClosed?.(entry.id);
       if (this.activeId === entry.id) {
         const last = [...this.pages.values()].pop();
@@ -195,6 +214,8 @@ export class BrowserSession {
     if (!entry || entry.id === this.activeId) return;
     this.activeId = entry.id;
     this.hooks.onActivePage?.(entry.id);
+    // The followed video shows the page it switched to from now (its newest frame until a new one comes).
+    if (this.follow && entry.latest) this.follow.video.push({ ...entry.latest, receivedAt: performance.now() });
   }
 
   /** Requests in flight and the time the network last changed, for `h.idle()`. */
@@ -207,26 +228,24 @@ export class BrowserSession {
     const videoPath = this.videoDir && !this.videoBroken && !this.follow ? path.join(this.videoDir, `video-${entry.id}.webm`) : null;
     const size = this.opts.size ?? this.opts.viewport;
     const deliver = (f: SessionFrame) => {
-      entry.latest = { data: f.data, width: f.width, height: f.height };
+      entry.latest = { data: f.data, width: f.width, height: f.height, receivedAt: f.receivedAt };
+      entry.video?.push(entry.latest);
+      if (this.follow && entry.id === this.activeId) this.follow.video.push(entry.latest);
       this.hooks.onFrame?.(f);
     };
     const filtering = this.opts.filterFlashes ?? this.opts.browser === "firefox";
     entry.filter = filtering ? new FlashFilter<SessionFrame>(deliver) : null;
     entry.latest = null;
-    // With the filter on, or a quality below Playwright's, the video is written from the (kept)
-    // frames; without ffmpeg, Playwright writes it as it is.
+    // With the filter on, or another quality than Playwright's, the video is recorded from the
+    // (kept) frames as they come and encoded after the attempt; without ffmpeg to encode it,
+    // Playwright writes it as it is.
     const quality = this.opts.videoQuality ?? "full";
     const ffmpeg = (filtering || quality !== "full") && videoPath ? findFfmpeg() : null;
     const ownVideo = !!(ffmpeg && videoPath && videoEncoder(ffmpeg));
     entry.video =
-      ownVideo && videoPath && ffmpeg
-        ? new RunVideo({
-            file: videoPath,
-            ffmpeg,
-            fps: qualityFps(quality, VIDEO_FPS),
-            bitRate: VIDEO_BIT_RATE,
-            quality,
-            frame: () => entry.latest ?? null,
+      ownVideo && videoPath
+        ? new VideoCapture({
+            file: captureFile(videoPath),
             onError: (message) => {
               if (this.videoBroken) return;
               this.videoBroken = true;
@@ -235,28 +254,33 @@ export class BrowserSession {
           })
         : null;
     const onFrame = (f: { data: Buffer; timestamp: number; viewportWidth: number; viewportHeight: number }) => {
-      const frame: SessionFrame = { pageId: entry.id, timestamp: f.timestamp, width: f.viewportWidth, height: f.viewportHeight, data: f.data };
+      // Stamped before the flash filter, which hands each frame on only when the next one comes.
+      const frame: SessionFrame = { pageId: entry.id, timestamp: f.timestamp, receivedAt: performance.now(), width: f.viewportWidth, height: f.viewportHeight, data: f.data };
       if (entry.filter) entry.filter.push(frame);
       else deliver(frame);
     };
     await entry.page.screencast.start({ onFrame, size, quality: frameQualityFor(quality, this.opts.quality), ...(videoPath && !ownVideo ? { path: videoPath } : {}) });
-    entry.video?.start();
     entry.videoPath = videoPath;
     entry.capturing = true;
   }
 
-  private async stopPage(entry: PageEntry): Promise<string | null> {
+  private async stopPage(entry: PageEntry): Promise<SavedVideo | null> {
     if (!entry.capturing) return null;
     entry.capturing = false;
     const videoPath = entry.videoPath;
     entry.videoPath = null;
     const video = entry.video ?? null;
     entry.video = null;
+    const saved = async (): Promise<SavedVideo | null> => {
+      if (!videoPath) return null;
+      if (!video) return { pageId: entry.id, path: videoPath };
+      const capture = await video.stop();
+      return capture ? { pageId: entry.id, path: videoPath, capture } : null;
+    };
     try {
       await entry.page.screencast.stop();
       entry.filter?.flush();
-      if (video) return (await video.stop()) ? videoPath : null;
-      return videoPath;
+      return await saved();
     } catch (err) {
       entry.filter?.flush();
       if (video) await video.stop().catch(() => false);
@@ -274,7 +298,7 @@ export class BrowserSession {
    * (or, with `follow`, one video of the page the live view follows) until the next restart or
    * `stopCapture`. Frames flow either way.
    */
-  async restartCapture(videoDir: string | null, o: CaptureOptions = {}): Promise<{ pageId: string; path: string }[]> {
+  async restartCapture(videoDir: string | null, o: CaptureOptions = {}): Promise<SavedVideo[]> {
     const saved = await this.stopCapture();
     if (videoDir) mkdirSync(videoDir, { recursive: true });
     this.videoDir = videoDir;
@@ -294,36 +318,24 @@ export class BrowserSession {
     const ffmpeg = findFfmpeg();
     if (!ffmpeg) return broken("Playwright's ffmpeg isn't installed");
     if (!videoEncoder(ffmpeg)) return broken(`${ffmpeg} has no VP8 or VP9 encoder`);
-    const quality = this.opts.videoQuality ?? "full";
     const file = path.join(videoDir, "video.webm");
-    const video = new RunVideo({
-      file,
-      ffmpeg,
-      fps: qualityFps(quality, VIDEO_FPS),
-      bitRate: VIDEO_BIT_RATE,
-      quality,
-      size: this.opts.size ?? this.opts.viewport,
-      // Until a new page's first frame arrives, the frame shown last stays.
-      frame: () => {
-        const active = [...this.pages.values()].find((e) => e.id === this.activeId);
-        return active?.latest ?? null;
-      },
-      onError: broken,
-    });
+    // Frames of the page the live view follows go in as they come; on a switch, the new page's
+    // newest frame (see setActive). Until a new page's first frame arrives, the frame shown last stays.
+    const video = new VideoCapture({ file: captureFile(file), size: this.opts.size ?? this.opts.viewport, onError: broken });
     this.follow = { video, path: file };
-    video.start();
   }
 
-  /** Stops every screencast; returns the videos that were saved. */
-  async stopCapture(): Promise<{ pageId: string; path: string }[]> {
-    const saved: { pageId: string; path: string }[] = [];
+  /** Stops every screencast; returns the videos that were saved (with pages closed during the capture). */
+  async stopCapture(): Promise<SavedVideo[]> {
+    const saved: SavedVideo[] = (await Promise.all(this.closedVideos.splice(0))).filter((v): v is SavedVideo => v !== null);
     for (const entry of this.pages.values()) {
-      const p = await this.stopPage(entry);
-      if (p) saved.push({ pageId: entry.id, path: p });
+      const v = await this.stopPage(entry);
+      if (v) saved.push(v);
     }
     const follow = this.follow;
     this.follow = null;
-    if (follow && (await follow.video.stop().catch(() => false))) saved.push({ pageId: FOLLOW_VIDEO, path: follow.path });
+    const capture = follow ? await follow.video.stop().catch(() => null) : null;
+    if (follow && capture) saved.push({ pageId: FOLLOW_VIDEO, path: follow.path, capture });
     return saved;
   }
 

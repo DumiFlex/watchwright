@@ -89,7 +89,8 @@ const docOf = (id: string): SharedAttempt | null => {
   return d && typeof d === "object" ? d : null;
 };
 const shots = (d: SharedAttempt) => shotGroups(d.artifacts).flatMap((g) => g.shots);
-const videos = (d: SharedAttempt) => d.artifacts.filter((a) => a.kind === "video");
+// A video still being encoded after its attempt (size 0) isn't shown until it's done.
+const videos = (d: SharedAttempt) => d.artifacts.filter((a) => a.kind === "video" && a.size > 0);
 const files = (d: SharedAttempt) => d.artifacts.filter((a) => !["shot", "mark", "video", "text"].includes(a.kind));
 
 const viewer = ref<{ images: Artifact[]; index: number | null }>({ images: [], index: null });

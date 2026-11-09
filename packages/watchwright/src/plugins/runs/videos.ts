@@ -1,6 +1,7 @@
 import path from "node:path";
 import { findFfmpeg, videoEncoder, type VideoQuality } from "../../jobs/run-video.js";
 import { compressVideo, runVideos, videoQualityOf, wantsCompress } from "../../jobs/video-compress.js";
+import { isAv1Video } from "../../jobs/video-finish.js";
 import { EngineError } from "./engine.js";
 
 // Compress kept videos (Admin > Storage): the videos ended runs kept, encoded again at the
@@ -81,7 +82,8 @@ export class VideoCompressor {
       for (const v of await runVideos(path.join(this.o.dataDir, "runs", runId), { clean })) {
         const c = { runId, ...v };
         all.push(c);
-        if (!this.keep.has(v.file) && wantsCompress(await videoQualityOf(v.file), quality)) todo.push(c);
+        // AV1 (finished on the graphics card): Playwright's ffmpeg can't read it, and it's small already.
+        if (!this.keep.has(v.file) && wantsCompress(await videoQualityOf(v.file), quality) && !(await isAv1Video(v.file))) todo.push(c);
       }
     }
     return { all, todo };
@@ -107,7 +109,7 @@ export class VideoCompressor {
   /** Starts compressing in the background; the answer is the job as it starts. */
   async start(by: string): Promise<CompressJob> {
     if (this.job?.state === "running") throw new EngineError("compress_going", "Videos are already being compressed.", 409);
-    if (this.o.busy()) throw new EngineError("run_going", "A run is going. Compress kept videos once no run is going, so the run keeps the whole CPU.", 409);
+    if (this.o.busy()) throw new EngineError("run_going", "A run is going, or attempt videos are still being encoded. Compress kept videos once both are done, so they keep the whole CPU.", 409);
     const quality = this.o.quality();
     if (quality === "full" || quality === "high") throw new EngineError("quality_full", `Video quality is ${quality === "high" ? "High" : "Full"}. Choose Compact or Small first: kept videos are compressed to that quality.`, 400);
     const ffmpeg = this.ffmpeg();

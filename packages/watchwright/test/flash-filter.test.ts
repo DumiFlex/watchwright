@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { findFfmpeg, videoEncoder } from "../src/jobs/run-video.js";
 import { FlashFilter, flashBlocks } from "../src/session/flash-filter.js";
 import { jpegLuma } from "../src/session/jpeg-dc.js";
+import { finishArgs, runFfmpeg } from "../src/jobs/video-finish.js";
 import { BrowserSession } from "../src/session/session.js";
 import { cleanTempDirs, tempDir } from "./helpers/fixtures.js";
 import { hasChromium, hasFirefox, requireBrowsers } from "./helpers/harness.js";
@@ -102,7 +103,13 @@ firefoxVideo("Firefox sessions", () => {
       const saved = await s.stopCapture();
       expect(saved).toHaveLength(1);
       expect(path.dirname(saved[0]!.path)).toBe(dir);
-      expect(existsSync(saved[0]!.path) && statSync(saved[0]!.path).size).toBeGreaterThan(1000);
+      // Recorded frame by frame during the capture, encoded afterwards (by the finish queue in a run).
+      const capture = saved[0]!.capture!;
+      expect(capture.frames).toBeGreaterThan(3);
+      const ff = findFfmpeg()!;
+      const r = await runFfmpeg(ff, finishArgs(capture.file, saved[0]!.path, capture.width, capture.height, "full", { kind: "cpu", ffmpeg: ff, codec: videoEncoder(ff)! }, 2));
+      expect(r.code).toBe(0);
+      expect(existsSync(saved[0]!.path) ? statSync(saved[0]!.path).size : 0).toBeGreaterThan(1000);
       expect(frames.length).toBeGreaterThan(3);
     } finally {
       await s.close();

@@ -114,7 +114,7 @@ const qualityOptions = computed(() => {
 });
 const qualityNote = computed(() => {
   const q = videoQuality.value || pack.value?.run.videoQuality || null;
-  if (q === "high") return "Sharp text at 30 frames a second, for videos people watch. Compress kept videos leaves these alone.";
+  if (q === "high") return "Sharp text and every frame the browser sends, for videos people watch. Compress kept videos leaves these alone.";
   if (q === "full") return "What Playwright records.";
   if (q === "compact") return "Same size and smoothness, about 80% smaller.";
   if (q === "small") return "3/4 of the size and 10 frames a second, about 94% smaller.";

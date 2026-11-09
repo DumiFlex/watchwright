@@ -1,15 +1,26 @@
-import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { chromium } from "playwright";
 import { afterEach, describe, expect, it } from "vitest";
 import { findFfmpeg, RunVideo, videoEncoder, type VideoQuality } from "../src/jobs/run-video.js";
 import { compressArgs, compressVideo, replaceFile, runVideos, videoQualityOf, wantsCompress } from "../src/jobs/video-compress.js";
 import { VideoCompressor } from "../src/plugins/runs/videos.js";
-import { BrowserSession, FOLLOW_VIDEO } from "../src/session/session.js";
+import { finishArgs, runFfmpeg } from "../src/jobs/video-finish.js";
+import { BrowserSession, FOLLOW_VIDEO, type SavedVideo } from "../src/session/session.js";
 import { videoSize } from "./helpers/video.js";
 import { cleanTempDirs, tempDir } from "./helpers/fixtures.js";
 
 afterEach(() => cleanTempDirs());
+
+/** Encodes a recorded video the way the finisher does on the CPU, and removes its capture. */
+async function finish(v: SavedVideo, quality: VideoQuality): Promise<string> {
+  const ff = findFfmpeg()!;
+  const c = v.capture!;
+  const r = await runFfmpeg(ff, finishArgs(c.file, v.path, c.width, c.height, quality, { kind: "cpu", ffmpeg: ff, codec: videoEncoder(ff)! }, 2));
+  expect(r).toMatchObject({ code: 0 });
+  rmSync(c.file);
+  return v.path;
+}
 
 describe("kept videos", () => {
   it("reads a video's quality from its title, and takes a video without one as full", async () => {
@@ -209,8 +220,14 @@ describe.skipIf(!ffmpeg)("recording at a smaller quality", () => {
       }
       const saved = await s.stopCapture();
       expect(saved).toHaveLength(1);
+      // Recorded as the frames came, nothing encoded yet.
+      expect(saved[0]!.capture).toMatchObject({ width: 640, height: 400 });
+      expect(saved[0]!.capture!.frames).toBeGreaterThan(3);
+      expect(existsSync(saved[0]!.path)).toBe(false);
+      await finish(saved[0]!, "small");
       expect(statSync(saved[0]!.path).size).toBeGreaterThan(500);
       expect(await videoQualityOf(saved[0]!.path)).toBe("small");
+      expect(videoSize(ffmpeg!, saved[0]!.path)).toBe("480x300");
       expect([...widths]).toEqual([640]);
     } finally {
       await s.close();
@@ -231,6 +248,7 @@ describe.skipIf(!ffmpeg)("recording at high quality", () => {
       }
       const saved = await s.stopCapture();
       expect(saved).toHaveLength(1);
+      await finish(saved[0]!, "high");
       expect(await videoQualityOf(saved[0]!.path)).toBe("high");
     } finally {
       await s.close();
@@ -260,7 +278,9 @@ describe.skipIf(!ffmpeg)("an attempt video that follows the live view", () => {
       await page.setContent(`<body style="background:#33c"><h1>Back</h1></body>`);
       await page.waitForTimeout(300);
       const saved = await s.stopCapture();
-      expect(saved).toEqual([{ pageId: FOLLOW_VIDEO, path: path.join(dir, "video.webm") }]);
+      expect(saved).toMatchObject([{ pageId: FOLLOW_VIDEO, path: path.join(dir, "video.webm"), capture: { file: path.join(dir, "video.capture.mkv"), width: 640, height: 400 } }]);
+      expect(readdirSync(dir)).toEqual(["video.capture.mkv"]);
+      await finish(saved[0]!, "compact");
       expect(readdirSync(dir)).toEqual(["video.webm"]);
       expect(await videoQualityOf(saved[0]!.path)).toBe("compact");
       expect(videoSize(ffmpeg!, saved[0]!.path)).toBe("640x400");

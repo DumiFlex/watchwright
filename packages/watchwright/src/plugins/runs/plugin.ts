@@ -11,6 +11,7 @@ import { withAccess } from "../../core/route-access.js";
 import { serviceKey } from "../../core/services.js";
 import { contentTypeOf } from "../../jobs/recorder.js";
 import { VIDEO_QUALITIES, type VideoQuality } from "../../jobs/run-video.js";
+import { ENCODER_MODES, type EncoderMode } from "../../jobs/video-finish.js";
 import { sizeText } from "../../jobs/storage.js";
 import { errorBody } from "../../server/errors.js";
 import { FRAMES } from "../live/hub.js";
@@ -201,6 +202,12 @@ export const runsPlugin = definePlugin({
       default: "full",
     });
     settings.define({
+      key: "runs.videoEncoder",
+      title: "Who encodes attempt videos after each attempt: auto (the graphics card when a full ffmpeg can use it, else the CPU) or cpu (always the CPU)",
+      schema: { type: "string", enum: [...ENCODER_MODES] },
+      default: "auto",
+    });
+    settings.define({
       key: "runs.resumeOnStart",
       title: "Resume runs a stop or crash of Watchwright interrupted when it starts again",
       schema: { type: "boolean" },
@@ -246,6 +253,7 @@ export const runsPlugin = definePlugin({
       storageLimits: () => ({ warnBelowGB: settings.get<number>("runs.storageWarnGB"), stopBelowGB: settings.get<number>("runs.storageStopGB") }),
       cleanupRules: () => ({ keepDays: settings.get<number>("runs.keepDays"), keepPerPack: settings.get<number>("runs.keepPerPack") }),
       videoQuality: () => settings.get<VideoQuality>("runs.videoQuality"),
+      videoEncoder: () => settings.get<EncoderMode>("runs.videoEncoder"),
     });
     compressors.set(
       engine,
@@ -254,7 +262,8 @@ export const runsPlugin = definePlugin({
         repo,
         events,
         quality: () => settings.get<VideoQuality>("runs.videoQuality"),
-        busy: () => engine.busy(),
+        // Nor while attempt videos are being encoded: one ffmpeg at a time.
+        busy: () => engine.busy() || engine.finisher.pending() > 0,
         measure: (id) => engine.measure(id),
       }),
     );
@@ -642,11 +651,11 @@ export const runsPlugin = definePlugin({
       defineAction<Record<string, never>>({
         name: "runs.videos",
         pack: "none",
-        title: "The videos ended runs kept: how many, the room they take, how many Compress kept videos would make smaller at the Video quality setting, and the compress job going or last",
+        title: "The videos ended runs kept: how many, the room they take, how many Compress kept videos would make smaller at the Video quality setting, the compress job going or last, and who encodes attempt videos (finishing)",
         method: "GET",
         path: "/storage/videos",
         input: { type: "object", properties: {} },
-        handler: () => compressor().report(),
+        handler: async () => ({ ...(await compressor().report()), finishing: await engine.finisher.status() }),
       }),
       defineAction<Record<string, never>>({
         name: "runs.compress-videos",

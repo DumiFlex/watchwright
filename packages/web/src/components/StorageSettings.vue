@@ -2,7 +2,7 @@
 // Admin > Storage (users see it on Settings): how full the drive with the data folder is, what runs take, the largest
 // runs, and the free space below which runs warn and then stop recording videos.
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-import { getJson, runName, sendJson, type CleanupPlan, type CompressJob, type StorageReport, type VideoQuality, type VideoReport } from "../api";
+import { getJson, runName, sendJson, type CleanupPlan, type CompressJob, type StorageReport, type VideoEncoderMode, type VideoQuality, type VideoReport } from "../api";
 import { countsText, fileSize, when } from "../format";
 import { tildify } from "../paths";
 import { saveSettings, settings } from "../settings";
@@ -39,8 +39,8 @@ async function loadVideos() {
   if (res.ok) videos.value = res.data;
   if (poll) clearTimeout(poll);
   poll = null;
-  // While a job goes, its progress every 2 seconds; at the end the run sizes changed too.
-  if (res.ok && res.data.job?.state === "running")
+  // While a job goes (or attempt videos are being encoded), its progress every 2 seconds; at the end the run sizes changed too.
+  if (res.ok && (res.data.job?.state === "running" || res.data.finishing.pending > 0))
     poll = setTimeout(() => {
       void loadVideos().then(() => {
         if (videos.value?.job?.state !== "running") void load();
@@ -50,7 +50,7 @@ async function loadVideos() {
 onBeforeUnmount(() => poll && clearTimeout(poll));
 
 const qualityOptions: { value: VideoQuality; label: string; note: string }[] = [
-  { value: "high", label: "High", note: "Sharp text at 30 frames a second, for videos people watch. About the size of Full on busy pages, far less on still ones; uses more CPU." },
+  { value: "high", label: "High", note: "Sharp text and every frame the browser sends, for videos people watch. About the size of Full on busy pages, far less on still ones." },
   { value: "full", label: "Full", note: "What Playwright records." },
   { value: "compact", label: "Compact", note: "Same size and smoothness, about 80% smaller. Text stays sharp." },
   { value: "small", label: "Small", note: "3/4 of the size and 10 frames a second, about 94% smaller. Text stays readable." },
@@ -59,6 +59,18 @@ const quality = computed<VideoQuality>({
   get: () => (settings.values["runs.videoQuality"] as VideoQuality | undefined) ?? "full",
   set: (v) =>
     void saveSettings({ "runs.videoQuality": v }).then((err) => {
+      if (err) toast(err, { tone: "bad" });
+      void loadVideos();
+    }),
+});
+const encoderOptions: { value: VideoEncoderMode; label: string; note: string }[] = [
+  { value: "auto", label: "Automatic", note: "The graphics card (AV1) when a full ffmpeg on this machine can use it, else the CPU (VP9). The card's video encoder is separate from the part that runs AI models." },
+  { value: "cpu", label: "CPU only", note: "Always Playwright's ffmpeg on the CPU, at the lowest priority so tests come first." },
+];
+const encoderMode = computed<VideoEncoderMode>({
+  get: () => (settings.values["runs.videoEncoder"] as VideoEncoderMode | undefined) ?? "auto",
+  set: (v) =>
+    void saveSettings({ "runs.videoEncoder": v }).then((err) => {
       if (err) toast(err, { tone: "bad" });
       void loadVideos();
     }),
@@ -180,6 +192,15 @@ async function save(values: Record<string, unknown>) {
       <h3 class="label">Videos</h3>
       <RadioGroup v-model="quality" :options="qualityOptions" label="Video quality" />
       <p class="muted small">For runs that start from now on, attempt videos and run videos alike. A pack (<code>run.videoQuality</code>) or a run (in New run) can choose its own. Which attempts keep a video (all, or only failed and broken ones) is a run option in New run.</p>
+      <h3 class="label">Video encoder</h3>
+      <RadioGroup v-model="encoderMode" :options="encoderOptions" label="Video encoder" />
+      <p class="muted small">
+        Attempt videos are recorded frame by frame as the browser sends them and encoded after each attempt, one at a time, so encoding never slows a test or drops frames.
+        <template v-if="videos">
+          Encoding now: <strong>{{ videos.finishing.encoder }}</strong><template v-if="videos.finishing.pending">, {{ videosText(videos.finishing.pending) }} waiting</template>.
+          <template v-if="videos.finishing.note && encoderMode === 'auto'">{{ videos.finishing.note }}</template>
+        </template>
+      </p>
       <p v-if="videos && !videos.ffmpeg" class="small warn-text" role="status">Playwright's ffmpeg isn't installed, so runs record no video. <code>npx playwright install ffmpeg</code> adds it.</p>
       <template v-if="videos">
         <div v-if="going && job" class="drive">
