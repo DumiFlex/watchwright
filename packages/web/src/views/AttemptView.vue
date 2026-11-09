@@ -3,7 +3,7 @@
 // screenshots (gallery, scroll sets as strips, marks), kept texts, the log, collector records,
 // the video and the trace, with the review beside them and in view while they scroll (below
 // on narrow screens). J and K step to the next and previous attempt of the run.
-import { ArrowDown, ArrowLeft, ChevronLeft, ChevronRight, Columns2, MessageSquarePlus, Pencil } from "../icons";
+import { ArrowDown, ArrowLeft, ChevronLeft, ChevronRight, Columns2, MessageSquarePlus, Pencil, RotateCw } from "../icons";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getJson, type Artifact, type Pack, type ResultDocument, type RunDetail } from "../api";
 import { attemptOrder, attemptSteps, besideFile, cellOf, isMarkdown, logMarks, plainText, recordColumns, shotGroups, traceViewerUrl } from "../attempt";
@@ -114,6 +114,20 @@ const artifacts = computed(() => doc.value?.artifacts ?? []);
 const groups = computed(() => shotGroups(artifacts.value));
 const images = computed(() => groups.value.flatMap((g) => g.shots));
 const videos = computed(() => artifacts.value.filter((a) => a.kind === "video"));
+// A video is encoded after its attempt: until then its row has size 0. Look again every few seconds.
+const finishing = computed(() => videos.value.some((v) => v.size === 0));
+let finishPoll: ReturnType<typeof setTimeout> | null = null;
+watch(finishing, (on) => {
+  if (finishPoll) clearTimeout(finishPoll);
+  finishPoll = null;
+  if (on) {
+    const again = () => {
+      finishPoll = setTimeout(() => void load().then(() => finishing.value && again()), 3000);
+    };
+    again();
+  }
+});
+onBeforeUnmount(() => finishPoll && clearTimeout(finishPoll));
 const trace = computed(() => artifacts.value.find((a) => a.kind === "trace") ?? null);
 const collectors = computed(() => artifacts.value.filter((a) => a.kind === "collector"));
 const files = computed(() => artifacts.value.filter((a) => !["shot", "mark", "video", "trace", "collector", "text"].includes(a.kind)));
@@ -542,7 +556,13 @@ watch(
 
             <div v-else-if="tab === 'video'" id="att-panel-video" role="tabpanel" aria-labelledby="att-tab-video" class="panel videos">
               <div v-for="v in videos" :key="v.url" class="video">
-                <VideoPlayer ref="players" :src="v.url" :label="v.name" @time="(sec) => (playhead = sec * 1000)" @duration="(sec) => (videoMs = Math.round(sec * 1000))">
+                <div v-if="v.size === 0" class="finishing" role="status">
+                  <RotateCw :size="18" class="spin" />
+                  <span><strong>Finishing this video…</strong> It was recorded frame by frame and is being encoded now. It shows here when it's done.</span>
+                </div>
+                <VideoPlayer
+                  v-else ref="players" :src="v.url" :label="v.name" @time="(sec) => (playhead = sec * 1000)" @duration="(sec) => (videoMs = Math.round(sec * 1000))"
+                >
                   <TimelineScrubber
                     v-if="steps.length"
                     class="vtimeline"
@@ -555,7 +575,7 @@ watch(
                     @pick="pickStep"
                   />
                 </VideoPlayer>
-                <p class="muted small">{{ v.name }} · {{ fileSize(v.size) }} · <a :href="v.url" download>Download</a></p>
+                <p v-if="v.size > 0" class="muted small">{{ v.name }} · {{ fileSize(v.size) }} · <a :href="v.url" download>Download</a></p>
               </div>
             </div>
 
@@ -1008,6 +1028,36 @@ watch(
 }
 .video p {
   margin: var(--space-1) 0 0;
+}
+.finishing {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-6) var(--space-4);
+  border: var(--border-width) dashed var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--muted);
+  aspect-ratio: 16 / 9;
+  justify-content: center;
+  text-align: left;
+}
+.finishing strong {
+  color: var(--text);
+}
+.spin {
+  flex: none;
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
 }
 .trace p {
   margin: 0;

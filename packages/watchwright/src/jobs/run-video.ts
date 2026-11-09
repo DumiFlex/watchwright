@@ -101,17 +101,17 @@ const even = (n: number) => Math.max(2, Math.floor(n / 2) * 2);
  * spends a little more effort (cpu-used 6, which measured smaller and sharper than 8 at the same
  * speed) and two threads; VP8 can't do a pure constant quality well, so there it gets a cap.
  */
-export function encodeArgs(encoder: VideoEncoder, quality: VideoQuality, bitRate = BIT_RATE): string[] {
+export function encodeArgs(encoder: VideoEncoder, quality: VideoQuality, bitRate = BIT_RATE, o: { threads?: number; cpuUsed?: number } = {}): string[] {
   const high = quality === "high";
   const vp9 = encoder === "libvpx-vp9";
-  const speed = vp9 ? ["-cpu-used", high ? "6" : "8", "-lag-in-frames", "0", "-row-mt", "1"] : ["-speed", "8"];
+  const speed = vp9 ? ["-cpu-used", String(o.cpuUsed ?? (high ? 6 : 8)), "-lag-in-frames", "0", "-row-mt", "1"] : ["-speed", String(o.cpuUsed ?? 8)];
   const rate =
     quality === "full"
       ? ["-qmax", "50", "-crf", "10", "-b:v", bitRate]
       : high && !vp9
         ? ["-qmax", "40", "-crf", "8", "-b:v", "4M"]
         : ["-qmax", "63", "-crf", String(QUALITY[quality].crf), "-b:v", "0"];
-  return ["-c:v", encoder, "-qmin", "0", ...rate, "-deadline", "realtime", ...speed, "-threads", high ? "2" : "1", "-metadata", `title=${videoTitle(quality)}`];
+  return ["-c:v", encoder, "-qmin", "0", ...rate, "-deadline", "realtime", ...speed, "-threads", String(o.threads ?? (high ? 2 : 1)), "-metadata", `title=${videoTitle(quality)}`];
 }
 
 /** The scale filter for `quality` on a `width`×`height` picture, or null when it keeps the size. */
@@ -122,17 +122,21 @@ export function scaleFilter(quality: VideoQuality, width: number, height: number
 }
 
 /** The ffmpeg arguments for a run video of `width`×`height` (even numbers). Frames of another size are cropped or padded to it. */
-export function ffmpegArgs(file: string, width: number, height: number, encoder: VideoEncoder, bitRate = BIT_RATE, quality: VideoQuality = "full"): string[] {
-  // Crop a bigger frame and pad a smaller one, both centered; then scale for the smaller qualities.
+/** Crops a bigger frame and pads a smaller one to `width`×`height`, both centered; then scales for the smaller qualities. */
+export function fitFilter(quality: VideoQuality, width: number, height: number): string {
   const fit = `crop=w=min(iw\\,${width}):h=min(ih\\,${height}),pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`;
   const scale = scaleFilter(quality, width, height);
+  return scale ? `${fit},${scale}` : fit;
+}
+
+export function ffmpegArgs(file: string, width: number, height: number, encoder: VideoEncoder, bitRate = BIT_RATE, quality: VideoQuality = "full"): string[] {
   return [
     "-loglevel", "error",
     "-f", "matroska", "-fpsprobesize", "0", "-probesize", "32", "-analyzeduration", "0", "-i", "pipe:0",
     // Each frame keeps its own time: a still page is one frame however long it stays.
     "-y", "-an", "-fps_mode", "vfr",
     ...encodeArgs(encoder, quality, bitRate),
-    "-vf", scale ? `${fit},${scale}` : fit,
+    "-vf", fitFilter(quality, width, height),
     file,
   ];
 }

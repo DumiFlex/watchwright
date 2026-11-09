@@ -355,7 +355,12 @@ export interface VideoReport {
   toCompress: number;
   toCompressBytes: number;
   job: CompressJob | null;
+  /** Who encodes attempt videos after their attempts, and how many wait. */
+  finishing: { encoder: string; gpu: boolean; note: string | null; pending: number };
 }
+
+/** Who encodes attempt videos: the graphics card when it can, or always the CPU. */
+export type VideoEncoderMode = "auto" | "cpu";
 
 /** What cleanup deletes now under the keep rules (0 turns a rule off): the runs, oldest first, and their room. */
 export interface CleanupPlan {

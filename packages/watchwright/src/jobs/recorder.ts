@@ -10,6 +10,7 @@ export interface ArtifactInfo {
   contentType: string;
   /** Path relative to the data folder, with forward slashes. */
   path: string;
+  /** Bytes; 0 for a video still being encoded after its attempt (it appears once it's done). */
   size: number;
   /** Shots taken as one set (a scroll-shot series) share the set's name, in order. */
   set?: string;
@@ -123,6 +124,17 @@ export class AttemptRecorder {
       size: statSync(absPath).size,
       ...(extra.set !== undefined ? { set: extra.set } : {}),
     };
+    this.artifacts.push(info);
+    this.onArtifact(info);
+    return info;
+  }
+
+  /**
+   * Registers a file that is still being made (an attempt video waiting to be encoded after the
+   * attempt): size 0 until it's done, when its row gets the real size.
+   */
+  registerPending(kind: string, name: string, absPath: string, contentType = contentTypeOf(absPath)): ArtifactInfo {
+    const info: ArtifactInfo = { kind, name, contentType, path: path.relative(this.dataDir, absPath).split(path.sep).join("/"), size: 0 };
     this.artifacts.push(info);
     this.onArtifact(info);
     return info;

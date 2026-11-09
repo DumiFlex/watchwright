@@ -419,6 +419,11 @@ export class RunsRepo {
     this.db.prepare("UPDATE runs_artifacts SET size = ? WHERE path = ?").run(size, relPath);
   }
 
+  /** A file that was never made (a video that couldn't be encoded) goes from its attempt. */
+  removeArtifact(relPath: string): void {
+    this.db.prepare("DELETE FROM runs_artifacts WHERE path = ?").run(relPath);
+  }
+
   /** The runs that take the most room, largest first. */
   largest(limit: number): RunRow[] {
     return this.db.prepare("SELECT * FROM runs WHERE size_bytes IS NOT NULL ORDER BY size_bytes DESC LIMIT ?").all(limit) as RunRow[];
