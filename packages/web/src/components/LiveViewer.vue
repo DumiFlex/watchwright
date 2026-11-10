@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vu
 import { getJson, type FrameHeader } from "../api";
 import { History, Pause, Play, Radio, StepBack, StepForward } from "../icons";
 import { keyOf, pagePoint, screenRect, type ViewInput } from "../liveinput";
+import { Playout } from "../playout";
 import { neighbourFrame, playStep, REWIND_SPEEDS, rewindSteps, type RewindFrame } from "../rewind";
 import { vTip } from "../tooltip";
 import MenuButton from "./MenuButton.vue";
@@ -17,6 +18,9 @@ import TimelineScrubber from "./TimelineScrubber.vue";
 // With `interactive` (Record), presses, drags, the wheel and keys on the picture are sent to the
 // page in its own pixels (`input`); with `picking`, a click names a point instead (`pick`).
 // `hover` outlines an element (a box in page pixels) until the pointer leaves the picture (`leave`).
+// While watching, frames go through a short playback buffer (playout.ts) and are shown at the times
+// they were captured, so network and decoding jitter doesn't make steady motion look uneven; while
+// `interactive` (driving the page), every frame is drawn as soon as it comes.
 
 const props = withDefaults(
   defineProps<{
@@ -52,6 +56,11 @@ let stamps: number[] = [];
 let tick: ReturnType<typeof setInterval> | null = null;
 let drawing = false;
 
+type Shown = { header: FrameHeader; bitmap: ImageBitmap; close(): void };
+const playouts = new Map<string, Playout<Shown>>();
+let playoutFrame = 0;
+const smooth = computed(() => !props.interactive);
+
 async function push(header: FrameHeader, jpeg: Uint8Array) {
   const blob = new Blob([jpeg.slice()], { type: "image/jpeg" });
   let bitmap: ImageBitmap;
@@ -60,6 +69,42 @@ async function push(header: FrameHeader, jpeg: Uint8Array) {
   } catch {
     return; // a cut-off frame: the next one replaces it
   }
+  if (smooth.value) {
+    let p = playouts.get(header.pageId);
+    if (!p) playouts.set(header.pageId, (p = new Playout<Shown>()));
+    p.add(header.timestamp, { header, bitmap, close: () => bitmap.close() });
+    if (!playoutFrame) playoutFrame = requestAnimationFrame(playoutTick);
+    return;
+  }
+  showLive(header, bitmap);
+}
+
+/** Every animation frame while frames wait: the ones due now are shown. */
+function playoutTick() {
+  playoutFrame = 0;
+  let waiting = false;
+  for (const p of playouts.values()) {
+    const f = p.due();
+    if (f) showLive(f.header, f.bitmap);
+    if (p.size) waiting = true;
+  }
+  if (waiting) playoutFrame = requestAnimationFrame(playoutTick);
+}
+
+/** Driving the page: what waits is shown at once (the newest of each page), and later frames as they come. */
+watch(smooth, (on) => {
+  if (on) return;
+  for (const p of playouts.values()) {
+    const all = p.drain();
+    const last = all.pop();
+    for (const f of all) f.close();
+    if (last) showLive(last.header, last.bitmap);
+    p.clear();
+  }
+  playouts.clear();
+});
+
+function showLive(header: FrameHeader, bitmap: ImageBitmap) {
   const prev = latest.get(header.pageId);
   if (prev && prev.header.timestamp > header.timestamp) {
     bitmap.close(); // decoded after a newer frame of the same page
@@ -285,6 +330,8 @@ onBeforeUnmount(() => {
   cancelAnimationFrame(playFrame);
   if (wheelTimer) clearTimeout(wheelTimer);
   if (moveTimer) clearTimeout(moveTimer);
+  cancelAnimationFrame(playoutFrame);
+  for (const p of playouts.values()) p.clear();
   for (const f of latest.values()) f.bitmap.close();
   past.value?.bitmap.close();
 });
