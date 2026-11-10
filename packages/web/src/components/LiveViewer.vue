@@ -50,6 +50,8 @@ const chosen = ref<string | null>(null);
 const shownPage = computed(() => chosen.value ?? props.activePageId ?? props.pages[0]?.id ?? null);
 const latest = new Map<string, { header: FrameHeader; bitmap: ImageBitmap }>();
 const fps = ref(0);
+/** The frames come as a video stream (shown in the bar under the picture). */
+const video = ref(false);
 const ageMs = ref<number | null>(null);
 const size = ref<{ w: number; h: number } | null>(null);
 let stamps: number[] = [];
@@ -61,14 +63,17 @@ const playouts = new Map<string, Playout<Shown>>();
 let playoutFrame = 0;
 const smooth = computed(() => !props.interactive);
 
-async function push(header: FrameHeader, jpeg: Uint8Array) {
-  const blob = new Blob([jpeg.slice()], { type: "image/jpeg" });
+/** A JPEG frame, or a picture decoded from the video stream (`livevideo.ts`). */
+async function push(header: FrameHeader, picture: Uint8Array | ImageBitmap) {
   let bitmap: ImageBitmap;
-  try {
-    bitmap = await createImageBitmap(blob);
-  } catch {
-    return; // a cut-off frame: the next one replaces it
-  }
+  if (picture instanceof Uint8Array) {
+    try {
+      bitmap = await createImageBitmap(new Blob([picture.slice()], { type: "image/jpeg" }));
+    } catch {
+      return; // a cut-off frame: the next one replaces it
+    }
+  } else bitmap = picture;
+  video.value = header.video !== undefined;
   if (smooth.value) {
     let p = playouts.get(header.pageId);
     if (!p) playouts.set(header.pageId, (p = new Playout<Shown>()));
@@ -567,6 +572,7 @@ defineExpose({ push, backToLive });
         <span>{{ running ? `${fps} fps` : "stopped" }}</span>
         <span>{{ age(ageMs) }}</span>
         <span v-if="size">{{ size.w }}×{{ size.h }}</span>
+        <span v-if="video" v-tip="'A video stream: a tenth of the data of JPEG frames or less. Change it under Settings, Live view.'" tabindex="0">video</span>
         <button v-if="runId && running && hasFrame" type="button" class="mini" @click="startRewind"><History :size="13" /> Rewind</button>
         <span v-if="rewindError" role="status">{{ rewindError }}</span>
       </template>

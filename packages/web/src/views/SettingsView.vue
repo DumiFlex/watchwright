@@ -48,6 +48,15 @@ const newRunOptions = [
   { value: "latest" as const, label: "The pack's latest run", note: "Its tests, values, options and label, ready to change" },
   { value: "defaults" as const, label: "The pack's defaults", note: "All tests, each value's default and the pack's run settings" },
 ];
+const liveVideo = computed<"auto" | "video" | "frames">({
+  get: () => settings.values["live.video"],
+  set: (v) => void save({ "live.video": v }),
+});
+const liveVideoOptions = [
+  { value: "auto" as const, label: "Auto", note: "A video stream when you browse from another computer, frames when you're on the server's own" },
+  { value: "video" as const, label: "Video stream", note: "A tenth of the data or less, a little softer: for slow networks and phones" },
+  { value: "frames" as const, label: "Frames", note: "Each picture as the browser sent it: sharpest, most data" },
+];
 const sample = computed(() => editorUrl(editor.value, settings.home ? `${settings.home}/sites/shop/watchwright/tests/home.ts` : "/sites/shop/watchwright/tests/home.ts", 4));
 
 async function save(values: Record<string, unknown>) {
@@ -111,6 +120,12 @@ onMounted(() => void loadSettings(true));
         <SelectMenu id="s-editor-pick" v-model="editor" class="pick" :options="EDITOR_OPTIONS" />
       </div>
       <p v-if="sample" class="muted small">Links look like <code class="sample">{{ sample }}</code>. The editor must be installed on the computer you browse from.</p>
+    </section>
+
+    <section class="card" aria-labelledby="s-live">
+      <h2 id="s-live" class="display">Live view</h2>
+      <p class="muted small">How the live view of a run comes to you. Recording always gets frames, as they come.</p>
+      <RadioGroup v-model="liveVideo" :options="liveVideoOptions" label="Live view comes as" />
     </section>
 
     <section v-if="shows('newrun')" class="card" aria-labelledby="s-newrun">

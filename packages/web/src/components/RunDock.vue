@@ -104,7 +104,7 @@ function connect() {
   // From now on only: the run's state (pages, step, attempts) comes from load(), so the dock never
   // replays a long run's events, nor shows an old step as the current one while it would.
   conn = new LiveConnection(
-    { runId: props.runId, frames: true },
+    { runId: props.runId, frames: true, video: true },
     { onState: (s) => (liveState.value = s), onHello: () => void load(), onEvent, onFrame: (h, jpeg) => void viewer.value?.push(h, jpeg) },
   );
 }

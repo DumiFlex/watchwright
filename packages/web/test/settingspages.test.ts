@@ -13,7 +13,7 @@ describe("settings pages", () => {
   it("with login off: no account page, personal sections on Settings, the server's on Admin", () => {
     as(null);
     expect(ids("account")).toEqual([]);
-    expect(ids("settings")).toEqual(["look", "notify", "editor", "newrun", "agents", "about"]);
+    expect(ids("settings")).toEqual(["look", "notify", "editor", "live", "newrun", "agents", "about"]);
     expect(ids("admin")).toEqual(["secrets", "signins", "runners", "runs", "packs", "sharing", "alerts", "storage", "recent", "server"]);
     expect(sectionsOn("admin")[0]!.group).toBe("Runs and packs");
   });
@@ -28,13 +28,13 @@ describe("settings pages", () => {
   it("shows users the server sections they may use on Settings, under one heading", () => {
     as("user");
     expect(ids("admin")).toEqual([]);
-    expect(ids("settings")).toEqual(["look", "notify", "editor", "newrun", "agents", "secrets", "signins", "runners", "sharing", "storage", "recent", "about"]);
+    expect(ids("settings")).toEqual(["look", "notify", "editor", "live", "newrun", "agents", "secrets", "signins", "runners", "sharing", "storage", "recent", "about"]);
     expect(sectionsOn("settings").filter((s) => s.group).map((s) => [s.id, s.group])).toEqual([["secrets", "On this server"]]);
   });
 
   it("shows viewers their own preferences and the runners", () => {
     as("viewer");
-    expect(ids("settings")).toEqual(["look", "notify", "editor", "runners", "about"]);
+    expect(ids("settings")).toEqual(["look", "notify", "editor", "live", "runners", "about"]);
   });
 
   it("links to a section where it is for this person, and moves old links there", () => {
