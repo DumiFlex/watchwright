@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { open, readdir, rename, stat, unlink } from "node:fs/promises";
 import path from "node:path";
-import { encodeArgs, smallerThan, VIDEO_QUALITIES, type CompressQuality, type VideoEncoder, type VideoQuality } from "./run-video.js";
+import { encodeArgs, rangeArgs, rangeFilter, smallerThan, VIDEO_QUALITIES, type CompressQuality, type VideoEncoder, type VideoQuality } from "./run-video.js";
 
 // Videos runs already kept, encoded again at a smaller quality with Playwright's own ffmpeg (it
 // decodes the WebM it wrote and has the scale filter). A video is replaced only when the new file
@@ -84,6 +84,8 @@ export function wantsCompress(has: VideoQuality, target: VideoQuality): boolean 
   return has !== "high" && smallerThan(target, has);
 }
 
+const vf = (filter: string | null): string[] => (filter ? ["-vf", filter] : []);
+
 /** The ffmpeg arguments that encode `input` again at `quality` into `output`. */
 export function compressArgs(input: string, output: string, encoder: VideoEncoder, quality: CompressQuality): string[] {
   const small = quality === "small";
@@ -92,8 +94,10 @@ export function compressArgs(input: string, output: string, encoder: VideoEncode
     "-i", input,
     "-an",
     // Frames keep their own times; small takes 10 a second (ffmpeg won't take both at once).
-    ...(small ? ["-r", "10", "-vf", "scale=trunc(iw*3/8)*2:trunc(ih*3/8)*2"] : ["-fps_mode", "vfr"]),
+    ...(small ? ["-r", "10"] : ["-fps_mode", "vfr"]),
+    ...vf(rangeFilter(small ? "scale=trunc(iw*3/8)*2:trunc(ih*3/8)*2" : null, encoder)),
     ...encodeArgs(encoder, quality),
+    ...rangeArgs(encoder),
     "-f", "webm",
     output,
   ];

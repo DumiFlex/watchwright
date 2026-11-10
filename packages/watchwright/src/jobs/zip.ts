@@ -84,6 +84,8 @@ export function zip(entries: readonly ZipEntry[], now = new Date()): Buffer {
 export interface UnzipLimits {
   maxEntries?: number;
   maxBytes?: number;
+  /** Only the entries this keeps are unpacked (and counted). */
+  only?: (name: string) => boolean;
 }
 
 /** Thrown when a zip is over its limits. */
@@ -107,6 +109,10 @@ export function unzip(buf: Buffer, limits: UnzipLimits = {}): ZipEntry[] {
     const commentLen = buf.readUInt16LE(at + 32);
     const local = buf.readUInt32LE(at + 42);
     const name = buf.toString("utf8", at + 46, at + 46 + nameLen);
+    if (limits.only && !limits.only(name)) {
+      at += 46 + nameLen + extraLen + commentLen;
+      continue;
+    }
     const dataAt = local + 30 + buf.readUInt16LE(local + 26) + buf.readUInt16LE(local + 28);
     const raw = buf.subarray(dataAt, dataAt + size);
     if (method !== 0 && method !== 8) throw new Error(`Zip method ${method} isn't supported.`);

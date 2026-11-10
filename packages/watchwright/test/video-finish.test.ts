@@ -96,7 +96,7 @@ describe("who finishes videos", () => {
   it("falls back to the CPU and says why", async () => {
     const none = await chooseFinisher("auto", { env: {}, cpu, encoder, system: () => null });
     expect(none.finisher).toEqual({ kind: "cpu", ffmpeg: "/pw/ffmpeg", codec: "libvpx-vp9" });
-    expect(none.note).toMatch(/Install ffmpeg/);
+    expect(none.note).toMatch(/No full ffmpeg/);
     const refused = await chooseFinisher("auto", { env: {}, cpu, encoder, system: () => "/f", codecs: async () => ["av1_nvenc"], probe: async () => false });
     expect(refused.finisher?.kind).toBe("cpu");
     expect(refused.note).toMatch(/av1_nvenc/);
@@ -124,7 +124,7 @@ describe("who finishes videos", () => {
     const small = finishArgs("in.mkv", "out.webm", 640, 400, "small", { kind: "cpu", ffmpeg: "f", codec: "libvpx-vp9" }, 3);
     expect(small).toEqual(expect.arrayContaining(["-r", "10", "-cpu-used", "6", "-threads", "3", "-crf", "42"]));
     expect(small.join(" ")).toContain("scale=480:300");
-    expect(gpuArgs("av1_qsv", "high")).toEqual(expect.arrayContaining(["-global_quality", "26"]));
+    expect(gpuArgs("av1_qsv", "high")).toEqual(expect.arrayContaining(["-global_quality", "22"]));
     expect(gpuArgs("av1_amf", "full")).toEqual(expect.arrayContaining(["-qp_i", "150"]));
     expect(finishThreads(16)).toBe(8);
     expect(finishThreads(1)).toBe(1);
