@@ -11,7 +11,8 @@ import type { JobKinds } from "../../jobs/kinds.js";
 import type { AttemptRuntime } from "../../jobs/runtime.js";
 import { AttemptRecorder, MAX_LOG_LINES, safeRelative, slug, type ArtifactInfo } from "../../jobs/recorder.js";
 import { VideoFinishQueue, type FinishJob } from "./finisher.js";
-import type { EncoderMode } from "../../jobs/video-finish.js";
+import { downloadedFfmpeg } from "../../jobs/ffmpeg-download.js";
+import { chooseFinisher, type EncoderMode } from "../../jobs/video-finish.js";
 import { findFfmpeg, nextRunVideoFile, qualityFps, RUN_VIDEO_FPS, RunVideo, runVideoFiles, type VideoQuality } from "../../jobs/run-video.js";
 import { dirSize, driveSpace, GB, sizeText } from "../../jobs/storage.js";
 import { unzip, zip } from "../../jobs/zip.js";
@@ -297,6 +298,7 @@ export class Engine {
       dataDir: o.dataDir,
       mode: () => o.videoEncoder?.() ?? "auto",
       onDone: (job, size, error) => this.videoFinished(job, size, error),
+      choose: (mode) => chooseFinisher(mode, { downloaded: () => downloadedFfmpeg(o.dataDir) }),
       ...(o.finishThreads !== undefined ? { threads: o.finishThreads } : {}),
     });
   }

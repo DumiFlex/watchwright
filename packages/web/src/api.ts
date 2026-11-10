@@ -357,6 +357,18 @@ export interface VideoReport {
   job: CompressJob | null;
   /** Who encodes attempt videos after their attempts, and how many wait. */
   finishing: { encoder: string; gpu: boolean; note: string | null; pending: number };
+  /** Get ffmpeg: whether this machine has a build to fetch, whether one was fetched, a download going. */
+  ffmpegFetch: FfmpegFetchReport;
+}
+
+export interface FfmpegFetchReport {
+  supported: boolean;
+  bytes: number;
+  installed: boolean;
+  state: "idle" | "downloading" | "failed";
+  done: number;
+  total: number | null;
+  error: string | null;
 }
 
 /** Who encodes attempt videos: the graphics card when it can, or always the CPU. */

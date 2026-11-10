@@ -139,19 +139,20 @@ export interface FinisherChoice {
 
 /**
  * Who finishes videos. With `auto`: the first hardware AV1 encoder that encodes a test clip, in a
- * full ffmpeg (`WATCHWRIGHT_FFMPEG`, else `ffmpeg` on the PATH); else Playwright's ffmpeg on the CPU.
+ * full ffmpeg (`WATCHWRIGHT_FFMPEG`, `ffmpeg` on the PATH, then the one Watchwright fetched); else
+ * Playwright's ffmpeg on the CPU.
  */
 export async function chooseFinisher(
   mode: EncoderMode,
-  o: { env?: NodeJS.ProcessEnv; cpu?: () => string | null; system?: () => string | null; codecs?: typeof hardwareCodecs; probe?: typeof probeHardware; encoder?: (ffmpeg: string) => VideoEncoder | null } = {},
+  o: { env?: NodeJS.ProcessEnv; cpu?: () => string | null; system?: () => string | null; downloaded?: () => string | null; codecs?: typeof hardwareCodecs; probe?: typeof probeHardware; encoder?: (ffmpeg: string) => VideoEncoder | null } = {},
 ): Promise<FinisherChoice> {
   const env = o.env ?? process.env;
   const cpuFfmpeg = (o.cpu ?? (() => findFfmpeg(env)))();
   const encoder = cpuFfmpeg ? (o.encoder ?? videoEncoder)(cpuFfmpeg) : null;
   const cpu: Finisher | null = cpuFfmpeg && encoder ? { kind: "cpu", ffmpeg: cpuFfmpeg, codec: encoder } : null;
   if (mode === "cpu") return { finisher: cpu, note: null };
-  const systems = [...new Set([env.WATCHWRIGHT_FFMPEG && existsSync(env.WATCHWRIGHT_FFMPEG) ? env.WATCHWRIGHT_FFMPEG : null, (o.system ?? (() => ffmpegOnPath(env)))()].filter((f): f is string => !!f))];
-  if (systems.length === 0) return { finisher: cpu, note: "Install ffmpeg (winget install ffmpeg, brew install ffmpeg or apt install ffmpeg) and restart Watchwright to finish videos on the graphics card." };
+  const systems = [...new Set([env.WATCHWRIGHT_FFMPEG && existsSync(env.WATCHWRIGHT_FFMPEG) ? env.WATCHWRIGHT_FFMPEG : null, (o.system ?? (() => ffmpegOnPath(env)))(), o.downloaded?.() ?? null].filter((f): f is string => !!f))];
+  if (systems.length === 0) return { finisher: cpu, note: "No full ffmpeg was found, so the graphics card can't finish videos. Install one (winget install ffmpeg, apt install ffmpeg) and restart Watchwright." };
   const tried: string[] = [];
   for (const ffmpeg of systems) {
     for (const codec of await (o.codecs ?? hardwareCodecs)(ffmpeg)) {
