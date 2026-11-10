@@ -8,11 +8,13 @@ import type { Editor } from "./editor";
 export interface Settings {
   "settings.editor": Editor;
   "runs.newRunFrom": "latest" | "defaults";
+  /** The server builds packs again when their files change outside Watchwright. */
+  "packs.watch": boolean;
   [key: string]: unknown;
 }
 
 /** `home` is the server machine's home folder, for showing paths as ~/… */
-const DEFAULTS: Settings = { "settings.editor": "vscode", "runs.newRunFrom": "latest" };
+const DEFAULTS: Settings = { "settings.editor": "vscode", "runs.newRunFrom": "latest", "packs.watch": true };
 export const settings = reactive<{ values: Settings; server: Settings; loaded: boolean; home: string | null }>({ values: { ...DEFAULTS }, server: { ...DEFAULTS }, loaded: false, home: null });
 
 let loading: Promise<void> | null = null;

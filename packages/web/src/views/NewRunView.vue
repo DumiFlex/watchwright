@@ -14,11 +14,13 @@ import { loadSettings, settings } from "../settings";
 import { sectionHref } from "../settingspages";
 import { offerNotify } from "../notify";
 import { toast } from "../toasts";
+import { LiveConnection } from "../live";
 import CheckBox from "../components/CheckBox.vue";
 import KeyHint from "../components/KeyHint.vue";
 import MenuButton from "../components/MenuButton.vue";
 import EmptyState from "../components/EmptyState.vue";
 import ModalDialog from "../components/ModalDialog.vue";
+import PackRefresh from "../components/PackRefresh.vue";
 import MultiSelect from "../components/MultiSelect.vue";
 import SkeletonBlock from "../components/SkeletonBlock.vue";
 import NumberInput from "../components/NumberInput.vue";
@@ -363,6 +365,38 @@ watch(
 );
 onBeforeUnmount(() => timer && clearTimeout(timer));
 
+/**
+ * Takes in packs built again (their files changed, or the refresh icon) without losing what was
+ * chosen: new parameters get their defaults, gone ones and gone tests drop out, typed values stay.
+ */
+function syncPacks(fresh: Pack[]) {
+  packs.value = fresh;
+  const p = pack.value;
+  if (!p) return;
+  for (const k of Object.keys(params)) if (!(k in p.params)) delete params[k];
+  for (const [k, d] of Object.entries(p.params)) if (!(k in params)) params[k] = d.default ?? d.choices?.[0] ?? (d.type === "number" ? 0 : d.type === "boolean" ? false : "");
+  const known = new Set(p.tests.map((t) => t.id));
+  if (chosen.value.some((t) => !known.has(t))) chosen.value = chosen.value.filter((t) => known.has(t));
+}
+
+let live: LiveConnection | null = null;
+let refetching = false;
+let again = false;
+async function refetchPacks() {
+  if (refetching) return void (again = true);
+  refetching = true;
+  do {
+    again = false;
+    const res = await getJson<Pack[]>("/api/v1/packs");
+    if (res.ok) syncPacks(res.data);
+  } while (again);
+  refetching = false;
+}
+onMounted(() => {
+  live = new LiveConnection({}, { onEvent: (e) => /^pack\.(loaded|reload_failed|added|removed|moved)$/.test(e.type) && void refetchPacks() });
+});
+onBeforeUnmount(() => live?.close());
+
 function pickTag(ids: string[]) {
   const all = ids.every((id) => chosen.value.includes(id));
   const next = new Set(chosen.value);
@@ -451,7 +485,10 @@ useShortcut("Mod+Enter", () => !namingOpen.value && void start());
         <div class="form">
           <section class="card pick">
             <label class="lbl" for="nr-pack">Pack</label>
-            <SelectMenu id="nr-pack" v-model="packId" :options="packOptions" />
+            <div class="presetrow">
+              <SelectMenu id="nr-pack" v-model="packId" class="grow" :options="packOptions" />
+              <PackRefresh :pack="pack" @refreshed="(p) => syncPacks(packs.map((x) => (x.id === p.id ? p : x)))" />
+            </div>
             <p class="muted small">
               {{ pack.tests.length }} tests · {{ pack.browser }}<template v-if="pack.baseURL"> · {{ pack.baseURL }}</template> · <a :href="`#/packs/${pack.id}`">about this pack</a>
             </p>

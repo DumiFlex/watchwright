@@ -14,7 +14,7 @@ describe("settings pages", () => {
     as(null);
     expect(ids("account")).toEqual([]);
     expect(ids("settings")).toEqual(["look", "notify", "editor", "newrun", "agents", "about"]);
-    expect(ids("admin")).toEqual(["secrets", "signins", "runners", "runs", "sharing", "alerts", "storage", "recent", "server"]);
+    expect(ids("admin")).toEqual(["secrets", "signins", "runners", "runs", "packs", "sharing", "alerts", "storage", "recent", "server"]);
     expect(sectionsOn("admin")[0]!.group).toBe("Runs and packs");
   });
 

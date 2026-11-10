@@ -51,6 +51,11 @@ const NEW_RUN_OPTIONS = [
   { value: "defaults" as const, label: "The pack's defaults" },
 ];
 
+const watchPacks = computed<boolean>({
+  get: () => settings.server["packs.watch"] !== false,
+  set: (v) => void save({ "packs.watch": v }),
+});
+
 const resumeOnStart = computed<boolean>({
   get: () => settings.server["runs.resumeOnStart"] === true,
   set: (v) => void save({ "runs.resumeOnStart": v }),
@@ -133,6 +138,16 @@ onMounted(() => {
       <p class="muted small">Runs going when Watchwright stopped, or when the computer restarted or it crashed.</p>
       <ToggleSwitch id="s-resume-on-start" v-model="resumeOnStart">Resume interrupted runs when Watchwright starts</ToggleSwitch>
       <p class="muted small">On: they go on where they were once it starts again. Off: they wait for Resume on their page. An alert rule can say when a run is interrupted.</p>
+    </section>
+
+    <section v-if="shows('packs')" class="card" aria-labelledby="s-packs">
+      <h2 id="s-packs" class="display">Packs</h2>
+      <p class="muted small">When a pack's files change outside Watchwright: in a code editor, with git, or by an agent.</p>
+      <ToggleSwitch id="s-packs-watch" v-model="watchPacks">Build packs again when their files change</ToggleSwitch>
+      <p class="muted small">
+        On: every few seconds the server looks at the files each pack is built from, and builds the ones that changed, so pages show new tests, parameters and tasks by themselves. Off: a pack is built again when you press its refresh icon, save in
+        Watchwright's editor, or before each attempt of a run. Turn it off for packs on a slow network share.
+      </p>
     </section>
 
     <SharingSettings v-if="shows('sharing')" />

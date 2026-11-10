@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import type Database from "better-sqlite3";
 import { serviceKey } from "../../core/services.js";
@@ -152,6 +152,8 @@ export class PackRegistry {
   private readonly loaded = new Map<string, LoadedPack>();
   private readonly loading = new Map<string, Promise<LoadedPack>>();
   private readonly links: PackLinks[] = [];
+  /** For packs that have never loaded: the stamp of their folder at the failed build (see `check`). */
+  private readonly failedAt = new Map<string, string>();
 
   constructor(
     private readonly db: Database.Database,
@@ -247,7 +249,7 @@ export class PackRegistry {
   }
 
   /** Builds the pack now. On failure the previous good build stays in use, and the error is recorded. */
-  async reload(id: string): Promise<LoadedPack> {
+  async reload(id: string, by?: "files"): Promise<LoadedPack> {
     const row = this.db.prepare("SELECT * FROM packs WHERE id = ?").get(id) as Row | undefined;
     if (!row) throw new PackLoadError(`No pack with id ${id}.`);
     const pending = this.loading.get(id);
@@ -258,13 +260,15 @@ export class PackRegistry {
         const problems = checkTests(pack.tests, pack.options.rubric);
         this.store(id, pack, problems);
         this.loaded.set(id, pack);
-        this.events.append("pack.loaded", { packId: id, tests: pack.tests.length, problems });
+        this.failedAt.delete(id);
+        this.events.append("pack.loaded", { packId: id, tests: pack.tests.length, problems, ...(by ? { by } : {}) });
         return pack;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         const problems = err instanceof PackLoadError ? err.problems : [];
         this.db.prepare("UPDATE packs SET status = 'error', error = ?, problems = ? WHERE id = ?").run(message.split("\n")[0], JSON.stringify(problems), id);
-        this.events.append("pack.reload_failed", { packId: id, message: message.split("\n")[0], problems });
+        if (!this.loaded.has(id)) this.failedAt.set(id, folderStamp(path.dirname(row.path)));
+        this.events.append("pack.reload_failed", { packId: id, message: message.split("\n")[0], problems, ...(by ? { by } : {}) });
         throw err;
       } finally {
         this.loading.delete(id);
@@ -301,6 +305,36 @@ export class PackRegistry {
       this.loaded.set(id, { ...latest, stamp: currentStamp(latest) });
       return { pack: latest, reloaded: false, error: err instanceof Error ? err.message.split("\n")[0]! : String(err) };
     }
+  }
+
+  /**
+   * Builds the pack again when its files changed since the last build, good or failed: what the
+   * packs plugin's timer calls. A pack with a good build compares the files that build read; a pack
+   * that has never loaded compares its folder. A failed build isn't tried again until the files
+   * change again. Packs whose folder is gone, or that are being built now, are left alone.
+   */
+  async check(id: string): Promise<"unchanged" | "reloaded" | "failed"> {
+    const row = this.db.prepare("SELECT path FROM packs WHERE id = ?").get(id) as { path: string } | undefined;
+    if (!row || this.loading.has(id) || !existsSync(row.path)) return "unchanged";
+    const build = this.loaded.get(id);
+    if (build) {
+      if (!packChanged(build)) return "unchanged";
+      try {
+        await this.reload(id, "files");
+        return "reloaded";
+      } catch {
+        // Remember the broken stamp so the same broken save isn't built again every check.
+        const latest = this.loaded.get(id) ?? build;
+        this.loaded.set(id, { ...latest, stamp: currentStamp(latest) });
+        return "failed";
+      }
+    }
+    const before = this.failedAt.get(id);
+    if (before !== undefined && before === folderStamp(path.dirname(row.path))) return "unchanged";
+    return this.reload(id, "files").then(
+      () => "reloaded" as const,
+      () => "failed" as const,
+    );
   }
 
   /** True when the pack's files changed since its current build (no rebuild). */
@@ -411,6 +445,41 @@ export function discoverPacks(root: string, depth: number, known: (dir: string) 
   };
   walk(root, 0);
   return { found, truncated };
+}
+
+export const FOLDER_STAMP_MAX_FILES = 2000;
+
+/**
+ * Every file's size and time in a pack's folder (skipping node_modules, hidden and build folders,
+ * at most FOLDER_STAMP_MAX_FILES files): how a pack that never loaded notices it was fixed.
+ */
+export function folderStamp(dir: string): string {
+  const parts: string[] = [];
+  const walk = (d: string, rel: string) => {
+    let entries;
+    try {
+      entries = readdirSync(d, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    for (const e of entries) {
+      if (parts.length >= FOLDER_STAMP_MAX_FILES) return;
+      if (e.name.startsWith(".") || SKIP_DIRS.has(e.name)) continue;
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) walk(path.join(d, e.name), r);
+      else if (e.isFile()) {
+        try {
+          const s = statSync(path.join(d, e.name));
+          parts.push(`${r}:${s.size}:${Math.round(s.mtimeMs)}`);
+        } catch {
+          parts.push(`${r}:gone`);
+        }
+      }
+    }
+  };
+  walk(dir, "");
+  return parts.join("|");
 }
 
 export const PACKS = serviceKey<PackRegistry>("packs.registry");

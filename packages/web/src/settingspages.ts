@@ -46,6 +46,7 @@ export const SECTIONS: readonly SectionDef[] = [
   { id: "signins", shared: true, label: "Sign-ins", where: shared("user") },
   { id: "runners", shared: true, label: "Runners", where: shared("viewer") },
   { id: "runs", label: "Interrupted runs", where: admin },
+  { id: "packs", label: "Packs", where: admin },
   { id: "sharing", shared: true, label: "Sharing", where: shared("user"), group: "Sharing and alerts" },
   { id: "alerts", label: "Alerts", where: admin },
   { id: "storage", shared: true, label: "Storage", where: shared("user"), group: "This server" },

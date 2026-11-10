@@ -2,7 +2,7 @@
 
 # Writing a test pack
 
-A test pack is a folder with a pack file and test files. It usually lives in the repository of the site it tests. Watchwright bundles it with esbuild, so TypeScript works without a build step, and it reloads the pack when you save a file, even in the middle of a run.
+A test pack is a folder with a pack file and test files. It usually lives in the repository of the site it tests. Watchwright bundles it with esbuild, so TypeScript works without a build step, and it builds the pack again when you save a file, in its editor or anywhere else, even in the middle of a run (see [when a pack is built again](#when-a-pack-is-built-again)).
 
 Tests can also be YAML lists of steps, next to code tests or in a pack with no code at all (`pack.yaml`). This page is about code; [YAML tests](yaml-tests.md) has the rest.
 
@@ -26,6 +26,17 @@ There are five ways, and they all end the same: the server loads the pack and li
 - **When you start the server**: `watchwright serve ./watchwright` adds that folder (or reloads it when it's already added). When the server is already running, the same command adds the pack there and opens the page.
 
 Through the [API](https://dumiflex.github.io/watchwright/reference/http-api#packs) it's `POST /api/v1/packs` with `{ "path": "/abs/path/to/my-site/watchwright" }`.
+
+### When a pack is built again
+
+The pages show a pack as it was when the server last built it. It builds it again:
+
+- **when its files change**, wherever they're changed: in a code editor, by `git pull`, by an agent writing files. Every two seconds the server looks at the size and time of every file the pack is built from (inside its folder, and files it imports from outside), and builds the packs whose files changed. Its pages follow by themselves: new tests, parameters and tasks show up, and the **Tasks** tab appears when the pack gets its first task. A save that breaks the pack shows why on its page and is tried again once you save the next change; runs keep using the last good build. An admin can turn this off under **Admin › Packs**, for packs on a slow network share;
+- when you press the **refresh icon** (the circular arrow) on the pack's page, its row on the Packs page or beside the pack on New run. It builds the pack from its files at once, even when nothing looks changed, and says what changed: tests, parameters or tasks added or gone, or why the pack doesn't load;
+- when you save in Watchwright's [editor](https://dumiflex.github.io/watchwright/guide/editing), and before each attempt of a run;
+- when the server starts.
+
+On New run, a pack built again keeps what you chose: new parameters get their defaults, and parameters and tests that are gone drop out.
 
 ### Updating and removing packs
 
@@ -52,7 +63,7 @@ bench/
     tests/…
 ```
 
-The server builds `smoke` from its own folder and follows the import up to `bench/shared.ts`, so the folder above has to be on the server too. When it isn't (only `smoke/` was copied or zipped), the pack page says the pack imports files from outside its folder that aren't on this server, and names each import and where it looked. To fix it, copy the folder above the pack onto the server as well and press **Reload**, or upload a zip of that folder.
+The server builds `smoke` from its own folder and follows the import up to `bench/shared.ts`, so the folder above has to be on the server too. When it isn't (only `smoke/` was copied or zipped), the pack page says the pack imports files from outside its folder that aren't on this server, and names each import and where it looked. To fix it, copy the folder above the pack onto the server as well and press the pack's refresh icon, or upload a zip of that folder.
 
 **Download .zip** on a server where such a pack loads brings those files along: the zip for `smoke` is `bench-smoke.zip`, with `bench/shared.ts` and `bench/smoke/…` in it (only the files the pack imports, not the rest of `bench/`). **Upload .zip** puts it back in the same layout and adds `smoke` from its subfolder, so the imports work as they did.
 
