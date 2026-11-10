@@ -71,7 +71,7 @@ export const VIDEO_QUALITIES: readonly VideoQuality[] = ["high", "full", "compac
 export type CompressQuality = "compact" | "small";
 /** The CRF (lower is sharper) and the share of the size each constant quality keeps. */
 const QUALITY: Record<Exclude<VideoQuality, "full">, { crf: number; scale: number; fps: number | null }> = {
-  high: { crf: 24, scale: 1, fps: 30 },
+  high: { crf: 20, scale: 1, fps: 30 },
   compact: { crf: 40, scale: 1, fps: null },
   small: { crf: 42, scale: 0.75, fps: 10 },
 };
@@ -80,10 +80,33 @@ export function qualityFps(quality: VideoQuality, fallback: number): number {
   return quality === "full" ? fallback : (QUALITY[quality].fps ?? fallback);
 }
 
-/** The lowest JPEG quality the screencast sends frames at for `quality`: `high` needs frames without ringing around text. */
+/**
+ * The lowest JPEG quality the screencast sends frames at for `quality`. Below 90 the ringing around
+ * fine lines (a canvas grid, text) reads as moving noise on dark pages, so the qualities Watchwright
+ * encodes itself take at least 90, and `high` takes 100. `full` keeps the run's own (in Chromium
+ * Playwright records it from its own frames).
+ */
 export function frameQualityFor(quality: VideoQuality, frameQuality: number): number {
-  return quality === "high" ? Math.max(frameQuality, 90) : frameQuality;
+  if (quality === "high") return 100;
+  return quality === "full" ? frameQuality : Math.max(frameQuality, 90);
 }
+
+/**
+ * Screencast frames are JPEG, which keeps the full 0–255 range. Encoding them in the usual "TV"
+ * range (16–235) drops about one level in seven and turns dark shadows into steps, so VP9 and AV1
+ * videos keep the full range (and say so; browsers play it right). VP8 can't say it, so it stays.
+ */
+export function keepsFullRange(encoder: string): boolean {
+  return encoder !== "libvpx";
+}
+/** `vf` with the full-range conversion added when `encoder` keeps it. */
+export function rangeFilter(vf: string | null, encoder: string): string | null {
+  if (!keepsFullRange(encoder)) return vf;
+  const full = "scale=out_range=full,format=yuv420p";
+  return vf ? `${vf},${full}` : full;
+}
+/** The output flag that says the range, when `encoder` keeps it. */
+export const rangeArgs = (encoder: string): string[] => (keepsFullRange(encoder) ? ["-color_range", "pc"] : []);
 
 /** How much smaller a quality is than another: higher is smaller. */
 const RANK: Record<VideoQuality, number> = { high: -1, full: 0, compact: 1, small: 2 };
@@ -136,7 +159,8 @@ export function ffmpegArgs(file: string, width: number, height: number, encoder:
     // Each frame keeps its own time: a still page is one frame however long it stays.
     "-y", "-an", "-fps_mode", "vfr",
     ...encodeArgs(encoder, quality, bitRate),
-    "-vf", fitFilter(quality, width, height),
+    "-vf", rangeFilter(fitFilter(quality, width, height), encoder)!,
+    ...rangeArgs(encoder),
     file,
   ];
 }

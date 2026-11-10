@@ -84,7 +84,8 @@ describe("kept videos", () => {
     const compact = compressArgs("/in.webm", "/out.webm", "libvpx-vp9", "compact").join(" ");
     expect(compact).toContain("-i /in.webm");
     expect(compact).toContain("-crf 40 -b:v 0");
-    expect(compact).not.toContain("scale=");
+    expect(compact).not.toMatch(/scale=\d|scale=trunc/);
+    expect(compact).toContain("-color_range pc");
     expect(compact.endsWith("-f webm /out.webm")).toBe(true);
     const small = compressArgs("/in.webm", "/out.webm", "libvpx", "small").join(" ");
     expect(small).toContain("-r 10 -vf scale=trunc(iw*3/8)*2:trunc(ih*3/8)*2");

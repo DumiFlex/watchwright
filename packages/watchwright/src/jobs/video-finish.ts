@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { open } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { encodeArgs, findFfmpeg, fitFilter, qualityFps, videoEncoder, videoTitle, type VideoEncoder, type VideoQuality } from "./run-video.js";
+import { encodeArgs, findFfmpeg, fitFilter, qualityFps, rangeArgs, rangeFilter, videoEncoder, videoTitle, type VideoEncoder, type VideoQuality } from "./run-video.js";
 
 // Turning an attempt's capture (see video-capture.ts) into its WebM, after the attempt. On the
 // graphics card when a full ffmpeg on the machine can use one (AV1, which a WebM holds), else on the
@@ -32,7 +32,7 @@ export function finisherLabel(f: Finisher | null): string {
  * The constant-quality level each quality gets on the graphics card, on the encoders' 0–51 scale
  * (lower is sharper). They follow the VP9 CRFs: High sharp, Small soft.
  */
-export const GPU_LEVEL: Record<VideoQuality, number> = { high: 26, full: 30, compact: 36, small: 40 };
+export const GPU_LEVEL: Record<VideoQuality, number> = { high: 22, full: 30, compact: 36, small: 40 };
 
 /** The encoder arguments for a hardware codec at `quality`. */
 export function gpuArgs(codec: HardwareCodec, quality: VideoQuality): string[] {
@@ -59,7 +59,7 @@ export function finishArgs(capture: string, output: string, width: number, heigh
   // Frames keep their real times; Small takes 10 a second (ffmpeg won't take both at once).
   const timing = quality === "small" && fps > 0 ? ["-r", String(fps)] : ["-fps_mode", "vfr"];
   const codec = f.kind === "gpu" ? gpuArgs(f.codec, quality) : encodeArgs(f.codec, quality, FULL_BIT_RATE, { threads, cpuUsed: 6 });
-  return ["-loglevel", "error", "-y", "-f", "matroska", "-i", capture, "-an", ...timing, "-vf", fitFilter(quality, width, height), ...codec, "-f", "webm", output];
+  return ["-loglevel", "error", "-y", "-f", "matroska", "-i", capture, "-an", ...timing, "-vf", rangeFilter(fitFilter(quality, width, height), f.codec)!, ...codec, ...rangeArgs(f.codec), "-f", "webm", output];
 }
 
 /** `ffmpeg` on the PATH, if there is one. */
