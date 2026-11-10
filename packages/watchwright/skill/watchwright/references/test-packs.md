@@ -2,7 +2,7 @@
 
 # Writing a test pack
 
-A test pack is a folder with a pack file and test files. It usually lives in the repository of the site it tests. Watchwright bundles it with esbuild, so TypeScript works without a build step, and it reloads the pack when you save a file, even in the middle of a run.
+A test pack is a folder with a pack file and test files. It usually lives in the repository of the site it tests. Watchwright bundles it with esbuild, so TypeScript works without a build step, and it builds the pack again when you save a file, in its editor or anywhere else, even in the middle of a run (see [when a pack is built again](#when-a-pack-is-built-again)).
 
 Tests can also be YAML lists of steps, next to code tests or in a pack with no code at all (`pack.yaml`). This page is about code; [YAML tests](yaml-tests.md) has the rest.
 
@@ -26,6 +26,17 @@ There are five ways, and they all end the same: the server loads the pack and li
 - **When you start the server**: `watchwright serve ./watchwright` adds that folder (or reloads it when it's already added). When the server is already running, the same command adds the pack there and opens the page.
 
 Through the [API](https://dumiflex.github.io/watchwright/reference/http-api#packs) it's `POST /api/v1/packs` with `{ "path": "/abs/path/to/my-site/watchwright" }`.
+
+### When a pack is built again
+
+The pages show a pack as it was when the server last built it. It builds it again:
+
+- **when its files change**, wherever they're changed: in a code editor, by `git pull`, by an agent writing files. Every two seconds the server looks at the size and time of every file the pack is built from (inside its folder, and files it imports from outside), and builds the packs whose files changed. Its pages follow by themselves: new tests, parameters and tasks show up, and the **Tasks** tab appears when the pack gets its first task. A save that breaks the pack shows why on its page and is tried again once you save the next change; runs keep using the last good build. An admin can turn this off under **Admin › Packs**, for packs on a slow network share;
+- when you press the **refresh icon** (the circular arrow) on the pack's page, its row on the Packs page or beside the pack on New run. It builds the pack from its files at once, even when nothing looks changed, and says what changed: tests, parameters or tasks added or gone, or why the pack doesn't load;
+- when you save in Watchwright's [editor](https://dumiflex.github.io/watchwright/guide/editing), and before each attempt of a run;
+- when the server starts.
+
+On New run, a pack built again keeps what you chose: new parameters get their defaults, and parameters and tests that are gone drop out.
 
 ### Updating and removing packs
 
@@ -52,7 +63,7 @@ bench/
     tests/…
 ```
 
-The server builds `smoke` from its own folder and follows the import up to `bench/shared.ts`, so the folder above has to be on the server too. When it isn't (only `smoke/` was copied or zipped), the pack page says the pack imports files from outside its folder that aren't on this server, and names each import and where it looked. To fix it, copy the folder above the pack onto the server as well and press **Reload**, or upload a zip of that folder.
+The server builds `smoke` from its own folder and follows the import up to `bench/shared.ts`, so the folder above has to be on the server too. When it isn't (only `smoke/` was copied or zipped), the pack page says the pack imports files from outside its folder that aren't on this server, and names each import and where it looked. To fix it, copy the folder above the pack onto the server as well and press the pack's refresh icon, or upload a zip of that folder.
 
 **Download .zip** on a server where such a pack loads brings those files along: the zip for `smoke` is `bench-smoke.zip`, with `bench/shared.ts` and `bench/smoke/…` in it (only the files the pack imports, not the rest of `bench/`). **Upload .zip** puts it back in the same layout and adds `smoke` from its subfolder, so the imports work as they did.
 
@@ -107,7 +118,7 @@ export default pack({
 | `collectors` | Record what the browser does for every attempt (see below). |
 | `helpers` | Adds your own helpers to `h` (see below). |
 | `idle` | Your app's busy check for `h.idle()`: resolve `true` when the app is idle. |
-| `run` | `pauseOnBroken` (default `true`), `pauseLimitMinutes` (default 20), `testTimeout` in ms (default 30 minutes), `trace` (`problems` (default), `always`, `never`), `video` (which attempts keep a video: `always` (default, also `true`), `problems` (only attempts that failed or broke) or `never` (also `false`); Playwright's videos take about 450 MB per hour of tests, and the server-wide Video quality setting (Admin › Storage) can make them about 80% (Compact) or 94% (Small) smaller; in Firefox, whose screencast now and then sends a frame with whole tiles not painted yet, Watchwright drops those one-frame flashes from the live view and writes the videos itself from the frames it keeps), `runVideo` (also record one video of the whole run, of what the live view follows, pauses included, as `run-video.webm` in the run's folder; at most about 270 MB an hour (a still page takes far less); default `false`), `followVideo` (record each attempt's video of the page the live view follows, new tabs and popups included, as one `video.webm`, instead of one video per page; default `false`; see [Videos for people to watch](#videos-for-people-to-watch)), `videoQuality` (this pack's video quality over the server's setting: `high`, `full`, `compact` or `small`), `showActions` (default `true`), `keepTabs` (keep tabs and popups a test opened for the tests after it; by default they close before the next test), `chapters` (show each `h.step` title, after the titles of the steps it runs in, as a small caption in the bottom-left corner of the live view and video, default `false`), `screencastSize`, `frameQuality`. |
+| `run` | `pauseOnBroken` (default `true`), `pauseLimitMinutes` (default 20), `testTimeout` in ms (default 30 minutes), `trace` (`problems` (default), `always`, `never`), `video` (which attempts keep a video: `always` (default, also `true`), `problems` (only attempts that failed or broke) or `never` (also `false`); Playwright's videos take about 450 MB per hour of tests, and the server-wide Video quality setting (Admin › Storage) can make them about 80% (Compact) or 94% (Small) smaller; in Firefox, whose screencast now and then sends a frame with whole tiles not painted yet, Watchwright drops those one-frame flashes from the live view and writes the videos itself from the frames it keeps), `runVideo` (also record one video of the whole run, of what the live view follows, pauses included, as `run-video.webm` in the run's folder; at most about 270 MB an hour (a still page takes far less); default `false`), `followVideo` (record each attempt's video of the page the live view follows, new tabs and popups included, as one `video.webm`, instead of one video per page; default `false`; see [Videos for people to watch](#videos-for-people-to-watch)), `videoQuality` (this pack's video quality over the server's setting: `high`, `full`, `compact` or `small`), `videoFps` (at most this many frames a second in this pack's videos, over the server's Frame rate setting: 60, 30, 15, 10, any from 1 to 120, or 0 for every frame the browser sends), `showActions` (default `true`), `keepTabs` (keep tabs and popups a test opened for the tests after it; by default they close before the next test), `chapters` (show each `h.step` title, after the titles of the steps it runs in, as a small caption in the bottom-left corner of the live view and video, default `false`), `screencastSize`, `frameQuality`. |
 
 ### Videos for people to watch
 
@@ -120,10 +131,18 @@ run:
   videoQuality: high
 ```
 
-- `videoQuality: high` records sharp text at up to 30 frames a second: VP9 at a constant, high quality from screencast frames at JPEG quality 90 or more (`frameQuality`, when higher). On a busy page it takes about the room Full does; on a page that waits it takes far less, since only changes cost anything. It uses more CPU than the other qualities. The run video, when on, is also recorded at 30 frames a second. Compress kept videos (Admin › Storage) never makes High videos smaller.
+- `videoQuality: high` records sharp text with every frame the browser sends: a constant, high quality from screencast frames at JPEG quality 100. Compact and Small take frames at 90 or more (`frameQuality`, when higher), since below that the JPEG ringing around fine lines reads as moving noise on dark pages. Videos Watchwright encodes as VP9 or AV1 keep the frames' full brightness range (0–255), so shadows don't turn into steps. On a busy page it takes about the room Full does; on a page that waits it takes far less, since only changes cost anything. The run video, when on, is recorded at 30 frames a second. Compress kept videos (Admin › Storage) never makes High videos smaller.
 - `followVideo: true` records one video per attempt of the page the live view follows: when the test opens a new tab or a popup, the video goes with it, and comes back when it closes or the test acts on another page through `h` (`goto`, `click`, `fill`, `press`). Waiting, steps, checks and screenshots leave the live view and the video where they are. The video keeps the screencast size (`screencastSize`, else the viewport); a page of another size is centered in it, never stretched.
 
-A run's own choice (New run, or `videoQuality` and `followVideo` in `POST /runs`) wins over the pack's, and the pack's over the server's Video quality setting. Both need Playwright's ffmpeg, as every video does. The screencast captures CSS pixels, so a 1080p video needs a 1920×1080 viewport; to make a page's text bigger in the video, zoom the page, not the browser's device scale.
+- `videoFps: 30` caps the videos at 30 frames a second. It only caps: the browser decides how many frames it sends (Chromium up to about 60 a second, Firefox fewer when the page is busy), and nothing makes up frames in between. A frame held back is written when its turn comes, so the last thing a page shows before it stands still is always in the video. With a cap, Watchwright records the video itself (as at any quality but `full`). Small keeps at most 10 a second.
+
+A run's own choice (New run, or `videoQuality`, `videoFps` and `followVideo` in `POST /runs`) wins over the pack's, and the pack's over the server's Video quality and Frame rate settings. Both need Playwright's ffmpeg, as every video does.
+
+### How attempt videos are made
+
+Every attempt video Watchwright writes itself (High, Compact and Small in every browser, Full in Firefox, and `followVideo`) is recorded frame by frame as the browser sends it, each frame at the time it came, and encoded after the attempt ends. Nothing is encoded while a test runs, so encoding never slows a test and never drops frames; motion keeps its real pace (in Firefox, frames are timed as they arrive, before the one-frame flashes are dropped). While it's encoded, the attempt page says **Finishing this video…** and shows it when it's done, usually within the length of the attempt; the next attempts don't wait. A server stopped before then finishes it when it starts again. Recording takes room on the drive until the video is encoded (JPEG frames, only when the page changes), and an attempt that doesn't keep its video (`video: problems`, a passed attempt) is never encoded at all.
+
+Videos are encoded on the **graphics card** when it can: with **Encoder** set to Automatic (Admin › Storage › Videos, the default), Watchwright looks for a full ffmpeg (`WATCHWRIGHT_FFMPEG`, `ffmpeg` on the PATH, then one it downloaded) with a hardware AV1 encoder (NVIDIA RTX 40 and newer, Intel Arc and Core Ultra, AMD RX 7000 and newer), tries it on a tiny clip, and uses it. AV1 is about half the size of VP9 at the same picture, plays in Chrome, Edge and Firefox, and the card's video encoder is separate from the part that runs AI models. Without one, Playwright's own ffmpeg encodes VP9 on the CPU, at the lowest priority. Playwright's ffmpeg has no hardware encoders, so for the graphics card press **Get ffmpeg** in the Videos section (Windows and Linux: it downloads a full build, about 150–200 MB, into the data folder, checks its checksum and tries the card again, with no restart), or install ffmpeg yourself (`winget install ffmpeg`, `apt install ffmpeg`) and restart Watchwright; the Videos section says which encoder is used and why the card isn't. Full in Chromium and WebKit is still recorded by Playwright itself, and the run video (`runVideo`) is encoded as it records, since a run can last hours. The screencast captures CSS pixels, so a 1080p video needs a 1920×1080 viewport; to make a page's text bigger in the video, zoom the page, not the browser's device scale.
 
 ## Tests
 

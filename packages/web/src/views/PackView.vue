@@ -28,11 +28,13 @@ import PackDashboard from "../components/PackDashboard.vue";
 import PackAccessDialog from "../components/PackAccessDialog.vue";
 import PackFolderDialog from "../components/PackFolderDialog.vue";
 import PageSkeleton from "../components/PageSkeleton.vue";
+import PackRefresh from "../components/PackRefresh.vue";
 import PathLine from "../components/PathLine.vue";
 import StatusChip from "../components/StatusChip.vue";
 import { buildErrorSpot } from "../editor";
 import { join } from "../paths";
 import { toast } from "../toasts";
+import { loadSettings, settings } from "../settings";
 import TabBar from "../components/TabBar.vue";
 import { vTip } from "../tooltip";
 import { can, session } from "../session";
@@ -57,7 +59,6 @@ const testHistory = computed(() => {
   return out;
 });
 const error = ref<string | null>(null);
-const reloading = ref(false);
 const home = ref<string | null>(null);
 const canOpen = ref(true);
 const moveOpen = ref(false);
@@ -311,10 +312,8 @@ async function load() {
   void loadAccess();
 }
 
-async function reload() {
-  reloading.value = true;
-  await sendJson(`/api/v1/packs/${props.id}/reload`);
-  reloading.value = false;
+async function refreshed(p: Pack) {
+  pack.value = p;
   await load();
 }
 
@@ -332,6 +331,7 @@ watch(
 let live: LiveConnection | null = null;
 onMounted(async () => {
   void load();
+  void loadSettings();
   const places = await getJson<FolderPlaces>("/api/v1/folders/places");
   if (places.ok) {
     home.value = places.data.home;
@@ -363,7 +363,7 @@ onBeforeUnmount(() => live?.close());
         <div class="acts">
           <button v-if="pack.missing && can('admin')" class="btn primary" @click="moveOpen = true">Locate…</button>
           <template v-else>
-            <button class="btn" :disabled="reloading" @click="reload">{{ reloading ? "Reloading…" : "Reload" }}</button>
+            <PackRefresh :pack="pack" @refreshed="refreshed" />
             <a class="btn" :href="href({ name: 'edit', id: pack.id, file: null, line: null })"><Pencil :size="15" /> Edit</a>
             <button v-if="pack.status === 'ok'" v-tip="'Make a new YAML test by clicking through the site'" type="button" class="btn" @click="startNewRecording"><CircleDot :size="15" /> New recording</button>
             <a v-if="pack.status === 'ok'" class="btn primary" :href="`#/new?pack=${pack.id}`">New run</a>
@@ -388,8 +388,9 @@ onBeforeUnmount(() => live?.close());
             <template v-else>{{ x }}</template>
           </li>
         </ul>
-        <p v-if="pack.error?.includes('outside its folder')" class="muted small">A pack can share files with the folder above it, but that folder has to be on the server too. Copy it there and press Reload, or upload a zip of it: Download .zip on a Watchwright where this pack loads makes one with those files in it.</p>
-        <p v-else class="muted small">Fix the files and save: the server builds the pack again by itself.</p>
+        <p v-if="pack.error?.includes('outside its folder')" class="muted small">A pack can share files with the folder above it, but that folder has to be on the server too. Copy it there and press the refresh icon, or upload a zip of it: Download .zip on a Watchwright where this pack loads makes one with those files in it.</p>
+        <p v-else-if="settings.values['packs.watch'] !== false" class="muted small">Fix the files and save: the server builds the pack again by itself within a few seconds.</p>
+        <p v-else class="muted small">Fix the files, then press the refresh icon. Saves in Watchwright's editor build the pack again by themselves.</p>
       </section>
 
       <TabBar id="pack-tabs" v-model="tab" class="pack-tabs" :tabs="tabs" id-prefix="pack" label="Pack" />

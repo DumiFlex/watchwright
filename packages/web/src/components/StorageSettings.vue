@@ -2,7 +2,7 @@
 // Admin > Storage (users see it on Settings): how full the drive with the data folder is, what runs take, the largest
 // runs, and the free space below which runs warn and then stop recording videos.
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-import { getJson, runName, sendJson, type CleanupPlan, type CompressJob, type StorageReport, type VideoQuality, type VideoReport } from "../api";
+import { getJson, runName, sendJson, type CleanupPlan, type CompressJob, type FfmpegFetchReport, type StorageReport, type VideoEncoderMode, type VideoQuality, type VideoReport } from "../api";
 import { countsText, fileSize, when } from "../format";
 import { tildify } from "../paths";
 import { saveSettings, settings } from "../settings";
@@ -39,8 +39,8 @@ async function loadVideos() {
   if (res.ok) videos.value = res.data;
   if (poll) clearTimeout(poll);
   poll = null;
-  // While a job goes, its progress every 2 seconds; at the end the run sizes changed too.
-  if (res.ok && res.data.job?.state === "running")
+  // While a job goes (or attempt videos are being encoded), its progress every 2 seconds; at the end the run sizes changed too.
+  if (res.ok && (res.data.job?.state === "running" || res.data.finishing.pending > 0 || res.data.ffmpegFetch.state === "downloading"))
     poll = setTimeout(() => {
       void loadVideos().then(() => {
         if (videos.value?.job?.state !== "running") void load();
@@ -50,7 +50,7 @@ async function loadVideos() {
 onBeforeUnmount(() => poll && clearTimeout(poll));
 
 const qualityOptions: { value: VideoQuality; label: string; note: string }[] = [
-  { value: "high", label: "High", note: "Sharp text at 30 frames a second, for videos people watch. About the size of Full on busy pages, far less on still ones; uses more CPU." },
+  { value: "high", label: "High", note: "Sharp text and every frame the browser sends, for videos people watch. About the size of Full on busy pages, far less on still ones." },
   { value: "full", label: "Full", note: "What Playwright records." },
   { value: "compact", label: "Compact", note: "Same size and smoothness, about 80% smaller. Text stays sharp." },
   { value: "small", label: "Small", note: "3/4 of the size and 10 frames a second, about 94% smaller. Text stays readable." },
@@ -63,6 +63,42 @@ const quality = computed<VideoQuality>({
       void loadVideos();
     }),
 });
+const fpsOptions: { value: string; label: string; note?: string }[] = [
+  { value: "0", label: "Every frame", note: "All the browser sends: Chromium up to about 60 a second, Firefox fewer when the page is busy." },
+  { value: "60", label: "60 a second" },
+  { value: "30", label: "30 a second" },
+  { value: "15", label: "15 a second" },
+  { value: "10", label: "10 a second", note: "Enough to follow what happens, at a fraction of the room." },
+];
+const fps = computed<string>({
+  get: () => String((settings.values["runs.videoFps"] as number | undefined) ?? 0),
+  set: (v) =>
+    void saveSettings({ "runs.videoFps": Number(v) }).then((err) => {
+      if (err) toast(err, { tone: "bad" });
+    }),
+});
+const encoderOptions: { value: VideoEncoderMode; label: string; note: string }[] = [
+  { value: "auto", label: "Automatic", note: "The graphics card (AV1) when a full ffmpeg on this machine can use it, else the CPU (VP9). The card's video encoder is separate from the part that runs AI models." },
+  { value: "cpu", label: "CPU only", note: "Always Playwright's ffmpeg on the CPU, at the lowest priority so tests come first." },
+];
+const encoderMode = computed<VideoEncoderMode>({
+  get: () => (settings.values["runs.videoEncoder"] as VideoEncoderMode | undefined) ?? "auto",
+  set: (v) =>
+    void saveSettings({ "runs.videoEncoder": v }).then((err) => {
+      if (err) toast(err, { tone: "bad" });
+      void loadVideos();
+    }),
+});
+const ffmpegFetch = computed<FfmpegFetchReport | null>(() => videos.value?.ffmpegFetch ?? null);
+const offerFetch = computed(() => !!videos.value && !!ffmpegFetch.value?.supported && !ffmpegFetch.value.installed && ffmpegFetch.value.state !== "downloading" && encoderMode.value === "auto" && !videos.value.finishing.gpu);
+const fetchBusy = ref(false);
+async function fetchCall(path: string) {
+  fetchBusy.value = true;
+  const res = await sendJson<FfmpegFetchReport>(`/api/v1/storage/videos/ffmpeg${path}`, {});
+  fetchBusy.value = false;
+  if (!res.ok) toast(res.error.message, { tone: "bad" });
+  await loadVideos();
+}
 const job = computed<CompressJob | null>(() => videos.value?.job ?? null);
 const going = computed(() => job.value?.state === "running");
 const videosText = (n: number) => `${n} ${n === 1 ? "video" : "videos"}`;
@@ -180,6 +216,34 @@ async function save(values: Record<string, unknown>) {
       <h3 class="label">Videos</h3>
       <RadioGroup v-model="quality" :options="qualityOptions" label="Video quality" />
       <p class="muted small">For runs that start from now on, attempt videos and run videos alike. A pack (<code>run.videoQuality</code>) or a run (in New run) can choose its own. Which attempts keep a video (all, or only failed and broken ones) is a run option in New run.</p>
+      <h3 class="label">Frame rate</h3>
+      <RadioGroup v-model="fps" :options="fpsOptions" label="Frame rate" />
+      <p class="muted small">At most this many frames a second in videos of runs that start from now on. It only caps: a page that stands still costs nothing either way. A pack (<code>run.videoFps</code>) or a run (in New run) can choose its own. Small keeps 10 a second at most.</p>
+      <h3 class="label">Video encoder</h3>
+      <RadioGroup v-model="encoderMode" :options="encoderOptions" label="Video encoder" />
+      <p class="muted small">
+        Attempt videos are recorded frame by frame as the browser sends them and encoded after each attempt, one at a time, so encoding never slows a test or drops frames.
+        <template v-if="videos">
+          Encoding now: <strong>{{ videos.finishing.encoder }}</strong><template v-if="videos.finishing.pending">, {{ videosText(videos.finishing.pending) }} waiting</template>.
+          <template v-if="videos.finishing.note && encoderMode === 'auto'">{{ videos.finishing.note }}</template>
+        </template>
+      </p>
+      <div v-if="ffmpegFetch?.state === 'downloading'" class="drive">
+        <ProgressBar :value="ffmpegFetch.done" :max="Math.max(1, ffmpegFetch.total ?? ffmpegFetch.bytes)" label="ffmpeg downloaded" />
+        <div class="inline">
+          <span class="small grow">Downloading ffmpeg: {{ fileSize(ffmpegFetch.done) }} of {{ fileSize(ffmpegFetch.total ?? ffmpegFetch.bytes) }}. The graphics card is tried again when it's done.</span>
+          <button class="btn" :disabled="fetchBusy" @click="fetchCall('/stop')">Stop</button>
+        </div>
+      </div>
+      <div v-else-if="offerFetch && ffmpegFetch" class="inline">
+        <span class="small grow">Get ffmpeg downloads a full build (about {{ fileSize(ffmpegFetch.bytes) }}) into Watchwright's data folder and checks it against its published checksum. No restart, no admin rights, nothing added to the PATH.</span>
+        <button class="btn" :disabled="fetchBusy" @click="fetchCall('')">Get ffmpeg</button>
+      </div>
+      <div v-else-if="ffmpegFetch?.installed" class="inline">
+        <span class="small grow muted">Watchwright downloaded ffmpeg into its data folder. An ffmpeg you install yourself comes first.</span>
+        <button class="btn" :disabled="fetchBusy || (videos?.finishing.pending ?? 0) > 0" @click="fetchCall('/remove')">Remove ffmpeg</button>
+      </div>
+      <p v-if="ffmpegFetch?.state === 'failed' && ffmpegFetch.error" class="small warn-text" role="status">{{ ffmpegFetch.error }}</p>
       <p v-if="videos && !videos.ffmpeg" class="small warn-text" role="status">Playwright's ffmpeg isn't installed, so runs record no video. <code>npx playwright install ffmpeg</code> adds it.</p>
       <template v-if="videos">
         <div v-if="going && job" class="drive">

@@ -67,11 +67,16 @@ export function videoEncoder(ffmpeg: string): VideoEncoder | null {
  */
 export type VideoQuality = "high" | "full" | "compact" | "small";
 export const VIDEO_QUALITIES: readonly VideoQuality[] = ["high", "full", "compact", "small"];
+
+/** The frame rates the Frame rate setting offers; 0 keeps every frame the browser sends. A pack or run may name any from 1 to 120. */
+export const VIDEO_FPS = [0, 60, 30, 15, 10] as const;
+/** At most this many frames a second (0: every frame). */
+export type VideoFps = number;
 /** The qualities Compress kept videos encodes to. */
 export type CompressQuality = "compact" | "small";
 /** The CRF (lower is sharper) and the share of the size each constant quality keeps. */
 const QUALITY: Record<Exclude<VideoQuality, "full">, { crf: number; scale: number; fps: number | null }> = {
-  high: { crf: 24, scale: 1, fps: 30 },
+  high: { crf: 20, scale: 1, fps: 30 },
   compact: { crf: 40, scale: 1, fps: null },
   small: { crf: 42, scale: 0.75, fps: 10 },
 };
@@ -80,10 +85,33 @@ export function qualityFps(quality: VideoQuality, fallback: number): number {
   return quality === "full" ? fallback : (QUALITY[quality].fps ?? fallback);
 }
 
-/** The lowest JPEG quality the screencast sends frames at for `quality`: `high` needs frames without ringing around text. */
+/**
+ * The lowest JPEG quality the screencast sends frames at for `quality`. Below 90 the ringing around
+ * fine lines (a canvas grid, text) reads as moving noise on dark pages, so the qualities Watchwright
+ * encodes itself take at least 90, and `high` takes 100. `full` keeps the run's own (in Chromium
+ * Playwright records it from its own frames).
+ */
 export function frameQualityFor(quality: VideoQuality, frameQuality: number): number {
-  return quality === "high" ? Math.max(frameQuality, 90) : frameQuality;
+  if (quality === "high") return 100;
+  return quality === "full" ? frameQuality : Math.max(frameQuality, 90);
 }
+
+/**
+ * Screencast frames are JPEG, which keeps the full 0–255 range. Encoding them in the usual "TV"
+ * range (16–235) drops about one level in seven and turns dark shadows into steps, so VP9 and AV1
+ * videos keep the full range (and say so; browsers play it right). VP8 can't say it, so it stays.
+ */
+export function keepsFullRange(encoder: string): boolean {
+  return encoder !== "libvpx";
+}
+/** `vf` with the full-range conversion added when `encoder` keeps it. */
+export function rangeFilter(vf: string | null, encoder: string): string | null {
+  if (!keepsFullRange(encoder)) return vf;
+  const full = "scale=out_range=full,format=yuv420p";
+  return vf ? `${vf},${full}` : full;
+}
+/** The output flag that says the range, when `encoder` keeps it. */
+export const rangeArgs = (encoder: string): string[] => (keepsFullRange(encoder) ? ["-color_range", "pc"] : []);
 
 /** How much smaller a quality is than another: higher is smaller. */
 const RANK: Record<VideoQuality, number> = { high: -1, full: 0, compact: 1, small: 2 };
@@ -101,17 +129,17 @@ const even = (n: number) => Math.max(2, Math.floor(n / 2) * 2);
  * spends a little more effort (cpu-used 6, which measured smaller and sharper than 8 at the same
  * speed) and two threads; VP8 can't do a pure constant quality well, so there it gets a cap.
  */
-export function encodeArgs(encoder: VideoEncoder, quality: VideoQuality, bitRate = BIT_RATE): string[] {
+export function encodeArgs(encoder: VideoEncoder, quality: VideoQuality, bitRate = BIT_RATE, o: { threads?: number; cpuUsed?: number } = {}): string[] {
   const high = quality === "high";
   const vp9 = encoder === "libvpx-vp9";
-  const speed = vp9 ? ["-cpu-used", high ? "6" : "8", "-lag-in-frames", "0", "-row-mt", "1"] : ["-speed", "8"];
+  const speed = vp9 ? ["-cpu-used", String(o.cpuUsed ?? (high ? 6 : 8)), "-lag-in-frames", "0", "-row-mt", "1"] : ["-speed", String(o.cpuUsed ?? 8)];
   const rate =
     quality === "full"
       ? ["-qmax", "50", "-crf", "10", "-b:v", bitRate]
       : high && !vp9
         ? ["-qmax", "40", "-crf", "8", "-b:v", "4M"]
         : ["-qmax", "63", "-crf", String(QUALITY[quality].crf), "-b:v", "0"];
-  return ["-c:v", encoder, "-qmin", "0", ...rate, "-deadline", "realtime", ...speed, "-threads", high ? "2" : "1", "-metadata", `title=${videoTitle(quality)}`];
+  return ["-c:v", encoder, "-qmin", "0", ...rate, "-deadline", "realtime", ...speed, "-threads", String(o.threads ?? (high ? 2 : 1)), "-metadata", `title=${videoTitle(quality)}`];
 }
 
 /** The scale filter for `quality` on a `width`×`height` picture, or null when it keeps the size. */
@@ -122,17 +150,22 @@ export function scaleFilter(quality: VideoQuality, width: number, height: number
 }
 
 /** The ffmpeg arguments for a run video of `width`×`height` (even numbers). Frames of another size are cropped or padded to it. */
-export function ffmpegArgs(file: string, width: number, height: number, encoder: VideoEncoder, bitRate = BIT_RATE, quality: VideoQuality = "full"): string[] {
-  // Crop a bigger frame and pad a smaller one, both centered; then scale for the smaller qualities.
+/** Crops a bigger frame and pads a smaller one to `width`×`height`, both centered; then scales for the smaller qualities. */
+export function fitFilter(quality: VideoQuality, width: number, height: number): string {
   const fit = `crop=w=min(iw\\,${width}):h=min(ih\\,${height}),pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`;
   const scale = scaleFilter(quality, width, height);
+  return scale ? `${fit},${scale}` : fit;
+}
+
+export function ffmpegArgs(file: string, width: number, height: number, encoder: VideoEncoder, bitRate = BIT_RATE, quality: VideoQuality = "full"): string[] {
   return [
     "-loglevel", "error",
     "-f", "matroska", "-fpsprobesize", "0", "-probesize", "32", "-analyzeduration", "0", "-i", "pipe:0",
     // Each frame keeps its own time: a still page is one frame however long it stays.
     "-y", "-an", "-fps_mode", "vfr",
     ...encodeArgs(encoder, quality, bitRate),
-    "-vf", scale ? `${fit},${scale}` : fit,
+    "-vf", rangeFilter(fitFilter(quality, width, height), encoder)!,
+    ...rangeArgs(encoder),
     file,
   ];
 }

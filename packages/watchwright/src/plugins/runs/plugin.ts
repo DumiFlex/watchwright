@@ -10,7 +10,8 @@ import { definePlugin } from "../../core/plugin.js";
 import { withAccess } from "../../core/route-access.js";
 import { serviceKey } from "../../core/services.js";
 import { contentTypeOf } from "../../jobs/recorder.js";
-import { VIDEO_QUALITIES, type VideoQuality } from "../../jobs/run-video.js";
+import { VIDEO_FPS, VIDEO_QUALITIES, type VideoFps, type VideoQuality } from "../../jobs/run-video.js";
+import { ENCODER_MODES, type EncoderMode } from "../../jobs/video-finish.js";
 import { sizeText } from "../../jobs/storage.js";
 import { errorBody } from "../../server/errors.js";
 import { FRAMES } from "../live/hub.js";
@@ -27,6 +28,7 @@ import { DEFAULT_STORAGE_LIMITS, Engine, EngineError } from "./engine.js";
 import { ACTIVE_STATUSES, RUNS_ARTIFACT_SET_SQL, RUNS_INFO_SQL, RUNS_LABELS_PRESETS_SQL, RUNS_MIGRATION_SQL, RUNS_SIZE_SQL, RUNS_STEPS_SQL, RUNS_STOPPED_BY_SERVER_SQL, RunsRepo, type RunChoices, type RunOptions, type RunStatus } from "./repo.js";
 import type { VideoSetting } from "../packs/api.js";
 import { VideoCompressor } from "./videos.js";
+import { FfmpegFetcher } from "./ffmpeg-fetch.js";
 
 export const ENGINE = serviceKey<Engine>("runs.engine");
 /** Job kinds by name: a plugin registers its kinds here in `setup` (the testing plugin registers `test`). */
@@ -89,6 +91,7 @@ const CHOICE_PROPS = {
   runVideo: { type: "boolean", description: "Record one video of the whole run, of what the live view follows (default: the pack's setting, else false)." },
   followVideo: { type: "boolean", description: "Record each attempt's video of the page the live view follows, one video across tabs and popups, instead of one per page (default: the pack's setting, else false)." },
   videoQuality: { type: "string", enum: [...VIDEO_QUALITIES], description: "How sharp the run's videos are: high (for videos people watch), full, compact or small (default: the pack's setting, else the server's Video quality setting)." },
+  videoFps: { type: "integer", minimum: 0, maximum: 120, description: "At most this many frames a second in the run's videos (60, 30, 15, 10…), or 0 for every frame the browser sends (default: the pack's setting, else the server's Frame rate setting). It caps; the browser decides how many it sends." },
   signIn: { type: "boolean", description: "Start with the site's saved sign-in (default: the pack's site.signIn)." },
   network: { type: "string", minLength: 1, maxLength: 60, description: 'Where the browser reaches the site from: "server" or a runner\'s name (default: the pack\'s site.network, else server). GET /runners lists the runners.' },
 } as const;
@@ -127,6 +130,7 @@ function runOptions(input: RunChoices): RunOptions {
   if (input.runVideo !== undefined) o.runVideo = input.runVideo;
   if (input.followVideo !== undefined) o.followVideo = input.followVideo;
   if (input.videoQuality !== undefined) o.videoQuality = input.videoQuality;
+  if (input.videoFps !== undefined) o.videoFps = input.videoFps;
   if (input.signIn !== undefined) o.signIn = input.signIn;
   if (input.network !== undefined) o.network = input.network;
   return o;
@@ -150,6 +154,7 @@ function filesRoot(dataDir: string): string {
 const strays = new WeakMap<Engine, (reason: unknown) => void>();
 /** Each engine's Compress kept videos job. */
 const compressors = new WeakMap<Engine, VideoCompressor>();
+const fetchers = new WeakMap<Engine, FfmpegFetcher>();
 const sweeps = new WeakMap<Engine, ReturnType<typeof setTimeout>>();
 /** The cleanup sweep runs a minute after start (once every plugin is ready), then once a day. */
 const FIRST_SWEEP_MS = 60_000;
@@ -201,6 +206,18 @@ export const runsPlugin = definePlugin({
       default: "full",
     });
     settings.define({
+      key: "runs.videoFps",
+      title: "At most this many frames a second in videos: 60, 30, 15 or 10, or 0 for every frame the browser sends (Chromium up to about 60, Firefox fewer)",
+      schema: { type: "integer", enum: [...VIDEO_FPS] },
+      default: 0,
+    });
+    settings.define({
+      key: "runs.videoEncoder",
+      title: "Who encodes attempt videos after each attempt: auto (the graphics card when a full ffmpeg can use it, else the CPU) or cpu (always the CPU)",
+      schema: { type: "string", enum: [...ENCODER_MODES] },
+      default: "auto",
+    });
+    settings.define({
       key: "runs.resumeOnStart",
       title: "Resume runs a stop or crash of Watchwright interrupted when it starts again",
       schema: { type: "boolean" },
@@ -246,6 +263,8 @@ export const runsPlugin = definePlugin({
       storageLimits: () => ({ warnBelowGB: settings.get<number>("runs.storageWarnGB"), stopBelowGB: settings.get<number>("runs.storageStopGB") }),
       cleanupRules: () => ({ keepDays: settings.get<number>("runs.keepDays"), keepPerPack: settings.get<number>("runs.keepPerPack") }),
       videoQuality: () => settings.get<VideoQuality>("runs.videoQuality"),
+      videoFps: () => settings.get<VideoFps>("runs.videoFps"),
+      videoEncoder: () => settings.get<EncoderMode>("runs.videoEncoder"),
     });
     compressors.set(
       engine,
@@ -254,10 +273,12 @@ export const runsPlugin = definePlugin({
         repo,
         events,
         quality: () => settings.get<VideoQuality>("runs.videoQuality"),
-        busy: () => engine.busy(),
+        // Nor while attempt videos are being encoded: one ffmpeg at a time.
+        busy: () => engine.busy() || engine.finisher.pending() > 0,
         measure: (id) => engine.measure(id),
       }),
     );
+    fetchers.set(engine, new FfmpegFetcher({ dataDir, changed: () => engine.finisher.refresh(), busy: () => engine.finisher.pending() > 0 }));
     engine.recover();
     services.provide(ENGINE, engine);
     // With a listener here, Node no longer exits on an unhandled rejection (its default), so one
@@ -301,6 +322,7 @@ export const runsPlugin = definePlugin({
     clearTimeout(sweeps.get(engine));
     sweeps.delete(engine);
     await compressors.get(engine)?.stop("Watchwright stopped.");
+    await fetchers.get(engine)?.stop();
     await engine.close();
   },
   actions: ({ services, events }) => {
@@ -310,6 +332,7 @@ export const runsPlugin = definePlugin({
     const access = services.get(PACK_ACCESS);
     const settings = services.get(SETTINGS);
     const compressor = (): VideoCompressor => compressors.get(engine)!;
+    const fetcher = (): FfmpegFetcher => fetchers.get(engine)!;
     const notFound = (id: string): never => {
       throw new ActionError("not_found", `No run with id ${id}.`, 404);
     };
@@ -642,11 +665,45 @@ export const runsPlugin = definePlugin({
       defineAction<Record<string, never>>({
         name: "runs.videos",
         pack: "none",
-        title: "The videos ended runs kept: how many, the room they take, how many Compress kept videos would make smaller at the Video quality setting, and the compress job going or last",
+        title: "The videos ended runs kept: how many, the room they take, how many Compress kept videos would make smaller at the Video quality setting, the compress job going or last, and who encodes attempt videos (finishing)",
         method: "GET",
         path: "/storage/videos",
         input: { type: "object", properties: {} },
-        handler: () => compressor().report(),
+        handler: async () => ({ ...(await compressor().report()), finishing: await engine.finisher.status(), ffmpegFetch: fetcher().report() }),
+      }),
+      defineAction<Record<string, never>>({
+        name: "runs.ffmpeg-fetch",
+        pack: "none",
+        access: "admin",
+        destructive: true,
+        explain: () => `Download a full ffmpeg (about ${sizeText(fetcher().report().bytes)}) into Watchwright's data folder, so videos can be finished on the graphics card`,
+        title: "Download a full ffmpeg (the BtbN build of the ffmpeg release, checked against its published checksum) into the data folder, in the background, so the graphics card can finish videos; no restart needed",
+        method: "POST",
+        path: "/storage/videos/ffmpeg",
+        input: { type: "object", properties: {} },
+        handler: () => guard(() => fetcher().start()),
+      }),
+      defineAction<Record<string, never>>({
+        name: "runs.ffmpeg-fetch-stop",
+        pack: "none",
+        access: "admin",
+        title: "Stop downloading ffmpeg",
+        method: "POST",
+        path: "/storage/videos/ffmpeg/stop",
+        input: { type: "object", properties: {} },
+        handler: () => fetcher().stop(),
+      }),
+      defineAction<Record<string, never>>({
+        name: "runs.ffmpeg-remove",
+        pack: "none",
+        access: "admin",
+        destructive: true,
+        explain: () => "Remove the ffmpeg Watchwright downloaded",
+        title: "Remove the ffmpeg Watchwright downloaded; videos are then finished by whatever other ffmpeg it finds",
+        method: "POST",
+        path: "/storage/videos/ffmpeg/remove",
+        input: { type: "object", properties: {} },
+        handler: () => guard(() => fetcher().remove()),
       }),
       defineAction<Record<string, never>>({
         name: "runs.compress-videos",

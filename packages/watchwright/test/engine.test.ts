@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
@@ -447,21 +447,32 @@ test("F1", async ({ page, h }) => {
 });`,
     });
     expect((await h.api("POST", "/settings", { values: { "runs.videoQuality": "compact" } })).status).toBe(200);
-    const runId = await startRun(h, { packId, followVideo: true, videoQuality: "high", pauseOnBroken: false });
+    expect((await h.api("POST", "/settings", { values: { "runs.videoFps": 25 } })).status).toBe(400);
+    expect((await h.api("POST", "/settings", { values: { "runs.videoFps": 30 } })).status).toBe(200);
+    const runId = await startRun(h, { packId, followVideo: true, videoQuality: "high", videoFps: 15, pauseOnBroken: false });
     const detail = await finished(h, runId);
-    expect(detail.options).toMatchObject({ followVideo: true, videoQuality: "high" });
+    expect(detail.options).toMatchObject({ followVideo: true, videoQuality: "high", videoFps: 15 });
     // h.wait doesn't pull the live view back to the main page while the popup is open.
     const events = (await h.api<{ events: { type: string; data: Record<string, unknown> }[] }>("GET", `/events?runId=${runId}&limit=500`)).data.events;
     const pages = events.filter((e) => e.type === "page.active" || e.type === "page.closed").map((e) => `${e.type === "page.active" ? "active" : "closed"} ${String(e.data.pageId)}`);
     expect(pages.slice(0, 4)).toEqual(["active p1", "active p2", "closed p2", "active p1"]);
     const a = detail.attempts.find((x) => x.testId === "F1")!;
     expect(a.status).toBe("passed");
-    const videos = (await h.api<ResultDocument>("GET", `/runs/${runId}/attempts/${a.id}`)).data.artifacts.filter((x) => x.kind === "video");
+    const videosNow = async () => (await h.api<ResultDocument>("GET", `/runs/${runId}/attempts/${a.id}`)).data.artifacts.filter((x) => x.kind === "video");
     if (findFfmpeg()) {
-      expect(videos.map((v) => v.name)).toEqual(["video"]);
+      // Recorded during the attempt, encoded after it: the row is there at once, its size once it's done.
+      expect((await videosNow()).map((v) => v.name)).toEqual(["video"]);
+      await expect.poll(async () => (await videosNow())[0]?.size ?? 0, { timeout: 30_000 }).toBeGreaterThan(0);
+      const videos = await videosNow();
       const file = path.join(h.app.watchwright.store.dataDir, videos[0]!.path);
       expect(await videoQualityOf(file)).toBe("high");
-    } else expect(videos).toEqual([]);
+      expect(readdirSync(path.dirname(file)).filter((f) => f.includes("capture") || f.includes("finishing"))).toEqual([]);
+      const doc = JSON.parse(readFileSync(path.join(path.dirname(file), "result.json"), "utf8")) as ResultDocument;
+      expect(doc.artifacts.find((x) => x.kind === "video")?.size).toBe(videos[0]!.size);
+      const ready = (await h.api<{ events: { type: string; data: Record<string, unknown> }[] }>("GET", `/events?runId=${runId}&limit=500`)).data.events.filter((e) => e.type === "attempt.video");
+      expect(ready).toHaveLength(1);
+      expect(ready[0]!.data).toMatchObject({ path: videos[0]!.path, size: videos[0]!.size, error: null });
+    } else expect(await videosNow()).toEqual([]);
   });
 
   it("measures each run, reports storage, and stops recording videos when the drive runs low", async () => {

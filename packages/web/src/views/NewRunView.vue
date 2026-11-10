@@ -14,11 +14,13 @@ import { loadSettings, settings } from "../settings";
 import { sectionHref } from "../settingspages";
 import { offerNotify } from "../notify";
 import { toast } from "../toasts";
+import { LiveConnection } from "../live";
 import CheckBox from "../components/CheckBox.vue";
 import KeyHint from "../components/KeyHint.vue";
 import MenuButton from "../components/MenuButton.vue";
 import EmptyState from "../components/EmptyState.vue";
 import ModalDialog from "../components/ModalDialog.vue";
+import PackRefresh from "../components/PackRefresh.vue";
 import MultiSelect from "../components/MultiSelect.vue";
 import SkeletonBlock from "../components/SkeletonBlock.vue";
 import NumberInput from "../components/NumberInput.vue";
@@ -50,6 +52,8 @@ const runVideo = ref(false);
 const followVideo = ref(false);
 // "" leaves the quality to the pack, else the server's Video quality setting.
 const videoQuality = ref<VideoQuality | "">("");
+// "" leaves the frame rate to the pack, else the server's Frame rate setting; "0" is every frame.
+const videoFps = ref("");
 const signIn = ref(false);
 // Site keys that have a saved sign-in (Admin > Sign-ins).
 const savedSignIns = ref<Set<string>>(new Set());
@@ -114,11 +118,21 @@ const qualityOptions = computed(() => {
 });
 const qualityNote = computed(() => {
   const q = videoQuality.value || pack.value?.run.videoQuality || null;
-  if (q === "high") return "Sharp text at 30 frames a second, for videos people watch. Compress kept videos leaves these alone.";
+  if (q === "high") return "Sharp text and every frame the browser sends, for videos people watch. Compress kept videos leaves these alone.";
   if (q === "full") return "What Playwright records.";
   if (q === "compact") return "Same size and smoothness, about 80% smaller.";
   if (q === "small") return "3/4 of the size and 10 frames a second, about 94% smaller.";
   return "The server's Video quality setting (Admin > Storage).";
+});
+const fpsName = (n: number) => (n ? `At most ${n} a second` : "Every frame the browser sends");
+const fpsOptions = computed(() => {
+  const own = pack.value?.run.videoFps;
+  const choices = [0, 60, 30, 15, 10];
+  if (own != null && !choices.includes(own)) choices.push(own);
+  return [
+    { value: "", label: own != null ? `As the pack says (${fpsName(own)})` : "As the server's setting" },
+    ...choices.map((n) => ({ value: String(n), label: fpsName(n) })),
+  ];
 });
 const attemptOptions = [
   { value: "pack" as const, label: "As each test says" },
@@ -141,6 +155,7 @@ function choices(): RunChoices {
     runVideo: runVideo.value,
     followVideo: followVideo.value,
     ...(videoQuality.value ? { videoQuality: videoQuality.value } : {}),
+    ...(videoFps.value !== "" ? { videoFps: Number(videoFps.value) } : {}),
     signIn: signIn.value,
     ...(network.value !== (pack.value?.run.network ?? "server") ? { network: network.value } : {}),
     ...(attemptsMode.value === "same" ? { attempts: attempts.value } : {}),
@@ -158,6 +173,7 @@ function applyPack(p: Pack) {
   runVideo.value = p.run.runVideo ?? false;
   followVideo.value = p.run.followVideo ?? false;
   videoQuality.value = "";
+  videoFps.value = "";
   signIn.value = p.run.signIn ?? false;
   network.value = p.run.network ?? "server";
   pauseOnBroken.value = p.run.pauseOnBroken;
@@ -205,6 +221,7 @@ function applyChoices(c: RunChoices, p: Pack) {
   if (o.runVideo !== undefined) runVideo.value = o.runVideo;
   if (o.followVideo !== undefined) followVideo.value = o.followVideo;
   if (o.videoQuality !== undefined) videoQuality.value = o.videoQuality;
+  if (o.videoFps !== undefined) videoFps.value = String(o.videoFps);
   if (o.signIn !== undefined) signIn.value = o.signIn;
   if (o.network !== undefined) network.value = o.network;
   if (o.pauseOnBroken !== undefined) pauseOnBroken.value = o.pauseOnBroken;
@@ -363,6 +380,38 @@ watch(
 );
 onBeforeUnmount(() => timer && clearTimeout(timer));
 
+/**
+ * Takes in packs built again (their files changed, or the refresh icon) without losing what was
+ * chosen: new parameters get their defaults, gone ones and gone tests drop out, typed values stay.
+ */
+function syncPacks(fresh: Pack[]) {
+  packs.value = fresh;
+  const p = pack.value;
+  if (!p) return;
+  for (const k of Object.keys(params)) if (!(k in p.params)) delete params[k];
+  for (const [k, d] of Object.entries(p.params)) if (!(k in params)) params[k] = d.default ?? d.choices?.[0] ?? (d.type === "number" ? 0 : d.type === "boolean" ? false : "");
+  const known = new Set(p.tests.map((t) => t.id));
+  if (chosen.value.some((t) => !known.has(t))) chosen.value = chosen.value.filter((t) => known.has(t));
+}
+
+let live: LiveConnection | null = null;
+let refetching = false;
+let again = false;
+async function refetchPacks() {
+  if (refetching) return void (again = true);
+  refetching = true;
+  do {
+    again = false;
+    const res = await getJson<Pack[]>("/api/v1/packs");
+    if (res.ok) syncPacks(res.data);
+  } while (again);
+  refetching = false;
+}
+onMounted(() => {
+  live = new LiveConnection({}, { onEvent: (e) => /^pack\.(loaded|reload_failed|added|removed|moved)$/.test(e.type) && void refetchPacks() });
+});
+onBeforeUnmount(() => live?.close());
+
 function pickTag(ids: string[]) {
   const all = ids.every((id) => chosen.value.includes(id));
   const next = new Set(chosen.value);
@@ -451,7 +500,10 @@ useShortcut("Mod+Enter", () => !namingOpen.value && void start());
         <div class="form">
           <section class="card pick">
             <label class="lbl" for="nr-pack">Pack</label>
-            <SelectMenu id="nr-pack" v-model="packId" :options="packOptions" />
+            <div class="presetrow">
+              <SelectMenu id="nr-pack" v-model="packId" class="grow" :options="packOptions" />
+              <PackRefresh :pack="pack" @refreshed="(p) => syncPacks(packs.map((x) => (x.id === p.id ? p : x)))" />
+            </div>
             <p class="muted small">
               {{ pack.tests.length }} tests · {{ pack.browser }}<template v-if="pack.baseURL"> · {{ pack.baseURL }}</template> · <a :href="`#/packs/${pack.id}`">about this pack</a>
             </p>
@@ -538,6 +590,11 @@ useShortcut("Mod+Enter", () => !namingOpen.value && void start());
                   <span class="name">Video quality</span>
                   <SelectMenu id="nr-video-quality" v-model="videoQuality" :options="qualityOptions" />
                   <span class="muted small">{{ qualityNote }}</span>
+                </div>
+                <div class="opt">
+                  <span class="name">Frame rate</span>
+                  <SelectMenu id="nr-video-fps" v-model="videoFps" :options="fpsOptions" />
+                  <span class="muted small">A cap: the browser decides how many frames it sends (Chromium up to about 60 a second, Firefox fewer). Lower takes less room.</span>
                 </div>
                 <div class="opt">
                   <span class="name">Sign-in</span>

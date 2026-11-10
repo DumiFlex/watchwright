@@ -462,7 +462,7 @@ function connect() {
   logDropped.value = 0;
   markSaved.value = null;
   conn = new LiveConnection(
-    { runId: props.id, frames: true, after: 0, logTail: LOG_LIMIT },
+    { runId: props.id, frames: true, after: 0, logTail: LOG_LIMIT, video: true },
     { onState: (s) => (liveState.value = s), onHello, onBacklog: (n) => (logDropped.value += n), onEvent, onEvents, onFrame: (h, jpeg) => void viewer.value?.push(h, jpeg) },
   );
 }

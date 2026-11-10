@@ -10,7 +10,10 @@ import type { AttemptEnv, JobKind, KindPlan, PlanItem } from "../../jobs/kind.js
 import type { JobKinds } from "../../jobs/kinds.js";
 import type { AttemptRuntime } from "../../jobs/runtime.js";
 import { AttemptRecorder, MAX_LOG_LINES, safeRelative, slug, type ArtifactInfo } from "../../jobs/recorder.js";
-import { findFfmpeg, nextRunVideoFile, qualityFps, RUN_VIDEO_FPS, RunVideo, runVideoFiles, type VideoQuality } from "../../jobs/run-video.js";
+import { VideoFinishQueue, type FinishJob } from "./finisher.js";
+import { downloadedFfmpeg } from "../../jobs/ffmpeg-download.js";
+import { chooseFinisher, type EncoderMode } from "../../jobs/video-finish.js";
+import { findFfmpeg, nextRunVideoFile, qualityFps, RUN_VIDEO_FPS, RunVideo, runVideoFiles, type VideoFps, type VideoQuality } from "../../jobs/run-video.js";
 import { dirSize, driveSpace, GB, sizeText } from "../../jobs/storage.js";
 import { unzip, zip } from "../../jobs/zip.js";
 import { BrowserSession, FOLLOW_VIDEO } from "../../session/session.js";
@@ -179,6 +182,8 @@ interface ActiveRun {
   runVideoWarned: boolean;
   /** The quality the run's videos are written at: the run's option, else the pack's, else the server's setting. */
   videoQuality: VideoQuality;
+  /** At most this many frames a second in its videos (0: every frame): the run's option, else the pack's, else the server's. */
+  videoFps: VideoFps;
   /** Set once the run is planned and set up. */
   ctx: RunCtx | null;
   /** The recorder of the top-level attempt that is running, for marks. */
@@ -257,6 +262,12 @@ export interface EngineOptions {
   cleanupRules?: (() => CleanupRules) | undefined;
   /** How much room videos of runs that start take (Admin > Storage; default `full`). */
   videoQuality?: (() => VideoQuality) | undefined;
+  /** At most this many frames a second in videos of runs that start (Admin > Storage; default 0, every frame). */
+  videoFps?: (() => VideoFps) | undefined;
+  /** Who encodes attempt videos after their attempts (Admin > Storage; default `auto`: the graphics card when it can). */
+  videoEncoder?: (() => EncoderMode) | undefined;
+  /** Finishing attempt videos: CPU threads it may take (tests). */
+  finishThreads?: number | undefined;
   /** How often a going run measures its folder and the drive's free space (default once a minute). */
   storageCheckMs?: number | undefined;
   /** Pack state, for setup, teardown, tasks and the hooks (an empty store when left out). */
@@ -283,7 +294,39 @@ export class Engine {
   private readonly active = new Map<string, ActiveRun>();
   private closing = false;
 
-  constructor(private readonly o: EngineOptions) {}
+  /** Attempt videos recorded and waiting to be encoded, one at a time, after their attempts. */
+  readonly finisher: VideoFinishQueue;
+
+  constructor(private readonly o: EngineOptions) {
+    this.finisher = new VideoFinishQueue({
+      dataDir: o.dataDir,
+      mode: () => o.videoEncoder?.() ?? "auto",
+      onDone: (job, size, error) => this.videoFinished(job, size, error),
+      choose: (mode) => chooseFinisher(mode, { downloaded: () => downloadedFfmpeg(o.dataDir) }),
+      ...(o.finishThreads !== undefined ? { threads: o.finishThreads } : {}),
+    });
+  }
+
+  /** An attempt's video is encoded (its row gets its size) or couldn't be (its row goes); result.json follows. */
+  private videoFinished(job: FinishJob, size: number | null, error: string | null): void {
+    const rel = path.relative(this.o.dataDir, job.output).split(path.sep).join("/");
+    if (!this.o.repo.run(job.runId)) return;
+    if (size !== null) this.o.repo.updateArtifactSize(rel, size);
+    else {
+      this.o.repo.removeArtifact(rel);
+      this.o.events.append("run.log", { level: "warn", message: `A video of attempt ${job.attemptId} couldn't be finished: ${error ?? "unknown error"}.` }, { runId: job.runId, attemptId: job.attemptId });
+    }
+    const attempt = this.o.repo.attempt(job.attemptId);
+    if (attempt) {
+      try {
+        writeFileSync(path.join(path.dirname(job.output), "result.json"), JSON.stringify(resultDocument(attempt, this.o.repo.artifacts(job.attemptId)), null, 2));
+      } catch {
+        // the folder went away
+      }
+    }
+    this.o.events.append("attempt.video", { path: rel, size, error }, { runId: job.runId, attemptId: job.attemptId });
+    if (!this.active.has(job.runId) && this.finisher.pendingFor(job.runId, job) === 0) void this.measure(job.runId);
+  }
 
   /** True while a run is going (Compress kept videos waits for none). */
   busy(): boolean {
@@ -292,6 +335,7 @@ export class Engine {
 
   /** On boot: runs a crash left running become interrupted, ready for resume. */
   recover(): void {
+    this.finisher.recover();
     for (const id of this.o.repo.interruptLeftovers()) {
       dropEmptyVideos(path.join(this.o.dataDir, "runs", id));
       this.o.events.append("run.interrupted", { reason: "server_stopped" }, { runId: id });
@@ -423,6 +467,10 @@ export class Engine {
 
   private videoQuality(): VideoQuality {
     return this.o.videoQuality?.() ?? "full";
+  }
+
+  private videoFps(): VideoFps {
+    return this.o.videoFps?.() ?? 0;
   }
 
   private limits(): StorageLimits {
@@ -653,6 +701,7 @@ export class Engine {
   async delete(id: string): Promise<{ id: string; deleted: true }> {
     const r = this.requireRun(id);
     if (this.active.has(id) || r.status === "queued") throw new EngineError("conflict", "Stop the run before deleting it.", 409);
+    await this.finisher.cancelRun(id);
     this.o.repo.deleteRun(id);
     await rm(path.join(this.o.dataDir, "runs", id), { recursive: true, force: true });
     this.o.events.forgetRun(id);
@@ -995,6 +1044,8 @@ export class Engine {
       await run.session?.closeContext();
     }
     await Promise.all(runs.map((r) => r.done.catch(() => undefined)));
+    // The attempt videos waiting are encoded when the server starts again.
+    await this.finisher.close();
   }
 
   /**
@@ -1058,6 +1109,7 @@ export class Engine {
       runVideo: null,
       runVideoWarned: false,
       videoQuality: "full",
+      videoFps: 0,
       ctx: null,
       recorder: null,
       sizeBytes: null,
@@ -1155,6 +1207,7 @@ export class Engine {
       this.emit("run.log", { level: "info", message: `The browser reaches the site from the runner ${network}.` }, row.id);
     }
     run.videoQuality = options.videoQuality ?? o.run?.videoQuality ?? this.videoQuality();
+    run.videoFps = options.videoFps ?? o.run?.videoFps ?? this.videoFps();
     let session: BrowserSession;
     try {
       session = await BrowserSession.launch(
@@ -1169,6 +1222,7 @@ export class Engine {
           quality: o.run?.frameQuality ?? 70,
           showActions: o.run?.showActions ?? true,
           videoQuality: run.videoQuality,
+          videoFps: run.videoFps,
         },
         {
           onFrame: (f) => frames.publish({ runId: row.id, ...f }),
@@ -1334,7 +1388,7 @@ export class Engine {
       },
       onError: (message) => warn(`The run video stopped: ${message}. The run goes on without it.`),
       quality: run.videoQuality,
-      fps: qualityFps(run.videoQuality, RUN_VIDEO_FPS),
+      fps: run.videoFps ? Math.min(run.videoFps, qualityFps(run.videoQuality, RUN_VIDEO_FPS)) : qualityFps(run.videoQuality, RUN_VIDEO_FPS),
     });
     run.runVideo.start();
   }
@@ -1606,7 +1660,15 @@ export class Engine {
       // "problems" keeps a video only when the attempt failed or broke, as "problems" does for traces.
       const keepVideo = video === "always" || finalStatus === "broken" || finalStatus === "failed";
       for (const v of await session.restartCapture(null).catch(() => [])) {
-        if (keepVideo) recorder.register("video", v.pageId === FOLLOW_VIDEO ? "video" : `video ${v.pageId}`, v.path, "video/webm");
+        const name = v.pageId === FOLLOW_VIDEO ? "video" : `video ${v.pageId}`;
+        if (v.capture) {
+          // Recorded as the frames came; encoded now, after the attempt, while the run goes on.
+          if (!keepVideo) rmSync(v.capture.file, { force: true });
+          else {
+            recorder.registerPending("video", name, v.path, "video/webm");
+            this.finisher.add({ capture: v.capture.file, output: v.path, width: v.capture.width, height: v.capture.height, quality: run.videoQuality, runId: ctx.row.id, attemptId: id });
+          }
+        } else if (keepVideo) recorder.register("video", name, v.path, "video/webm");
         else rmSync(v.path, { force: true });
       }
       if (traceMode !== "never") {

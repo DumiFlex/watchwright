@@ -290,6 +290,12 @@ export interface PackRunOptions {
    * people watch: sharp text, 30 frames a second), `"full"`, `"compact"` or `"small"`.
    */
   videoQuality?: "high" | "full" | "compact" | "small";
+  /**
+   * At most this many frames a second in this pack's videos, over the server's Frame rate setting:
+   * 60, 30, 15, 10 (any from 1 to 120), or 0 for every frame the browser sends. It only caps: the
+   * browser decides how many it sends (Chromium up to about 60, Firefox fewer).
+   */
+  videoFps?: number;
   /** Draw click points and action titles into the live view and video (default true). */
   showActions?: boolean;
   /** Show each `h.step` title as a small corner caption in the live view and video (default false). */
