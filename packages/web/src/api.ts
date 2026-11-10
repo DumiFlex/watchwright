@@ -623,6 +623,9 @@ export interface FrameHeader {
   timestamp: number;
   width: number;
   height: number;
+  /** Set on a video stream chunk: its codec (`vp8`), and whether it's a key frame. */
+  video?: string;
+  key?: boolean;
 }
 
 /** Splits a binary frame message: 4-byte big-endian header length, JSON header, JPEG bytes. */

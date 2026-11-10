@@ -7,7 +7,16 @@ import { PACK_ACCESS } from "../packs/access.js";
 import { matches, type EventFilter, type WwEvent } from "../../events/log.js";
 import { errorBody } from "../../server/errors.js";
 import { VERSION } from "../../version.js";
+import { serviceKey } from "../../core/services.js";
+import { SETTINGS } from "../settings/plugin.js";
 import { encodeFrame, FrameHub, FRAMES, REWIND_MS, type Frame } from "./hub.js";
+import { encodeChunk, StreamHub, streamFfmpeg, type VideoChunk } from "./stream.js";
+
+/** The video streams, or null when no ffmpeg here can encode VP8. */
+const STREAMS = serviceKey<StreamHub | null>("live.streams");
+
+/** How a person's live views come: `auto` (a video stream when they aren't on the server's machine), `video` or `frames` (JPEG). */
+export const LIVE_VIDEO_MODES = ["auto", "video", "frames"] as const;
 
 /** A viewer with more than this queued on its socket skips frames until it drains. */
 export const FRAME_BACKLOG_BYTES = 1024 * 1024;
@@ -29,6 +38,11 @@ interface Subscribe {
    * instead of one `event` message per event, so a viewer can take a long log in one go.
    */
   batch?: boolean;
+  /**
+   * With `frames`: send the run's pages as a video stream in this codec (only `vp8`) instead of
+   * JPEG frames, when the server can encode it. A `stream` message says which the viewer gets.
+   */
+  video?: string;
 }
 
 /** The events that are log lines, which a long run has by the ten thousand. */
@@ -52,7 +66,20 @@ function parse(raw: unknown): Subscribe | null {
 export const livePlugin = definePlugin({
   name: "live",
   setup({ services }) {
-    services.provide(FRAMES, new FrameHub());
+    const frames = new FrameHub();
+    services.provide(FRAMES, frames);
+    const ffmpeg = streamFfmpeg();
+    services.provide(STREAMS, ffmpeg ? new StreamHub(frames, ffmpeg) : null);
+    services.get(SETTINGS).define({
+      key: "live.video",
+      title: "How live views come to you: auto (a video stream when you aren't on the server's machine, JPEG frames when you are), video (a video stream: a tenth of the data or less, a little softer) or frames (JPEG frames: sharpest, most data)",
+      schema: { type: "string", enum: [...LIVE_VIDEO_MODES] },
+      default: "auto",
+      scope: "user",
+    });
+  },
+  close({ services }) {
+    services.get(STREAMS)?.close();
   },
   actions({ services }) {
     const hub = services.get(FRAMES);
@@ -73,6 +100,7 @@ export const livePlugin = definePlugin({
   },
   routes(app, { events, services }) {
     const hub = services.get(FRAMES);
+    const streams = services.get(STREAMS);
     const RUN = /^[0-9a-f]{8}$/;
     // Pack access (when the packs plugin is loaded): frames and events of packs the caller can't see stay out.
     const access = services.has(PACK_ACCESS) ? services.get(PACK_ACCESS) : null;
@@ -115,7 +143,19 @@ export const livePlugin = definePlugin({
         if (socket.bufferedAmount <= FRAME_BACKLOG_BYTES) flush();
         else if (!drainTimer) drainTimer = setInterval(flush, 50);
       };
+      // Video: chunks can't be skipped one by one (each needs the one before), so a viewer that
+      // falls behind skips a page's chunks until its next key frame.
+      const behind = new Set<string>();
+      const sendChunk = (c: VideoChunk) => {
+        if (socket.bufferedAmount > FRAME_BACKLOG_BYTES) behind.add(c.pageId);
+        if (behind.has(c.pageId)) {
+          if (!c.key || socket.bufferedAmount > FRAME_BACKLOG_BYTES) return;
+          behind.delete(c.pageId);
+        }
+        socket.send(encodeChunk(c));
+      };
       const stop = () => {
+        behind.clear();
         stopEvents?.();
         stopFrames?.();
         stopEvents = stopFrames = null;
@@ -143,8 +183,13 @@ export const livePlugin = definePlugin({
         const tail = msg.runId && typeof n === "number" && Number.isInteger(n) && n > 0 ? events.newest(msg.runId, last, LOG_TYPES, n) : null;
         // The picture goes first: a long backlog queued ahead of it would keep the viewer blank.
         if (msg.frames && msg.runId) {
-          for (const f of hub.latestFrames(msg.runId)) sendFrame(f);
-          stopFrames = hub.subscribe(msg.runId, sendFrame);
+          const video = msg.video === "vp8" && streams !== null;
+          if (msg.video !== undefined) socket.send(JSON.stringify({ type: "stream", data: video ? { video: "vp8" } : { video: null, reason: msg.video === "vp8" ? "no_encoder" : "codec" } }));
+          if (video) stopFrames = streams.watch(msg.runId, sendChunk);
+          else {
+            for (const f of hub.latestFrames(msg.runId)) sendFrame(f);
+            stopFrames = hub.subscribe(msg.runId, sendFrame);
+          }
         }
         if (tail && tail.older > 0) socket.send(JSON.stringify({ type: "backlog", data: { skippedLogs: tail.older } }));
         for (;;) {

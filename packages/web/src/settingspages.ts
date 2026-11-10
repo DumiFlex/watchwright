@@ -36,6 +36,7 @@ export const SECTIONS: readonly SectionDef[] = [
   { id: "look", label: "Look and mode", where: mine },
   { id: "notify", label: "Notifications", where: mine },
   { id: "editor", label: "Editor", where: mine },
+  { id: "live", label: "Live view", where: mine },
   { id: "newrun", label: "New run", where: () => (can("user") ? "settings" : null) },
   { id: "agents", label: "Agents", where: () => (can("user") ? "settings" : null) },
 

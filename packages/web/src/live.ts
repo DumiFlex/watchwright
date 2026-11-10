@@ -1,4 +1,6 @@
 import { decodeFrame, liveUrl, type FrameHeader, type WwEvent } from "./api";
+import { canDecodeVideo, VideoPictures, wantsVideo } from "./livevideo";
+import { loadSettings, settings } from "./settings";
 
 export type LiveState = "connecting" | "open" | "closed";
 
@@ -9,6 +11,8 @@ export interface LiveSubscription {
   after?: number;
   /** With `runId`: of the replayed log lines, only the newest this many. */
   logTail?: number;
+  /** With `frames`: a video stream when the person's `live.video` setting asks for one and this browser can decode it (else JPEG frames). */
+  video?: boolean;
 }
 
 export interface LiveHandlers {
@@ -23,7 +27,10 @@ export interface LiveHandlers {
    * the same task, so the page renders once per batch and not once per line.
    */
   onEvents?(events: WwEvent[]): void;
-  onFrame?(header: FrameHeader, jpeg: Uint8Array): void;
+  /** A JPEG frame, or a picture decoded from the video stream. */
+  onFrame?(header: FrameHeader, picture: Uint8Array | ImageBitmap): void;
+  /** Whether frames come as a video stream (after a subscription that asked for one). */
+  onStream?(video: boolean): void;
 }
 
 /** The live WebSocket with automatic reconnect. On reconnect it resubscribes from the last event it saw. */
@@ -33,6 +40,7 @@ export class LiveConnection {
   private retryMs = 1000;
   private closed = false;
   private lastSeq: number | null = null;
+  private readonly pictures = new VideoPictures((h, bitmap) => this.handlers.onFrame?.(h, bitmap));
 
   constructor(
     private sub: LiveSubscription,
@@ -54,10 +62,15 @@ export class LiveConnection {
     socket.onmessage = (msg: MessageEvent<ArrayBuffer | string>) => {
       if (typeof msg.data !== "string") {
         const { header, jpeg } = decodeFrame(msg.data);
-        this.handlers.onFrame?.(header, jpeg);
+        if (header.video) this.pictures.push(header, jpeg);
+        else this.handlers.onFrame?.(header, jpeg);
         return;
       }
       const parsed = JSON.parse(msg.data) as { type: string; data: WwEvent };
+      if (parsed.type === "stream") {
+        this.handlers.onStream?.((parsed.data as unknown as { video?: unknown }).video === "vp8");
+        return;
+      }
       if (parsed.type === "hello") {
         const head = (parsed.data as unknown as { head?: unknown }).head;
         if (typeof head === "number") this.handlers.onHello?.(head);
@@ -89,13 +102,24 @@ export class LiveConnection {
   }
 
   private send() {
-    if (this.socket?.readyState !== WebSocket.OPEN) return;
-    const after = this.lastSeq ?? this.sub.after;
-    this.socket.send(JSON.stringify({ type: "subscribe", runId: this.sub.runId ?? null, frames: this.sub.frames ?? false, batch: true, ...(after === undefined ? {} : { after }), ...(this.sub.logTail ? { logTail: this.sub.logTail } : {}) }));
+    const socket = this.socket;
+    if (socket?.readyState !== WebSocket.OPEN) return;
+    const ask = (video: boolean) => {
+      if (socket !== this.socket || socket.readyState !== WebSocket.OPEN) return;
+      const after = this.lastSeq ?? this.sub.after;
+      this.pictures.clear();
+      socket.send(JSON.stringify({ type: "subscribe", runId: this.sub.runId ?? null, frames: this.sub.frames ?? false, batch: true, ...(after === undefined ? {} : { after }), ...(this.sub.logTail ? { logTail: this.sub.logTail } : {}), ...(video ? { video: "vp8" } : {}) }));
+      if (this.sub.frames && !video) this.handlers.onStream?.(false);
+    };
+    if (this.sub.frames && this.sub.video) {
+      void Promise.all([loadSettings().catch(() => undefined), canDecodeVideo()]).then(([, can]) => ask(can && wantsVideo(settings.values["live.video"], window.location.hostname)));
+    }
+    else ask(false);
   }
 
   close() {
     this.closed = true;
+    this.pictures.clear();
     if (this.retry) clearTimeout(this.retry);
     this.socket?.close();
   }
