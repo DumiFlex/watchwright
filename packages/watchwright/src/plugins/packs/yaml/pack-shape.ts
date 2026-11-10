@@ -83,6 +83,7 @@ const RUN = obj(
     runVideo: bool("Record one video of the whole run, of what the live view follows (default false)."),
     followVideo: bool("Record each attempt's video of the page the live view follows, as one video across tabs and popups, instead of one per page (default false)."),
     videoQuality: str("How sharp this pack's videos are, over the server's Video quality setting: high (for videos people watch), full, compact or small.", { enum: ["high", "full", "compact", "small"] }),
+    videoFps: int("At most this many frames a second in this pack's videos, over the server's Frame rate setting: 60, 30, 15, 10 (any from 1 to 120), or 0 for every frame the browser sends.", { min: 0, max: 120 }),
     showActions: bool("Draw click points and action titles into the live view (default true)."),
     chapters: bool("Show each step's title as a small caption in the bottom-left corner of the live view and video (default false)."),
     keepTabs: bool("Keep tabs and popups a test opened for the tests after it (default false: they close between tests)."),

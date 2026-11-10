@@ -13,7 +13,7 @@ import { AttemptRecorder, MAX_LOG_LINES, safeRelative, slug, type ArtifactInfo }
 import { VideoFinishQueue, type FinishJob } from "./finisher.js";
 import { downloadedFfmpeg } from "../../jobs/ffmpeg-download.js";
 import { chooseFinisher, type EncoderMode } from "../../jobs/video-finish.js";
-import { findFfmpeg, nextRunVideoFile, qualityFps, RUN_VIDEO_FPS, RunVideo, runVideoFiles, type VideoQuality } from "../../jobs/run-video.js";
+import { findFfmpeg, nextRunVideoFile, qualityFps, RUN_VIDEO_FPS, RunVideo, runVideoFiles, type VideoFps, type VideoQuality } from "../../jobs/run-video.js";
 import { dirSize, driveSpace, GB, sizeText } from "../../jobs/storage.js";
 import { unzip, zip } from "../../jobs/zip.js";
 import { BrowserSession, FOLLOW_VIDEO } from "../../session/session.js";
@@ -182,6 +182,8 @@ interface ActiveRun {
   runVideoWarned: boolean;
   /** The quality the run's videos are written at: the run's option, else the pack's, else the server's setting. */
   videoQuality: VideoQuality;
+  /** At most this many frames a second in its videos (0: every frame): the run's option, else the pack's, else the server's. */
+  videoFps: VideoFps;
   /** Set once the run is planned and set up. */
   ctx: RunCtx | null;
   /** The recorder of the top-level attempt that is running, for marks. */
@@ -260,6 +262,8 @@ export interface EngineOptions {
   cleanupRules?: (() => CleanupRules) | undefined;
   /** How much room videos of runs that start take (Admin > Storage; default `full`). */
   videoQuality?: (() => VideoQuality) | undefined;
+  /** At most this many frames a second in videos of runs that start (Admin > Storage; default 0, every frame). */
+  videoFps?: (() => VideoFps) | undefined;
   /** Who encodes attempt videos after their attempts (Admin > Storage; default `auto`: the graphics card when it can). */
   videoEncoder?: (() => EncoderMode) | undefined;
   /** Finishing attempt videos: CPU threads it may take (tests). */
@@ -463,6 +467,10 @@ export class Engine {
 
   private videoQuality(): VideoQuality {
     return this.o.videoQuality?.() ?? "full";
+  }
+
+  private videoFps(): VideoFps {
+    return this.o.videoFps?.() ?? 0;
   }
 
   private limits(): StorageLimits {
@@ -1101,6 +1109,7 @@ export class Engine {
       runVideo: null,
       runVideoWarned: false,
       videoQuality: "full",
+      videoFps: 0,
       ctx: null,
       recorder: null,
       sizeBytes: null,
@@ -1198,6 +1207,7 @@ export class Engine {
       this.emit("run.log", { level: "info", message: `The browser reaches the site from the runner ${network}.` }, row.id);
     }
     run.videoQuality = options.videoQuality ?? o.run?.videoQuality ?? this.videoQuality();
+    run.videoFps = options.videoFps ?? o.run?.videoFps ?? this.videoFps();
     let session: BrowserSession;
     try {
       session = await BrowserSession.launch(
@@ -1212,6 +1222,7 @@ export class Engine {
           quality: o.run?.frameQuality ?? 70,
           showActions: o.run?.showActions ?? true,
           videoQuality: run.videoQuality,
+          videoFps: run.videoFps,
         },
         {
           onFrame: (f) => frames.publish({ runId: row.id, ...f }),
@@ -1377,7 +1388,7 @@ export class Engine {
       },
       onError: (message) => warn(`The run video stopped: ${message}. The run goes on without it.`),
       quality: run.videoQuality,
-      fps: qualityFps(run.videoQuality, RUN_VIDEO_FPS),
+      fps: run.videoFps ? Math.min(run.videoFps, qualityFps(run.videoQuality, RUN_VIDEO_FPS)) : qualityFps(run.videoQuality, RUN_VIDEO_FPS),
     });
     run.runVideo.start();
   }

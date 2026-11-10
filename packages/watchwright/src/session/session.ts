@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { chromium, firefox, webkit, type Browser, type BrowserContext, type BrowserContextOptions, type LaunchOptions, type Page } from "playwright";
-import { findFfmpeg, frameQualityFor, videoEncoder, type VideoQuality } from "../jobs/run-video.js";
+import { findFfmpeg, frameQualityFor, videoEncoder, type VideoFps, type VideoQuality } from "../jobs/run-video.js";
 import { VideoCapture, type CaptureResult } from "../jobs/video-capture.js";
 import { FlashFilter } from "./flash-filter.js";
 
@@ -34,6 +34,8 @@ export interface SessionOptions {
    * least 90.
    */
   videoQuality?: VideoQuality;
+  /** At most this many frames a second in attempt videos (0, the default: every frame the browser sends). A cap records them itself, as another quality does. */
+  videoFps?: VideoFps;
 }
 
 /** How a capture records video: one per page, or one of the page the live view follows. */
@@ -240,12 +242,13 @@ export class BrowserSession {
     // (kept) frames as they come and encoded after the attempt; without ffmpeg to encode it,
     // Playwright writes it as it is.
     const quality = this.opts.videoQuality ?? "full";
-    const ffmpeg = (filtering || quality !== "full") && videoPath ? findFfmpeg() : null;
+    const ffmpeg = (filtering || quality !== "full" || !!this.opts.videoFps) && videoPath ? findFfmpeg() : null;
     const ownVideo = !!(ffmpeg && videoPath && videoEncoder(ffmpeg));
     entry.video =
       ownVideo && videoPath
         ? new VideoCapture({
             file: captureFile(videoPath),
+            maxFps: this.opts.videoFps,
             onError: (message) => {
               if (this.videoBroken) return;
               this.videoBroken = true;
@@ -321,7 +324,7 @@ export class BrowserSession {
     const file = path.join(videoDir, "video.webm");
     // Frames of the page the live view follows go in as they come; on a switch, the new page's
     // newest frame (see setActive). Until a new page's first frame arrives, the frame shown last stays.
-    const video = new VideoCapture({ file: captureFile(file), size: this.opts.size ?? this.opts.viewport, onError: broken });
+    const video = new VideoCapture({ file: captureFile(file), size: this.opts.size ?? this.opts.viewport, maxFps: this.opts.videoFps, onError: broken });
     this.follow = { video, path: file };
   }
 

@@ -183,6 +183,8 @@ export interface PackRunDefaults {
   followVideo?: boolean;
   /** The pack's own video quality, or null for the server's setting; older servers leave it out. */
   videoQuality?: VideoQuality | null;
+  /** The pack's own frame-rate cap (0: every frame), or null for the server's setting; older servers leave it out. */
+  videoFps?: number | null;
   /** Runs start with the site's saved sign-in (`site.signIn: saved`); older servers leave it out. */
   signIn?: boolean;
   /** Where runs reach the site from (`site.network`): "server" or a runner's name; older servers leave it out. */
@@ -201,6 +203,8 @@ export interface RunOptions {
   followVideo?: boolean;
   /** Over the pack's quality and the server's. */
   videoQuality?: VideoQuality;
+  /** At most this many frames a second (0: every frame), over the pack's and the server's. */
+  videoFps?: number;
   signIn?: boolean;
   /** "server" or a runner's name. */
   network?: string;
