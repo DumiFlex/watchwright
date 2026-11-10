@@ -13,6 +13,8 @@ import { discoverPacks, PACKS, PACKS_MIGRATION_SQL, PackRegistry, type PackSumma
 import { PACK_ACCESS, PACK_ACCESS_SQL, PackAccessStore } from "./access.js";
 import { PACK_STATE, PACK_STATE_SQL, PackStateStore } from "./state.js";
 import { SECRETS } from "../secrets/plugin.js";
+import { SETTINGS } from "../settings/plugin.js";
+import { PACK_WATCH, PackWatch } from "./watch.js";
 import { maskDeep } from "../secrets/mask.js";
 import { PACK_GUARD } from "../../core/keys.js";
 import { convertToCode } from "./convert.js";
@@ -73,8 +75,18 @@ export const packsPlugin = definePlugin({
     const folders = services.get(FOLDERS);
     folders.addMarker({ kind: "pack", files: PACK_FILES });
     folders.allowOpen((dir) => registry.list().some((p) => isInside(dir, p.dir)));
+    const settings = services.get(SETTINGS);
+    settings.define({ key: "packs.watch", title: "Build packs again when their files change outside Watchwright", schema: { type: "boolean" }, default: true });
+    services.provide(PACK_WATCH, new PackWatch(registry, () => settings.get<boolean>("packs.watch")));
     // Bring stored packs up to date in the background: their files may have changed while the server was down.
     for (const p of registry.list()) void registry.reload(p.id).catch(() => undefined);
+  },
+  ready({ services, stop }) {
+    // Only a server the watchwright command started checks by itself (not one built in a test).
+    if (stop) services.get(PACK_WATCH).start();
+  },
+  async close({ services }) {
+    await services.get(PACK_WATCH).stop();
   },
   actions: ({ services, events, store }) => {
     const registry = services.get(PACKS);

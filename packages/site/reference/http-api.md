@@ -62,7 +62,7 @@ These work with [login](../guide/safety#login) on. With it off, the user routes 
 | `POST /packs` `{ path }` | Adds a pack by its absolute folder (or pack file) path and loads it. Quotes around the path (Windows' "Copy as path"), `file://` addresses, `~` and either slash are accepted. A pack that doesn't load is still added, with its error. Adding the same folder again returns the pack already added. |
 | `GET /packs/:id` | One pack. Every pack carries `path` (its pack file), `dir` (its folder) and `missing` (true when the pack file is gone). |
 | `POST /packs/create` `{ path, name, baseURL, format? }` | Writes a starter pack into a folder, made when missing, and adds it: `pack.ts`, `tests/home.ts` and `README.md`, or with `format: "yaml"`, `pack.yaml`, `tests/home.yaml` and `README.md`. 201 with the pack. 400 `bad_starter` when the folder already has a pack or one of those files, or the address isn't `http(s)://`. |
-| `POST /packs/:id/reload` | Builds it again now. |
+| `POST /packs/:id/reload` | Builds it again now from its files (the refresh icon), and answers the pack. The server also builds a pack by itself when its files change, unless `packs.watch` is off. |
 | `GET /packs/yaml-schema?kind=test\|pack` | The JSON Schema of [YAML test files](../guide/yaml-tests) (`test`, the default) or of `pack.yaml` (`pack`). |
 | `POST /packs/check-yaml` `{ text, kind? }` | Checks YAML text without saving it: a test file (`kind: "test"`, the default) or `pack.yaml` (`"pack"`). Returns `{ problems }`, each with `message`, `line`, `col` and the `from` and `to` offsets of the part it is about, and for a test file `tests: [{ id, line, steps }]`. |
 | `POST /packs/:id/convert` `{ file }` | Writes the YAML test file `file` (relative to the pack folder) as a TypeScript file beside it, and removes the YAML file once the pack loads with the new one. Returns `{ file, pack }`. 400 `bad_pack` when the YAML has problems, the `.ts` file exists, or the new file doesn't load (the YAML file is put back). |
@@ -151,6 +151,7 @@ The settings so far:
 
 - `settings.editor` (user): the editor that file links open in (`vscode`, `cursor`, `windsurf`, `idea`, `webstorm` or `none`; default `vscode`).
 - `runs.newRunFrom` (user): what the New run page fills in when it opens: `latest` (the pack's latest run, the default) or `defaults` (the pack's defaults).
+- `packs.watch`: every two seconds, build packs again whose files changed outside Watchwright (default true). The rebuild's `pack.loaded` or `pack.reload_failed` event carries `by: "files"`.
 - `runs.resumeOnStart`: when the server starts, resume the runs its last stop (or a crash) interrupted, where they were (default false: they wait for `POST /runs/:id/resume`).
 - `runs.storageWarnGB`: free space (GB) on the drive with the data folder below which a run warns (default 5).
 - `runs.storageStopGB`: free space (GB) below which a run records no more videos; it goes on without them (default 1).

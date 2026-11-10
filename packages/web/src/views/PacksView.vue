@@ -14,6 +14,7 @@ import PackFolderDialog from "../components/PackFolderDialog.vue";
 import PackUploadDialog from "../components/PackUploadDialog.vue";
 import PackRemoveDialog from "../components/PackRemoveDialog.vue";
 import PathInput from "../components/PathInput.vue";
+import PackRefresh from "../components/PackRefresh.vue";
 import PathLine from "../components/PathLine.vue";
 import SkeletonBlock from "../components/SkeletonBlock.vue";
 import StatusChip from "../components/StatusChip.vue";
@@ -29,7 +30,6 @@ const loadError = ref<string | null>(null);
 const newPath = ref("");
 const addError = ref<string | null>(null);
 const adding = ref(false);
-const reloading = ref<string | null>(null);
 const home = ref<string | null>(null);
 const canOpen = ref(true);
 const start = ref<string | null>(null);
@@ -70,12 +70,6 @@ async function addPack() {
   window.location.hash = `#/packs/${res.data.id}`;
 }
 
-async function reload(id: string) {
-  reloading.value = id;
-  await sendJson(`/api/v1/packs/${id}/reload`);
-  reloading.value = null;
-  await load();
-}
 
 function browse(mode: "add" | "find") {
   dialogMode.value = mode;
@@ -191,7 +185,7 @@ onBeforeUnmount(() => live?.close());
         <div class="acts">
           <button v-if="p.missing && can('admin')" class="btn primary" @click="locate(p)">Locate…</button>
           <a v-else-if="!p.missing" class="btn primary" :href="`#/new?pack=${p.id}`" :aria-disabled="p.status === 'error'" :class="{ off: p.status === 'error' }">New run</a>
-          <button v-if="!p.missing" v-tip="'Build the pack again now'" class="btn" :disabled="reloading === p.id" @click="reload(p.id)">{{ reloading === p.id ? "Reloading…" : "Reload" }}</button>
+          <PackRefresh v-if="!p.missing" :pack="p" @refreshed="load" />
           <span v-if="p.loadedAt && !p.missing" v-tip="when(p.loadedAt)" class="muted small">built {{ ago(p.loadedAt) }}</span>
           <MenuButton class="more" :items="menu" :label="`More for ${p.name}`" @select="onMenu(p, $event)">
             <template #button><Ellipsis :size="16" /></template>
