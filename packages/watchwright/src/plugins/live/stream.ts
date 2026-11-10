@@ -86,6 +86,8 @@ export class PageStream {
   private nudge: ReturnType<typeof setTimeout> | null = null;
   private idle: ReturnType<typeof setTimeout> | null = null;
   private closed = false;
+  /** The end of what ffmpeg said on its error output (for tests and troubleshooting). */
+  error = "";
   /** Chunks since the newest key frame, for a viewer that joins. */
   gop: VideoChunk[] = [];
 
@@ -180,7 +182,7 @@ export class PageStream {
       }
     });
     proc.stdin.on("error", () => undefined); // ffmpeg ended: the exit handler cleans up
-    proc.stderr.resume();
+    proc.stderr.on("data", (d: Buffer) => (this.error = (this.error + d.toString()).slice(-2000)));
     proc.on("error", () => undefined);
     proc.on("exit", () => {
       if (this.proc === proc) {

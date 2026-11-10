@@ -90,7 +90,7 @@ describe.skipIf(!ffmpeg)("a real live video stream", () => {
     }
     for (let i = 0; i < 100 && got.length < 8; i++) await new Promise((r) => setTimeout(r, 50));
     s.close();
-    expect(got.length).toBe(8);
+    expect(got.length, `${ffmpeg}: ${s.error}`).toBe(8);
     expect(got[0]!.key).toBe(true);
     expect(got.slice(1).every((c) => !c.key)).toBe(true);
     expect(got.map((c) => c.timestamp - t0)).toEqual([0, 40, 80, 120, 160, 200, 240, 280]);
