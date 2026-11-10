@@ -106,6 +106,8 @@ Dumi also asked whether the live view could be smoother, and whether Playwright'
 
 So the live view's smoothness can be improved with the playback buffer (small, worth doing) and, for remote viewers, a video stream (larger). Neither is in this change; they're proposed to Dumi as next steps.
 
+**The playback buffer is built** (`packages/web/src/playout.ts`). While the live view only watches (not while someone drives the browser from it, as Record does), each frame is shown at its capture time, a steady 150 ms past the quickest delivery seen in the last 4 seconds, instead of when it arrived. The viewer and the browser have different clocks, so the buffer learns the gap from the frames: the smallest (arrival − capture time) is the clock difference plus the quickest delivery. A slower network is learned within those 4 seconds. Frames that come too late to show at their turn are skipped, one older than a frame already shown is dropped, and at most 60 wait. Turning interaction on shows the newest waiting frame at once and goes back to drawing frames as they come. The video stream for remote viewers is the next step.
+
 ## Checking it
 
 - Unit tests: the capture writer (frames, times, repeats, the last frame's length), the encoder choice and its arguments, the queue (order, restart, cancel on delete, failures), the pending video in results.
