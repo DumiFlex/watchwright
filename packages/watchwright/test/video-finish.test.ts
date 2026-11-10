@@ -52,6 +52,24 @@ describe("recording an attempt's video", () => {
     expect(readFileSync(r!.file).subarray(0, matroskaHeader().length)).toEqual(matroskaHeader());
   });
 
+  it("keeps at most maxFps frames a second, and never loses the frame a page stands still on", async () => {
+    const dir = tempDir("ww-cap-");
+    let now = 0;
+    const cap = new VideoCapture({ file: path.join(dir, "fps.capture.mkv"), now: () => now, maxFps: 10 });
+    // 60 a second for a quarter of a second: one every 100 ms is kept.
+    for (let i = 0; i <= 15; i++) cap.push({ data: jpeg(100 + i), width: 640, height: 400, receivedAt: Math.round(i * 16.7) });
+    // The page stands still on the last one (at 250 ms, held back) until a new frame at 900 ms.
+    cap.push({ data: jpeg(200), width: 640, height: 400, receivedAt: 900 });
+    // One that comes too soon and is the last before the stop is still written.
+    cap.push({ data: jpeg(201), width: 640, height: 400, receivedAt: 950 });
+    now = 1500;
+    const r = await cap.stop();
+    const times = frameTimes(r!.file);
+    expect(times).toEqual([0, 100, 200, 300, 900, 1000, 1500, 1540]);
+    // At most 10 a second up to the stop's own frames.
+    for (let i = 1; i < 6; i++) expect(times[i]! - times[i - 1]!).toBeGreaterThanOrEqual(100);
+  });
+
   it("keeps times going forward, and writes nothing without frames", async () => {
     const dir = tempDir("ww-cap-");
     const cap = new VideoCapture({ file: path.join(dir, "a.capture.mkv"), size: { width: 300, height: 200 }, now: () => 0 });

@@ -10,7 +10,7 @@ import { definePlugin } from "../../core/plugin.js";
 import { withAccess } from "../../core/route-access.js";
 import { serviceKey } from "../../core/services.js";
 import { contentTypeOf } from "../../jobs/recorder.js";
-import { VIDEO_QUALITIES, type VideoQuality } from "../../jobs/run-video.js";
+import { VIDEO_FPS, VIDEO_QUALITIES, type VideoFps, type VideoQuality } from "../../jobs/run-video.js";
 import { ENCODER_MODES, type EncoderMode } from "../../jobs/video-finish.js";
 import { sizeText } from "../../jobs/storage.js";
 import { errorBody } from "../../server/errors.js";
@@ -91,6 +91,7 @@ const CHOICE_PROPS = {
   runVideo: { type: "boolean", description: "Record one video of the whole run, of what the live view follows (default: the pack's setting, else false)." },
   followVideo: { type: "boolean", description: "Record each attempt's video of the page the live view follows, one video across tabs and popups, instead of one per page (default: the pack's setting, else false)." },
   videoQuality: { type: "string", enum: [...VIDEO_QUALITIES], description: "How sharp the run's videos are: high (for videos people watch), full, compact or small (default: the pack's setting, else the server's Video quality setting)." },
+  videoFps: { type: "integer", minimum: 0, maximum: 120, description: "At most this many frames a second in the run's videos (60, 30, 15, 10…), or 0 for every frame the browser sends (default: the pack's setting, else the server's Frame rate setting). It caps; the browser decides how many it sends." },
   signIn: { type: "boolean", description: "Start with the site's saved sign-in (default: the pack's site.signIn)." },
   network: { type: "string", minLength: 1, maxLength: 60, description: 'Where the browser reaches the site from: "server" or a runner\'s name (default: the pack\'s site.network, else server). GET /runners lists the runners.' },
 } as const;
@@ -129,6 +130,7 @@ function runOptions(input: RunChoices): RunOptions {
   if (input.runVideo !== undefined) o.runVideo = input.runVideo;
   if (input.followVideo !== undefined) o.followVideo = input.followVideo;
   if (input.videoQuality !== undefined) o.videoQuality = input.videoQuality;
+  if (input.videoFps !== undefined) o.videoFps = input.videoFps;
   if (input.signIn !== undefined) o.signIn = input.signIn;
   if (input.network !== undefined) o.network = input.network;
   return o;
@@ -204,6 +206,12 @@ export const runsPlugin = definePlugin({
       default: "full",
     });
     settings.define({
+      key: "runs.videoFps",
+      title: "At most this many frames a second in videos: 60, 30, 15 or 10, or 0 for every frame the browser sends (Chromium up to about 60, Firefox fewer)",
+      schema: { type: "integer", enum: [...VIDEO_FPS] },
+      default: 0,
+    });
+    settings.define({
       key: "runs.videoEncoder",
       title: "Who encodes attempt videos after each attempt: auto (the graphics card when a full ffmpeg can use it, else the CPU) or cpu (always the CPU)",
       schema: { type: "string", enum: [...ENCODER_MODES] },
@@ -255,6 +263,7 @@ export const runsPlugin = definePlugin({
       storageLimits: () => ({ warnBelowGB: settings.get<number>("runs.storageWarnGB"), stopBelowGB: settings.get<number>("runs.storageStopGB") }),
       cleanupRules: () => ({ keepDays: settings.get<number>("runs.keepDays"), keepPerPack: settings.get<number>("runs.keepPerPack") }),
       videoQuality: () => settings.get<VideoQuality>("runs.videoQuality"),
+      videoFps: () => settings.get<VideoFps>("runs.videoFps"),
       videoEncoder: () => settings.get<EncoderMode>("runs.videoEncoder"),
     });
     compressors.set(

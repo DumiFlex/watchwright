@@ -447,9 +447,11 @@ test("F1", async ({ page, h }) => {
 });`,
     });
     expect((await h.api("POST", "/settings", { values: { "runs.videoQuality": "compact" } })).status).toBe(200);
-    const runId = await startRun(h, { packId, followVideo: true, videoQuality: "high", pauseOnBroken: false });
+    expect((await h.api("POST", "/settings", { values: { "runs.videoFps": 25 } })).status).toBe(400);
+    expect((await h.api("POST", "/settings", { values: { "runs.videoFps": 30 } })).status).toBe(200);
+    const runId = await startRun(h, { packId, followVideo: true, videoQuality: "high", videoFps: 15, pauseOnBroken: false });
     const detail = await finished(h, runId);
-    expect(detail.options).toMatchObject({ followVideo: true, videoQuality: "high" });
+    expect(detail.options).toMatchObject({ followVideo: true, videoQuality: "high", videoFps: 15 });
     // h.wait doesn't pull the live view back to the main page while the popup is open.
     const events = (await h.api<{ events: { type: string; data: Record<string, unknown> }[] }>("GET", `/events?runId=${runId}&limit=500`)).data.events;
     const pages = events.filter((e) => e.type === "page.active" || e.type === "page.closed").map((e) => `${e.type === "page.active" ? "active" : "closed"} ${String(e.data.pageId)}`);

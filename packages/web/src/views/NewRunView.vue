@@ -50,6 +50,8 @@ const runVideo = ref(false);
 const followVideo = ref(false);
 // "" leaves the quality to the pack, else the server's Video quality setting.
 const videoQuality = ref<VideoQuality | "">("");
+// "" leaves the frame rate to the pack, else the server's Frame rate setting; "0" is every frame.
+const videoFps = ref("");
 const signIn = ref(false);
 // Site keys that have a saved sign-in (Admin > Sign-ins).
 const savedSignIns = ref<Set<string>>(new Set());
@@ -120,6 +122,16 @@ const qualityNote = computed(() => {
   if (q === "small") return "3/4 of the size and 10 frames a second, about 94% smaller.";
   return "The server's Video quality setting (Admin > Storage).";
 });
+const fpsName = (n: number) => (n ? `At most ${n} a second` : "Every frame the browser sends");
+const fpsOptions = computed(() => {
+  const own = pack.value?.run.videoFps;
+  const choices = [0, 60, 30, 15, 10];
+  if (own != null && !choices.includes(own)) choices.push(own);
+  return [
+    { value: "", label: own != null ? `As the pack says (${fpsName(own)})` : "As the server's setting" },
+    ...choices.map((n) => ({ value: String(n), label: fpsName(n) })),
+  ];
+});
 const attemptOptions = [
   { value: "pack" as const, label: "As each test says" },
   { value: "same" as const, label: "Same for every test" },
@@ -141,6 +153,7 @@ function choices(): RunChoices {
     runVideo: runVideo.value,
     followVideo: followVideo.value,
     ...(videoQuality.value ? { videoQuality: videoQuality.value } : {}),
+    ...(videoFps.value !== "" ? { videoFps: Number(videoFps.value) } : {}),
     signIn: signIn.value,
     ...(network.value !== (pack.value?.run.network ?? "server") ? { network: network.value } : {}),
     ...(attemptsMode.value === "same" ? { attempts: attempts.value } : {}),
@@ -158,6 +171,7 @@ function applyPack(p: Pack) {
   runVideo.value = p.run.runVideo ?? false;
   followVideo.value = p.run.followVideo ?? false;
   videoQuality.value = "";
+  videoFps.value = "";
   signIn.value = p.run.signIn ?? false;
   network.value = p.run.network ?? "server";
   pauseOnBroken.value = p.run.pauseOnBroken;
@@ -205,6 +219,7 @@ function applyChoices(c: RunChoices, p: Pack) {
   if (o.runVideo !== undefined) runVideo.value = o.runVideo;
   if (o.followVideo !== undefined) followVideo.value = o.followVideo;
   if (o.videoQuality !== undefined) videoQuality.value = o.videoQuality;
+  if (o.videoFps !== undefined) videoFps.value = String(o.videoFps);
   if (o.signIn !== undefined) signIn.value = o.signIn;
   if (o.network !== undefined) network.value = o.network;
   if (o.pauseOnBroken !== undefined) pauseOnBroken.value = o.pauseOnBroken;
@@ -538,6 +553,11 @@ useShortcut("Mod+Enter", () => !namingOpen.value && void start());
                   <span class="name">Video quality</span>
                   <SelectMenu id="nr-video-quality" v-model="videoQuality" :options="qualityOptions" />
                   <span class="muted small">{{ qualityNote }}</span>
+                </div>
+                <div class="opt">
+                  <span class="name">Frame rate</span>
+                  <SelectMenu id="nr-video-fps" v-model="videoFps" :options="fpsOptions" />
+                  <span class="muted small">A cap: the browser decides how many frames it sends (Chromium up to about 60 a second, Firefox fewer). Lower takes less room.</span>
                 </div>
                 <div class="opt">
                   <span class="name">Sign-in</span>

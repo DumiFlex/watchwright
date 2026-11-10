@@ -35,6 +35,12 @@ export interface VideoCaptureOptions {
   onError?: (message: string) => void;
   /** The clock, in milliseconds (tests). */
   now?: () => number;
+  /**
+   * At most this many frames a second (0 or unset: every frame the browser sends). A frame that
+   * comes sooner waits as the newest one; it's written when its turn comes, so what a page shows
+   * last before it stands still is always in the video.
+   */
+  maxFps?: number | undefined;
 }
 
 const even = (n: number) => Math.max(2, Math.floor(n / 2) * 2);
@@ -49,6 +55,8 @@ export class VideoCapture {
   private height = 0;
   private failed = false;
   private stopped = false;
+  /** The newest frame that came too soon for `maxFps`, and when (ms from the start). */
+  private pending: { data: Buffer; ms: number } | null = null;
 
   constructor(private readonly o: VideoCaptureOptions) {}
 
@@ -61,7 +69,7 @@ export class VideoCapture {
    * (a page that didn't change, or the page the video follows switching back) is written once.
    */
   push(frame: CaptureFrame): void {
-    if (this.failed || this.stopped || frame.data === this.last) return;
+    if (this.failed || this.stopped || frame.data === this.last || frame.data === this.pending?.data) return;
     if (!this.out) {
       this.open(this.o.size?.width ?? frame.width, this.o.size?.height ?? frame.height);
       if (!this.out) return;
@@ -70,7 +78,18 @@ export class VideoCapture {
     const at = frame.receivedAt ?? this.now();
     if (this.frames === 0) this.startedAt = at;
     const ms = this.frames === 0 ? 0 : Math.max(this.lastMs + 1, Math.round(at - this.startedAt));
-    this.write(frame.data, ms);
+    const gap = this.o.maxFps ? 1000 / this.o.maxFps : 0;
+    if (!gap || this.frames === 0) {
+      this.write(frame.data, ms);
+      return;
+    }
+    // A frame held back that the page showed for a whole turn or more (it stood still) is written
+    // at its turn; one this frame replaces sooner than that is dropped.
+    const turn = Math.round(this.lastMs + gap);
+    if (this.pending && ms >= Math.round(turn + gap)) this.write(this.pending.data, turn);
+    this.pending = null;
+    if (ms >= Math.round(this.lastMs + gap)) this.write(frame.data, ms);
+    else this.pending = { data: frame.data, ms };
   }
 
   private open(width: number, height: number): void {
@@ -115,7 +134,10 @@ export class VideoCapture {
     if (!out) return null;
     if (this.last && !this.failed) {
       this.out = out;
-      const end = Math.max(this.lastMs + 1, Math.round(this.now() - this.startedAt));
+      const now = Math.round(this.now() - this.startedAt);
+      if (this.pending) this.write(this.pending.data, Math.max(this.lastMs + 1, Math.min(Math.round(this.lastMs + 1000 / (this.o.maxFps || 1000)), now - 1)));
+      this.pending = null;
+      const end = Math.max(this.lastMs + 1, now);
       this.write(this.last, end);
       this.write(this.last, end + 40);
       this.out = null;

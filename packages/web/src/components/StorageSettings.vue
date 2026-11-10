@@ -63,6 +63,20 @@ const quality = computed<VideoQuality>({
       void loadVideos();
     }),
 });
+const fpsOptions: { value: string; label: string; note?: string }[] = [
+  { value: "0", label: "Every frame", note: "All the browser sends: Chromium up to about 60 a second, Firefox fewer when the page is busy." },
+  { value: "60", label: "60 a second" },
+  { value: "30", label: "30 a second" },
+  { value: "15", label: "15 a second" },
+  { value: "10", label: "10 a second", note: "Enough to follow what happens, at a fraction of the room." },
+];
+const fps = computed<string>({
+  get: () => String((settings.values["runs.videoFps"] as number | undefined) ?? 0),
+  set: (v) =>
+    void saveSettings({ "runs.videoFps": Number(v) }).then((err) => {
+      if (err) toast(err, { tone: "bad" });
+    }),
+});
 const encoderOptions: { value: VideoEncoderMode; label: string; note: string }[] = [
   { value: "auto", label: "Automatic", note: "The graphics card (AV1) when a full ffmpeg on this machine can use it, else the CPU (VP9). The card's video encoder is separate from the part that runs AI models." },
   { value: "cpu", label: "CPU only", note: "Always Playwright's ffmpeg on the CPU, at the lowest priority so tests come first." },
@@ -202,6 +216,9 @@ async function save(values: Record<string, unknown>) {
       <h3 class="label">Videos</h3>
       <RadioGroup v-model="quality" :options="qualityOptions" label="Video quality" />
       <p class="muted small">For runs that start from now on, attempt videos and run videos alike. A pack (<code>run.videoQuality</code>) or a run (in New run) can choose its own. Which attempts keep a video (all, or only failed and broken ones) is a run option in New run.</p>
+      <h3 class="label">Frame rate</h3>
+      <RadioGroup v-model="fps" :options="fpsOptions" label="Frame rate" />
+      <p class="muted small">At most this many frames a second in videos of runs that start from now on. It only caps: a page that stands still costs nothing either way. A pack (<code>run.videoFps</code>) or a run (in New run) can choose its own. Small keeps 10 a second at most.</p>
       <h3 class="label">Video encoder</h3>
       <RadioGroup v-model="encoderMode" :options="encoderOptions" label="Video encoder" />
       <p class="muted small">

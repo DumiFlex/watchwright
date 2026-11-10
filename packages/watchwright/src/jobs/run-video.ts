@@ -67,6 +67,11 @@ export function videoEncoder(ffmpeg: string): VideoEncoder | null {
  */
 export type VideoQuality = "high" | "full" | "compact" | "small";
 export const VIDEO_QUALITIES: readonly VideoQuality[] = ["high", "full", "compact", "small"];
+
+/** The frame rates the Frame rate setting offers; 0 keeps every frame the browser sends. A pack or run may name any from 1 to 120. */
+export const VIDEO_FPS = [0, 60, 30, 15, 10] as const;
+/** At most this many frames a second (0: every frame). */
+export type VideoFps = number;
 /** The qualities Compress kept videos encodes to. */
 export type CompressQuality = "compact" | "small";
 /** The CRF (lower is sharper) and the share of the size each constant quality keeps. */
