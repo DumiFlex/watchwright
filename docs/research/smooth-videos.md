@@ -73,11 +73,27 @@ AV1 is the newer codec: in software it reached the same picture as VP9 at about 
 - A new setting, Admin > Storage > Videos > **Encoder**: Automatic (default) or CPU only.
 - Automatic looks for a full ffmpeg (`WATCHWRIGHT_FFMPEG`, else `ffmpeg` on the PATH) with `av1_nvenc`, `av1_qsv` or `av1_amf`, encodes a tiny test clip with each in that order, and uses the first that works. The answer is kept until the server restarts. Without one, Playwright's ffmpeg encodes VP9 on the CPU as before.
 - The Videos section says which encoder finishes videos ("Graphics card (NVIDIA, AV1)" or "CPU (VP9)") and, on the CPU, that installing ffmpeg lets the graphics card do it.
-- AV1 qualities follow the VP9 ones: same constant-quality idea, a level per quality (High 26, Full 30, Compact 36, Small 40 on the encoder's 0–51 scale). Compress kept videos leaves AV1 videos alone: Playwright's ffmpeg can't read them, and they're already small.
+- AV1 qualities follow the VP9 ones: same constant-quality idea, a level per quality (High 22, Full 30, Compact 36, Small 40 on the encoder's 0–51 scale). Compress kept videos leaves AV1 videos alone: Playwright's ffmpeg can't read them, and they're already small.
 
 **Get ffmpeg** (added after, at Dumi's ask). Installing ffmpeg by hand is a step most people won't take, so the Videos section offers a button. Bundling ffmpeg as a dependency was left out: it would add 150–200 MB to every install (Docker and machines without a suitable card too), and the npm ffmpeg packages don't reliably carry the hardware AV1 encoders. Running `winget` for the person was left out too: ffmpeg only reaches the PATH of new processes, so the server would still need a restart, and on Linux it needs sudo. Instead the button downloads the [BtbN build](https://github.com/BtbN/FFmpeg-Builds) of the ffmpeg release branch (GPL, with `av1_nvenc`, `av1_qsv` and `av1_amf`; Windows x64 and Linux x64/arm64; macOS has no hardware AV1 encoder) into `<data>/tools/ffmpeg`, checks its SHA-256 against the `checksums.sha256` published in the same release, keeps only the `ffmpeg` binary, checks that it runs, and asks again who finishes videos. No admin rights, nothing on the PATH, no restart. An ffmpeg installed by hand comes first. In Docker it lands in `/data`, so it survives a new image. Remove ffmpeg deletes it again.
 
 **Not in this change:** a slower, smaller CPU encoding for idle times; H.264/MP4 for older NVIDIA cards; a cursor or presentation mode for tutorials.
+
+## Noise in dark areas
+
+Dumi then saw noise all over a High tutorial video, worst in the shadows of ComfyUI's dark canvas. Measured on a page like it (a 1 px grid on dark grey, a node with a shadow), against a lossless screenshot, as the mean error in the dark area in brightness levels:
+
+| Path | Error |
+|---|---|
+| High before: JPEG 90 frames, VP9 CRF 24 in the TV range (16–235) | 0.93 |
+| JPEG 90 frames alone | 0.73 |
+| JPEG 100 frames, VP9 CRF 24, TV range | 0.98 |
+| JPEG 100 frames, VP9 CRF 24, full range | 0.31 |
+| JPEG 100 frames, VP9 CRF 18, full range | 0.17 |
+
+Two causes, about equal. JPEG at 90 scatters small blocks and streaks around every fine line; a level or two at most, but it changes every frame, so on dark grey it reads as moving noise. And JPEG keeps the full 0–255 range, while the encode squeezed it into 16–235, dropping about one dark level in seven. The tutorial's MP4 (x264 CRF 18) adds almost nothing on top.
+
+So: High takes frames at JPEG 100 (Compact and Small at 90 or more), VP9 and AV1 videos keep the full range and say so in the stream (Chromium plays it exactly: the canvas grey of 32 comes back as 32, where the TV-range video gave 31; VP8 can't say it, so VP8 stays in the TV range), and High's CRF goes from 24 to 20 (AV1 level 26 to 22). JPEG 100 frames are about 1.8 times as big, which costs disk while an attempt records and bandwidth for the live view at High.
 
 ## The live view
 

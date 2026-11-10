@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, statSync, writeFileSync } from "node:
 import path from "node:path";
 import { chromium } from "playwright";
 import { afterEach, describe, expect, it } from "vitest";
-import { browsersPath, encodeArgs, ffmpegArgs, findFfmpeg, frameQualityFor, qualityFps, scaleFilter, smallerThan, matroskaFrame, matroskaHeader, nextRunVideoFile, RunVideo, runVideoFiles, videoEncoder } from "../src/jobs/run-video.js";
+import { browsersPath, encodeArgs, ffmpegArgs, findFfmpeg, frameQualityFor, qualityFps, rangeArgs, rangeFilter, scaleFilter, smallerThan, matroskaFrame, matroskaHeader, nextRunVideoFile, RunVideo, runVideoFiles, videoEncoder } from "../src/jobs/run-video.js";
 import { cleanTempDirs, tempDir } from "./helpers/fixtures.js";
 import { videoSize } from "./helpers/video.js";
 
@@ -39,7 +39,8 @@ describe("finding Playwright's ffmpeg", () => {
     expect(vp9).toContain("-row-mt 1");
     expect(vp9).toContain("-fps_mode vfr");
     expect(vp9).toContain("crop=w=min(iw\\,1280):h=min(ih\\,800),pad=1280:800");
-    expect(vp9).not.toContain("scale=");
+    expect(vp9).not.toMatch(/scale=\d/);
+    expect(vp9).toContain("scale=out_range=full,format=yuv420p -color_range pc");
     expect(vp9.endsWith("/v.webm")).toBe(true);
     const vp8 = ffmpegArgs("/v.webm", 1280, 800, "libvpx").join(" ");
     expect(vp8).toContain("-c:v libvpx -");
@@ -58,7 +59,7 @@ describe("finding Playwright's ffmpeg", () => {
 
   it("encodes high at a low constant quality with a little more effort, and caps VP8, which can't do a pure constant quality well", () => {
     const vp9 = encodeArgs("libvpx-vp9", "high").join(" ");
-    expect(vp9).toContain("-qmax 63 -crf 24 -b:v 0");
+    expect(vp9).toContain("-qmax 63 -crf 20 -b:v 0");
     expect(vp9).toContain("-cpu-used 6");
     expect(vp9).toContain("-threads 2");
     expect(vp9).toContain("title=watchwright-video:high");
@@ -67,14 +68,22 @@ describe("finding Playwright's ffmpeg", () => {
     expect(vp8).toContain("-speed 8");
     expect(encodeArgs("libvpx-vp9", "compact").join(" ")).toContain("-cpu-used 8");
     expect(encodeArgs("libvpx-vp9", "compact").join(" ")).toContain("-threads 1");
-    // High keeps the size and takes 30 frames a second, from frames at JPEG 90 or more.
+    // High keeps the size and takes 30 frames a second, from frames at JPEG 100.
     expect(scaleFilter("high", 1920, 1080)).toBeNull();
     expect(qualityFps("high", 25)).toBe(30);
     expect(qualityFps("high", 10)).toBe(30);
-    expect(frameQualityFor("high", 70)).toBe(90);
-    expect(frameQualityFor("high", 95)).toBe(95);
+    expect(frameQualityFor("high", 70)).toBe(100);
+    expect(frameQualityFor("high", 95)).toBe(100);
     expect(frameQualityFor("full", 70)).toBe(70);
+    expect(frameQualityFor("compact", 70)).toBe(90);
+    expect(frameQualityFor("small", 95)).toBe(95);
     expect(smallerThan("full", "high")).toBe(true);
+    // VP9 and AV1 keep the JPEG frames' full range; VP8 can't say it, so it stays in the TV range.
+    expect(rangeFilter("crop=1:1", "libvpx-vp9")).toBe("crop=1:1,scale=out_range=full,format=yuv420p");
+    expect(rangeFilter(null, "av1_nvenc")).toBe("scale=out_range=full,format=yuv420p");
+    expect(rangeFilter("crop=1:1", "libvpx")).toBe("crop=1:1");
+    expect(rangeArgs("libvpx-vp9")).toEqual(["-color_range", "pc"]);
+    expect(rangeArgs("libvpx")).toEqual([]);
     expect(smallerThan("high", "full")).toBe(false);
   });
 
