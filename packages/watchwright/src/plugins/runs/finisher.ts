@@ -71,6 +71,11 @@ export class VideoFinishQueue {
     return this.choice.at;
   }
 
+  /** Asks again who finishes videos (after ffmpeg was fetched or removed). */
+  refresh(): void {
+    this.choice = null;
+  }
+
   async status(): Promise<FinishStatus> {
     const c = await this.finisher();
     return { encoder: finisherLabel(c.finisher), gpu: c.finisher?.kind === "gpu", note: c.note, pending: this.pending() };

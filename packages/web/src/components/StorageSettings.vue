@@ -2,7 +2,7 @@
 // Admin > Storage (users see it on Settings): how full the drive with the data folder is, what runs take, the largest
 // runs, and the free space below which runs warn and then stop recording videos.
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-import { getJson, runName, sendJson, type CleanupPlan, type CompressJob, type StorageReport, type VideoEncoderMode, type VideoQuality, type VideoReport } from "../api";
+import { getJson, runName, sendJson, type CleanupPlan, type CompressJob, type FfmpegFetchReport, type StorageReport, type VideoEncoderMode, type VideoQuality, type VideoReport } from "../api";
 import { countsText, fileSize, when } from "../format";
 import { tildify } from "../paths";
 import { saveSettings, settings } from "../settings";
@@ -40,7 +40,7 @@ async function loadVideos() {
   if (poll) clearTimeout(poll);
   poll = null;
   // While a job goes (or attempt videos are being encoded), its progress every 2 seconds; at the end the run sizes changed too.
-  if (res.ok && (res.data.job?.state === "running" || res.data.finishing.pending > 0))
+  if (res.ok && (res.data.job?.state === "running" || res.data.finishing.pending > 0 || res.data.ffmpegFetch.state === "downloading"))
     poll = setTimeout(() => {
       void loadVideos().then(() => {
         if (videos.value?.job?.state !== "running") void load();
@@ -75,6 +75,16 @@ const encoderMode = computed<VideoEncoderMode>({
       void loadVideos();
     }),
 });
+const ffmpegFetch = computed<FfmpegFetchReport | null>(() => videos.value?.ffmpegFetch ?? null);
+const offerFetch = computed(() => !!videos.value && !!ffmpegFetch.value?.supported && !ffmpegFetch.value.installed && ffmpegFetch.value.state !== "downloading" && encoderMode.value === "auto" && !videos.value.finishing.gpu);
+const fetchBusy = ref(false);
+async function fetchCall(path: string) {
+  fetchBusy.value = true;
+  const res = await sendJson<FfmpegFetchReport>(`/api/v1/storage/videos/ffmpeg${path}`, {});
+  fetchBusy.value = false;
+  if (!res.ok) toast(res.error.message, { tone: "bad" });
+  await loadVideos();
+}
 const job = computed<CompressJob | null>(() => videos.value?.job ?? null);
 const going = computed(() => job.value?.state === "running");
 const videosText = (n: number) => `${n} ${n === 1 ? "video" : "videos"}`;
@@ -201,6 +211,22 @@ async function save(values: Record<string, unknown>) {
           <template v-if="videos.finishing.note && encoderMode === 'auto'">{{ videos.finishing.note }}</template>
         </template>
       </p>
+      <div v-if="ffmpegFetch?.state === 'downloading'" class="drive">
+        <ProgressBar :value="ffmpegFetch.done" :max="Math.max(1, ffmpegFetch.total ?? ffmpegFetch.bytes)" label="ffmpeg downloaded" />
+        <div class="inline">
+          <span class="small grow">Downloading ffmpeg: {{ fileSize(ffmpegFetch.done) }} of {{ fileSize(ffmpegFetch.total ?? ffmpegFetch.bytes) }}. The graphics card is tried again when it's done.</span>
+          <button class="btn" :disabled="fetchBusy" @click="fetchCall('/stop')">Stop</button>
+        </div>
+      </div>
+      <div v-else-if="offerFetch && ffmpegFetch" class="inline">
+        <span class="small grow">Get ffmpeg downloads a full build (about {{ fileSize(ffmpegFetch.bytes) }}) into Watchwright's data folder and checks it against its published checksum. No restart, no admin rights, nothing added to the PATH.</span>
+        <button class="btn" :disabled="fetchBusy" @click="fetchCall('')">Get ffmpeg</button>
+      </div>
+      <div v-else-if="ffmpegFetch?.installed" class="inline">
+        <span class="small grow muted">Watchwright downloaded ffmpeg into its data folder. An ffmpeg you install yourself comes first.</span>
+        <button class="btn" :disabled="fetchBusy || (videos?.finishing.pending ?? 0) > 0" @click="fetchCall('/remove')">Remove ffmpeg</button>
+      </div>
+      <p v-if="ffmpegFetch?.state === 'failed' && ffmpegFetch.error" class="small warn-text" role="status">{{ ffmpegFetch.error }}</p>
       <p v-if="videos && !videos.ffmpeg" class="small warn-text" role="status">Playwright's ffmpeg isn't installed, so runs record no video. <code>npx playwright install ffmpeg</code> adds it.</p>
       <template v-if="videos">
         <div v-if="going && job" class="drive">

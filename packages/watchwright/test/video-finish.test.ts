@@ -96,7 +96,7 @@ describe("who finishes videos", () => {
   it("falls back to the CPU and says why", async () => {
     const none = await chooseFinisher("auto", { env: {}, cpu, encoder, system: () => null });
     expect(none.finisher).toEqual({ kind: "cpu", ffmpeg: "/pw/ffmpeg", codec: "libvpx-vp9" });
-    expect(none.note).toMatch(/Install ffmpeg/);
+    expect(none.note).toMatch(/No full ffmpeg/);
     const refused = await chooseFinisher("auto", { env: {}, cpu, encoder, system: () => "/f", codecs: async () => ["av1_nvenc"], probe: async () => false });
     expect(refused.finisher?.kind).toBe("cpu");
     expect(refused.note).toMatch(/av1_nvenc/);
