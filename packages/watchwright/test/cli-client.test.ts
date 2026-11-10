@@ -34,4 +34,10 @@ describe("CLI client", () => {
     await client.request("GET", "/runs/0a1b2c3d/wait", { timeout: 0.5 }).catch(() => undefined);
     expect(Date.now() - started).toBeGreaterThanOrEqual(650);
   });
+
+  it("takes a wait's seconds left with a fraction of a millisecond", async () => {
+    const client = new Client(await hanging(), "test", 0.2);
+    const err = await client.request("GET", "/runs/0a1b2c3d/wait", { timeout: 0.064999999999 }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(NoServer);
+  });
 });

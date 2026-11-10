@@ -91,7 +91,8 @@ export class Client {
     } else body = JSON.stringify(input);
     // A server that hangs mustn't hang the command. Waits (an input with `timeout`, in seconds) get that long and more.
     const waitS = typeof input.timeout === "number" ? input.timeout : 0;
-    const limitMs = (waitS + this.limitS) * 1000;
+    // AbortSignal.timeout takes whole milliseconds only (a wait's seconds left can be 64.999).
+    const limitMs = Math.ceil((waitS + this.limitS) * 1000);
     const limit = AbortSignal.timeout(limitMs);
     let res: Response;
     try {
