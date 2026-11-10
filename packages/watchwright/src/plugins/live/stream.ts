@@ -3,10 +3,11 @@ import os from "node:os";
 import { findFfmpeg, matroskaFrame, matroskaHeader } from "../../jobs/run-video.js";
 import { ffmpegOnPath } from "../../jobs/video-finish.js";
 import type { Frame, FrameHub } from "./hub.js";
-import { isVp8Key, WebmReader } from "./webm.js";
+import { WebmReader } from "./webm.js";
 
 // The live view as a video stream, for viewers on another machine: a page's screencast frames go
-// into ffmpeg as they come and come out as VP8, which is a tenth of the JPEG frames' size or less.
+// into ffmpeg as they come and come out as VP9 (or VP8, with an older Playwright ffmpeg), a tenth
+// of the JPEG frames' size or less.
 // The browser decodes it with WebCodecs. ffmpeg runs only while someone watches a page this way,
 // and stops when the page has sent nothing for a while. See docs/research/smooth-videos.md.
 
@@ -20,6 +21,7 @@ export interface VideoChunk {
   height: number;
   /** A key frame: a viewer can start here. */
   key: boolean;
+  codec: StreamCodec;
   data: Buffer;
 }
 
@@ -42,13 +44,18 @@ export function streamBitRate(width: number, height: number): number {
   return Math.round(Math.min(6_000_000, Math.max(1_000_000, width * height * 2.5)));
 }
 
-export function streamArgs(width: number, height: number): string[] {
+/** The stream's codec: VP9 when the ffmpeg has it (newer Playwright builds have only VP9), else VP8. */
+export type StreamCodec = "vp9" | "vp8";
+export const STREAM_CODECS: readonly StreamCodec[] = ["vp9", "vp8"];
+
+export function streamArgs(width: number, height: number, codec: StreamCodec = "vp9"): string[] {
   const rate = streamBitRate(width, height);
+  const encoder = codec === "vp9" ? ["-c:v", "libvpx-vp9", "-row-mt", "1"] : ["-c:v", "libvpx"];
   return [
     "-loglevel", "error",
     "-copyts", "-fflags", "nobuffer", "-probesize", "32", "-analyzeduration", "0", "-f", "matroska", "-threads", "1", "-i", "pipe:0",
     "-an", "-fps_mode", "passthrough", "-enc_time_base", "1:1000", "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
-    "-c:v", "libvpx", "-deadline", "realtime", "-cpu-used", "8", "-lag-in-frames", "0", "-auto-alt-ref", "0",
+    ...encoder, "-deadline", "realtime", "-cpu-used", "8", "-lag-in-frames", "0", "-auto-alt-ref", "0",
     "-error-resilient", "1", "-g", String(KEY_EVERY), "-b:v", String(rate), "-maxrate", String(rate), "-bufsize", String(rate),
     "-threads", "2",
     "-flush_packets", "1", "-live", "1", "-cluster_size_limit", "1", "-cluster_time_limit", "0",
@@ -56,18 +63,25 @@ export function streamArgs(width: number, height: number): string[] {
   ];
 }
 
-const vp8 = new Map<string, boolean>();
-/** An ffmpeg that can encode VP8 (Playwright's can), or null. */
-export function streamFfmpeg(env: NodeJS.ProcessEnv = process.env): string | null {
+/** The stream codec an ffmpeg's `-encoders` list offers (an encoder's own line, not its description), or null. */
+export function streamCodecIn(encoders: string): StreamCodec | null {
+  if (/^\s*V\S*\s+libvpx-vp9\s/m.test(encoders)) return "vp9";
+  if (/^\s*V\S*\s+libvpx\s/m.test(encoders)) return "vp8";
+  return null;
+}
+
+const found = new Map<string, StreamCodec | null>();
+/** An ffmpeg that can encode the stream (Playwright's can) and its codec, or null. */
+export function streamFfmpeg(env: NodeJS.ProcessEnv = process.env): { ffmpeg: string; codec: StreamCodec } | null {
   for (const ffmpeg of [findFfmpeg(env), ffmpegOnPath(env)]) {
     if (!ffmpeg) continue;
-    let ok = vp8.get(ffmpeg);
-    if (ok === undefined) {
+    let codec = found.get(ffmpeg);
+    if (codec === undefined) {
       const out = spawnSync(ffmpeg, ["-hide_banner", "-encoders"], { encoding: "utf8", windowsHide: true, timeout: 10_000 });
-      ok = /\slibvpx\s/.test(`${out.stdout ?? ""}`);
-      vp8.set(ffmpeg, ok);
+      codec = streamCodecIn(`${out.stdout ?? ""}`);
+      found.set(ffmpeg, codec);
     }
-    if (ok) return ffmpeg;
+    if (codec) return { ffmpeg, codec };
   }
   return null;
 }
@@ -91,13 +105,19 @@ export class PageStream {
   /** Chunks since the newest key frame, for a viewer that joins. */
   gop: VideoChunk[] = [];
 
+  private readonly ffmpeg: string;
+  readonly codec: StreamCodec;
+
   constructor(
-    private readonly ffmpeg: string,
+    encoder: { ffmpeg: string; codec: StreamCodec },
     readonly runId: string,
     readonly pageId: string,
     private readonly onChunk: (chunk: VideoChunk) => void,
     private readonly o: { idleMs?: number; spawn?: typeof spawn; now?: () => number } = {},
-  ) {}
+  ) {
+    this.ffmpeg = encoder.ffmpeg;
+    this.codec = encoder.codec;
+  }
 
   push(frame: Frame): void {
     if (this.closed) return;
@@ -146,7 +166,7 @@ export class PageStream {
   private start(width: number, height: number): void {
     let proc: ChildProcessWithoutNullStreams;
     try {
-      proc = (this.o.spawn ?? spawn)(this.ffmpeg, streamArgs(width, height), { windowsHide: true });
+      proc = (this.o.spawn ?? spawn)(this.ffmpeg, streamArgs(width, height, this.codec), { windowsHide: true });
     } catch {
       return;
     }
@@ -163,12 +183,12 @@ export class PageStream {
     this.stamps.clear();
     this.gop = [];
     proc.stdin.write(matroskaHeader());
-    const reader = new WebmReader(({ ms, data }) => {
+    const reader = new WebmReader(({ ms, key, data }) => {
       // Every chunk goes out, even one whose frame isn't known: the ones after it need it.
       const timestamp = this.stamps.get(ms) ?? this.lastTimestamp;
       for (const k of this.stamps.keys()) if (k <= ms) this.stamps.delete(k);
       this.lastTimestamp = timestamp;
-      const chunk: VideoChunk = { runId: this.runId, pageId: this.pageId, timestamp, width, height, key: isVp8Key(data), data };
+      const chunk: VideoChunk = { runId: this.runId, pageId: this.pageId, timestamp, width, height, key, codec: this.codec, data };
       if (chunk.key) this.gop = [];
       this.gop.push(chunk);
       this.onChunk(chunk);
@@ -218,9 +238,9 @@ export class PageStream {
   }
 }
 
-/** Binary video message: 4-byte big-endian header length, the JSON header (`video: "vp8"`, `key`), then the VP8 frame. */
+/** Binary video message: 4-byte big-endian header length, the JSON header (`video`: the codec, `key`), then the frame. */
 export function encodeChunk(c: VideoChunk): Buffer {
-  const header = Buffer.from(JSON.stringify({ runId: c.runId, pageId: c.pageId, timestamp: c.timestamp, width: c.width, height: c.height, video: "vp8", key: c.key }), "utf8");
+  const header = Buffer.from(JSON.stringify({ runId: c.runId, pageId: c.pageId, timestamp: c.timestamp, width: c.width, height: c.height, video: c.codec, key: c.key }), "utf8");
   const len = Buffer.alloc(4);
   len.writeUInt32BE(header.length, 0);
   return Buffer.concat([len, header, c.data]);
@@ -235,7 +255,8 @@ export class StreamHub {
 
   constructor(
     private readonly frames: FrameHub,
-    private readonly ffmpeg: string,
+    /** What streamFfmpeg found. */
+    readonly encoder: { ffmpeg: string; codec: StreamCodec },
     private readonly o: { idleMs?: number; spawn?: typeof spawn } = {},
   ) {}
 
@@ -247,7 +268,7 @@ export class StreamHub {
       const viewers = new Set<(c: VideoChunk) => void>();
       const page = (id: string) => {
         let p = pages.get(id);
-        if (!p) pages.set(id, (p = new PageStream(this.ffmpeg, runId, id, (c) => viewers.forEach((v) => v(c)), this.o)));
+        if (!p) pages.set(id, (p = new PageStream(this.encoder, runId, id, (c) => viewers.forEach((v) => v(c)), this.o)));
         return p;
       };
       const stop = this.frames.subscribe(runId, (f) => page(f.pageId).push(f));

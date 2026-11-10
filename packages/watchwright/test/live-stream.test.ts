@@ -2,8 +2,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { chromium } from "playwright";
 import WebSocket from "ws";
 import { FRAMES, FrameHub } from "../src/plugins/live/hub.js";
-import { PageStream, StreamHub, streamBitRate, streamFfmpeg, type VideoChunk } from "../src/plugins/live/stream.js";
-import { isVp8Key, WebmReader, type WebmBlock } from "../src/plugins/live/webm.js";
+import { PageStream, StreamHub, streamBitRate, streamCodecIn, streamFfmpeg, type VideoChunk } from "../src/plugins/live/stream.js";
+import { WebmReader, type WebmBlock } from "../src/plugins/live/webm.js";
 import { cleanTempDirs, tempDir } from "./helpers/fixtures.js";
 import { startHarness, type Harness } from "./helpers/harness.js";
 
@@ -39,16 +39,20 @@ describe("the live WebM reader", () => {
       const got: WebmBlock[] = [];
       const r = new WebmReader((b) => got.push(b));
       for (let i = 0; i < stream.length; i += cut) r.push(stream.subarray(i, i + cut));
-      expect(got.map((b) => [b.ms, [...b.data]])).toEqual([
-        [1005, [0x10, 0x20]],
-        [1997, [0x31]],
+      expect(got.map((b) => [b.ms, b.key, [...b.data]])).toEqual([
+        [1005, true, [0x10, 0x20]],
+        [1997, false, [0x31]],
       ]);
     }
   });
 
-  it("tells VP8 key frames by their first bit", () => {
-    expect(isVp8Key(Buffer.from([0x10]))).toBe(true);
-    expect(isVp8Key(Buffer.from([0x31]))).toBe(false);
+  it("picks VP9, else VP8, from an ffmpeg's encoder list, by the encoder's own name", () => {
+    const vp9Only = " V....D libvpx-vp9           libvpx VP9 (codec vp9)\n V....D libaom-av1   libaom AV1";
+    const vp8Only = " V....D libvpx               libvpx VP8 (codec vp8)";
+    expect(streamCodecIn(vp9Only)).toBe("vp9");
+    expect(streamCodecIn(vp8Only)).toBe("vp8");
+    expect(streamCodecIn(`${vp8Only}\n${vp9Only}`)).toBe("vp9");
+    expect(streamCodecIn(" V....D mjpeg   MJPEG (Motion JPEG)")).toBeNull();
   });
 
   it("asks for about 2.5 Mbit/s a megapixel, between 1 and 6", () => {
@@ -58,9 +62,9 @@ describe("the live WebM reader", () => {
   });
 });
 
-const ffmpeg = streamFfmpeg();
+const encoder = streamFfmpeg();
 
-describe.skipIf(!ffmpeg)("a real live video stream", () => {
+describe.skipIf(!encoder)("a real live video stream", () => {
   const jpegs: Buffer[] = [];
   const harnesses: Harness[] = [];
   beforeAll(async () => {
@@ -82,7 +86,7 @@ describe.skipIf(!ffmpeg)("a real live video stream", () => {
 
   it("encodes frames as they come, each chunk stamped with its frame's time, starting with a key frame", async () => {
     const got: VideoChunk[] = [];
-    const s = new PageStream(ffmpeg!, "aaaaaaaa", "p1", (c) => got.push(c));
+    const s = new PageStream(encoder!, "aaaaaaaa", "p1", (c) => got.push(c));
     const t0 = Date.now();
     for (let i = 0; i < 8; i++) {
       s.push(frame(i, t0 + i * 40));
@@ -90,7 +94,7 @@ describe.skipIf(!ffmpeg)("a real live video stream", () => {
     }
     for (let i = 0; i < 100 && got.length < 8; i++) await new Promise((r) => setTimeout(r, 50));
     s.close();
-    expect(got.length, `${ffmpeg}: ${s.error}`).toBe(8);
+    expect(got.length, `${encoder!.ffmpeg}: ${s.error}`).toBe(8);
     expect(got[0]!.key).toBe(true);
     expect(got.slice(1).every((c) => !c.key)).toBe(true);
     expect(got.map((c) => c.timestamp - t0)).toEqual([0, 40, 80, 120, 160, 200, 240, 280]);
@@ -101,7 +105,7 @@ describe.skipIf(!ffmpeg)("a real live video stream", () => {
     const frames = new FrameHub();
     const t0 = Date.now();
     frames.publish(frame(0, t0));
-    const hub = new StreamHub(frames, ffmpeg!);
+    const hub = new StreamHub(frames, encoder!);
     const first: VideoChunk[] = [];
     const stopFirst = hub.watch("aaaaaaaa", (c) => first.push(c));
     frames.publish(frame(1, t0 + 40));
@@ -135,14 +139,14 @@ describe.skipIf(!ffmpeg)("a real live video stream", () => {
           return;
         }
         const msg = JSON.parse(String(data)) as { type: string; data: unknown };
-        if (msg.type === "hello") ws.send(JSON.stringify({ type: "subscribe", runId, frames: true, video: "vp8" }));
+        if (msg.type === "hello") ws.send(JSON.stringify({ type: "subscribe", runId, frames: true, video: ["vp9", "vp8"] }));
         if (msg.type === "stream") stream = msg.data;
       });
       ws.once("error", reject);
     });
     ws.close();
-    expect(got.stream).toEqual({ video: "vp8" });
-    expect(got.header).toMatchObject({ runId, pageId: "p1", timestamp: t0, video: "vp8", key: true });
+    expect(got.stream).toEqual({ video: encoder!.codec });
+    expect(got.header).toMatchObject({ runId, pageId: "p1", timestamp: t0, video: encoder!.codec, key: true });
   });
 });
 

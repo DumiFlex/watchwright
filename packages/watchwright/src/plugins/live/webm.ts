@@ -5,6 +5,8 @@
 export interface WebmBlock {
   /** Cluster time + the block's own offset, in milliseconds (the muxer's default time scale). */
   ms: number;
+  /** A SimpleBlock marked as a key frame (a Block in a BlockGroup never says it). */
+  key: boolean;
   data: Buffer;
 }
 
@@ -58,19 +60,17 @@ export class WebmReader {
       if (body + size.value > this.buf.length) break;
       const data = this.buf.subarray(body, body + size.value);
       if (id.value === TIMECODE) this.clusterMs = data.length ? data.readUIntBE(0, Math.min(6, data.length)) : 0;
-      else if (id.value === SIMPLE_BLOCK || id.value === BLOCK) this.block(data);
+      else if (id.value === SIMPLE_BLOCK || id.value === BLOCK) this.block(data, id.value === SIMPLE_BLOCK);
       at = body + size.value;
     }
     this.buf = at >= this.buf.length ? Buffer.alloc(0) : Buffer.from(this.buf.subarray(at));
   }
 
-  private block(data: Buffer): void {
+  private block(data: Buffer, simple: boolean): void {
     const track = vint(data, 0, false);
     if (!track || data.length < track.length + 3) return;
     const offset = data.readInt16BE(track.length);
-    this.onBlock({ ms: this.clusterMs + offset, data: Buffer.from(data.subarray(track.length + 3)) });
+    const flags = data[track.length + 2]!;
+    this.onBlock({ ms: this.clusterMs + offset, key: simple && (flags & 0x80) !== 0, data: Buffer.from(data.subarray(track.length + 3)) });
   }
 }
-
-/** A VP8 frame is a key frame when the first bit of its first byte is 0. */
-export const isVp8Key = (data: Buffer): boolean => data.length > 0 && (data[0]! & 1) === 0;

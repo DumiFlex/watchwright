@@ -1,5 +1,5 @@
 import { decodeFrame, liveUrl, type FrameHeader, type WwEvent } from "./api";
-import { canDecodeVideo, VideoPictures, wantsVideo } from "./livevideo";
+import { decodableCodecs, VideoPictures, wantsVideo } from "./livevideo";
 import { loadSettings, settings } from "./settings";
 
 export type LiveState = "connecting" | "open" | "closed";
@@ -68,7 +68,7 @@ export class LiveConnection {
       }
       const parsed = JSON.parse(msg.data) as { type: string; data: WwEvent };
       if (parsed.type === "stream") {
-        this.handlers.onStream?.((parsed.data as unknown as { video?: unknown }).video === "vp8");
+        this.handlers.onStream?.(typeof (parsed.data as unknown as { video?: unknown }).video === "string");
         return;
       }
       if (parsed.type === "hello") {
@@ -104,17 +104,16 @@ export class LiveConnection {
   private send() {
     const socket = this.socket;
     if (socket?.readyState !== WebSocket.OPEN) return;
-    const ask = (video: boolean) => {
+    const ask = (video: string[]) => {
       if (socket !== this.socket || socket.readyState !== WebSocket.OPEN) return;
       const after = this.lastSeq ?? this.sub.after;
       this.pictures.clear();
-      socket.send(JSON.stringify({ type: "subscribe", runId: this.sub.runId ?? null, frames: this.sub.frames ?? false, batch: true, ...(after === undefined ? {} : { after }), ...(this.sub.logTail ? { logTail: this.sub.logTail } : {}), ...(video ? { video: "vp8" } : {}) }));
-      if (this.sub.frames && !video) this.handlers.onStream?.(false);
+      socket.send(JSON.stringify({ type: "subscribe", runId: this.sub.runId ?? null, frames: this.sub.frames ?? false, batch: true, ...(after === undefined ? {} : { after }), ...(this.sub.logTail ? { logTail: this.sub.logTail } : {}), ...(video.length ? { video } : {}) }));
+      if (this.sub.frames && !video.length) this.handlers.onStream?.(false);
     };
     if (this.sub.frames && this.sub.video) {
-      void Promise.all([loadSettings().catch(() => undefined), canDecodeVideo()]).then(([, can]) => ask(can && wantsVideo(settings.values["live.video"], window.location.hostname)));
-    }
-    else ask(false);
+      void Promise.all([loadSettings().catch(() => undefined), decodableCodecs()]).then(([, codecs]) => ask(wantsVideo(settings.values["live.video"], window.location.hostname) ? codecs : []));
+    } else ask([]);
   }
 
   close() {

@@ -623,7 +623,7 @@ export interface FrameHeader {
   timestamp: number;
   width: number;
   height: number;
-  /** Set on a video stream chunk: its codec (`vp8`), and whether it's a key frame. */
+  /** Set on a video stream chunk: its codec (`vp9` or `vp8`), and whether it's a key frame. */
   video?: string;
   key?: boolean;
 }

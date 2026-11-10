@@ -10,9 +10,9 @@ import { VERSION } from "../../version.js";
 import { serviceKey } from "../../core/services.js";
 import { SETTINGS } from "../settings/plugin.js";
 import { encodeFrame, FrameHub, FRAMES, REWIND_MS, type Frame } from "./hub.js";
-import { encodeChunk, StreamHub, streamFfmpeg, type VideoChunk } from "./stream.js";
+import { encodeChunk, STREAM_CODECS, StreamHub, streamFfmpeg, type VideoChunk } from "./stream.js";
 
-/** The video streams, or null when no ffmpeg here can encode VP8. */
+/** The video streams, or null when no ffmpeg here can encode VP9 or VP8. */
 const STREAMS = serviceKey<StreamHub | null>("live.streams");
 
 /** How a person's live views come: `auto` (a video stream when they aren't on the server's machine), `video` or `frames` (JPEG). */
@@ -39,10 +39,11 @@ interface Subscribe {
    */
   batch?: boolean;
   /**
-   * With `frames`: send the run's pages as a video stream in this codec (only `vp8`) instead of
-   * JPEG frames, when the server can encode it. A `stream` message says which the viewer gets.
+   * With `frames`: the codecs the viewer decodes (`vp9`, `vp8`; one or a list). The run's pages
+   * come as a video stream in the one the server encodes, when it's among them, instead of JPEG
+   * frames. A `stream` message says which the viewer gets.
    */
-  video?: string;
+  video?: string | string[];
 }
 
 /** The events that are log lines, which a long run has by the ten thousand. */
@@ -68,8 +69,8 @@ export const livePlugin = definePlugin({
   setup({ services }) {
     const frames = new FrameHub();
     services.provide(FRAMES, frames);
-    const ffmpeg = streamFfmpeg();
-    services.provide(STREAMS, ffmpeg ? new StreamHub(frames, ffmpeg) : null);
+    const encoder = streamFfmpeg();
+    services.provide(STREAMS, encoder ? new StreamHub(frames, encoder) : null);
     services.get(SETTINGS).define({
       key: "live.video",
       title: "How live views come to you: auto (a video stream when you aren't on the server's machine, JPEG frames when you are), video (a video stream: a tenth of the data or less, a little softer) or frames (JPEG frames: sharpest, most data)",
@@ -183,8 +184,10 @@ export const livePlugin = definePlugin({
         const tail = msg.runId && typeof n === "number" && Number.isInteger(n) && n > 0 ? events.newest(msg.runId, last, LOG_TYPES, n) : null;
         // The picture goes first: a long backlog queued ahead of it would keep the viewer blank.
         if (msg.frames && msg.runId) {
-          const video = msg.video === "vp8" && streams !== null;
-          if (msg.video !== undefined) socket.send(JSON.stringify({ type: "stream", data: video ? { video: "vp8" } : { video: null, reason: msg.video === "vp8" ? "no_encoder" : "codec" } }));
+          const asked = msg.video === undefined ? [] : Array.isArray(msg.video) ? msg.video : [msg.video];
+          const known = asked.filter((c) => (STREAM_CODECS as readonly string[]).includes(c));
+          const video = streams !== null && known.includes(streams.encoder.codec);
+          if (msg.video !== undefined) socket.send(JSON.stringify({ type: "stream", data: video ? { video: streams.encoder.codec } : { video: null, reason: known.length === 0 ? "codec" : "no_encoder" } }));
           if (video) stopFrames = streams.watch(msg.runId, sendChunk);
           else {
             for (const f of hub.latestFrames(msg.runId)) sendFrame(f);

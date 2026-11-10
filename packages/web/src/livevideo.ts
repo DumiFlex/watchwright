@@ -1,20 +1,27 @@
-// The live view as a video stream (see the live plugin's stream.ts on the server): each page's VP8
-// chunks are decoded with WebCodecs into pictures, which the live view shows like JPEG frames.
+// The live view as a video stream (see the live plugin's stream.ts on the server): each page's VP9
+// or VP8 chunks are decoded with WebCodecs into pictures, which the live view shows like JPEG frames.
 import type { FrameHeader } from "./api";
 
 /** How a person's live views come (the `live.video` setting). */
 export type LiveVideoMode = "auto" | "video" | "frames";
 
-let support: Promise<boolean> | null = null;
-/** Whether this browser can decode the stream (WebCodecs with VP8). */
-export function canDecodeVideo(): Promise<boolean> {
+/** The server's codec names and what WebCodecs calls them (VP9 profile 0, level 4.1, 8 bits). */
+const CODECS: Record<string, string> = { vp9: "vp09.00.41.08", vp8: "vp8" };
+
+let support: Promise<string[]> | null = null;
+/** The stream codecs this browser can decode with WebCodecs (none without it). */
+export function decodableCodecs(): Promise<string[]> {
   support ??= (async () => {
-    if (typeof VideoDecoder === "undefined") return false;
-    try {
-      return (await VideoDecoder.isConfigSupported({ codec: "vp8" })).supported === true;
-    } catch {
-      return false;
+    if (typeof VideoDecoder === "undefined") return [];
+    const ok: string[] = [];
+    for (const [name, codec] of Object.entries(CODECS)) {
+      try {
+        if ((await VideoDecoder.isConfigSupported({ codec })).supported === true) ok.push(name);
+      } catch {
+        // Not this one.
+      }
     }
+    return ok;
   })();
   return support;
 }
@@ -30,6 +37,7 @@ export function wantsVideo(mode: unknown, hostname: string): boolean {
 
 interface PageDecoder {
   decoder: VideoDecoder;
+  codec: string;
   /** Chunks wait for a key frame after the decoder (re)starts or fails. */
   needKey: boolean;
   /** The header of each chunk being decoded, by its timestamp in microseconds. */
@@ -42,9 +50,13 @@ export class VideoPictures {
   constructor(private readonly onPicture: (header: FrameHeader, picture: ImageBitmap) => void) {}
 
   push(header: FrameHeader & { key?: boolean }, data: Uint8Array): void {
+    const codec = CODECS[header.video ?? ""];
+    if (!codec) return;
     let page = this.pages.get(header.pageId);
+    if (page && page.codec !== codec) this.reset(header.pageId);
+    page = this.pages.get(header.pageId);
     if (!page || page.decoder.state === "closed") {
-      page = this.open(header.pageId);
+      page = this.open(header.pageId, codec);
       this.pages.set(header.pageId, page);
     }
     if (page.needKey) {
@@ -60,7 +72,7 @@ export class VideoPictures {
     }
   }
 
-  private open(pageId: string): PageDecoder {
+  private open(pageId: string, codec: string): PageDecoder {
     const headers = new Map<number, FrameHeader>();
     const decoder = new VideoDecoder({
       output: (frame) => {
@@ -71,15 +83,17 @@ export class VideoPictures {
           return;
         }
         createImageBitmap(frame).then(
-          (bitmap) => this.onPicture(header, bitmap),
-          () => undefined,
+          (bitmap) => {
+            frame.close();
+            this.onPicture(header, bitmap);
+          },
+          () => frame.close(),
         );
-        frame.close();
       },
       error: () => this.reset(pageId),
     });
-    decoder.configure({ codec: "vp8", optimizeForLatency: true });
-    return { decoder, needKey: true, headers };
+    decoder.configure({ codec, optimizeForLatency: true });
+    return { decoder, codec, needKey: true, headers };
   }
 
   /** A page's decoder failed: it starts again at the next key frame. */
