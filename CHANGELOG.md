@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.16.0](https://github.com/DumiFlex/watchwright/compare/v0.15.1...v0.16.0) (2026-11-10)
+
+
+### Features
+
+* build packs again when their files change outside Watchwright, with a refresh icon ([#250](https://github.com/DumiFlex/watchwright/issues/250)) ([c1bdb39](https://github.com/DumiFlex/watchwright/commit/c1bdb39406680c35bce523353f6ac99c48e10c8e))
+* frame rate setting for attempt videos ([#249](https://github.com/DumiFlex/watchwright/issues/249)) ([e487ac9](https://github.com/DumiFlex/watchwright/commit/e487ac938b748108580083220f0ec5e02814ae79))
+* Get ffmpeg downloads a full ffmpeg so videos can be finished on the graphics card ([#247](https://github.com/DumiFlex/watchwright/issues/247)) ([ead68c0](https://github.com/DumiFlex/watchwright/commit/ead68c0e587cb5a0d6448c237a9dcd96e058d167))
+* live view as a video stream for viewers on another computer ([#252](https://github.com/DumiFlex/watchwright/issues/252)) ([e94122a](https://github.com/DumiFlex/watchwright/commit/e94122a6dd0f0043df59740864bde26ac2ee244f))
+* live view plays frames at their capture times (playback buffer) ([#251](https://github.com/DumiFlex/watchwright/issues/251)) ([04d8f21](https://github.com/DumiFlex/watchwright/commit/04d8f214043f120c9270af6070ea140880f70e28))
+* record attempt videos frame by frame and encode them after the attempt, on the graphics card when it can ([#246](https://github.com/DumiFlex/watchwright/issues/246)) ([fb2fd54](https://github.com/DumiFlex/watchwright/commit/fb2fd541ce27be6c917b4df6356cd9aa9473d51b))
+
+
+### Bug Fixes
+
+* no more noise in the dark areas of videos: sharper frames and the full brightness range ([#248](https://github.com/DumiFlex/watchwright/issues/248)) ([5720330](https://github.com/DumiFlex/watchwright/commit/572033059e07554373b62304e40a985170be4257))
+* watchwright wait no longer fails when the seconds left have a fraction of a millisecond ([#254](https://github.com/DumiFlex/watchwright/issues/254)) ([4aced12](https://github.com/DumiFlex/watchwright/commit/4aced12cfe10e7ea93942cbe5e561929d96f11cb))
+
 ## [0.15.1](https://github.com/DumiFlex/watchwright/compare/v0.15.0...v0.15.1) (2026-11-04)
 
 
