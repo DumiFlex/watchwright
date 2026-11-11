@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.1](https://github.com/DumiFlex/watchwright/compare/v0.16.0...v0.16.1) (2026-11-11)
+
+
+### Bug Fixes
+
+* **web:** keep a run's tab title and icon in step with live progress ([#257](https://github.com/DumiFlex/watchwright/issues/257)) ([4ab281b](https://github.com/DumiFlex/watchwright/commit/4ab281b4b413fd72e017a7829c11ff984cf23689))
+
 ## [0.16.0](https://github.com/DumiFlex/watchwright/compare/v0.15.1...v0.16.0) (2026-11-10)
 
 
