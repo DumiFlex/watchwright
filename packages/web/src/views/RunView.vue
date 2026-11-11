@@ -29,9 +29,10 @@ import { filterResults, resultRows, type ResultRow, type ResultShow } from "../r
 import { canMove as canMoveRow, followTop, movable as movableRow, rowInView } from "../queue";
 import { useShortcut } from "../keys";
 import { offerNotify } from "../notify";
-import { resetHead, setIconDot, setTitle } from "../pagehead";
+import { resetHead } from "../pagehead";
 import { openModals } from "../popup";
-import { runTitle, runTone, settingsText } from "../runstate";
+import { followRunHead } from "../runhead";
+import { settingsText } from "../runstate";
 import { can } from "../session";
 import { sectionHref } from "../settingspages";
 import { vTip } from "../tooltip";
@@ -488,11 +489,7 @@ onBeforeUnmount(() => {
 });
 
 // The tab says how the run is going, so a tab in the background still tells you.
-watch([run, live], ([r, l]) => {
-  if (!r) return;
-  setTitle(runTitle(r, l));
-  void setIconDot(runTone(r, l));
-});
+followRunHead(run, live);
 
 // Keyboard: the run's controls, each only when its button is there. Not while a dialog is open.
 const canPause = computed(() => active.value && (!live.value || live.value.state === "running") && !live.value?.stopping);
