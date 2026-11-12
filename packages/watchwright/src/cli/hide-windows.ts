@@ -7,7 +7,8 @@ import { promisify } from "node:util";
 // by another background launcher), so every console program it starts would pop up a window:
 // Playwright's ffmpeg for each attempt's video, a pack's own helper commands, and so on.
 // Playwright doesn't pass `windowsHide` for those, so the server makes it the default for
-// everything it starts. A caller that passes `windowsHide: false` still gets its window.
+// everything it starts. A caller that passes `windowsHide: false` still gets its window; one that
+// passes `windowsHide: undefined` (Playwright 1.65 does for every browser it launches) gets the default.
 
 type Fn = ((...args: unknown[]) => unknown) & { [promisify.custom]?: (...args: unknown[]) => unknown };
 type Patchable = Record<(typeof NAMES)[number], Fn>;
@@ -23,13 +24,13 @@ function optionsIndex(name: string, args: unknown[]): number {
   return args[1] == null && args.length > 2 ? 2 : 1;
 }
 
-/** The call's arguments with `windowsHide: true` added to its options unless it says otherwise. */
+/** The call's arguments with `windowsHide: true` added to its options unless they set it to true or false. */
 export function withWindowsHide(name: string, args: unknown[]): unknown[] {
   const out = [...args];
   const i = optionsIndex(name, out);
   const opts = out[i];
   if (opts && typeof opts === "object" && !Array.isArray(opts)) {
-    if (!("windowsHide" in opts)) out[i] = { ...opts, windowsHide: true };
+    if ((opts as { windowsHide?: unknown }).windowsHide === undefined) out[i] = { ...opts, windowsHide: true };
   } else if (opts == null && i < out.length) {
     out[i] = { windowsHide: true };
   } else {
