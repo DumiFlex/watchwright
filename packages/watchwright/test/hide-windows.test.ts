@@ -19,6 +19,15 @@ describe("withWindowsHide", () => {
     expect(withWindowsHide("exec", ["dir", undefined, cb])).toEqual(["dir", { windowsHide: true }, cb]);
   });
 
+  it("hides a window whose options name windowsHide without a value", () => {
+    // Playwright 1.65 launches every browser with `windowsHide: options.windowsHide`, mostly undefined
+    expect(withWindowsHide("spawn", ["chrome-headless-shell.exe", ["--headless"], { stdio: "pipe", windowsHide: undefined }])).toEqual([
+      "chrome-headless-shell.exe",
+      ["--headless"],
+      { stdio: "pipe", windowsHide: true },
+    ]);
+  });
+
   it("keeps an explicit windowsHide: false", () => {
     expect(withWindowsHide("spawn", ["cmd", [], { windowsHide: false }])).toEqual(["cmd", [], { windowsHide: false }]);
   });
