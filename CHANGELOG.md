@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.2](https://github.com/DumiFlex/watchwright/compare/v0.16.1...v0.16.2) (2026-11-12)
+
+
+### Bug Fixes
+
+* hide browser console windows on Windows with Playwright 1.65 ([#261](https://github.com/DumiFlex/watchwright/issues/261)) ([50865c8](https://github.com/DumiFlex/watchwright/commit/50865c8cb6ce1b198a2bf8dae6d1959d9731306d))
+
 ## [0.16.1](https://github.com/DumiFlex/watchwright/compare/v0.16.0...v0.16.1) (2026-11-11)
 
 
